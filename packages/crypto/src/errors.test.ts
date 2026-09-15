@@ -206,3 +206,103 @@ describe("typed errors", () => {
     }
   });
 });
+
+describe("typed errors for missing or mistyped inputs", () => {
+  it("every entry point fails with a CryptoError, never a TypeError", async () => {
+    const crypto = await import("./index.ts");
+    const key = randomAccountKey(owner);
+    const vaultKey = randomBytes(32);
+    const token = crypto.generateToken();
+    const keys = crypto.createKeyProvider({
+      CONTENT_KEK: { current: 1, versions: new Map([[1, randomBytes(32)]]) },
+      VAULT_RECOVERY_KEY: { current: 1, versions: new Map([[1, randomBytes(32)]]) },
+      OTP_DIGEST_SECRET: { current: 1, versions: new Map([[1, randomBytes(32)]]) },
+    });
+    const missing = null as never;
+    const bytes = Buffer.from(marker);
+    const approval = { toolSlug: "X", connectedAccountId: null, arguments: {} };
+
+    const operations: [string, () => unknown][] = [
+      ["encryptField", () => crypto.encryptField(key, missing, bytes)],
+      ["decryptField", () => crypto.decryptField(key, missing, "sym1.1.x.y")],
+      ["encryptFieldText", () => crypto.encryptFieldText(key, missing, marker)],
+      ["decryptFieldText", () => crypto.decryptFieldText(key, missing, "sym1.1.x.y")],
+      ["encryptObject", () => crypto.encryptObject(key, missing, bytes)],
+      ["decryptObject", () => crypto.decryptObject(key, missing, bytes)],
+      ["inspectObjectEnvelope", () => crypto.inspectObjectEnvelope(missing)],
+      ["createAccountKey", () => crypto.createAccountKey(keys, missing)],
+      ["unwrapAccountKey", () => crypto.unwrapAccountKey(keys, missing)],
+      ["accountKeyNeedsRewrap", () => crypto.accountKeyNeedsRewrap(keys, missing)],
+      ["rewrapAccountKey", () => crypto.rewrapAccountKey(keys, missing)],
+      [
+        "wrapVaultKeyWithPassphrase",
+        () => crypto.wrapVaultKeyWithPassphrase(vaultKey, missing, vaultKey),
+      ],
+      [
+        "unwrapVaultKeyWithPassphrase",
+        () => crypto.unwrapVaultKeyWithPassphrase(vaultKey, missing, "x"),
+      ],
+      ["wrapVaultKeyForRecovery", () => crypto.wrapVaultKeyForRecovery(keys, missing, vaultKey)],
+      ["unwrapVaultKeyWithRecovery", () => crypto.unwrapVaultKeyWithRecovery(keys, owner, missing)],
+      ["vaultRecoveryWrapNeedsRewrap", () => crypto.vaultRecoveryWrapNeedsRewrap(keys, missing)],
+      ["rewrapVaultRecoveryKey", () => crypto.rewrapVaultRecoveryKey(keys, owner, missing)],
+      ["wrapVaultKeyForSession", () => crypto.wrapVaultKeyForSession(token, missing, vaultKey)],
+      ["unwrapVaultKeyForSession", () => crypto.unwrapVaultKeyForSession(token, missing, "x")],
+      ["encryptVaultItem", () => crypto.encryptVaultItem(vaultKey, missing, bytes)],
+      ["decryptVaultItem", () => crypto.decryptVaultItem(vaultKey, missing, "sym1.1.x.y")],
+      ["encryptVaultGrantValue", () => crypto.encryptVaultGrantValue(key, missing, bytes)],
+      ["decryptVaultGrantValue", () => crypto.decryptVaultGrantValue(key, missing, "sym1.1.x.y")],
+      ["computeDigest", () => crypto.computeDigest(keys, "OTP_DIGEST_SECRET", "otp", missing)],
+      ["verifyDigest", () => crypto.verifyDigest(keys, "OTP_DIGEST_SECRET", "otp", "v", missing)],
+      ["digestNeedsRotation", () => crypto.digestNeedsRotation(keys, "OTP_DIGEST_SECRET", missing)],
+      ["computeOtpDigest", () => crypto.computeOtpDigest(keys, missing)],
+      ["verifyOtpDigest", () => crypto.verifyOtpDigest(keys, missing, missing)],
+      [
+        "computeIdempotencyFingerprint",
+        () => crypto.computeIdempotencyFingerprint(keys, undefined),
+      ],
+      ["computeApprovalArgsDigest", () => crypto.computeApprovalArgsDigest(key, missing)],
+      ["computeApprovalArgsDigest key", () => crypto.computeApprovalArgsDigest(missing, approval)],
+      [
+        "verifyApprovalArgsDigest",
+        () => crypto.verifyApprovalArgsDigest(key, missing, "A".repeat(43)),
+      ],
+      ["computeEmailSuppressionDigest", () => crypto.computeEmailSuppressionDigest(keys, missing)],
+      ["deriveKey", () => crypto.deriveKey(missing, crypto.HKDF_LABELS.accountKey)],
+      ["hmacSha256", () => crypto.hmacSha256(missing, bytes)],
+      ["constantTimeEqual", () => crypto.constantTimeEqual(missing, "a")],
+      ["canonicalJson", () => crypto.canonicalJson(Symbol("x"))],
+      ["encodeAad", () => crypto.encodeAad(missing)],
+      ["runChunkContext", () => crypto.runChunkContext(owner, "run", "1" as never)],
+      ["idempotencyResponseContext", () => crypto.idempotencyResponseContext(owner, missing, "k")],
+      ["generateToken", () => crypto.generateToken("32" as never)],
+      ["generateOtp", () => crypto.generateOtp(missing)],
+      ["createKeyProvider", () => crypto.createKeyProvider(missing)],
+      ["createEnvKeyProvider", () => crypto.createEnvKeyProvider(missing)],
+      ["parseArgon2idHash", () => crypto.parseArgon2idHash(missing)],
+      ["parseArgon2idParameters", () => crypto.parseArgon2idParameters(missing)],
+    ];
+    for (const [name, operation] of operations) {
+      let thrown: unknown;
+      try {
+        operation();
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown, name).toBeInstanceOf(CryptoError);
+    }
+
+    const asyncOperations: [string, () => Promise<unknown>][] = [
+      ["hashArgon2id", () => crypto.hashArgon2id(missing)],
+      ["verifyArgon2id", () => crypto.verifyArgon2id("x", missing)],
+      ["deriveArgon2idKey", () => crypto.deriveArgon2idKey("x", missing)],
+    ];
+    for (const [name, operation] of asyncOperations) {
+      const thrown = await operation().then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      expect(thrown, name).toBeInstanceOf(CryptoError);
+    }
+  });
+});

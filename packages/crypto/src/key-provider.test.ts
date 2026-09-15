@@ -166,6 +166,19 @@ describe("createKeyProvider", () => {
     );
   });
 
+  it("rejects sources that are not objects or whose versions are not a map", () => {
+    for (const sources of [null, undefined, "CONTENT_KEK"]) {
+      expectCryptoError(() => createKeyProvider(sources as never), KeyConfigurationError);
+    }
+    expectCryptoError(() => createEnvKeyProvider(null as never), KeyConfigurationError);
+    for (const versions of [null, undefined, { 1: secret() }, [[1, secret()]]]) {
+      expectCryptoError(
+        () => createKeyProvider({ CONTENT_KEK: { current: 1, versions: versions as never } }),
+        KeyConfigurationError,
+      );
+    }
+  });
+
   it("lists every generated secret family from the inventory", () => {
     expect(keyFamilies).toEqual([
       "CONTENT_KEK",

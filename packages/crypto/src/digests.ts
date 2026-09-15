@@ -4,6 +4,7 @@ import {
   constantTimeEqual,
   decodeBase64Url,
   encodeBase64Url,
+  requireRecord,
   utf8Bytes,
   zeroize,
 } from "./encoding.ts";
@@ -178,6 +179,7 @@ export function digestNeedsRotation(
   family: KeyFamily,
   stored: VersionedDigest,
 ): boolean {
+  requireRecord(stored, "The stored digest");
   return stored.version !== keys.current(family).version;
 }
 
@@ -199,6 +201,7 @@ export interface OtpDigestInput {
 }
 
 function otpValue(input: OtpDigestInput): string {
+  requireRecord(input, "The OTP digest input");
   if (!otpPurposes.has(input.purpose)) throw new InvalidCryptoInputError("Unknown OTP purpose");
   if (typeof input.challengeId !== "string" || input.challengeId.length === 0) {
     throw new InvalidCryptoInputError("OTP challenge ids must be non-empty strings");
@@ -238,6 +241,7 @@ export interface ApprovalArgsDigestInput {
 }
 
 function approvalArgsValue(input: ApprovalArgsDigestInput): string {
+  requireRecord(input, "The approval digest input");
   if (typeof input.toolSlug !== "string" || input.toolSlug.length === 0) {
     throw new InvalidCryptoInputError("Approval digests need a tool slug");
   }

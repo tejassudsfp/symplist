@@ -32,12 +32,16 @@ function assertKey(key: Uint8Array): void {
   }
 }
 
-/** AES-256-GCM encryption; returns ciphertext followed by the 16-byte tag. */
+/**
+ * AES-256-GCM encryption; returns `prefix` (unencrypted, for example an object header), then the
+ * ciphertext and the 16-byte tag, in one allocation.
+ */
 export function sealAesGcm(
   key: Uint8Array,
   iv: Uint8Array,
   plaintext: Uint8Array,
   aad: Uint8Array,
+  prefix: readonly Uint8Array[] = [],
 ): Buffer {
   assertKey(key);
   if (iv.byteLength !== GCM_IV_BYTES) {
@@ -47,7 +51,7 @@ export function sealAesGcm(
   cipher.setAAD(aad);
   const ciphertext = cipher.update(plaintext);
   const final = cipher.final();
-  return Buffer.concat([ciphertext, final, cipher.getAuthTag()]);
+  return Buffer.concat([...prefix, ciphertext, final, cipher.getAuthTag()]);
 }
 
 /**

@@ -441,6 +441,17 @@ describe("object envelopes (SYMO)", () => {
       JSON.stringify([header]),
       "null",
       "{",
+      // Escaped lone surrogates are valid UTF-8 and valid JSON but never valid base64url.
+      canonicalJson({ ...header, iv: "AAAA" }).replace(
+        '"iv":"AAAA"',
+        `"iv":"\\ud800${String(header.iv).slice(1)}"`,
+      ),
+      canonicalJson({ ...header, wk: "AAAA" }).replace(
+        '"wk":"AAAA"',
+        `"wk":"\\udc00${String(header.wk).slice(1)}"`,
+      ),
+      canonicalJson({ ...header, wk: `${String(header.wk).slice(0, 79)}=` }),
+      canonicalJson({ ...header, iv: `${String(header.iv).slice(0, 15)}+` }),
     ];
     for (const variant of variants) {
       expectCryptoError(

@@ -448,4 +448,19 @@ describe("hmacSha256 and constantTimeEqual", () => {
     expect(constantTimeEqual("token", "token-longer")).toBe(false);
     expect(constantTimeEqual("", "")).toBe(true);
   });
+
+  it("never treats strings with lone surrogates as equal", () => {
+    // Both encode to the UTF-8 replacement character, so a byte comparison alone would say equal.
+    expect(constantTimeEqual("\ud800", "\udbff")).toBe(false);
+    expect(constantTimeEqual("x\udc00", "x\udc00")).toBe(false);
+    expect(constantTimeEqual("\ufffd", "\ud800")).toBe(false);
+    expect(constantTimeEqual("\ud83d\ude00", "\ud83d\ude00")).toBe(true);
+  });
+
+  it("rejects values that are neither strings nor bytes with a typed error", () => {
+    for (const value of [undefined, null, 42, ["a"], { length: 1 }]) {
+      expectCryptoError(() => constantTimeEqual(value as never, "a"), InvalidCryptoInputError);
+      expectCryptoError(() => constantTimeEqual("a", value as never), InvalidCryptoInputError);
+    }
+  });
 });

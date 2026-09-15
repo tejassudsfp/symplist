@@ -144,14 +144,31 @@ describe("stored parameter verification", () => {
     ["a padded hash", { hash: `${valid.hash}=` }],
     ["an extra field", { pepper: "x" }],
   ])("rejects %s before running Argon2id", async (_label, change) => {
+    // The only slot is held and nothing may queue, so reaching the semaphore (and so Argon2id) at all
+    // would fail with rate.limited instead of the record error.
     const semaphore = new Argon2Semaphore({ maxConcurrent: 1, maxQueue: 0, retryAfterSeconds: 1 });
-    const record = { ...valid, ...change } as unknown as Argon2idHash;
-    expectCryptoError(() => parseArgon2idHash(record), InvalidPasswordHashError);
-    await expectCryptoRejection(
-      () => verifyArgon2id("secret", record, { semaphore }),
-      InvalidPasswordHashError,
-    );
-    expect(semaphore.active).toBe(0);
+    let release: () => void = () => undefined;
+    const held = semaphore.run(() => new Promise<void>((resolve) => (release = resolve)));
+    try {
+      const record = { ...valid, ...change } as unknown as Argon2idHash;
+      expectCryptoError(() => parseArgon2idHash(record), InvalidPasswordHashError);
+      await expectCryptoRejection(
+        () => verifyArgon2id("secret", record, { semaphore }),
+        InvalidPasswordHashError,
+      );
+      if (!("hash" in change)) {
+        // Every other change also invalidates the salt-and-parameters record used for Vault keys.
+        const { hash: _hash, ...parameters } = record;
+        await expectCryptoRejection(
+          () => deriveArgon2idKey("secret", parameters as never, { semaphore }),
+          InvalidPasswordHashError,
+        );
+      }
+      expect(semaphore.active).toBe(1);
+    } finally {
+      release();
+      await held;
+    }
   });
 
   it("rejects missing fields and non-objects", async () => {

@@ -93,11 +93,14 @@ function loadKey(family: KeyFamily, version: number, value: string | Uint8Array)
 }
 
 function loadFamily(family: KeyFamily, source: KeyFamilySource): LoadedFamily {
+  if (typeof source !== "object" || typeof source.versions?.entries !== "function") {
+    throw new KeyConfigurationError(`${family} must list its versions in a Map`);
+  }
   if (!isValidVersion(source.current)) {
     throw new KeyConfigurationError(`${family}_CURRENT must be a positive integer version`);
   }
   const byVersion = new Map<number, VersionedKey>();
-  for (const [version, value] of source.versions) {
+  for (const [version, value] of source.versions.entries()) {
     if (!isValidVersion(version)) {
       throw new KeyConfigurationError(`${family} versions must be positive integers`);
     }
@@ -118,6 +121,9 @@ export function createKeyProvider(
   sources: KeyFamilySources,
   options: KeyProviderOptions = {},
 ): ManagedKeyProvider {
+  if (typeof sources !== "object" || sources === null) {
+    throw new KeyConfigurationError("Key family sources must be an object");
+  }
   const loaded = new Map<KeyFamily, LoadedFamily>();
   try {
     for (const family of keyFamilies) {
@@ -169,6 +175,9 @@ export function createEnvKeyProvider(
   env: Readonly<Record<string, string | undefined>>,
   options: EnvKeyProviderOptions = {},
 ): ManagedKeyProvider {
+  if (typeof env !== "object" || env === null) {
+    throw new KeyConfigurationError("The environment must be an object");
+  }
   const sources: { [F in KeyFamily]?: KeyFamilySource } = {};
   for (const family of options.families ?? keyFamilies) {
     const versions = new Map<number, string>();

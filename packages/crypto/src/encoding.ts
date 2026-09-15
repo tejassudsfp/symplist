@@ -61,18 +61,37 @@ export function zeroize(...buffers: ReadonlyArray<Uint8Array | undefined>): void
   for (const buffer of buffers) buffer?.fill(0);
 }
 
+function comparable(value: Uint8Array | string): { bytes: Uint8Array; wellFormed: boolean } {
+  if (typeof value === "string") {
+    // Buffer.from replaces lone surrogates with U+FFFD, so two different malformed strings would
+    // encode to the same bytes; such strings never compare equal.
+    return { bytes: Buffer.from(value, "utf8"), wellFormed: isWellFormedString(value) };
+  }
+  if (value instanceof Uint8Array) return { bytes: value, wellFormed: true };
+  throw new InvalidCryptoInputError("Constant-time comparison needs strings or bytes");
+}
+
 /**
- * Constant-time equality for digests, tokens and verifiers. Strings compare by UTF-8 bytes. Inputs of
- * different lengths return false after a comparison of the same cost, so only the length is revealed.
+ * Constant-time equality for digests, tokens and verifiers. Strings compare by UTF-8 bytes; a string
+ * with unpaired surrogates never compares equal. Inputs of different lengths return false after a
+ * comparison of the same cost, so only the length is revealed.
  */
 export function constantTimeEqual(a: Uint8Array | string, b: Uint8Array | string): boolean {
-  const left = typeof a === "string" ? Buffer.from(a, "utf8") : a;
-  const right = typeof b === "string" ? Buffer.from(b, "utf8") : b;
-  if (left.byteLength !== right.byteLength) {
-    timingSafeEqual(left, left);
+  const left = comparable(a);
+  const right = comparable(b);
+  if (left.bytes.byteLength !== right.bytes.byteLength) {
+    timingSafeEqual(left.bytes, left.bytes);
     return false;
   }
-  return timingSafeEqual(left, right);
+  const equal = timingSafeEqual(left.bytes, right.bytes);
+  return equal && left.wellFormed && right.wellFormed;
+}
+
+/** Throws a typed error unless `value` is a non-null object (a binding context, wrap or input record). */
+export function requireRecord(value: unknown, what: string): void {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new InvalidCryptoInputError(`${what} must be an object`);
+  }
 }
 
 /**

@@ -6,6 +6,7 @@ import {
   drawRandom,
   encodeBase64Url,
   type RandomOptions,
+  requireRecord,
   utf8Bytes,
   zeroize,
 } from "./encoding.ts";
@@ -94,7 +95,8 @@ export function idempotencyResponseContext(
   });
 }
 
-function assertAccountKey(key: AccountDataKey, ownerId: string): void {
+function assertAccountKey(key: AccountDataKey, context: { readonly ownerId: string }): void {
+  requireRecord(context, "The envelope context");
   if (
     typeof key !== "object" ||
     key === null ||
@@ -103,7 +105,7 @@ function assertAccountKey(key: AccountDataKey, ownerId: string): void {
   ) {
     throw new InvalidCryptoInputError(`Account data keys must be ${AES_KEY_BYTES} bytes`);
   }
-  if (key.ownerId !== ownerId) {
+  if (key.ownerId !== context.ownerId) {
     throw new InvalidCryptoInputError("The account data key belongs to a different owner");
   }
 }
@@ -115,7 +117,7 @@ export function encryptField(
   plaintext: Uint8Array,
   options?: RandomOptions,
 ): string {
-  assertAccountKey(key, context.ownerId);
+  assertAccountKey(key, context);
   return sealSym1(key.key, fieldAad(context, DATA_KEY_VERSION), plaintext, "field", options);
 }
 
@@ -125,7 +127,7 @@ export function decryptField(
   context: FieldEnvelopeContext,
   envelope: string,
 ): Uint8Array {
-  assertAccountKey(key, context.ownerId);
+  assertAccountKey(key, context);
   fieldAad(context, DATA_KEY_VERSION);
   return openSym1(key.key, envelope, (version) => fieldAad(context, version), "field envelope");
 }
@@ -208,6 +210,7 @@ interface ParsedObject {
 }
 
 const headerFields = ["alg", "iv", "kv", "v", "wk"];
+const base64UrlText = /^[A-Za-z0-9_-]+$/;
 
 function parseObject(envelope: Uint8Array): ParsedObject {
   const what = "object envelope";
@@ -248,8 +251,10 @@ function parseObject(envelope: Uint8Array): ParsedObject {
     names.some((name, index) => name !== headerFields[index]) ||
     header.alg !== OBJECT_ALGORITHM ||
     typeof header.iv !== "string" ||
+    !base64UrlText.test(header.iv) ||
     typeof header.wk !== "string" ||
     header.wk.length !== WRAPPED_KEY_LENGTH ||
+    !base64UrlText.test(header.wk) ||
     !Number.isSafeInteger(header.v) ||
     (header.v as number) < 1 ||
     !Number.isSafeInteger(header.kv) ||
@@ -287,7 +292,7 @@ export function encryptObject(
   plaintext: Uint8Array,
   options?: RandomOptions,
 ): Uint8Array {
-  assertAccountKey(key, context.ownerId);
+  assertAccountKey(key, context);
   const aad = objectAad(context, DATA_KEY_VERSION);
   if (!(plaintext instanceof Uint8Array)) {
     throw new InvalidCryptoInputError("Object plaintext must be bytes");
@@ -313,7 +318,9 @@ export function encryptObject(
     prefix.set(OBJECT_MAGIC, 0);
     prefix[OBJECT_MAGIC.length] = OBJECT_CONTAINER_VERSION;
     prefix.writeUInt32BE(header.byteLength, OBJECT_MAGIC.length + 1);
-    return Buffer.concat([prefix, header, sealAesGcm(objectKey, iv, plaintext, aad)]);
+    // The prefix and header go into the same allocation as the ciphertext, so a large object is not
+    // copied once more after sealing.
+    return sealAesGcm(objectKey, iv, plaintext, aad, [prefix, header]);
   } finally {
     zeroize(objectKey);
   }
@@ -326,7 +333,7 @@ export function decryptObject(
   envelope: Uint8Array,
 ): Uint8Array {
   const what = "object envelope";
-  assertAccountKey(key, context.ownerId);
+  assertAccountKey(key, context);
   objectAad(context, DATA_KEY_VERSION);
   const { header, iv, body } = parseObject(envelope);
   if (header.kv !== DATA_KEY_VERSION) throw new UnsupportedKeyVersionError(what);

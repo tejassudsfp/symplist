@@ -5,7 +5,13 @@ import {
   vaultRecoveryWrapAad,
   vaultSessionWrapAad,
 } from "./aad.ts";
-import { decodeBase64Url, drawRandom, type RandomOptions, zeroize } from "./encoding.ts";
+import {
+  decodeBase64Url,
+  drawRandom,
+  type RandomOptions,
+  requireRecord,
+  zeroize,
+} from "./encoding.ts";
 import { InvalidCryptoInputError, KeyUnavailableError } from "./errors.ts";
 import { AES_KEY_BYTES, unwrapKey, wrapKey } from "./gcm.ts";
 import { deriveKey, HKDF_LABELS } from "./hkdf.ts";
@@ -44,6 +50,7 @@ export function wrapVaultKeyWithPassphrase(
   options?: RandomOptions,
 ): string {
   assertKeyBytes(passphraseKey, "The passphrase key");
+  requireRecord(context, "The Vault passphrase wrap context");
   const aad = vaultPassphraseWrapAad(context.ownerId, context.vaultVersion);
   return wrapKey(passphraseKey, vaultKey, aad, options);
 }
@@ -55,6 +62,7 @@ export function unwrapVaultKeyWithPassphrase(
   wrapped: string,
 ): Buffer {
   assertKeyBytes(passphraseKey, "The passphrase key");
+  requireRecord(context, "The Vault passphrase wrap context");
   const aad = vaultPassphraseWrapAad(context.ownerId, context.vaultVersion);
   return unwrapKey(passphraseKey, wrapped, aad, "Vault passphrase wrap");
 }
@@ -95,6 +103,7 @@ export function unwrapVaultKeyWithRecovery(
   ownerId: string,
   wrap: VaultRecoveryWrap,
 ): Buffer {
+  requireRecord(wrap, "The Vault recovery wrap");
   const aad = vaultRecoveryWrapAad(ownerId, wrap.recoveryKeyVersion);
   const recovery = keys.get("VAULT_RECOVERY_KEY", wrap.recoveryKeyVersion);
   if (!recovery) throw new KeyUnavailableError("VAULT_RECOVERY_KEY", wrap.recoveryKeyVersion);
@@ -108,6 +117,7 @@ export function unwrapVaultKeyWithRecovery(
 
 /** True when the recovery wrap uses a `VAULT_RECOVERY_KEY` version other than the current one. */
 export function vaultRecoveryWrapNeedsRewrap(keys: KeyProvider, wrap: VaultRecoveryWrap): boolean {
+  requireRecord(wrap, "The Vault recovery wrap");
   return wrap.recoveryKeyVersion !== keys.current("VAULT_RECOVERY_KEY").version;
 }
 
@@ -158,6 +168,7 @@ export function wrapVaultKeyForSession(
   vaultKey: Uint8Array,
   options?: RandomOptions,
 ): string {
+  requireRecord(context, "The Vault session wrap context");
   const aad = vaultSessionWrapAad(context.ownerId, context.vaultSessionId);
   const wrappingKey = sessionWrappingKey(sessionToken);
   try {
@@ -173,6 +184,7 @@ export function unwrapVaultKeyForSession(
   context: VaultSessionWrapContext,
   wrapped: string,
 ): Buffer {
+  requireRecord(context, "The Vault session wrap context");
   const aad = vaultSessionWrapAad(context.ownerId, context.vaultSessionId);
   const wrappingKey = sessionWrappingKey(sessionToken);
   try {
@@ -196,6 +208,7 @@ export function encryptVaultItem(
   options?: RandomOptions,
 ): string {
   assertKeyBytes(vaultKey, "The Vault key");
+  requireRecord(context, "The Vault item context");
   const aad = vaultItemAad(context.ownerId, context.itemId);
   return sealSym1(vaultKey, aad, plaintext, "Vault item", options);
 }
@@ -207,6 +220,7 @@ export function decryptVaultItem(
   envelope: string,
 ): Buffer {
   assertKeyBytes(vaultKey, "The Vault key");
+  requireRecord(context, "The Vault item context");
   const aad = vaultItemAad(context.ownerId, context.itemId);
   return openSym1(vaultKey, envelope, () => aad, "Vault item");
 }
@@ -218,9 +232,10 @@ export interface VaultGrantContext {
   readonly taskId: string;
 }
 
-function assertGrantKey(key: AccountDataKey, ownerId: string): void {
+function assertGrantKey(key: AccountDataKey, context: VaultGrantContext): void {
   assertKeyBytes(key?.key, "The account data key");
-  if (key.ownerId !== ownerId) {
+  requireRecord(context, "The Vault grant context");
+  if (key.ownerId !== context.ownerId) {
     throw new InvalidCryptoInputError("The account data key belongs to a different owner");
   }
 }
@@ -235,7 +250,7 @@ export function encryptVaultGrantValue(
   plaintext: Uint8Array,
   options?: RandomOptions,
 ): string {
-  assertGrantKey(key, context.ownerId);
+  assertGrantKey(key, context);
   const aad = vaultGrantAad(context.ownerId, context.grantId, context.taskId);
   return sealSym1(key.key, aad, plaintext, "Vault grant value", options);
 }
@@ -246,7 +261,7 @@ export function decryptVaultGrantValue(
   context: VaultGrantContext,
   envelope: string,
 ): Buffer {
-  assertGrantKey(key, context.ownerId);
+  assertGrantKey(key, context);
   const aad = vaultGrantAad(context.ownerId, context.grantId, context.taskId);
   return openSym1(key.key, envelope, () => aad, "Vault grant value");
 }

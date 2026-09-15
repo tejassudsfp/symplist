@@ -212,4 +212,34 @@ describe("frozen AAD encoding (§4.2)", () => {
     expectCryptoError(() => vaultItemAad("", "i"), InvalidCryptoInputError);
     expectCryptoError(() => vaultGrantAad("o", "g", ""), InvalidCryptoInputError);
   });
+
+  it("rejects numeric identifiers instead of encoding them as JSON numbers", () => {
+    const numeric = 5 as unknown as string;
+    for (const change of [
+      { purpose: numeric },
+      { ownerId: numeric },
+      { table: numeric },
+      { rowId: numeric },
+      { column: numeric },
+    ]) {
+      expectCryptoError(() => fieldAad({ ...field, ...change }, 1), InvalidCryptoInputError);
+    }
+    for (const change of [{ kind: numeric }, { ownerId: numeric }, { objectId: numeric }]) {
+      expectCryptoError(() => objectAad({ ...object, ...change }, 1), InvalidCryptoInputError);
+    }
+    expectCryptoError(() => accountKeyWrapAad(numeric, 1), InvalidCryptoInputError);
+    expectCryptoError(() => vaultPassphraseWrapAad(numeric, 1), InvalidCryptoInputError);
+    expectCryptoError(() => vaultRecoveryWrapAad(numeric, 1), InvalidCryptoInputError);
+    expectCryptoError(() => vaultSessionWrapAad("o", numeric), InvalidCryptoInputError);
+    expectCryptoError(() => vaultItemAad("o", numeric), InvalidCryptoInputError);
+    expectCryptoError(() => vaultGrantAad("o", numeric, "t"), InvalidCryptoInputError);
+    expectCryptoError(() => vaultGrantAad("o", "g", numeric), InvalidCryptoInputError);
+  });
+
+  it("rejects missing contexts with a typed error", () => {
+    for (const value of [undefined, null, "context", []]) {
+      expectCryptoError(() => fieldAad(value as never, 1), InvalidCryptoInputError);
+      expectCryptoError(() => objectAad(value as never, 1), InvalidCryptoInputError);
+    }
+  });
 });

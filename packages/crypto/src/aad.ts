@@ -1,4 +1,4 @@
-import { isWellFormedString } from "./encoding.ts";
+import { isWellFormedString, requireRecord } from "./encoding.ts";
 import type { FieldEnvelopeContext, ObjectEnvelopeContext } from "./envelopes.ts";
 import { InvalidCryptoInputError } from "./errors.ts";
 
@@ -76,27 +76,38 @@ function positiveVersion(name: string, value: number): number {
   return value;
 }
 
+/**
+ * Identifiers, purposes, tables and columns are always JSON strings in the frozen AAD. Without this
+ * check a numeric id would encode as `"o":5` instead of `"o":"5"`, a silently different format.
+ */
+function text(name: string, value: string): string {
+  if (typeof value !== "string") throw new InvalidCryptoInputError(`${name} must be a string`);
+  return value;
+}
+
 /** `{"c","f":"sym1","i","k","o","p","t"}` for a field envelope. */
-export function fieldAad(context: FieldEnvelopeContext, keyVersion: number): Uint8Array {
+export function fieldAad(fieldContext: FieldEnvelopeContext, keyVersion: number): Uint8Array {
+  requireRecord(fieldContext, "The field envelope context");
   return encodeAad({
     f: FIELD_FORMAT,
-    p: context.purpose,
-    o: context.ownerId,
-    t: context.table,
-    i: context.rowId,
-    c: context.column,
+    p: text("purpose", fieldContext.purpose),
+    o: text("ownerId", fieldContext.ownerId),
+    t: text("table", fieldContext.table),
+    i: text("rowId", fieldContext.rowId),
+    c: text("column", fieldContext.column),
     k: positiveVersion("keyVersion", keyVersion),
   });
 }
 
 /** `{"f":"symo1","i","k","o","p","v"}` for an object envelope. */
-export function objectAad(context: ObjectEnvelopeContext, keyVersion: number): Uint8Array {
+export function objectAad(objectContext: ObjectEnvelopeContext, keyVersion: number): Uint8Array {
+  requireRecord(objectContext, "The object envelope context");
   return encodeAad({
     f: OBJECT_FORMAT,
-    p: context.kind,
-    o: context.ownerId,
-    i: context.objectId,
-    v: positiveVersion("formatVersion", context.formatVersion),
+    p: text("kind", objectContext.kind),
+    o: text("ownerId", objectContext.ownerId),
+    i: text("objectId", objectContext.objectId),
+    v: positiveVersion("formatVersion", objectContext.formatVersion),
     k: positiveVersion("keyVersion", keyVersion),
   });
 }
@@ -106,7 +117,7 @@ export function accountKeyWrapAad(ownerId: string, kekVersion: number): Uint8Arr
   return encodeAad({
     f: KEY_WRAP_FORMAT,
     p: "account-key",
-    o: ownerId,
+    o: text("ownerId", ownerId),
     kv: positiveVersion("kekVersion", kekVersion),
   });
 }
@@ -116,7 +127,7 @@ export function vaultPassphraseWrapAad(ownerId: string, vaultVersion: number): U
   return encodeAad({
     f: KEY_WRAP_FORMAT,
     p: "vault-pass",
-    o: ownerId,
+    o: text("ownerId", ownerId),
     vv: positiveVersion("vaultVersion", vaultVersion),
   });
 }
@@ -126,22 +137,38 @@ export function vaultRecoveryWrapAad(ownerId: string, recoveryKeyVersion: number
   return encodeAad({
     f: KEY_WRAP_FORMAT,
     p: "vault-recovery",
-    o: ownerId,
+    o: text("ownerId", ownerId),
     rk: positiveVersion("recoveryKeyVersion", recoveryKeyVersion),
   });
 }
 
 /** `{"f":"symk1","o","p":"vault-session","s"}` for the Vault session wrap. */
 export function vaultSessionWrapAad(ownerId: string, vaultSessionId: string): Uint8Array {
-  return encodeAad({ f: KEY_WRAP_FORMAT, p: "vault-session", o: ownerId, s: vaultSessionId });
+  return encodeAad({
+    f: KEY_WRAP_FORMAT,
+    p: "vault-session",
+    o: text("ownerId", ownerId),
+    s: text("vaultSessionId", vaultSessionId),
+  });
 }
 
 /** `{"f":"sym1","i","o","p":"vault-item"}` for a Vault item. */
 export function vaultItemAad(ownerId: string, itemId: string): Uint8Array {
-  return encodeAad({ f: FIELD_FORMAT, p: "vault-item", o: ownerId, i: itemId });
+  return encodeAad({
+    f: FIELD_FORMAT,
+    p: "vault-item",
+    o: text("ownerId", ownerId),
+    i: text("itemId", itemId),
+  });
 }
 
 /** `{"f":"sym1","g","o","p":"vault-grant","t"}` for a Vault grant value. */
 export function vaultGrantAad(ownerId: string, grantId: string, taskId: string): Uint8Array {
-  return encodeAad({ f: FIELD_FORMAT, p: "vault-grant", o: ownerId, g: grantId, t: taskId });
+  return encodeAad({
+    f: FIELD_FORMAT,
+    p: "vault-grant",
+    o: text("ownerId", ownerId),
+    g: text("grantId", grantId),
+    t: text("taskId", taskId),
+  });
 }
