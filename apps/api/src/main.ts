@@ -1,4 +1,4 @@
-import { createApp } from "./app.ts";
+import { startApi } from "./app.ts";
 
-const app = await createApp();
-await app.listen(Number(process.env.PORT ?? 4000), "0.0.0.0");
+const app = await startApi(process.env);
+if (!app) process.exitCode = 1;

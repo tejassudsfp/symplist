@@ -17,6 +17,7 @@ describe("foundation error codes (§5, §6, §6.1, §2.1)", () => {
       not_found: 404,
       validation: 400,
       internal: 500,
+      "request.too_large": 413,
       "auth.session_required": 401,
       "auth.origin_forbidden": 403,
       "auth.csrf_invalid": 403,

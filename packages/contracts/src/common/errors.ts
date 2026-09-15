@@ -41,6 +41,8 @@ export const commonErrorCodes = defineErrorCodes({
   validation: 400,
   /** An unexpected failure; the message never carries internal detail. */
   internal: 500,
+  /** The request body exceeds the api's size limit; the body is never read further or logged. */
+  "request.too_large": 413,
 
   /** No valid session: missing, expired or revoked (§5.1, §5.2). */
   "auth.session_required": 401,

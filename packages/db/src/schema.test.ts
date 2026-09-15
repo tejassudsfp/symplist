@@ -11,6 +11,7 @@ import { int, json, sql } from "./query.ts";
 import { newWriteId, verifiedRow, writeGuard } from "./write-id.ts";
 
 const foundationTables = [
+  "abuse_counters",
   "account_delete_authorizations",
   "account_deletions",
   "account_keys",
