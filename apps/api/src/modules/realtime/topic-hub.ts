@@ -67,6 +67,11 @@ class SocketRecord implements RealtimeSocketState {
   closed = false;
   /** The access read ticket of the state last applied; 0 for the state the upgrade resolved. */
   accessReadTicket = 0;
+  /**
+   * The first access read ticket taken after this socket's user last had access restricted: a result
+   * read before it may predate the restriction, so it can close the socket but never admit it.
+   */
+  accessReadFloor = 0;
 
   constructor(
     readonly connection: RealtimeConnection,
@@ -210,11 +215,19 @@ export class TopicHub implements RealtimePublisher {
     else for (const sessionId of sessionIds) this.endedSessions.set(sessionId, { at: now });
   }
 
-  /** Remembers a user's access change for a minute, for `staleUpgrade`. */
+  /**
+   * Remembers a user's access change for a minute, for `staleUpgrade`, and marks every access read
+   * already in flight as older than the change for the user's sockets, so a sweep that read D1 before
+   * the restriction cannot re-admit them when the restriction's own refresh failed.
+   */
   noteAccessChanged(userId: string): void {
     const now = this.options.timers.now();
     this.purgeRecentChanges(now);
     this.accessChanges.set(userId, { at: now });
+    const floor = this.accessReads + 1;
+    for (const record of this.byUser.get(userId) ?? []) {
+      record.accessReadFloor = Math.max(record.accessReadFloor, floor);
+    }
   }
 
   connect(connection: RealtimeConnection, identity: SessionContext): RealtimeSocketState {
@@ -287,8 +300,10 @@ export class TopicHub implements RealtimePublisher {
    * socket is admitted: a result with an older `access_generation` than the socket's state is out of
    * date and ignored, and so is one with the same generation read before the result this socket last
    * applied (fields such as `onboarding_step` change without a new generation). A newer generation is
-   * always newer data. Returns false when the socket must close: it was admitted and no longer is or
-   * its access generation moved, or it no longer passes the identity level.
+   * always newer data. A result read before the user's last restriction was noted
+   * ({@link noteAccessChanged}) may still close the socket but never updates its state. Returns false
+   * when the socket must close: it was admitted and no longer is or its access generation moved, or it
+   * no longer passes the identity level.
    */
   applyAccess(socket: RealtimeSocketState, access: AccessState, readTicket: number): boolean {
     const record = socket as SocketRecord;
@@ -303,6 +318,7 @@ export class TopicHub implements RealtimePublisher {
     // the post-commit hook ran elsewhere (another instance during a deploy) or failed: its
     // subscriptions were authorized before the restriction, so it closes and resubscribes (§5.5).
     if (record.admitted && access.accessGeneration > current) return false;
+    if (readTicket < record.accessReadFloor) return true;
     record.access = access;
     record.admitted = admitted;
     record.accessReadTicket = Math.max(record.accessReadTicket, readTicket);

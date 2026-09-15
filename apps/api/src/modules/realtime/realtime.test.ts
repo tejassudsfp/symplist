@@ -679,6 +679,68 @@ describe("session and access freshness (§5.5)", () => {
     });
   });
 
+  it("never re-admits a restricted socket from a sweep read before the restriction, even when its refresh failed", async () => {
+    const h = await start();
+    const user = await h.user("locked");
+    const client = await h.connect(user.session);
+    await client.settle();
+    // Access was granted on another instance: the next sweep reads the user as admitted.
+    await h.app.db.run(
+      sql(
+        "UPDATE users SET beta_state = 'unlocked', access_generation = access_generation + 1 WHERE id = :id",
+        { id: user.id },
+      ),
+    );
+    const original = h.app.db.batch.bind(h.app.db);
+    let read: () => void = () => undefined;
+    let deliver: () => void = () => undefined;
+    const readDone = new Promise<void>((resolve) => {
+      read = resolve;
+    });
+    const held = new Promise<void>((resolve) => {
+      deliver = resolve;
+    });
+    const batch = vi
+      .spyOn(h.app.db, "batch")
+      .mockImplementationOnce(async (statements, options) => {
+        const results = await original(statements, options);
+        read();
+        // The sweep's D1 answer is on its way back while the restriction commits.
+        await held;
+        return results;
+      });
+    const sweeping = h.sweep.sweep();
+    await readDone;
+
+    await h.app.db.run(
+      sql(
+        "UPDATE users SET beta_state = 'relocked', access_generation = access_generation + 1 WHERE id = :id",
+        { id: user.id },
+      ),
+    );
+    // The restriction's refresh of the identity-level socket cannot reach D1.
+    batch.mockRejectedValueOnce(
+      Object.assign(new Error("D1 timed out"), { code: "db.unavailable" }),
+    );
+    await h.control.accessRestricted({ userId: user.id, reason: "relocked", accessGeneration: 2 });
+    expect(h.app.logs.events("realtime.sweep_failed")).toHaveLength(1);
+    expect(h.hub.socketsOfUser(user.id)[0]).toMatchObject({ admitted: false });
+
+    deliver();
+    expect(await sweeping).toEqual({ checked: 1, closedSession: 0, closedAccess: 0 });
+    expect(h.hub.socketsOfUser(user.id)[0]).toMatchObject({
+      admitted: false,
+      access: { betaState: "locked" },
+    });
+
+    // The next read, taken after the restriction, applies.
+    expect(await h.sweep.sweep()).toEqual({ checked: 1, closedSession: 0, closedAccess: 0 });
+    expect(h.hub.socketsOfUser(user.id)[0]).toMatchObject({
+      admitted: false,
+      access: { betaState: "relocked" },
+    });
+  });
+
   it("applies access state monotonically by access generation and by read order", () => {
     const clock = new FakeClock(1_000_000);
     const hub = new TopicHub({
@@ -725,6 +787,24 @@ describe("session and access freshness (§5.5)", () => {
     expect(hub.applyAccess(socket, state("relocked", 6), hub.beginAccessRead())).toBe(true);
     expect(socket).toMatchObject({ admitted: true, access: { accessGeneration: 7 } });
     expect(hub.applyAccess(socket, state("unlocked", 9), hub.beginAccessRead())).toBe(false);
+
+    // A read taken before the user's restriction was noted never raises access, but still closes.
+    const identityOnly = hub.connect(
+      { send: () => undefined, close: () => undefined, isOpen: () => true },
+      { userId: uuidv7(), sessionId: uuidv7(), access: state("locked", 4) },
+    );
+    const beforeRestriction = hub.beginAccessRead();
+    hub.noteAccessChanged(identityOnly.userId);
+    expect(hub.applyAccess(identityOnly, state("unlocked", 5), beforeRestriction)).toBe(true);
+    expect(identityOnly).toMatchObject({ admitted: false, access: { accessGeneration: 4 } });
+    const admittedSocket = hub.connect(
+      { send: () => undefined, close: () => undefined, isOpen: () => true },
+      { userId: identityOnly.userId, sessionId: uuidv7(), access: state("unlocked", 4) },
+    );
+    hub.noteAccessChanged(identityOnly.userId);
+    expect(hub.applyAccess(admittedSocket, state("relocked", 4), beforeRestriction)).toBe(false);
+    expect(hub.applyAccess(identityOnly, state("relocked", 6), hub.beginAccessRead())).toBe(true);
+    expect(identityOnly).toMatchObject({ admitted: false, access: { accessGeneration: 6 } });
   });
 
   it("uses one D1 request for any number of sockets, and runs on its interval", async () => {
