@@ -150,16 +150,18 @@ export class FakeComposioTimeoutError extends Error {
   override readonly name = "APIConnectionTimeoutError";
 }
 
-/** Core `ComposioError` family: carries `code` and `possibleFixes`. */
+/** Core `ComposioError` family: carries `code`, `possibleFixes` and, for some errors, `statusCode`. */
 export class FakeComposioError extends Error {
   override readonly name: string;
   readonly code: string;
   readonly possibleFixes: readonly string[];
-  constructor(name: string, code: string, message: string) {
+  readonly statusCode: number | undefined;
+  constructor(name: string, code: string, message: string, statusCode?: number) {
     super(message);
     this.name = name;
     this.code = code;
     this.possibleFixes = [];
+    this.statusCode = statusCode;
   }
 }
 
@@ -235,16 +237,131 @@ export interface FakeComposioRawClient {
   };
 }
 
-export interface FakeWebhookParseResult {
-  readonly version: "V1" | "V3";
-  readonly payload: {
+/**
+ * `IncomingTriggerPayload` of `@composio/core` 0.18.1: the normalized webhook payload `triggers.parse`
+ * returns for every payload version, mirrored field for field.
+ */
+export interface FakeIncomingTriggerPayload {
+  readonly id: string;
+  readonly uuid: string;
+  readonly triggerSlug: string;
+  readonly toolkitSlug: string;
+  readonly userId: string;
+  readonly payload?: Record<string, unknown>;
+  readonly originalPayload?: Record<string, unknown>;
+  readonly metadata: {
     readonly id: string;
-    readonly type: string;
-    readonly timestamp: string;
-    readonly data: Record<string, unknown>;
-    readonly metadata: Record<string, unknown>;
+    readonly uuid: string;
+    readonly toolkitSlug: string;
+    readonly triggerSlug: string;
+    readonly triggerData?: string;
+    readonly triggerConfig: Record<string, unknown>;
+    readonly connectedAccount: {
+      readonly id: string;
+      readonly uuid: string;
+      readonly authConfigId: string;
+      readonly authConfigUUID: string;
+      readonly userId: string;
+      readonly status: "ACTIVE" | "INACTIVE";
+    };
   };
-  readonly rawPayload: Record<string, unknown>;
+}
+
+/** `WebhookPayloadV3`: the generic envelope of every `composio.*` event. */
+export interface FakeWebhookPayloadV3 {
+  readonly id: string;
+  readonly timestamp: string;
+  readonly type: string;
+  readonly metadata: Record<string, unknown>;
+  readonly data: Record<string, unknown>;
+}
+
+/** `WebhookPayloadV2`. */
+export interface FakeWebhookPayloadV2 {
+  readonly type: string;
+  readonly timestamp: string;
+  readonly log_id: string;
+  readonly data: {
+    readonly connection_id: string;
+    readonly connection_nano_id: string;
+    readonly trigger_nano_id: string;
+    readonly trigger_id: string;
+    readonly user_id: string;
+  } & Readonly<Record<string, unknown>>;
+}
+
+/** `WebhookPayloadV1`, the legacy trigger payload. */
+export interface FakeWebhookPayloadV1 {
+  readonly trigger_name: string;
+  readonly connection_id: string;
+  readonly trigger_id: string;
+  readonly payload: Record<string, unknown>;
+  readonly log_id: string;
+}
+
+/** `WebhookPayload`: the raw payload after schema parsing, which drops unknown top-level keys. */
+export type FakeWebhookPayload = FakeWebhookPayloadV3 | FakeWebhookPayloadV2 | FakeWebhookPayloadV1;
+
+/** `VerifyWebhookResult` of `triggers.parse`. */
+export interface FakeWebhookParseResult {
+  readonly version: "V1" | "V2" | "V3";
+  readonly payload: FakeIncomingTriggerPayload;
+  readonly rawPayload: FakeWebhookPayload;
+}
+
+/** The V3 event type Composio sends when a connected account's credentials expire (§14.3). */
+export const composioConnectedAccountExpiredType = "composio.connected_account.expired";
+
+export interface ConnectedAccountExpiredEventOptions {
+  /** The event id (`msg_…`), which equals the `webhook-id` header and is stable across retries. */
+  readonly id: string;
+  readonly connectedAccountId: string;
+  /** The Composio user id, which equals the Symplist user id (§14.1). */
+  readonly userId: string;
+  readonly toolkit: string;
+  readonly authConfigId: string;
+  /** ISO 8601 event time. */
+  readonly timestamp: string;
+  readonly alias?: string | null;
+  readonly isComposioManaged?: boolean;
+  readonly statusReason?: string | null;
+}
+
+/**
+ * A `composio.connected_account.expired` event body in the documented V3 shape
+ * (docs.composio.dev webhook event reference): project and org ids in `metadata`, and the connected
+ * account record, with status `EXPIRED`, in `data`.
+ */
+export function composioConnectedAccountExpiredEvent(
+  options: ConnectedAccountExpiredEventOptions,
+): FakeWebhookPayloadV3 {
+  return {
+    id: options.id,
+    type: composioConnectedAccountExpiredType,
+    timestamp: options.timestamp,
+    metadata: { project_id: "proj_fake", org_id: "org_fake" },
+    data: {
+      id: options.connectedAccountId,
+      toolkit: { slug: options.toolkit },
+      auth_config: {
+        id: options.authConfigId,
+        auth_scheme: "OAUTH2",
+        is_composio_managed: options.isComposioManaged ?? true,
+        is_disabled: false,
+      },
+      word_id: null,
+      alias: options.alias ?? null,
+      user_id: options.userId,
+      status: "EXPIRED",
+      created_at: options.timestamp,
+      updated_at: options.timestamp,
+      state: { authScheme: "OAUTH2", val: { status: "EXPIRED" } },
+      data: {},
+      params: {},
+      status_reason: options.statusReason ?? "Connected account authentication expired.",
+      is_disabled: false,
+    },
+  };
 }
 
 interface SessionState {
@@ -299,15 +416,270 @@ function decodeCursor(cursor: string | undefined): number {
   throw new FakeComposioApiError(400, "Pagination_InvalidCursor", "Invalid cursor");
 }
 
+/** Reads a header case-insensitively from `Headers` or a Node-style record, as the SDK does. */
 function headerValue(headers: unknown, name: string): string | undefined {
   if (headers instanceof Headers) return headers.get(name) ?? undefined;
   if (typeof headers !== "object" || headers === null) return undefined;
+  const target = name.toLowerCase();
   for (const [key, value] of Object.entries(headers)) {
-    if (key.toLowerCase() !== name) continue;
-    if (Array.isArray(value)) return typeof value[0] === "string" ? value[0] : undefined;
+    if (key.toLowerCase() !== target) continue;
+    if (Array.isArray(value)) return value.find((item) => typeof item === "string");
     return typeof value === "string" ? value : undefined;
   }
   return undefined;
+}
+
+function webhookPayloadError(message: string): FakeComposioError {
+  return new FakeComposioError(
+    "ComposioWebhookPayloadError",
+    "TS-SDK::WEBHOOK_PAYLOAD_INVALID",
+    message,
+    400,
+  );
+}
+
+function webhookSignatureError(message: string): FakeComposioError {
+  return new FakeComposioError(
+    "ComposioWebhookSignatureVerificationError",
+    "TS-SDK::WEBHOOK_SIGNATURE_VERIFICATION_FAILED",
+    message,
+    401,
+  );
+}
+
+/** Verifies `v1,<base64 HMAC-SHA256(id.timestamp.body)>` entries of `webhook-signature`. */
+function verifyWebhookSignature(input: {
+  readonly id: string;
+  readonly timestamp: string;
+  readonly body: string;
+  readonly signature: string;
+  readonly secret: string;
+}): void {
+  if (input.body.length === 0) throw webhookSignatureError("No webhook payload was provided.");
+  const provided = input.signature
+    .split(" ")
+    .map((entry) => entry.split(","))
+    .flatMap(([version, value]) => (version === "v1" && value ? [value] : []));
+  if (provided.length === 0) {
+    throw webhookSignatureError("No valid v1 signature found in the webhook-signature header.");
+  }
+  const expected = Buffer.from(
+    createHmac("sha256", input.secret)
+      .update(`${input.id}.${input.timestamp}.${input.body}`)
+      .digest("base64"),
+  );
+  const valid = provided.some((value) => {
+    const candidate = Buffer.from(value);
+    return candidate.length === expected.length && timingSafeEqual(candidate, expected);
+  });
+  if (!valid) throw webhookSignatureError("The signature provided is invalid.");
+}
+
+/** A JSON object, which is what the SDK's Zod `record` and `object` schemas accept. */
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function stringFields<const Name extends string>(
+  record: Record<string, unknown>,
+  names: readonly Name[],
+): Record<Name, string> | undefined {
+  const fields = {} as Record<Name, string>;
+  for (const name of names) {
+    const value = record[name];
+    if (typeof value !== "string") return undefined;
+    fields[name] = value;
+  }
+  return fields;
+}
+
+const emptyConnectedAccount = {
+  id: "",
+  uuid: "",
+  authConfigId: "",
+  authConfigUUID: "",
+  userId: "",
+  status: "ACTIVE",
+} as const;
+
+function normalizedPayload(input: {
+  readonly id: string;
+  readonly uuid: string;
+  readonly triggerSlug: string;
+  readonly toolkitSlug: string;
+  readonly userId: string;
+  readonly payload: Record<string, unknown>;
+  readonly originalPayload: Record<string, unknown>;
+  readonly connectedAccount: FakeIncomingTriggerPayload["metadata"]["connectedAccount"];
+}): FakeIncomingTriggerPayload {
+  return {
+    id: input.id,
+    uuid: input.uuid,
+    triggerSlug: input.triggerSlug,
+    toolkitSlug: input.toolkitSlug,
+    userId: input.userId,
+    payload: input.payload,
+    originalPayload: input.originalPayload,
+    metadata: {
+      id: input.id,
+      uuid: input.uuid,
+      toolkitSlug: input.toolkitSlug,
+      triggerSlug: input.triggerSlug,
+      triggerConfig: {},
+      connectedAccount: input.connectedAccount,
+    },
+  };
+}
+
+/** The upper-cased first `_` segment of a trigger slug, or `UNKNOWN`. */
+function toolkitOfTriggerSlug(slug: string): string {
+  return slug.split("_")[0]?.toUpperCase() || "UNKNOWN";
+}
+
+function parseV3(record: Record<string, unknown>): FakeWebhookParseResult | undefined {
+  const fields = stringFields(record, ["id", "timestamp", "type"]);
+  if (!fields?.type.startsWith("composio.")) return undefined;
+  if (!isJsonObject(record.metadata) || !isJsonObject(record.data)) return undefined;
+  const rawPayload: FakeWebhookPayloadV3 = {
+    id: fields.id,
+    timestamp: fields.timestamp,
+    type: fields.type,
+    metadata: { ...record.metadata },
+    data: { ...record.data },
+  };
+  const trigger = stringFields(rawPayload.metadata, [
+    "log_id",
+    "trigger_slug",
+    "trigger_id",
+    "connected_account_id",
+    "auth_config_id",
+    "user_id",
+  ]);
+  if (trigger) {
+    return {
+      version: "V3",
+      rawPayload,
+      payload: normalizedPayload({
+        id: trigger.trigger_id,
+        uuid: trigger.trigger_id,
+        triggerSlug: trigger.trigger_slug,
+        toolkitSlug: toolkitOfTriggerSlug(trigger.trigger_slug),
+        userId: trigger.user_id,
+        payload: rawPayload.data,
+        originalPayload: rawPayload.data,
+        connectedAccount: {
+          id: trigger.connected_account_id,
+          uuid: trigger.connected_account_id,
+          authConfigId: trigger.auth_config_id,
+          authConfigUUID: trigger.auth_config_id,
+          userId: trigger.user_id,
+          status: "ACTIVE",
+        },
+      }),
+    };
+  }
+  // Lifecycle events such as composio.connected_account.expired carry no trigger metadata.
+  return {
+    version: "V3",
+    rawPayload,
+    payload: normalizedPayload({
+      id: rawPayload.id,
+      uuid: rawPayload.id,
+      triggerSlug: rawPayload.type,
+      toolkitSlug: "COMPOSIO",
+      userId: "",
+      payload: rawPayload.data,
+      originalPayload: { ...rawPayload },
+      connectedAccount: emptyConnectedAccount,
+    }),
+  };
+}
+
+function parseV2(record: Record<string, unknown>): FakeWebhookParseResult | undefined {
+  const fields = stringFields(record, ["type", "timestamp", "log_id"]);
+  if (!fields || !isJsonObject(record.data)) return undefined;
+  const ids = stringFields(record.data, [
+    "connection_id",
+    "connection_nano_id",
+    "trigger_nano_id",
+    "trigger_id",
+    "user_id",
+  ]);
+  if (!ids) return undefined;
+  const rawPayload: FakeWebhookPayloadV2 = { ...fields, data: { ...record.data, ...ids } };
+  const {
+    connection_id: _connectionId,
+    connection_nano_id: _connectionNanoId,
+    trigger_nano_id: _triggerNanoId,
+    trigger_id: _triggerId,
+    user_id: _userId,
+    ...rest
+  } = rawPayload.data;
+  const triggerSlug = fields.type.toUpperCase();
+  return {
+    version: "V2",
+    rawPayload,
+    payload: normalizedPayload({
+      id: ids.trigger_nano_id,
+      uuid: ids.trigger_id,
+      triggerSlug,
+      toolkitSlug: triggerSlug.split("_")[0] || "UNKNOWN",
+      userId: ids.user_id,
+      payload: rest,
+      originalPayload: rest,
+      connectedAccount: {
+        id: ids.connection_nano_id,
+        uuid: ids.connection_id,
+        authConfigId: "",
+        authConfigUUID: "",
+        userId: ids.user_id,
+        status: "ACTIVE",
+      },
+    }),
+  };
+}
+
+function parseV1(record: Record<string, unknown>): FakeWebhookParseResult | undefined {
+  const fields = stringFields(record, ["trigger_name", "connection_id", "trigger_id", "log_id"]);
+  if (!fields || !isJsonObject(record.payload)) return undefined;
+  const rawPayload: FakeWebhookPayloadV1 = { ...fields, payload: { ...record.payload } };
+  return {
+    version: "V1",
+    rawPayload,
+    payload: normalizedPayload({
+      id: fields.trigger_id,
+      uuid: fields.trigger_id,
+      triggerSlug: fields.trigger_name,
+      toolkitSlug: toolkitOfTriggerSlug(fields.trigger_name),
+      userId: "",
+      payload: rawPayload.payload,
+      originalPayload: rawPayload.payload,
+      connectedAccount: {
+        ...emptyConnectedAccount,
+        id: fields.connection_id,
+        uuid: fields.connection_id,
+      },
+    }),
+  };
+}
+
+/** Detects the payload version (V3, then V2, then V1) and normalizes it as the SDK does. */
+function parseWebhookPayload(raw: string): FakeWebhookParseResult {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw webhookPayloadError("Failed to parse webhook payload as JSON");
+  }
+  const result = isJsonObject(parsed)
+    ? (parseV3(parsed) ?? parseV2(parsed) ?? parseV1(parsed))
+    : undefined;
+  if (!result) {
+    throw webhookPayloadError(
+      "Webhook payload does not match any known version (V1, V2, or V3). Please ensure you are using a supported webhook payload format.",
+    );
+  }
+  return result;
 }
 
 /** Signs a webhook body the way Composio does: `v1,<base64 HMAC-SHA256(id.timestamp.body)>`. */
@@ -590,23 +962,28 @@ export class FakeComposioClient {
 
   readonly triggers = {
     /**
-     * Verifies and parses a webhook from the raw body (`webhook-id`, `webhook-timestamp`,
-     * `webhook-signature`). `version` and `rawPayload` match the SDK; `payload` is a simplified
-     * normalization, not the SDK's `IncomingTriggerPayload`, so connection lifecycle handlers should
-     * narrow on `rawPayload.type` (research "Composio" §8). Unlike the SDK, an already-parsed body is
-     * always refused, because signature checks need the raw bytes (§6.2).
+     * Mirrors `composio.triggers.parse` in `@composio/core` 0.18.1 (§14.3, research "Composio" §8):
+     * with a `verifySecret` option it checks the `webhook-id`, `webhook-timestamp` and
+     * `webhook-signature` headers, the timestamp tolerance (on this client's clock) and the
+     * HMAC-SHA256 signature over the raw body; then it detects the V3, V2 or V1 payload in that order
+     * and returns the SDK's `IncomingTriggerPayload` normalization with the schema-stripped raw payload.
+     * A `composio.connected_account.expired` event is a V3 payload without trigger metadata, so its
+     * normalized form carries the event id, `triggerSlug` = the event type, `toolkitSlug`
+     * `COMPOSIO`, the account record as `payload` and the whole event as `originalPayload`; handlers
+     * read the account from `rawPayload.data` after narrowing on `type`. Unlike the SDK, a request
+     * whose body was already parsed into an object is refused even without verification, because
+     * signature checks need the raw bytes (§6.2).
      */
     parse: async (
       request: Request | { readonly body: unknown; readonly headers: unknown },
       options?: { readonly verifySecret?: string; readonly tolerance?: number },
     ): Promise<FakeWebhookParseResult> => {
       const body = request instanceof Request ? await request.text() : request.body;
-      const headers = request.headers;
       const raw =
         typeof body === "string"
           ? body
           : body instanceof Uint8Array
-            ? Buffer.from(body).toString("utf8")
+            ? new TextDecoder().decode(body)
             : undefined;
       if (raw === undefined) {
         throw new FakeComposioError(
@@ -615,117 +992,37 @@ export class FakeComposioClient {
           "Pass the raw, unparsed request body to triggers.parse()",
         );
       }
-      if (options !== undefined && "verifySecret" in options) {
-        const secret = options.verifySecret;
-        if (!secret) {
-          throw new FakeComposioError(
-            "ValidationError",
-            "TS-SDK::VALIDATION_ERROR",
-            "verifySecret is empty",
-          );
-        }
-        const id = headerValue(headers, "webhook-id");
-        const timestamp = headerValue(headers, "webhook-timestamp");
-        const signature = headerValue(headers, "webhook-signature");
-        if (!id || !timestamp || !signature) {
-          throw new FakeComposioError(
-            "ValidationError",
-            "TS-SDK::VALIDATION_ERROR",
-            "Missing signature headers",
-          );
-        }
-        const tolerance = options.tolerance ?? 300;
+      if (options === undefined || !("verifySecret" in options)) return parseWebhookPayload(raw);
+      const secret = options.verifySecret;
+      if (!secret) {
+        throw new FakeComposioError(
+          "ValidationError",
+          "TS-SDK::VALIDATION_ERROR",
+          "Cannot verify webhook: 'verifySecret' was provided but is empty",
+        );
+      }
+      const id = headerValue(request.headers, "webhook-id");
+      const timestamp = headerValue(request.headers, "webhook-timestamp");
+      const signature = headerValue(request.headers, "webhook-signature");
+      if (!id || !timestamp || !signature) {
+        throw new FakeComposioError(
+          "ValidationError",
+          "TS-SDK::VALIDATION_ERROR",
+          "Cannot verify webhook: missing signature header(s)",
+        );
+      }
+      const tolerance = options.tolerance ?? 300;
+      if (tolerance > 0) {
         const seconds = Number.parseInt(timestamp, 10);
         if (Number.isNaN(seconds)) {
-          throw new FakeComposioError(
-            "ComposioWebhookPayloadError",
-            "TS-SDK::WEBHOOK_PAYLOAD_ERROR",
-            "Invalid timestamp",
-          );
+          throw webhookPayloadError(`Invalid webhook timestamp: ${timestamp}`);
         }
-        if (tolerance > 0 && Math.abs(this.clock.now() - seconds * 1000) > tolerance * 1000) {
-          throw new FakeComposioError(
-            "ComposioWebhookSignatureVerificationError",
-            "TS-SDK::WEBHOOK_SIGNATURE_VERIFICATION_ERROR",
-            "The webhook timestamp is outside the allowed tolerance",
-          );
-        }
-        const expected = Buffer.from(
-          createHmac("sha256", secret).update(`${id}.${timestamp}.${raw}`).digest("base64"),
-        );
-        const valid = signature
-          .split(" ")
-          .map((entry) => entry.split(","))
-          .some(([version, value]) => {
-            if (version !== "v1" || value === undefined) return false;
-            const provided = Buffer.from(value);
-            return provided.length === expected.length && timingSafeEqual(provided, expected);
-          });
-        if (!valid) {
-          throw new FakeComposioError(
-            "ComposioWebhookSignatureVerificationError",
-            "TS-SDK::WEBHOOK_SIGNATURE_VERIFICATION_ERROR",
-            "The signature provided is invalid",
-          );
+        if (Math.abs(this.clock.now() - seconds * 1000) > tolerance * 1000) {
+          throw webhookSignatureError("The webhook timestamp is outside the allowed tolerance");
         }
       }
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(raw);
-      } catch {
-        throw new FakeComposioError(
-          "ComposioWebhookPayloadError",
-          "TS-SDK::WEBHOOK_PAYLOAD_ERROR",
-          "Invalid JSON",
-        );
-      }
-      if (typeof parsed !== "object" || parsed === null) {
-        throw new FakeComposioError(
-          "ComposioWebhookPayloadError",
-          "TS-SDK::WEBHOOK_PAYLOAD_ERROR",
-          "Invalid payload",
-        );
-      }
-      const record = parsed as Record<string, unknown>;
-      if (
-        typeof record.id === "string" &&
-        typeof record.type === "string" &&
-        typeof record.timestamp === "string" &&
-        typeof record.data === "object" &&
-        record.data !== null
-      ) {
-        return {
-          version: "V3",
-          payload: {
-            id: record.id,
-            type: record.type,
-            timestamp: record.timestamp,
-            data: record.data as Record<string, unknown>,
-            metadata: (typeof record.metadata === "object" && record.metadata !== null
-              ? record.metadata
-              : {}) as Record<string, unknown>,
-          },
-          rawPayload: record,
-        };
-      }
-      if (typeof record.trigger_name === "string" && typeof record.connection_id === "string") {
-        return {
-          version: "V1",
-          payload: {
-            id: typeof record.log_id === "string" ? record.log_id : "",
-            type: "composio.trigger.message",
-            timestamp: new Date(this.clock.now()).toISOString(),
-            data: (record.payload ?? {}) as Record<string, unknown>,
-            metadata: { trigger_name: record.trigger_name, connection_id: record.connection_id },
-          },
-          rawPayload: record,
-        };
-      }
-      throw new FakeComposioError(
-        "ComposioWebhookPayloadError",
-        "TS-SDK::WEBHOOK_PAYLOAD_ERROR",
-        "Webhook payload does not match any known version",
-      );
+      verifyWebhookSignature({ id, timestamp, body: raw, signature, secret });
+      return parseWebhookPayload(raw);
     },
   };
 

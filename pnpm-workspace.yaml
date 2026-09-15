@@ -14,11 +14,9 @@ allowBuilds:
 # Deliberately pinned current releases that are newer than pnpm's minimum release age (1 day).
 # Each entry notes its publish time (UTC); remove it once that time is more than a day old.
 minimumReleaseAgeExclude:
-  - '@ai-sdk/gateway@4.0.81' # transitive (ai); published 2026-09-14T19:52Z
   - '@ai-sdk/google-vertex@5.0.82' # published 2026-09-15T04:19Z
   - '@ai-sdk/google@4.0.70' # transitive (@ai-sdk/google-vertex); published 2026-09-15T04:19Z
   - '@ai-sdk/react@4.0.104' # published 2026-09-15T04:19Z
-  - '@aws-sdk/client-s3@3.1132.0' # published 2026-09-14T19:36Z
   - '@nestjs/common@12.0.3' # published 2026-09-15T07:57Z
   - '@nestjs/core@12.0.3' # published 2026-09-15T07:57Z
   - '@nestjs/platform-express@12.0.3' # published 2026-09-15T07:57Z

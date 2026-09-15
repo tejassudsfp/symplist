@@ -1,0 +1,29 @@
+/*
+ * Font stacks for the self-hosted theme families (see `app/fonts.ts`). next/font defines one variable
+ * per family subset on <html>; each family's stack lists its extended subsets first and the latin
+ * subset last, because the latin variable ends with the metric-adjusted and generic fallbacks, which
+ * would otherwise render characters an extended subset covers. Every subset face carries its own
+ * unicode-range, so the browser skips the ones a text does not need.
+ */
+:root {
+  --font-geist: var(--font-geist-latin-ext), var(--font-geist-vietnamese), var(--font-geist-latin);
+  --font-source-sans-3:
+    var(--font-source-sans-3-latin-ext), var(--font-source-sans-3-vietnamese),
+    var(--font-source-sans-3-latin);
+  --font-source-serif-4:
+    var(--font-source-serif-4-latin-ext), var(--font-source-serif-4-vietnamese),
+    var(--font-source-serif-4-latin);
+  --font-nunito:
+    var(--font-nunito-latin-ext), var(--font-nunito-vietnamese), var(--font-nunito-latin);
+  --font-public-sans:
+    var(--font-public-sans-latin-ext), var(--font-public-sans-vietnamese),
+    var(--font-public-sans-latin);
+  --font-dm-sans: var(--font-dm-sans-latin-ext), var(--font-dm-sans-latin);
+  --font-fraunces:
+    var(--font-fraunces-latin-ext), var(--font-fraunces-vietnamese), var(--font-fraunces-latin);
+  --font-manrope:
+    var(--font-manrope-latin-ext), var(--font-manrope-vietnamese), var(--font-manrope-latin);
+  --font-ibm-plex-mono:
+    var(--font-ibm-plex-mono-latin-ext), var(--font-ibm-plex-mono-vietnamese),
+    var(--font-ibm-plex-mono-latin);
+}

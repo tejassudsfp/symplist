@@ -8,8 +8,10 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+# Actions are pinned to full commit SHAs of the releases verified in the ops research note
+# (docs/build/research/ops-testing.md), with the release in a comment.
 jobs:
-  # Deployment checks and later jobs (e2e, migrate, deploy-trigger) depend on this job name.
+  # Deployment checks and later jobs (e2e, api-image, migrate, deploy-trigger) depend on this job name.
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -38,9 +40,81 @@ jobs:
         run: pnpm exec biome ci --reporter=github .
       - name: Typecheck
         run: pnpm typecheck
+      # Workspace package tests, then the repository script tests (pnpm test:scripts).
       - name: Test
         run: pnpm test
       # Builds the web app first, while no package dist exists (the clean-clone next build smoke
       # test), then packages and the api with tsc -b.
       - name: Build
         run: pnpm build
+
+  # End-to-end, accessibility and visual evidence tests at 1440, 1024 and 390 px (§17). The
+  # Playwright config builds the web app and serves it with next start.
+  e2e:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CI: "true"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          check-latest: true
+          cache: pnpm
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      # Chromium only: every project uses the Desktop Chrome device. Browsers are not cached, as
+      # Playwright recommends, and the version always matches @playwright/test from the lockfile.
+      - name: Install Playwright Chromium
+        run: pnpm --filter @symplist/e2e exec playwright install --with-deps chromium
+      - name: End-to-end tests
+        run: pnpm e2e
+      - name: Upload the Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: playwright-report
+          path: |
+            apps/e2e/playwright-report/
+            apps/e2e/test-results/
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Upload screenshot evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-evidence
+          path: apps/e2e/evidence/
+          if-no-files-found: warn
+          retention-days: 14
+
+  # The api deploy output and image (§2.2 (2), §17): `pnpm --filter @symplist/api --prod deploy`
+  # contents, a boot of the deployed api, then the apps/api/Dockerfile image with a container smoke
+  # test. No image is pushed and nothing is deployed here.
+  api-image:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          check-latest: true
+          cache: pnpm
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Build the api
+        run: pnpm --filter @symplist/api build
+      - name: Check the api deploy output
+        run: pnpm check:api-deploy
+      - name: Build and smoke-test the api image
+        run: pnpm check:api-image --image symplist-api:ci-${{ github.sha }}

@@ -1,7 +1,12 @@
 import { randomBytes } from "node:crypto";
+import { createRequire } from "node:module";
+import { join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import { FakeClock } from "./clock.ts";
 import {
+  composioConnectedAccountExpiredEvent,
+  composioConnectedAccountExpiredType,
   defaultFakeToolkits,
   FakeComposioApiError,
   FakeComposioClient,
@@ -11,6 +16,7 @@ import {
   signComposioWebhook,
 } from "./composio.ts";
 
+const repoRoot = fileURLToPath(new URL("../../../../", import.meta.url));
 const userId = "0192f0a0-0000-7000-8000-000000000001";
 const callbackUrl = "https://api.symplist.example/v1/connections/callback?attempt=a1&n=nonce";
 
@@ -436,40 +442,103 @@ describe("FakeComposioClient connected accounts (§14.2)", () => {
   });
 });
 
+/**
+ * The installed `@composio/core` (a dependency of `@symplist/integrations`), loaded by file path so
+ * the fake's webhook parsing can be compared with the real SDK. It makes no network requests to parse.
+ */
+async function realComposio(): Promise<{
+  readonly triggers: {
+    parse(
+      request: Request | { body: unknown; headers: unknown },
+      options?: { verifySecret?: string; tolerance?: number },
+    ): Promise<unknown>;
+  };
+}> {
+  const integrations = createRequire(join(repoRoot, "packages", "integrations", "package.json"));
+  const sdk = (await import(pathToFileURL(integrations.resolve("@composio/core")).href)) as {
+    Composio: new (config: Record<string, unknown>) => Awaited<ReturnType<typeof realComposio>>;
+  };
+  return new sdk.Composio({
+    apiKey: `ak_fake_${randomBytes(8).toString("hex")}`,
+    allowTracking: false,
+    disableVersionCheck: true,
+  });
+}
+
+/** An error's identifying fields, or the resolved value, for comparing the fake with the SDK. */
+async function settle(promise: Promise<unknown>): Promise<unknown> {
+  try {
+    return { ok: await promise };
+  } catch (error) {
+    const typed = error as { name?: unknown; code?: unknown; statusCode?: unknown };
+    return { error: { name: typed.name, code: typed.code, statusCode: typed.statusCode } };
+  }
+}
+
 describe("FakeComposioClient webhook parsing (§14.3)", () => {
   // A throwaway secret generated per run; never a real credential.
   const secret = randomBytes(32).toString("base64url");
-  const payload = {
-    id: "msg_fake_1",
+  const expired = composioConnectedAccountExpiredEvent({
+    id: "msg_0192f0a0-0000-7000-8000-00000000c0de",
+    connectedAccountId: "ca_fake000001",
+    userId,
+    toolkit: "gmail",
+    authConfigId: "ac_fake000001",
     timestamp: "2026-09-15T09:00:00.000Z",
-    type: "composio.connected_account.expired",
-    metadata: { project_id: "pr_fake" },
-    data: { id: "ca_fake000001", status: "EXPIRED" },
-  };
+  });
 
-  function signed(clock: FakeClock, body = JSON.stringify(payload), secretToUse = secret) {
+  function signed(clock: FakeClock, body = JSON.stringify(expired), secretToUse = secret) {
     return {
       body,
       headers: signComposioWebhook({
         secret: secretToUse,
         body,
-        id: payload.id,
+        id: expired.id,
         timestamp: Math.floor(clock.now() / 1000),
       }),
     };
   }
 
-  it("verifies the signature over the raw body and returns the V3 payload", async () => {
+  it("normalizes connected_account.expired into the SDK's IncomingTriggerPayload", async () => {
     const clock = new FakeClock();
     const composio = new FakeComposioClient({ clock });
     const result = await composio.triggers.parse(signed(clock), { verifySecret: secret });
+
     expect(result.version).toBe("V3");
     expect(result.payload).toEqual({
-      id: "msg_fake_1",
-      type: "composio.connected_account.expired",
-      timestamp: payload.timestamp,
-      data: payload.data,
-      metadata: payload.metadata,
+      id: expired.id,
+      uuid: expired.id,
+      triggerSlug: "composio.connected_account.expired",
+      toolkitSlug: "COMPOSIO",
+      userId: "",
+      payload: expired.data,
+      originalPayload: expired,
+      metadata: {
+        id: expired.id,
+        uuid: expired.id,
+        toolkitSlug: "COMPOSIO",
+        triggerSlug: "composio.connected_account.expired",
+        triggerConfig: {},
+        connectedAccount: {
+          id: "",
+          uuid: "",
+          authConfigId: "",
+          authConfigUUID: "",
+          userId: "",
+          status: "ACTIVE",
+        },
+      },
+    });
+    expect(result.rawPayload).toEqual(expired);
+    const raw = result.rawPayload;
+    if (!("type" in raw) || raw.type !== composioConnectedAccountExpiredType || !("id" in raw)) {
+      throw new Error("expected a V3 connected_account.expired payload");
+    }
+    expect(raw.data).toMatchObject({
+      id: "ca_fake000001",
+      status: "EXPIRED",
+      user_id: userId,
+      toolkit: { slug: "gmail" },
     });
 
     const request = new Request("https://api.symplist.example/webhooks/composio", {
@@ -477,62 +546,159 @@ describe("FakeComposioClient webhook parsing (§14.3)", () => {
       body: signed(clock).body,
       headers: signed(clock).headers,
     });
-    expect((await composio.triggers.parse(request, { verifySecret: secret })).version).toBe("V3");
+    expect(await composio.triggers.parse(request, { verifySecret: secret })).toEqual(result);
   });
 
-  it("rejects tampered bodies, wrong secrets, stale timestamps, missing headers and parsed bodies", async () => {
-    const clock = new FakeClock();
+  it("returns exactly what the installed @composio/core returns for every payload version", async () => {
+    const sdk = await realComposio();
+    // The SDK checks the timestamp against the real clock, so the fake starts at the same instant.
+    const clock = new FakeClock(Date.now());
+    const composio = new FakeComposioClient({ clock });
+    const bodies = [
+      expired,
+      { ...expired, unexpected: "dropped by the schema", metadata: {}, data: {} },
+      {
+        id: "msg_trigger_1",
+        timestamp: "2026-09-15T09:00:00.000Z",
+        type: "composio.trigger.message",
+        metadata: {
+          log_id: "log_1",
+          trigger_slug: "GMAIL_NEW_GMAIL_MESSAGE",
+          trigger_id: "ti_1",
+          connected_account_id: "ca_1",
+          auth_config_id: "ac_1",
+          user_id: userId,
+          extra: true,
+        },
+        data: { message_id: "m1" },
+      },
+      {
+        id: "msg_trigger_2",
+        timestamp: "2026-09-15T09:00:00.000Z",
+        type: "composio.trigger.disabled",
+        metadata: { log_id: "log_2", trigger_slug: "GMAIL_NEW_GMAIL_MESSAGE" },
+        data: { trigger_id: "ti_2" },
+      },
+      {
+        type: "gmail_new_gmail_message",
+        timestamp: "2026-09-15T09:00:00.000Z",
+        log_id: "log_3",
+        data: {
+          connection_id: "c1",
+          connection_nano_id: "cn1",
+          trigger_nano_id: "tn1",
+          trigger_id: "ti_3",
+          user_id: userId,
+          subject: "hello",
+        },
+        dropped: 1,
+      },
+      {
+        trigger_name: "GITHUB_STAR_ADDED_EVENT",
+        connection_id: "ca_2",
+        trigger_id: "ti_4",
+        payload: { repository: "symplist" },
+        log_id: "log_4",
+      },
+    ];
+
+    for (const body of bodies) {
+      const request = signed(clock, JSON.stringify(body));
+      const fake = await settle(composio.triggers.parse(request, { verifySecret: secret }));
+      expect(fake).toEqual(await settle(sdk.triggers.parse(request, { verifySecret: secret })));
+      expect(fake).toHaveProperty("ok.payload");
+      expect(await settle(composio.triggers.parse({ body: request.body, headers: {} }))).toEqual(
+        await settle(sdk.triggers.parse({ body: request.body, headers: {} })),
+      );
+    }
+  });
+
+  it("fails exactly like the installed @composio/core for malformed payloads and bad signatures", async () => {
+    const sdk = await realComposio();
+    const clock = new FakeClock(Date.now());
     const composio = new FakeComposioClient({ clock });
     const good = signed(clock);
+    const nowSeconds = String(Math.floor(clock.now() / 1000));
+    const { "webhook-signature": _dropped, ...missing } = good.headers;
+    const cases: Array<{
+      readonly request: { body: string; headers: Record<string, string> };
+      readonly options?: { verifySecret?: string; tolerance?: number };
+    }> = [
+      { request: { body: "{", headers: {} } },
+      { request: { body: "null", headers: {} } },
+      { request: { body: "[]", headers: {} } },
+      { request: { body: '{"unknown":true}', headers: {} } },
+      {
+        request: {
+          body: JSON.stringify({ ...expired, type: "vendor.connected_account.expired" }),
+          headers: {},
+        },
+      },
+      { request: { body: JSON.stringify({ ...expired, data: [] }), headers: {} } },
+      {
+        request: { body: good.body.replace("EXPIRED", "ACTIVE"), headers: good.headers },
+        options: { verifySecret: secret },
+      },
+      { request: good, options: { verifySecret: randomBytes(32).toString("base64url") } },
+      { request: good, options: { verifySecret: "" } },
+      { request: { body: good.body, headers: missing }, options: { verifySecret: secret } },
+      {
+        request: { body: good.body, headers: { ...good.headers, "webhook-timestamp": "1000" } },
+        options: { verifySecret: secret },
+      },
+      {
+        request: { body: good.body, headers: { ...good.headers, "webhook-timestamp": "soon" } },
+        options: { verifySecret: secret },
+      },
+      {
+        request: {
+          body: good.body,
+          headers: { ...good.headers, "webhook-signature": `v2,${nowSeconds}` },
+        },
+        options: { verifySecret: secret },
+      },
+      { request: { body: "", headers: good.headers }, options: { verifySecret: secret } },
+    ];
 
-    await expect(
-      composio.triggers.parse(
-        { body: good.body.replace("EXPIRED", "ACTIVE"), headers: good.headers },
-        { verifySecret: secret },
-      ),
-    ).rejects.toMatchObject({ name: "ComposioWebhookSignatureVerificationError" });
-    await expect(
-      composio.triggers.parse(signed(clock, undefined, randomBytes(32).toString("base64url")), {
-        verifySecret: secret,
-      }),
-    ).rejects.toMatchObject({ name: "ComposioWebhookSignatureVerificationError" });
+    for (const { request, options } of cases) {
+      const fake = await settle(composio.triggers.parse(request, options));
+      expect(fake).toHaveProperty("error.name");
+      expect(fake).toEqual(await settle(sdk.triggers.parse(request, options)));
+    }
+  });
 
+  it("applies the tolerance on the fake clock and skips it when set to 0", async () => {
+    const clock = new FakeClock();
+    const composio = new FakeComposioClient({ clock });
     const old = signed(clock);
     await clock.advance(301_000);
     await expect(composio.triggers.parse(old, { verifySecret: secret })).rejects.toMatchObject({
       name: "ComposioWebhookSignatureVerificationError",
+      code: "TS-SDK::WEBHOOK_SIGNATURE_VERIFICATION_FAILED",
+      statusCode: 401,
     });
     await expect(
       composio.triggers.parse(old, { verifySecret: secret, tolerance: 0 }),
     ).resolves.toMatchObject({ version: "V3" });
-
-    const { "webhook-signature": _dropped, ...missing } = good.headers;
     await expect(
-      composio.triggers.parse({ body: good.body, headers: missing }, { verifySecret: secret }),
-    ).rejects.toMatchObject({ name: "ValidationError" });
-    await expect(
-      composio.triggers.parse(
-        { body: JSON.parse(good.body), headers: good.headers },
-        { verifySecret: secret },
-      ),
-    ).rejects.toMatchObject({ name: "ValidationError" });
-    await expect(composio.triggers.parse(good, { verifySecret: "" })).rejects.toMatchObject({
-      name: "ValidationError",
-    });
+      composio.triggers.parse(old, { verifySecret: secret, tolerance: 400 }),
+    ).resolves.toMatchObject({ version: "V3" });
   });
 
-  it("parses without verification only when no secret option is passed", async () => {
-    const composio = new FakeComposioClient();
-    const v1 = JSON.stringify({
-      trigger_name: "GMAIL_NEW_MESSAGE",
-      connection_id: "ca_1",
-      trigger_id: "ti_1",
-      payload: {},
-      log_id: "log_1",
-    });
-    expect((await composio.triggers.parse({ body: v1, headers: {} })).version).toBe("V1");
+  it("refuses an already-parsed body, which could never carry a verifiable signature", async () => {
+    const clock = new FakeClock();
+    const composio = new FakeComposioClient({ clock });
+    const good = signed(clock);
+    for (const options of [{ verifySecret: secret }, undefined]) {
+      await expect(
+        composio.triggers.parse({ body: JSON.parse(good.body), headers: good.headers }, options),
+      ).rejects.toMatchObject({ name: "ValidationError", code: "TS-SDK::VALIDATION_ERROR" });
+    }
     await expect(
-      composio.triggers.parse({ body: '{"unknown":true}', headers: {} }),
-    ).rejects.toMatchObject({ name: "ComposioWebhookPayloadError" });
+      composio.triggers.parse(
+        { body: new TextEncoder().encode(good.body), headers: good.headers },
+        { verifySecret: secret },
+      ),
+    ).resolves.toMatchObject({ version: "V3" });
   });
 });
