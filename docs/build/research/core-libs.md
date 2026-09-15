@@ -408,7 +408,7 @@ Round-trip experiment (jsdom, each editor headless). Test document: headings, `*
 
 | Editor | Lines changed on first load → serialize | Second pass | Notable changes |
 | --- | --- | --- | --- |
-| TipTap + `@tiptap/markdown` | 23 | stable | Footnotes corrupted to `\[^1\]`; `<br>` + newline split into a new paragraph; `__strong__`→`**strong**`; `*`→`-`; `1)`→`1.`; setext→ATX; autolink→`[url](url)`; extra blank lines around the table; trailing newline removed |
+| TipTap + `@tiptap/markdown` | 23 | stable | Footnotes corrupted to `\[^1\]`; `<br>` + newline split into a new paragraph; `__strong__`→`**strong**`; `*`→`-`; `1)`→`1.`; setext→ATX; autolink→ bracketed link; extra blank lines around the table; trailing newline removed |
 | Milkdown (commonmark + gfm) | 14 | stable | Inline `<br>` dropped; `-` task items→`*`; `1)`→`1.`; nested indent 4→2; table delimiter normalized; setext→ATX; autolink→`<url>`; footnotes kept |
 | CodeMirror 6 | 0 (lossless; only the intended section replacement) | n/a | Replacement by string offsets from mdast |
 
