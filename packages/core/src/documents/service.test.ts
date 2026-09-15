@@ -1,5 +1,5 @@
 import { sql } from "@symplist/db";
-import { DocumentError, type PublicationFold } from "@symplist/docs";
+import { DocumentError, markdown as md, type PublicationFold } from "@symplist/docs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DocumentAccessDeniedError } from "./context.ts";
 import { createDocumentsTestEnvironment, type DocumentsTestEnvironment } from "./test-support.ts";
@@ -116,6 +116,28 @@ describe("head and saves (§9.2, §9.3)", () => {
     });
     expect(await env.count("doc_commits")).toBe(1);
     expect((await env.service.getHead(env.user(owner), task)).draft).toBeNull();
+  });
+
+  it("publishes a formatting normalization as its own content-neutral commit (decision R7)", async () => {
+    const source = "Plan\n====\n\n+ one\n+ two\n";
+    const first = await save(source, null);
+    const head = await env.service.getHead(env.user(owner), task);
+    expect(head.canonical).toBe(false);
+    const canonical = md.canonicalizeMarkdown(source);
+    const normalized = await save(canonical, first.revision, { kind: "normalization" });
+    expect(normalized).toMatchObject({ status: "published", generation: 2, changedSectionIds: [] });
+    expect((await env.service.getHead(env.user(owner), task)).canonical).toBe(true);
+    const history = await env.service.history(env.user(owner), { taskId: task });
+    expect(history.items.map((item) => [item.kind, item.subject])).toEqual([
+      ["normalization", "Formatting normalized"],
+      ["create", "Created the page"],
+    ]);
+    // A normalization changes no section, so an agent's baseline needs no new reading.
+    const changes = await env.tools.changes(env.simon(owner, task), {
+      taskId: task,
+      baselineRevision: first.revision as string,
+    });
+    expect(changes).toMatchObject({ changes: [], commitsBetween: 1 });
   });
 
   it("clears the covered draft with the publication but keeps a newer one", async () => {

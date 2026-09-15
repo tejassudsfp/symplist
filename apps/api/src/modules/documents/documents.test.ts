@@ -6,15 +6,16 @@ import {
   documentPublishResponseSchema,
   documentRevisionResponseSchema,
 } from "@symplist/contracts";
-import { DocumentService } from "@symplist/core/documents";
+import { DocumentMaintenance, DocumentService } from "@symplist/core/documents";
 import { int, sql, uuidv7 } from "@symplist/db";
-import type { PublicationHooks } from "@symplist/docs";
+import type { GitService, PublicationHooks } from "@symplist/docs";
 import { afterEach, describe, expect, it } from "vitest";
 import { InternalEventClient } from "../../../../worker/src/infra/internal-events.ts";
 import { createWorkerLogger } from "../../../../worker/src/infra/logger.ts";
 import { bootTestApp, type TestApp, type TestSession } from "../../../test/harness.ts";
 import { WsTestClient } from "../../../test/ws-client.ts";
-import { DOCUMENT_PUBLICATION_HOOKS } from "./documents.module.ts";
+import { LocalScheduler } from "../../infra/scheduler/local-scheduler.ts";
+import { DOCUMENT_GIT, DOCUMENT_PUBLICATION_HOOKS } from "./documents.module.ts";
 
 const apps: TestApp[] = [];
 const sockets: WsTestClient[] = [];
@@ -203,6 +204,24 @@ describe("documents api (§9.2, §9.3)", () => {
     expect(app.logs.text()).not.toContain(marker);
     expect(await app.scanDatabaseFor(marker)).toEqual([]);
     expect(app.scanObjectsFor(marker)).toEqual([]);
+  });
+
+  it("bounds Git reconstructions and registers hourly maintenance in local mode", async () => {
+    const app = await boot();
+    const git = app.inject<GitService>(DOCUMENT_GIT);
+    expect(git.limits).toMatchObject({
+      maxConcurrent: 2,
+      maxQueued: 16,
+      maxBlobBytes: app.config.DOC_MAX_BYTES,
+    });
+    expect(git.available).toBe(true);
+    const { id: ownerId, session } = await app.createSignedInUser();
+    const taskId = await createTask(app, ownerId);
+    await save(app, session, taskId, { baseRevision: null, markdown: "## A\none" });
+    const maintenance = app.inject<DocumentMaintenance>(DocumentMaintenance);
+    const result = await maintenance.run({ now: app.clock.now() + 2 * 24 * 60 * 60 * 1000 });
+    expect(result).toMatchObject({ orphans: { complete: true }, expiredRequests: 0 });
+    expect(app.inject<LocalScheduler>(LocalScheduler).active).toBe(false);
   });
 
   it("stores ordered drafts, throttles them and clears them", async () => {

@@ -420,6 +420,26 @@ describe("changes, diffs, history and restore (§9.4)", () => {
     }
   });
 
+  it("asks for resynchronization when a baseline's snapshot is gone, never reporting no changes", async () => {
+    const seeded = await seed("## A\none\n");
+    const outline = await env.tools.outline(env.simon(owner, task), { taskId: task });
+    await env.tools.updateSection(env.simon(owner, task), {
+      taskId: task,
+      expectedRevision: seeded.revision,
+      sectionId: outline.entries[0]?.sectionId as string,
+      placement: "replace",
+      markdown: "## A\ntwo",
+    });
+    await env.objects.delete(`u/${owner}/docs/${task}/${seeded.revision}.md.sym`);
+    const error = await failure(
+      env.tools.changes(env.simon(owner, task), {
+        taskId: task,
+        baselineRevision: seeded.revision as string,
+      }),
+    );
+    expect(error.code).toBe("document.resync_required");
+  });
+
   it("returns bounded, section-scoped diff hunks and restores through the tool", async () => {
     const seeded = await seed("## A\none\n\n## B\ntwo\n");
     const outline = await env.tools.outline(env.simon(owner, task), { taskId: task });

@@ -7,6 +7,7 @@ import {
   createAccountKey,
   createKeyProvider,
   type ManagedKeyProvider,
+  rewrapAccountKey,
   unwrapAccountKey,
   zeroize,
 } from "@symplist/crypto";
@@ -43,6 +44,8 @@ export interface DocsTestEnvironment {
   readonly git: GitService;
   /** Artifacts without a ciphertext cache, so every read goes to the store. */
   readonly artifacts: DocumentArtifacts;
+  /** Re-wraps the account key under the next `CONTENT_KEK` version (§4.1 rotation). */
+  rotateContentKek(ownerId: string): Promise<void>;
   now: number;
   createUser(): Promise<string>;
   createTask(
@@ -64,10 +67,16 @@ export async function createDocsTestEnvironment(
   const db = createLocalSqliteClient({ path: join(dir, "d1.sqlite"), env: {} });
   await applyMigrations(db);
   const objects = createLocalObjectStore({ root: join(dir, "objects"), env: {} });
-  const keys = createKeyProvider(
-    { CONTENT_KEK: { current: 1, versions: new Map([[1, randomBytes(32)]]) } },
-    { required: ["CONTENT_KEK"] },
-  );
+  const kekVersions = new Map<number, Uint8Array>([
+    [1, randomBytes(32)],
+    [2, randomBytes(32)],
+  ]);
+  const providerFor = (current: number) =>
+    createKeyProvider(
+      { CONTENT_KEK: { current, versions: kekVersions } },
+      { required: ["CONTENT_KEK"] },
+    );
+  let keys = providerFor(1);
   const git = new GitService({ tempDir: join(dir, "git-tmp") });
   const artifacts = new DocumentArtifacts({ objects, cache: new CiphertextCache(0) });
   const client = options.db ? options.db(db) : db;
@@ -76,7 +85,9 @@ export async function createDocsTestEnvironment(
     dir,
     db,
     objects,
-    keys,
+    get keys() {
+      return keys;
+    },
     git,
     artifacts,
     now: Date.UTC(2026, 8, 15, 9, 0, 0),
@@ -136,6 +147,34 @@ export async function createDocsTestEnvironment(
           `UPDATE tasks SET status = 'archived', archived_at = :now, archived_with_root_id = id, write_id = :w
            WHERE id = :id AND owner_id = :owner`,
           { now: int(environment.now), w: uuidv7(environment.now), id: taskId, owner: ownerId },
+        ),
+      );
+    },
+    async rotateContentKek(ownerId) {
+      const row = await db.first(
+        sql(`SELECT owner_id, kek_version, wrapped_key FROM account_keys WHERE owner_id = :owner`, {
+          owner: ownerId,
+        }),
+      );
+      if (!row) throw new Error("No account key");
+      const rotated = providerFor(2);
+      const rewrapped = rewrapAccountKey(rotated, {
+        ownerId: row.owner_id as string,
+        kekVersion: row.kek_version as number,
+        wrapped: row.wrapped_key as string,
+      });
+      keys = rotated;
+      await db.run(
+        sql(
+          `UPDATE account_keys SET kek_version = :kek, wrapped_key = :wrapped, updated_at = :now, write_id = :w
+           WHERE owner_id = :owner`,
+          {
+            kek: int(rewrapped.kekVersion),
+            wrapped: rewrapped.wrapped,
+            now: int(environment.now),
+            w: uuidv7(environment.now),
+            owner: ownerId,
+          },
         ),
       );
     },

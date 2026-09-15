@@ -497,7 +497,10 @@ export class DocumentService {
       const targetGeneration = pinned
         ? this.repository.commitFrom(loaded.extra[1])?.generation
         : repo.generation;
-      if (targetGeneration === undefined) throw new DocumentError("not_found");
+      // A target the caller named is unknown; a pinned target that vanished needs a fresh comparison.
+      if (targetGeneration === undefined) {
+        throw new DocumentError(cursor ? "document.resync_required" : "not_found");
+      }
       if (base.generation > targetGeneration) throw new DocumentError("document.resync_required");
       const baseSnapshot = await this.baselineSnapshot(
         loaded.accountKey,

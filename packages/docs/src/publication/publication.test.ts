@@ -533,4 +533,46 @@ describe("artifact integrity (§4.2, note 11 acceptance)", () => {
     expect(snapshot.subject).toMatch(/^Restored the version from /);
     expect(await count("doc_commits")).toBe(3);
   });
+
+  it("keeps old history readable after a content key rotation and publishes under the new version", async () => {
+    const first = await published("# Plan\n\nBefore rotation\n", "req-1", null);
+    env.now += 1_000;
+    await env.rotateContentKek(owner);
+    const key = await env.accountKey(owner);
+    try {
+      const snapshot = await env.artifacts.getSnapshot(key, {
+        ownerId: owner,
+        taskId: task,
+        commitId: first.commitId,
+      });
+      expect(snapshot.markdown).toBe("# Plan\n\nBefore rotation\n");
+    } finally {
+      zeroize(key.key);
+    }
+    const second = await published("# Plan\n\nAfter rotation\n", "req-2", first.commitId);
+    expect(second.parentCommitId).toBe(first.commitId);
+    const row = await env.db.first(
+      sql(`SELECT kek_version FROM account_keys WHERE owner_id = :o`, { o: owner }),
+    );
+    expect(row?.kek_version).toBe(2);
+  });
+
+  it("requires resynchronization when a baseline snapshot is gone", async () => {
+    const first = await published("## A\none\n", "req-1", null);
+    env.now += 1_000;
+    const second = await published("## A\ntwo\n", "req-2", first.commitId);
+    await env.objects.delete(`u/${owner}/docs/${task}/${first.commitId}.md.sym`);
+    const key = await env.accountKey(owner);
+    try {
+      await expect(
+        env.artifacts.getSnapshot(key, { ownerId: owner, taskId: task, commitId: first.commitId }),
+      ).rejects.toMatchObject({ code: "document.integrity_failed", reason: "missing" });
+    } finally {
+      zeroize(key.key);
+    }
+    // The head still publishes: only the baseline is unreadable.
+    expect(await published("## A\nthree\n", "req-3", second.commitId)).toMatchObject({
+      generation: 3,
+    });
+  });
 });
