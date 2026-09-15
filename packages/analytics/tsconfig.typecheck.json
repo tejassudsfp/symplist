@@ -3,7 +3,8 @@
   "compilerOptions": {
     "noEmit": true,
     "customConditions": ["source"],
-    "types": ["node"]
+    "types": ["node"],
+    "lib": ["ES2023", "DOM", "DOM.Iterable"]
   },
   "include": ["src", "vitest.config.ts"]
 }
