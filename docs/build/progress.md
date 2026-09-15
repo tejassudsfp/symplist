@@ -14,8 +14,8 @@ Checkpoint file for the end-to-end build. Read this first when resuming; update 
 | Phase | Content | Status |
 | --- | --- | --- |
 | 0 | Workspace scaffold, Trigger.dev worker with a registered healthcheck task | Done |
-| A | Research: verify latest stable versions and current APIs for every dependency | In progress |
-| B | Architecture and contracts: repository layout, D1 schema, API/WebSocket protocol, shared contracts, test conventions | Pending |
+| A | Research: verify latest stable versions and current APIs for every dependency | Done (`docs/build/research/`) |
+| B | Architecture and contracts: repository layout, D1 schema, API/WebSocket protocol, shared contracts, test conventions | In progress ([architecture](architecture.md) drafted; adversarial review running) |
 | C | Foundation: apps and shared packages, configuration, storage/crypto/email adapters, auth guard skeleton, theme tokens, CI | Pending |
 | D1 | Feature wave 1: identity/access/admin, workspace/tasks, appearance, documents/Git, keyboard/search core | Pending |
 | D2 | Feature wave 2: Simon/executors/Composio/quick chat, scheduling/notifications/calendar, Vault, sharing/handoff, connections/MCP, analytics/consent | Pending |
@@ -26,3 +26,4 @@ Checkpoint file for the end-to-end build. Read this first when resuming; update 
 ## Log
 
 - 2026-09-15: Full read of repository, notes, 44 briefs and UI sample. Deployment and product decisions confirmed with the owner (see [decisions](decisions.md)). Scaffolded pnpm workspace and `apps/worker` (Trigger.dev 4.6.0); worker typechecks, 5 tests pass, local worker registered with the Trigger development environment.
+- 2026-09-15: Phase A research completed by 10 parallel agents (versions locked in [architecture](architecture.md) section 1). Key findings: TypeScript 7.0.2 works across the stack except the Nest CLI and typescript-eslint (use tsc and Biome); Cloudflare API rate limit (~1,200 requests/5 min) constrains D1 REST usage; OpenAI models `gpt-5.6-luna` and `gpt-5.6-terra` verified. Architecture drafted.
