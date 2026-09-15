@@ -1,6 +1,6 @@
 /**
- * Environment types shared by the api and worker runtimes (§16.2). Validation schemas, cross-field
- * rules and the per-runtime secret rules (§4.5, §16.1) are added by the configuration phase.
+ * Environment types shared by the api and worker runtimes (§16.2). The schemas that produce them are
+ * in `runtime.ts`, `api.ts` and `worker.ts`; the secret inventory is in `secrets.ts` (§4.5, §16.1).
  */
 
 export type NodeEnv = "development" | "production" | "test";

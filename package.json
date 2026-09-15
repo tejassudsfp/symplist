@@ -16,7 +16,7 @@
     "build:web:clean": "node scripts/clean-dist.mjs && pnpm --filter @symplist/web build",
     "e2e": "pnpm --filter @symplist/e2e e2e",
     "db:migrate": "node -e \"console.log('db:migrate is implemented in Phase C3')\"",
-    "secrets:generate": "node -e \"console.log('secrets:generate is implemented in Phase C1')\"",
+    "secrets:generate": "node scripts/secrets-generate.mjs",
     "trigger:dev": "pnpm --filter @symplist/worker dev"
   },
   "devDependencies": {

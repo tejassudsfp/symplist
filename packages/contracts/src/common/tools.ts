@@ -12,7 +12,18 @@ export interface ToolContract<
 /** A feature's tool contracts, keyed by tool name (for example `task_context`). */
 export type ToolContractMap = Readonly<Record<string, ToolContract>>;
 
-/** Declares a feature's tool contracts with their literal names preserved. */
+/** Tool names are lowercase snake_case, as model providers and MCP clients expect. */
+export const toolNamePattern = /^[a-z][a-z0-9_]{0,63}$/;
+
+/**
+ * Declares a feature's tool contracts with their literal names preserved. Throws when a tool name is
+ * not lowercase snake_case of at most 64 characters.
+ */
 export function defineTools<const Tools extends ToolContractMap>(tools: Tools): Readonly<Tools> {
+  for (const name of Object.keys(tools)) {
+    if (!toolNamePattern.test(name)) {
+      throw new Error(`Invalid tool name "${name}": use lowercase snake_case`);
+    }
+  }
   return Object.freeze(tools);
 }
