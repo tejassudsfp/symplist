@@ -72,9 +72,15 @@ describe("loadMigrations", () => {
     expect(names[0]).toBe("0001_users.sql");
   });
 
-  it("keeps foundation files inside the 0001-0019 range", async () => {
+  it("keeps every file inside the foundation range or a feature range (§3.4)", async () => {
     const numbers = (await loadMigrations()).map((migration) => Number(migration.name.slice(0, 4)));
-    expect(numbers.every((number) => number >= 1 && number <= 19)).toBe(true);
+    // Foundation 0001-0019; access 01xx through analytics and consent 10xx.
+    const inOwnerRange = (number: number) =>
+      (number >= 1 && number <= 19) || (number >= 100 && number <= 1099);
+    expect(numbers.filter((number) => !inOwnerRange(number))).toEqual([]);
+    expect(inOwnerRange(20)).toBe(false);
+    expect(inOwnerRange(99)).toBe(false);
+    expect(inOwnerRange(1100)).toBe(false);
   });
 
   it("rejects badly named and empty files", async () => {
