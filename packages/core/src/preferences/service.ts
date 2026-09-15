@@ -13,7 +13,7 @@ import type {
 } from "@symplist/crypto";
 import { canonicalJson, decryptFieldText, encryptFieldText, zeroize } from "@symplist/crypto";
 import type { DbClient, DbRow } from "@symplist/db";
-import { int, sql, uuidv7 } from "@symplist/db";
+import { assertIdentifier, int, sql, uuidv7 } from "@symplist/db";
 import { type AccessDenialCode, type AccessPolicy, evaluateAccess } from "../access/evaluate.ts";
 import { ACCESS_STATE_COLUMNS, accessCondition, accessStateFromRow } from "../access/sql.ts";
 import { AccountKeyStore, AccountKeyUnavailableError } from "../account/keys.ts";
@@ -156,6 +156,31 @@ function isGroup(value: unknown): value is PreferenceGroup {
 }
 
 /**
+ * Groups the foundation `user_preferences` table holds. Its `"group"` CHECK lists exactly these five
+ * (§10.3, migration 0012), and SQLite cannot widen a CHECK without rewriting the table, which the
+ * expand-only rule (§3.4) forbids. Groups added later therefore live in their own additive table.
+ */
+const PREFERENCES_TABLES = Object.freeze({
+  appearance: "user_preferences",
+  keyboard: "user_preferences",
+  chat: "user_preferences",
+  recent: "user_preferences",
+  privacy: "user_preferences",
+  /** Migration 0202: the workspace panel layout, in its own table for the reason above. */
+  panels: "user_preferences_panels",
+} as const satisfies Record<PreferenceGroup, string>);
+
+/** Every table a group can live in, in a stable order. */
+export const preferenceTables: readonly string[] = Object.freeze([
+  ...new Set(Object.values(PREFERENCES_TABLES)),
+]);
+
+/** The table that stores one group's row. */
+export function preferenceTableOf(group: PreferenceGroup): string {
+  return PREFERENCES_TABLES[group];
+}
+
+/**
  * Parses stored or submitted data for a group. Stored data that no longer matches (an older shape)
  * reads as the defaults at its stored version, so the next save replaces it.
  */
@@ -256,10 +281,11 @@ export class PreferencesService {
         policy: this.policy,
         userParam: "owner",
       });
+      const table = assertIdentifier(preferenceTableOf(input.group));
       const deciding =
         input.baseVersion === 0
           ? sql(
-              `INSERT INTO user_preferences (owner_id, "group", version, data_enc, updated_at, write_id)
+              `INSERT INTO ${table} (owner_id, "group", version, data_enc, updated_at, write_id)
                SELECT :owner, :group, 1, :data, :now, :w
                WHERE ${access} AND EXISTS (SELECT 1 FROM account_keys WHERE owner_id = :owner)
                ON CONFLICT (owner_id, "group") DO NOTHING`,
@@ -272,7 +298,7 @@ export class PreferencesService {
               },
             )
           : sql(
-              `UPDATE user_preferences SET version = version + 1, data_enc = :data, updated_at = :now, write_id = :w
+              `UPDATE ${table} SET version = version + 1, data_enc = :data, updated_at = :now, write_id = :w
                WHERE owner_id = :owner AND "group" = :group AND version = CAST(:base AS INTEGER)
                  AND ${access}`,
               {
@@ -291,12 +317,12 @@ export class PreferencesService {
           owner: input.ownerId,
         }),
         sql(
-          `SELECT version, data_enc, updated_at FROM user_preferences
+          `SELECT version, data_enc, updated_at FROM ${table}
            WHERE owner_id = :owner AND "group" = :group`,
           { owner: input.ownerId, group: input.group },
         ),
         sql(
-          `SELECT version, updated_at FROM user_preferences
+          `SELECT version, updated_at FROM ${table}
            WHERE owner_id = :owner AND "group" = :group AND write_id = :w`,
           { owner: input.ownerId, group: input.group, w: writeId },
         ),
@@ -337,11 +363,15 @@ export class PreferencesService {
     if (cached) return cached;
     const results = await this.db.batch([
       this.accountKeys.selectStatement(ownerId),
+      // Every group in one read, whichever table holds it (migration 0202).
       sql(
-        `SELECT "group", version, data_enc, updated_at FROM user_preferences WHERE owner_id = :owner`,
-        {
-          owner: ownerId,
-        },
+        preferenceTables
+          .map(
+            (name) =>
+              `SELECT "group", version, data_enc, updated_at FROM ${assertIdentifier(name)} WHERE owner_id = :owner`,
+          )
+          .join(" UNION ALL "),
+        { owner: ownerId },
       ),
     ]);
     const keyRow = results[0]?.results[0];

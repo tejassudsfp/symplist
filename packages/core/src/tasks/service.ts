@@ -579,6 +579,18 @@ export class TaskService {
           },
         ),
       );
+    } else if (plan.lock === "none") {
+      // Nothing changes (restoring an active task), but the batch records a response, so it still
+      // decides on access, the account key and the claim exactly as a write does: a relock or
+      // suspension that landed after the session was cached refuses it here (§5.4, §5.5). The write
+      // marker moves without the tree version, so no cache entry is dropped and no client is woken.
+      statements.push(
+        sql(
+          `UPDATE users SET task_tree_write_id = :tree_w
+           WHERE id = :tree_owner AND ${conditions.join(" AND ")}`,
+          { ...conditionParams, tree_w: writeId, tree_owner: ownerId },
+        ),
+      );
     } else if (plan.lock === "row" && plan.row) {
       statements.push(
         sql(
@@ -608,8 +620,9 @@ export class TaskService {
     const applied =
       "EXISTS (SELECT 1 FROM users WHERE id = :tree_owner AND task_tree_write_id = :tree_w)";
     if (fold) {
-      // A plan that changes nothing always succeeds: its response is recorded, never released.
-      if (plan.lock !== "none") statements.push(this.releaseStatement(fold.claim, applied, ctx));
+      // Releasing before the completion means a refused batch records nothing: the completion only
+      // updates a record that is still pending.
+      statements.push(this.releaseStatement(fold.claim, applied, ctx));
       statements.push(fold.completion({ status: plan.status, body: plan.body }, ctx.key));
     }
     const readsAt = statements.length;
@@ -652,19 +665,18 @@ export class TaskService {
     const verification = rows(statements.length - 1)[0];
     const subject = usersRow ? analyticsSubjectOf(usersRow) : null;
 
-    if (plan.lock === "none") {
-      return {
-        kind: "applied",
-        status: plan.status,
-        body: plan.body,
-        taskTreeVersion: usersRow ? numberOf(usersRow.task_tree_version) : state.version,
-        changedTaskIds: [],
-        analytics: null,
-      };
-    }
-
     if (verification) {
       const version = numberOf(verification.task_tree_version);
+      if (plan.lock === "none") {
+        return {
+          kind: "applied",
+          status: plan.status,
+          body: plan.body,
+          taskTreeVersion: version,
+          changedTaskIds: [],
+          analytics: null,
+        };
+      }
       if (this.cache) {
         if (version === state.version + 1 && keyRow) {
           this.cache.set({ ...plan.apply(state, version), keyRow });
@@ -701,6 +713,11 @@ export class TaskService {
       if (blockedRow && Number(blockedRow.blocked) === 1) {
         return { kind: "refused", error: plan.blocking.error };
       }
+    }
+    // A plan that changes nothing has no version to be stale against: only access, the account key
+    // and the claim can refuse it, and those are already answered above.
+    if (plan.lock === "none") {
+      return { kind: "refused", error: new TaskOperationError("not_found") };
     }
     return { kind: "stale" };
   }

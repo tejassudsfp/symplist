@@ -40,9 +40,18 @@ export interface TaskTreeCache {
 /** The §3.3 TTL of the task tree and preferences caches. */
 export const TASK_TREE_CACHE_TTL_MS = 60_000;
 
+/**
+ * Cached task rows across all owners, beyond which the least recently stored entries are dropped.
+ * An entry holds one owner's whole active tree with its titles and previews decrypted, so a count of
+ * entries alone does not bound the memory a busy instance holds (§3.3, as §10.1 bounds the search
+ * LRU by decrypted bytes). One owner's tree is always kept, however large.
+ */
+export const TASK_TREE_CACHE_MAX_TASKS = 100_000;
+
 interface CacheEntry {
   readonly state: OwnerTreeState;
   readonly expiresAt: number;
+  readonly tasks: number;
 }
 
 /** A bounded {@link TaskTreeCache} with a hard TTL per entry. */
@@ -51,17 +60,25 @@ export class MemoryTaskTreeCache implements TaskTreeCache {
   private readonly now: () => number;
   private readonly ttlMs: number;
   private readonly maxEntries: number;
+  private readonly maxTasks: number;
+  private tasks = 0;
 
   constructor(options: {
     readonly now: () => number;
     readonly ttlMs?: number;
     readonly maxEntries?: number;
+    /** Total cached task rows across owners; see {@link TASK_TREE_CACHE_MAX_TASKS}. */
+    readonly maxTasks?: number;
   }) {
     this.now = options.now;
     this.ttlMs = options.ttlMs ?? TASK_TREE_CACHE_TTL_MS;
     this.maxEntries = options.maxEntries ?? 2_000;
+    this.maxTasks = options.maxTasks ?? TASK_TREE_CACHE_MAX_TASKS;
     if (!(this.ttlMs > 0) || !Number.isSafeInteger(this.maxEntries) || this.maxEntries < 1) {
       throw new RangeError("The task tree cache needs a positive TTL and size");
+    }
+    if (!Number.isSafeInteger(this.maxTasks) || this.maxTasks < 1) {
+      throw new RangeError("The task tree cache needs a positive task budget");
     }
   }
 
@@ -69,38 +86,58 @@ export class MemoryTaskTreeCache implements TaskTreeCache {
     return this.entries.size;
   }
 
+  /** Task rows currently held across every cached owner. */
+  get taskCount(): number {
+    return this.tasks;
+  }
+
   get(ownerId: string): OwnerTreeState | undefined {
     const entry = this.entries.get(ownerId);
     if (!entry) return undefined;
     if (entry.expiresAt <= this.now()) {
-      this.entries.delete(ownerId);
+      this.drop(ownerId);
       return undefined;
     }
     return entry.state;
   }
 
   set(state: OwnerTreeState): void {
-    this.entries.delete(state.ownerId);
-    if (this.entries.size >= this.maxEntries) {
+    this.drop(state.ownerId);
+    const tasks = state.tree.byId.size + state.archived.size;
+    if (this.entries.size >= this.maxEntries || this.tasks + tasks > this.maxTasks) {
       const now = this.now();
       for (const [ownerId, entry] of this.entries) {
-        if (entry.expiresAt <= now) this.entries.delete(ownerId);
+        if (entry.expiresAt <= now) this.drop(ownerId);
       }
-      while (this.entries.size >= this.maxEntries) {
+      // Least recently stored first, until both budgets fit. The new entry is always kept, so one
+      // owner whose tree is larger than the whole budget still gets its one-D1-request writes.
+      while (
+        this.entries.size > 0 &&
+        (this.entries.size >= this.maxEntries || this.tasks + tasks > this.maxTasks)
+      ) {
         const oldest = this.entries.keys().next();
         if (oldest.done) break;
-        this.entries.delete(oldest.value);
+        this.drop(oldest.value);
       }
     }
-    this.entries.set(state.ownerId, { state, expiresAt: this.now() + this.ttlMs });
+    this.entries.set(state.ownerId, { state, expiresAt: this.now() + this.ttlMs, tasks });
+    this.tasks += tasks;
   }
 
   delete(ownerId: string): void {
-    this.entries.delete(ownerId);
+    this.drop(ownerId);
   }
 
   clear(): void {
     this.entries.clear();
+    this.tasks = 0;
+  }
+
+  private drop(ownerId: string): void {
+    const entry = this.entries.get(ownerId);
+    if (!entry) return;
+    this.entries.delete(ownerId);
+    this.tasks -= entry.tasks;
   }
 }
 

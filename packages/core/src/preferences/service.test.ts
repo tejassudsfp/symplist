@@ -68,6 +68,65 @@ afterEach(() => {
 });
 
 describe("preferences (§10.3)", () => {
+  it("stores each group in its own table and reads every group in one request", async () => {
+    const owner = await insertUser();
+    const preferences = service(false);
+    clock += 1;
+    await preferences.put({
+      ownerId: owner,
+      group: "appearance",
+      baseVersion: 0,
+      clientSeq: 1,
+      data: violet,
+    });
+    clock += 1;
+    const panels = {
+      inboxCollapsed: true,
+      chatCollapsed: false,
+      inboxWidth: 320,
+      chatWidth: null,
+    };
+    await preferences.put({
+      ownerId: owner,
+      group: "panels",
+      baseVersion: 0,
+      clientSeq: 1,
+      data: panels,
+    });
+
+    // Migration 0202 adds `panels` in its own table rather than rewriting the foundation table's
+    // CHECK, which would need a DROP and a RENAME (expand-only, §3.4).
+    expect(
+      await db.all<{ group: string }>(
+        sql(`SELECT "group" FROM user_preferences WHERE owner_id = :owner`, { owner }),
+      ),
+    ).toEqual([{ group: "appearance" }]);
+    expect(
+      await db.all<{ group: string }>(
+        sql(`SELECT "group" FROM user_preferences_panels WHERE owner_id = :owner`, { owner }),
+      ),
+    ).toEqual([{ group: "panels" }]);
+
+    // Both tables are read together, so callers still see one uniform group set.
+    const batch = vi.spyOn(db, "batch");
+    const all = await service(false).getAll(owner);
+    expect(batch).toHaveBeenCalledTimes(1);
+    batch.mockRestore();
+    expect(all.appearance).toMatchObject({ version: 1, data: violet });
+    expect(all.panels).toMatchObject({ version: 1, data: panels });
+    // A second save of the additive group still conflicts on its own version.
+    clock += 1;
+    const stale = await service(false).put({
+      ownerId: owner,
+      group: "panels",
+      baseVersion: 0,
+      clientSeq: 2,
+      data: { ...panels, inboxWidth: 400 },
+    });
+    expect(stale).toMatchObject({ kind: "conflict", clientSeq: 2 });
+    expect(stale.entry).toMatchObject({ version: 1, data: panels });
+  });
+
   it("returns defaults at version 0 for every group, panels included", async () => {
     const owner = await insertUser();
     const all = await service().getAll(owner);

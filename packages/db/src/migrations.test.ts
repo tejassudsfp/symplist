@@ -83,6 +83,27 @@ describe("loadMigrations", () => {
     expect(inOwnerRange(1100)).toBe(false);
   });
 
+  it("keeps every migration expand-only (§3.4)", async () => {
+    // Migrations add tables, nullable or defaulted columns, indexes and triggers. Drops, renames and
+    // tightened constraints ship in a later release, because the runner applies them while the
+    // previous release is still serving: a table copied and swapped in loses every row written
+    // between the copy and the drop, and a request that is not atomic can leave no table at all.
+    const forbidden =
+      /\b(DROP\s+(TABLE|COLUMN|INDEX|TRIGGER|VIEW)|RENAME\s+(TO|COLUMN)|ALTER\s+COLUMN)\b/i;
+    const offenders = (await loadMigrations())
+      .filter((migration) =>
+        forbidden.test(
+          // Comments explain why a rule exists; only executable text is checked.
+          migration.sql.replace(/--[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, ""),
+        ),
+      )
+      .map((migration) => migration.name);
+    expect(offenders).toEqual([]);
+    expect(forbidden.test("DROP TABLE user_preferences;")).toBe(true);
+    expect(forbidden.test("ALTER TABLE x RENAME TO y;")).toBe(true);
+    expect(forbidden.test("ALTER TABLE tasks ADD COLUMN preview_enc TEXT;")).toBe(false);
+  });
+
   it("rejects badly named and empty files", async () => {
     const dir = mkdtempSync(join(tmpdir(), "symplist-migrations-"));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));

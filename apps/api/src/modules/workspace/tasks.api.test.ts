@@ -401,6 +401,29 @@ describe("access and ownership", () => {
     expect(code(response)).toBe("access.relocked");
     expect(await app.db.all(sql(`SELECT id FROM tasks`))).toEqual([]);
   });
+
+  it("refuses a write that changes nothing after a relock, recording no response", async () => {
+    const app = await boot();
+    const maya = await signedIn(app);
+    // Restoring an active task changes nothing, so it has no row or version to be refused by: the
+    // batch must still carry the access check, or a relocked account would get a recorded 200.
+    const id = await created(maya, { title: "Already here", collection: "now" });
+    await app.db.run(
+      sql(
+        `UPDATE users SET beta_state = 'relocked', access_generation = access_generation + 1 WHERE id = :id`,
+        { id: maya.id },
+      ),
+    );
+    const undoKey = key();
+    const response = await maya.send("POST", `/v1/tasks/${id}/restore`, undefined, undoKey);
+    expect(response.status).toBe(403);
+    expect(code(response)).toBe("access.relocked");
+    expect(
+      await app.db.all(
+        sql(`SELECT status FROM idempotency_records WHERE key = :key`, { key: undoKey }),
+      ),
+    ).toEqual([]);
+  });
 });
 
 describe("D1 requests and the tree cache (§3.1, §3.3)", () => {

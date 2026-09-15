@@ -692,11 +692,10 @@ export function planComplete(
   }
   effects.push(...positionStatements(ctx, promotedPositions, { clearParent: true }));
   effects.push(...positionStatements(ctx, placement.renumbered));
+  // §10.1 lists archive among the changes that insert a search intent in the same batch: the index
+  // keeps archived items, flagged, so the opt-in archive scope can find them.
   effects.push(
-    ...searchIntentStatements(
-      ctx,
-      promoted.map((child) => child.id),
-    ),
+    ...searchIntentStatements(ctx, [...archivedIds, ...promoted.map((child) => child.id)]),
   );
   effects.push(
     ...archiveContributionStatements(input.contributors, {

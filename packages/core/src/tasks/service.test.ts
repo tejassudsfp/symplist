@@ -521,6 +521,46 @@ describe("completing (§2.1, P1)", () => {
     await expectCacheExact(tasks, owner);
   });
 
+  it("inserts a search intent for every task a completion archives or promotes (§10.1)", async () => {
+    const owner = await insertUser();
+    const tasks = service();
+    const parent = await create(tasks, owner, "Parent", { collection: "now" });
+    const child = await create(tasks, owner, "Child", { parentId: parent });
+    const grandchild = await create(tasks, owner, "Grandchild", { parentId: child });
+    await db.run(sql(`DELETE FROM search_intents WHERE owner_id = :owner`, { owner }));
+
+    clock += 1;
+    await tasks.complete({ ownerId: owner, taskId: child, mode: "parent_only", stopRun: false });
+    // The archived task and the subtask promoted into its place both changed, so both are indexed.
+    expect(
+      await db.all<{ entity_id: string; op: string }>(
+        sql(`SELECT entity_id, op FROM search_intents WHERE owner_id = :owner ORDER BY entity_id`, {
+          owner,
+        }),
+      ),
+    ).toEqual(
+      [
+        { entity_id: child, op: "upsert" },
+        { entity_id: grandchild, op: "upsert" },
+      ].sort((a, b) => (a.entity_id < b.entity_id ? -1 : 1)),
+    );
+
+    await db.run(sql(`DELETE FROM search_intents WHERE owner_id = :owner`, { owner }));
+    clock += 1;
+    await tasks.complete({ ownerId: owner, taskId: parent, mode: "all", stopRun: false });
+    const archived = await db.all<{ entity_id: string; entity: string; revision_or_seq: number }>(
+      sql(
+        `SELECT entity_id, entity, revision_or_seq FROM search_intents WHERE owner_id = :owner ORDER BY entity_id`,
+        { owner },
+      ),
+    );
+    expect(archived.map((intent) => intent.entity_id).sort()).toEqual([parent]);
+    expect(archived[0]?.entity).toBe("task");
+    // The intent carries the row's version after the archive, not before it.
+    const row = (await rows(owner)).find((task) => task.id === parent);
+    expect(archived[0]?.revision_or_seq).toBe(row?.version);
+  });
+
   it("refuses with task.run_active while a run is active unless asked to stop it", async () => {
     const owner = await insertUser();
     await db.executeScript(
@@ -784,6 +824,55 @@ describe("idempotent writes folded into the batch", () => {
     ]);
   });
 
+  it("refuses a no-op restore inside the batch once access is taken away, recording nothing", async () => {
+    const owner = await insertUser();
+    const tasks = service();
+    const id = await create(tasks, owner, "Task", { collection: "now" });
+    // The task is active, so a restore changes nothing; the batch must still decide on access.
+    await db.run(sql(`UPDATE users SET beta_state = 'relocked' WHERE id = :owner`, { owner }));
+    await expectRefused(
+      tasks.restore({
+        ownerId: owner,
+        taskId: id,
+        fold: fold(owner, "key-dddddddddddddddd", { id }),
+      }),
+      "access.relocked",
+    );
+    // Nothing recorded: a later retry of the same key must not replay a success that never happened.
+    expect(await db.all(sql(`SELECT key, status FROM idempotency_records`))).toEqual([]);
+    const version = await db.first<{ task_tree_version: number }>(
+      sql(`SELECT task_tree_version FROM users WHERE id = :owner`, { owner }),
+    );
+    expect(version?.task_tree_version).toBe(1);
+  });
+
+  it("records a no-op restore of an active task so an exact retry replays it", async () => {
+    const owner = await insertUser();
+    const tasks = service();
+    const id = await create(tasks, owner, "Task", { collection: "now" });
+    const before = await db.first<{ task_tree_version: number }>(
+      sql(`SELECT task_tree_version FROM users WHERE id = :owner`, { owner }),
+    );
+    const first = await tasks.restore({
+      ownerId: owner,
+      taskId: id,
+      fold: fold(owner, "key-eeeeeeeeeeeeeeee", { id }),
+    });
+    expect(applied<{ restoredTaskIds: string[] }>(first).restoredTaskIds).toEqual([]);
+    const retry = await tasks.restore({
+      ownerId: owner,
+      taskId: id,
+      fold: fold(owner, "key-eeeeeeeeeeeeeeee", { id }),
+    });
+    expect(retry).toEqual({ kind: "replay", body: applied(first) });
+    // A no-op never moves the tree version, so no client refetches and no cache entry is dropped.
+    const after = await db.first<{ task_tree_version: number }>(
+      sql(`SELECT task_tree_version FROM users WHERE id = :owner`, { owner }),
+    );
+    expect(after?.task_tree_version).toBe(before?.task_tree_version);
+    await expectCacheExact(tasks, owner);
+  });
+
   it("releases the claim when a stale plan is retried, then completes it", async () => {
     const owner = await insertUser();
     const tasks = service();
@@ -903,6 +992,40 @@ describe("reads", () => {
       tasks.listArchive({ ownerId: owner, cursor: "bm90LWEtY3Vyc29y" }),
     ).rejects.toMatchObject({ field: "cursor" });
     void ids;
+  });
+});
+
+describe("the tree cache budget (§3.3)", () => {
+  it("drops least recently stored owners once the task budget is used up", async () => {
+    const owners: string[] = [];
+    for (let index = 0; index < 3; index += 1) owners.push(await insertUser());
+    const cache = new MemoryTaskTreeCache({ now, maxTasks: 4 });
+    const tasks = new TaskService({
+      db,
+      keys,
+      policy: { betaAccessRequired: true },
+      now,
+      cache,
+      archiveContributors: [],
+    });
+    for (const owner of owners) {
+      await create(tasks, owner, "One", { collection: "now" });
+      await create(tasks, owner, "Two", { collection: "now" });
+    }
+    // Two owners of two tasks each fit; storing the third evicts the first.
+    expect(cache.taskCount).toBeLessThanOrEqual(4);
+    expect(cache.get(owners[0] as string)).toBeUndefined();
+    expect(cache.get(owners[2] as string)?.tree.byId.size).toBe(2);
+    // An owner whose tree alone is over budget is still cached, so its writes stay one D1 request.
+    const big = owners[2] as string;
+    for (let index = 0; index < 5; index += 1) {
+      await create(tasks, big, `Extra ${index}`, { collection: "now" });
+    }
+    expect(cache.get(big)?.tree.byId.size).toBe(7);
+    expect(cache.size).toBe(1);
+    // Deleting the entry gives the budget back rather than leaking it.
+    cache.delete(big);
+    expect(cache.taskCount).toBe(0);
   });
 });
 
