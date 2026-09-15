@@ -39,7 +39,7 @@ import { InternalEventHandlerRegistry } from "./internal-event-handlers.ts";
 import { InternalEventsController } from "./internal-events.controller.ts";
 import { EventIdMemory } from "./replay-memory.ts";
 import { RunOutputController } from "./run-output.controller.ts";
-import { RunOutputRelay } from "./run-output.relay.ts";
+import { RUN_OUTPUT_REPLAY_WINDOW_MS, RunOutputRelay } from "./run-output.relay.ts";
 import { recordWebhookDelivery, webhookReceiptBatch } from "./webhook-receipts.ts";
 
 /* ------------------------------------------------------------------------------------------------
@@ -102,7 +102,7 @@ afterEach(async () => {
 });
 
 /** The platform with two internal secret versions (current 2) and a probe run relay source. */
-async function start(): Promise<Harness> {
+async function start(tuning: { readonly replayMemoryCapacity?: number } = {}): Promise<Harness> {
   const runs = new FakeRuns();
   const previousSecret = generatedSecret();
   const app = await bootTestApp({
@@ -113,6 +113,7 @@ async function start(): Promise<Harness> {
     },
     runtime: {
       eventsContributors: [{ domain: "simon", executionKinds: [], runRelaySource: () => runs }],
+      internal: { tuning },
     },
   });
   const harness: Harness = {
@@ -571,9 +572,10 @@ describe("POST /internal/v1/runs/:runId/output (§8.2)", () => {
 
   it("rejects the wrong run: a path that differs from the body, an unknown run, or another run's envelope", async () => {
     const other = uuidv7();
+    const unknown = uuidv7();
     expect((await send(h, output(0, undefined, {}, runOutputPath(other)))).status).toBe(404);
     expect(
-      (await send(h, output(0, undefined, { runId: other }, runOutputPath(other)))).status,
+      (await send(h, output(0, undefined, { runId: unknown }, runOutputPath(unknown)))).status,
     ).toBe(404);
 
     // Another run of the same owner: the envelope's AAD binds the run id, so it cannot be moved.
@@ -620,7 +622,9 @@ describe("POST /internal/v1/runs/:runId/output (§8.2)", () => {
     expect(h.logLines().join("\n")).not.toContain(MARKER);
   });
 
-  it("rejects forged, stale and replayed output requests and wrong key versions", async () => {
+  it("rejects forged and stale output requests and wrong key versions, and relays a replay once", async () => {
+    const { socket, frames } = collect(h, owner.ownerId);
+    await h.hub.subscribeConversation(socket, conversationTopic(conversationId), null);
     const request = output(0);
     const forged = {
       ...request,
@@ -634,7 +638,50 @@ describe("POST /internal/v1/runs/:runId/output (§8.2)", () => {
     });
     expect((await send(h, stale)).status).toBe(404);
     expect((await send(h, request)).status).toBe(202);
-    expect((await send(h, request)).status).toBe(404);
+    // A byte-identical replay meets its (runId, seq) and relays nothing, even long after the run
+    // went quiet, for as long as its signature could still be fresh.
+    await h.clock.advance(RUN_OUTPUT_REPLAY_WINDOW_MS - 1_000);
+    const replayed = signed(h, runOutputPath(runId), JSON.parse(request.body.toString()), {
+      timestamp: Math.floor(h.clock.now() / 1000),
+    });
+    expect(await send(h, replayed)).toMatchObject({ status: 200, body: { status: "duplicate" } });
+    expect(frames.filter((frame) => frame.t === "ev")).toHaveLength(2);
+  });
+
+  it("keeps run output out of the event id replay memory, so streaming never starves internal events", async () => {
+    // A replay memory that holds three ids: before run output had its own dedupe, the fourth batch
+    // of one streaming run filled it and every internal request answered 503.
+    h = await start({ replayMemoryCapacity: 3 });
+    owner = await addOwner(h);
+    generation = await currentGeneration(h);
+    h.runs.runs.set(runId, {
+      ownerId: owner.ownerId,
+      conversationId,
+      status: "running",
+      generation,
+    });
+    const handle = vi.fn<InternalEventHandler["handle"]>(async () => undefined);
+    h.handlers.register({ type: "tasks.changed", handle });
+
+    for (let seq = 0; seq < 12; seq += 1) {
+      expect((await send(h, output(seq))).status).toBe(202);
+    }
+    // Every retry of a batch is re-signed with a fresh event id; the (runId, seq) dedupe answers it.
+    expect((await send(h, output(11))).status).toBe(200);
+
+    const announcement = {
+      id: uuidv7(),
+      type: "tasks.changed",
+      ownerId: owner.ownerId,
+      occurredAt: h.clock.now(),
+      payload: { taskIds: [uuidv7()], taskTreeVersion: 1 },
+    };
+    const accepted = await send(
+      h,
+      signed(h, INTERNAL_EVENTS_PATH, announcement, { eventId: announcement.id }),
+    );
+    expect(accepted.status).toBe(202);
+    expect(handle).toHaveBeenCalledTimes(1);
   });
 
   it("stops relaying when the api shuts down", async () => {
@@ -646,6 +693,100 @@ describe("POST /internal/v1/runs/:runId/output (§8.2)", () => {
 /* ------------------------------------------------------------------------------------------------
  * Webhook receipts
  * --------------------------------------------------------------------------------------------- */
+
+describe("run output relay dedupe as replay protection (§6.2, §8.2)", () => {
+  function relayFor(options: { readonly maxRuns?: number } = {}) {
+    const clock = new FakeClock(Date.UTC(2026, 8, 15, 10));
+    const keys = createKeyProvider({
+      CONTENT_KEK: { current: 1, versions: new Map([[1, secret(41)]]) },
+    });
+    const ownerId = uuidv7();
+    const conversationId = uuidv7();
+    const { key } = createAccountKey(keys, ownerId);
+    const active = new Map<string, RunLifecycleStatus>();
+    const lookups = { ownership: 0, state: 0 };
+    const log = new Log();
+    const relay = new RunOutputRelay({
+      source: {
+        ownership: async (runId) => {
+          lookups.ownership += 1;
+          return active.has(runId) ? { runId, ownerId, conversationId } : null;
+        },
+        state: async (runId) => {
+          lookups.state += 1;
+          const status = active.get(runId);
+          return status ? { status, executorGeneration: 1 } : null;
+        },
+      },
+      accountKeys: {
+        load: async () => ({ ...key, key: Uint8Array.from(key.key) }),
+      } as unknown as Pick<AccountKeyStore, "load">,
+      executorState: {
+        readCached: async () => ({ generation: 1 }),
+      } as unknown as ExecutorStateReader,
+      hub: new TopicHub({
+        registry: new TopicRegistry(),
+        access: { satisfies: () => true },
+        timers: clock,
+        log,
+      }),
+      timers: clock,
+      log,
+      ...options,
+    });
+    const body = (runId: string, seq: number) => ({
+      runId,
+      attempt: 1,
+      seq,
+      envelope: encryptFieldText(
+        key,
+        runChunkContext(ownerId, runId, seq),
+        JSON.stringify([{ type: "text-start", id: "t1" }]),
+      ),
+    });
+    return { clock, relay, active, lookups, body };
+  }
+
+  it("refuses new runs while full of runs inside their replay window, instead of forgetting one", async () => {
+    const { clock, relay, active, body } = relayFor({ maxRuns: 2 });
+    const [a, b, c] = [uuidv7(), uuidv7(), uuidv7()];
+    for (const runId of [a, b, c]) active.set(runId, "running");
+    expect(await relay.accept(a, body(a, 0))).toEqual({ status: "accepted", relayed: 1 });
+    expect(await relay.accept(b, body(b, 0))).toEqual({ status: "accepted", relayed: 1 });
+    expect(await relay.accept(c, body(c, 0))).toEqual({ status: "rejected", reason: "capacity" });
+    // Run a is still remembered, so its replay is a duplicate rather than a second relay.
+    expect(await relay.accept(a, body(a, 0))).toEqual({ status: "duplicate" });
+
+    await clock.advance(RUN_OUTPUT_REPLAY_WINDOW_MS);
+    expect(await relay.accept(b, body(b, 1))).toEqual({ status: "accepted", relayed: 1 });
+    // Only a run whose last request left the replay window makes room.
+    expect(await relay.accept(c, body(c, 0))).toEqual({ status: "accepted", relayed: 1 });
+    expect(relay.trackedRuns).toBe(2);
+  });
+
+  it("keeps the dedupe of a run that ended, and answers repeated misses without new lookups", async () => {
+    const { clock, relay, active, lookups, body } = relayFor();
+    const runId = uuidv7();
+    active.set(runId, "running");
+    expect(await relay.accept(runId, body(runId, 0))).toEqual({ status: "accepted", relayed: 1 });
+    active.set(runId, "completed");
+    await clock.advance(10_000);
+    expect(await relay.accept(runId, body(runId, 1))).toMatchObject({ reason: "inactive_run" });
+    expect(await relay.accept(runId, body(runId, 0))).toEqual({ status: "duplicate" });
+
+    const unknown = uuidv7();
+    const before = { ...lookups };
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      expect(await relay.accept(unknown, body(unknown, 0))).toMatchObject({
+        reason: "unknown_run",
+      });
+    }
+    expect(lookups.ownership - before.ownership).toBe(1);
+    await clock.advance(10_000);
+    expect(await relay.accept(unknown, body(unknown, 0))).toMatchObject({ reason: "unknown_run" });
+    expect(lookups.ownership - before.ownership).toBe(2);
+  });
+});
 
 describe("run output relay key cache (§8.2)", () => {
   it("decrypts with a private copy of the cached key, so a concurrent eviction never zeroes it mid-request", async () => {

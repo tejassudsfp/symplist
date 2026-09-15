@@ -23,8 +23,10 @@ interface StatusResponse {
 /**
  * `POST /internal/v1/runs/:runId/output` (§8.2): signed, encrypted run output chunks relayed to the
  * run's conversation topic. 202 when relayed, 200 for a duplicate `(runId, seq)`; every ownership,
- * status or generation failure returns `not_found`. Route class `signed`; per-IP throttling is skipped
- * because each run pushes up to ten batches a second from shared Trigger egress addresses.
+ * status or generation failure returns `not_found`. Replays are made harmless by that dedupe, not by
+ * the event id replay memory: the worker re-signs each retry with a fresh event id, and a streaming
+ * run would otherwise fill the memory internal events share. Route class `signed`; per-IP throttling
+ * is skipped because each run pushes up to ten batches a second from shared Trigger egress addresses.
  */
 @SkipThrottle()
 @RouteClass("signed")
@@ -50,10 +52,8 @@ export class RunOutputController {
         ? new ApiError("request.too_large")
         : malformedRequestError();
     }
-    const verification = this.verifier.verify(request, raw.body, "internal.run_output");
-    if (!verification.ok) {
-      throw verification.reason === "memory_full" ? ApiError.rateLimited(5) : ApiError.notFound();
-    }
+    const verification = this.verifier.verifySignature(request, raw.body, "internal.run_output");
+    if (!verification.ok) throw ApiError.notFound();
     const verified = verification.request;
 
     let body: RunOutputBody;
@@ -79,10 +79,9 @@ export class RunOutputController {
           case "invalid_plaintext":
             throw malformedRequestError();
           case "unavailable":
-            verified.release();
             throw ApiError.rateLimited(1);
           case "shutting_down":
-            verified.release();
+          case "capacity":
             throw ApiError.rateLimited(5);
           default:
             throw ApiError.notFound();

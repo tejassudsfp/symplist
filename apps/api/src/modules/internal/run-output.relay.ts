@@ -10,7 +10,13 @@ import {
   runChunkBatchSchema,
   type UiMessageChunk,
 } from "@symplist/core/events";
-import { type AccountDataKey, decryptFieldText, runChunkContext, zeroize } from "@symplist/crypto";
+import {
+  type AccountDataKey,
+  decryptFieldText,
+  INTERNAL_SIGNATURE_WINDOW_SECONDS,
+  runChunkContext,
+  zeroize,
+} from "@symplist/crypto";
 import type { ExecutorStateReader } from "../../infra/executors/executor-state.ts";
 import {
   errorCode,
@@ -28,6 +34,7 @@ export type RelayRejection =
   | "undecryptable"
   | "invalid_plaintext"
   | "unavailable"
+  | "capacity"
   | "shutting_down";
 
 export type RelayResult =
@@ -37,6 +44,8 @@ export type RelayResult =
 
 interface RunEntry {
   ownership: RunRelayOwnership | null;
+  /** When a lookup last found no such run; answered from memory for the state TTL. */
+  missingAt: number | null;
   ownershipPromise: Promise<RunRelayOwnership | null> | undefined;
   state: { readonly value: RunRelayState | null; readonly readAt: number } | undefined;
   statePromise: Promise<RunRelayState | null> | undefined;
@@ -59,7 +68,10 @@ export interface RunOutputRelayOptions {
   readonly log: OperationalLog;
   /** Status, executor generation and account keys are re-read at most this often (§6.2). */
   readonly stateTtlMs?: number;
-  /** A run with no output for this long is forgotten, with its ownership and dedupe state. */
+  /**
+   * A run with no output for this long is forgotten, with its ownership and dedupe state. Never
+   * shorter than {@link RUN_OUTPUT_REPLAY_WINDOW_MS}, because the dedupe is the replay protection.
+   */
   readonly idleRunMs?: number;
   /** Sequence numbers remembered per run for deduplication. */
   readonly dedupeWindow?: number;
@@ -67,6 +79,14 @@ export interface RunOutputRelayOptions {
 }
 
 const executing = new Set<string>(executingRunStatuses);
+
+/**
+ * How long a signed request can be replayed after the api first accepts it: a signature is fresh
+ * within ±300 seconds of its timestamp, so one signed by a worker clock 300 seconds ahead stays
+ * fresh for 601 seconds of api time. A run's dedupe state is kept at least this long after its last
+ * request, so a replay always meets the `seq` it repeats.
+ */
+export const RUN_OUTPUT_REPLAY_WINDOW_MS = (2 * INTERNAL_SIGNATURE_WINDOW_SECONDS + 1) * 1000;
 
 function copyKey(key: AccountDataKey | null): AccountDataKey | null {
   return key ? { ...key, key: Uint8Array.from(key.key) } : null;
@@ -78,6 +98,12 @@ function copyKey(key: AccountDataKey | null): AccountDataKey | null {
  * decrypts the `run_chunk` envelope under the owner's account key, and relays each UI chunk on
  * `conversation:<id>` through the topic hub, which buffers it for replay. Chunks are never persisted
  * and never logged.
+ *
+ * The dedupe is also the endpoint's replay protection (the event id replay memory is left to
+ * internal events), so a run's state is never dropped while a request for it could still be
+ * replayed: idle runs are forgotten only after the replay window, a full relay refuses new runs with
+ * `capacity` instead of evicting a live one, and a run found missing or inactive keeps its entry, so
+ * replaying a rejected request costs no D1 read either.
  */
 export class RunOutputRelay {
   private readonly runs = new Map<string, RunEntry>();
@@ -89,7 +115,7 @@ export class RunOutputRelay {
 
   constructor(private readonly options: RunOutputRelayOptions) {
     this.stateTtlMs = options.stateTtlMs ?? 10_000;
-    this.idleRunMs = options.idleRunMs ?? 15 * 60_000;
+    this.idleRunMs = Math.max(options.idleRunMs ?? 15 * 60_000, RUN_OUTPUT_REPLAY_WINDOW_MS);
     this.dedupeWindow = options.dedupeWindow ?? 4_096;
     this.maxRuns = options.maxRuns ?? 10_000;
   }
@@ -106,7 +132,11 @@ export class RunOutputRelay {
     if (!this.options.source) return this.reject(body, "unknown_run");
 
     const entry = this.entry(body.runId);
+    if (!entry) return this.reject(body, "capacity");
     if (this.isDuplicate(entry, body.seq)) return { status: "duplicate" };
+    if (entry.missingAt !== null && this.options.timers.now() - entry.missingAt < this.stateTtlMs) {
+      return this.reject(body, "unknown_run");
+    }
 
     let ownership: RunRelayOwnership | null;
     let state: RunRelayState | null;
@@ -116,6 +146,7 @@ export class RunOutputRelay {
       if (!ownership) return this.reject(body, "unknown_run", entry);
       state = await this.state(entry, body.runId);
       if (!state) return this.reject(body, "unknown_run", entry);
+      entry.missingAt = null;
       currentGeneration = (await this.options.executorState.readCached(this.stateTtlMs)).generation;
     } catch (error) {
       log.warn("internal.run_output_lookup_failed", { runId: body.runId, code: errorCode(error) });
@@ -194,8 +225,12 @@ export class RunOutputRelay {
   }
 
   private reject(body: RunOutputBody, reason: RelayRejection, entry?: RunEntry): RelayResult {
-    if (entry && (reason === "unknown_run" || reason === "inactive_run")) {
-      this.runs.delete(body.runId);
+    if (entry && reason === "unknown_run") {
+      // The run is gone (or never existed): drop what was cached about it, but keep its dedupe
+      // state and remember the miss, so neither a replay nor a retry storm reaches D1 again at once.
+      entry.ownership = null;
+      entry.state = undefined;
+      entry.missingAt = this.options.timers.now();
     }
     this.options.log.warn("internal.run_output_rejected", {
       runId: body.runId,
@@ -206,16 +241,15 @@ export class RunOutputRelay {
     return { status: "rejected", reason };
   }
 
-  private entry(runId: string): RunEntry {
+  /** The run's entry, or null when the relay is full of runs still inside their replay window. */
+  private entry(runId: string): RunEntry | null {
     const now = this.options.timers.now();
     let entry = this.runs.get(runId);
     if (!entry) {
-      if (this.runs.size >= this.maxRuns) {
-        const oldest = this.runs.keys().next().value;
-        if (oldest !== undefined) this.runs.delete(oldest);
-      }
+      if (this.runs.size >= this.maxRuns && !this.evictOutsideReplayWindow(now)) return null;
       entry = {
         ownership: null,
+        missingAt: null,
         ownershipPromise: undefined,
         state: undefined,
         statePromise: undefined,
@@ -279,6 +313,17 @@ export class RunOutputRelay {
     if (previous?.key && previous.key !== key) zeroize(previous.key.key);
     this.keys.set(ownerId, { key, readAt: this.options.timers.now() });
     return copyKey(key);
+  }
+
+  /** Forgets one run whose last request left the replay window; false when there is none. */
+  private evictOutsideReplayWindow(now: number): boolean {
+    for (const [runId, entry] of this.runs) {
+      if (now - entry.lastUsedAt >= RUN_OUTPUT_REPLAY_WINDOW_MS) {
+        this.runs.delete(runId);
+        return true;
+      }
+    }
+    return false;
   }
 
   private evictIdle(): void {
