@@ -1,0 +1,21 @@
+packages:
+  - apps/*
+  - packages/*
+
+# Build scripts are blocked unless approved here.
+allowBuilds:
+  # Trigger.dev CLI: remote image builds for `trigger deploy`.
+  '@depot/cli': true
+  # Bundler used by the Trigger.dev CLI.
+  esbuild: true
+
+# Deliberately pinned current releases that are newer than pnpm's minimum release age.
+minimumReleaseAgeExclude:
+  - '@trigger.dev/build@4.6.0'
+  - '@trigger.dev/core@4.6.0'
+  - '@trigger.dev/schema-to-json@4.6.0'
+  - '@trigger.dev/sdk@4.6.0'
+  - '@vitest/mocker@5.0.1'
+  - '@vitest/spy@5.0.1'
+  - trigger.dev@4.6.0
+  - vitest@5.0.1

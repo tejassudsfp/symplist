@@ -9,6 +9,7 @@ node_modules/
 .next/
 dist/
 build/
+!docs/build/
 coverage/
 *.log
 # Local system/editor state
@@ -22,3 +23,7 @@ Thumbs.db
 # Test output
 playwright-report/
 test-results/
+# Private local deployment decisions and env checklist
+symplist_env_and_decisions.csv
+# Trigger.dev local build output
+.trigger
