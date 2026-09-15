@@ -7,5 +7,5 @@
     "declarationMap": false,
     "customConditions": ["source"]
   },
-  "include": ["playwright.config.ts", "tests"]
+  "include": ["playwright.config.ts", "src", "tests"]
 }
