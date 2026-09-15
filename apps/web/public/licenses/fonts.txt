@@ -1,12 +1,16 @@
 Third-party font notices
 
 Symplist self-hosts the fonts below. Each is licensed under the SIL Open Font License, Version 1.1.
-The fonts are redistributed unmodified from the Fontsource npm packages named in each section.
-Each section reproduces the copyright notice and license text shipped with that package.
+The fonts are redistributed unmodified from the Fontsource npm packages named in each section, as
+the WOFF2 files of the character subsets each section lists (latin, latin-ext and, where the package
+provides it, vietnamese). Each section reproduces the copyright notice and license text shipped with
+that package.
 
 ================================================================================
 Geist (@fontsource-variable/geist 5.3.0)
 ================================================================================
+
+Subsets: latin, latin-ext, vietnamese
 
 Copyright 2024 The Geist Project Authors (https://github.com/vercel/geist-font) Geist-Italic[wght].ttf: Copyright 2024 The Geist Project Authors (https://github.com/vercel/geist-font)
 
@@ -107,6 +111,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 Source Sans 3 (@fontsource-variable/source-sans-3 5.3.0)
 ================================================================================
 
+Subsets: latin, latin-ext, vietnamese
+
 Google Inc.
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
@@ -205,6 +211,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 ================================================================================
 Source Serif 4 (@fontsource-variable/source-serif-4 5.3.0)
 ================================================================================
+
+Subsets: latin, latin-ext, vietnamese
 
 Google Inc.
 
@@ -305,6 +313,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 Nunito (@fontsource-variable/nunito 5.3.0)
 ================================================================================
 
+Subsets: latin, latin-ext, vietnamese
+
 Copyright 2014 The Nunito Project Authors (https://github.com/googlefonts/nunito) Nunito-Italic[wght].ttf: Copyright 2014 The Nunito Project Authors (https://github.com/googlefonts/nunito)
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
@@ -403,6 +413,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 ================================================================================
 Public Sans (@fontsource-variable/public-sans 5.3.0)
 ================================================================================
+
+Subsets: latin, latin-ext, vietnamese
 
 Copyright 2015 The Public Sans Project Authors (https://github.com/uswds/public-sans) PublicSans-Italic[wght].ttf: Copyright 2015 The Public Sans Project Authors (https://github.com/uswds/public-sans)
 
@@ -503,6 +515,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 DM Sans (@fontsource-variable/dm-sans 5.3.0)
 ================================================================================
 
+Subsets: latin, latin-ext
+
 Copyright 2014 The DM Sans Project Authors (https://github.com/googlefonts/dm-fonts) DMSans-Italic[opsz,wght].ttf: Copyright 2014 The DM Sans Project Authors (https://github.com/googlefonts/dm-fonts)
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
@@ -601,6 +615,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 ================================================================================
 Fraunces (@fontsource-variable/fraunces 5.3.0)
 ================================================================================
+
+Subsets: latin, latin-ext, vietnamese
 
 Copyright 2020 The Fraunces Project Authors (github.com/undercasetype/Fraunces) Fraunces-Italic[SOFT,WONK,opsz,wght].ttf: Copyright 2020 The Fraunces Project Authors (github.com/undercasetype/Fraunces)
 
@@ -701,6 +717,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 Manrope (@fontsource-variable/manrope 5.3.0)
 ================================================================================
 
+Subsets: latin, latin-ext, vietnamese
+
 Copyright 2019 The Manrope Project Authors (https://github.com/sharanda/manrope)
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
@@ -799,6 +817,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 ================================================================================
 IBM Plex Mono (@fontsource/ibm-plex-mono 5.3.0)
 ================================================================================
+
+Subsets: latin, latin-ext, vietnamese
 
 Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-ThinItalic.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-ExtraLight.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-ExtraLightItalic.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-Light.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-LightItalic.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-Regular.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-Italic.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-Medium.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-MediumItalic.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-SemiBold.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-SemiBoldItalic.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-Bold.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-BoldItalic.ttf: Copyright 2017 IBM Corp. All rights reserved.
 

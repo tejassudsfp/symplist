@@ -38,19 +38,30 @@ function decode(body: unknown): string {
   throw new Error("unexpected body type");
 }
 
+function ingestResponse(status: number): Awaited<ReturnType<PostHogNodeFetch>> {
+  return {
+    status,
+    text: async () => "{}",
+    json: async () => ({}),
+    headers: { get: () => null },
+  } as unknown as Awaited<ReturnType<PostHogNodeFetch>>;
+}
+
+function deferred(): { readonly promise: Promise<void>; readonly resolve: () => void } {
+  let resolve: () => void = () => undefined;
+  const promise = new Promise<void>((settle) => {
+    resolve = settle;
+  });
+  return { promise, resolve };
+}
+
 function fakeIngest(behaviour: { status?: number; hang?: boolean } = {}) {
   const requests: BatchRequest[] = [];
   const fetch: PostHogNodeFetch = async (url, options) => {
     if (behaviour.hang) return new Promise(() => undefined);
     const payload = JSON.parse(decode(options.body)) as { batch: BatchRequest["events"] };
     requests.push({ url, events: payload.batch });
-    const status = behaviour.status ?? 200;
-    return {
-      status,
-      text: async () => "{}",
-      json: async () => ({}),
-      headers: { get: () => null },
-    } as unknown as Awaited<ReturnType<PostHogNodeFetch>>;
+    return ingestResponse(behaviour.status ?? 200);
   };
   return { fetch, requests };
 }
@@ -273,6 +284,116 @@ describe("server analytics emitter (§15)", () => {
     });
     await expect(batched.instance.flush()).resolves.toBeUndefined();
     await expect(batched.instance.shutdown()).resolves.toBeUndefined();
+  });
+
+  it("attributes a provider failure only to the immediate capture whose send failed", async () => {
+    const slowId = "0192f0a0-0000-7000-8000-0000000e0a01";
+    const failingId = "0192f0a0-0000-7000-8000-0000000e0a02";
+    const slowInFlight = deferred();
+    const releaseSlow = deferred();
+    const fetch: PostHogNodeFetch = async (_url, options) => {
+      const [event] = (JSON.parse(decode(options.body)) as { batch: Array<{ uuid: string }> })
+        .batch;
+      if (event?.uuid === slowId) {
+        slowInFlight.resolve();
+        await releaseSlow.promise;
+        return ingestResponse(200);
+      }
+      // Fail only while the other capture's request is still open, so their sends overlap.
+      await slowInFlight.promise;
+      return ingestResponse(500);
+    };
+    const { instance, logs } = emitter({ fetch, delivery: "immediate" });
+
+    const slow = instance.capture({
+      subject: granted,
+      event: "task_created",
+      properties: created,
+      eventId: slowId,
+    });
+    const failing = instance.capture({
+      subject: granted,
+      event: "task_created",
+      properties: created,
+      eventId: failingId,
+    });
+
+    // The failure is reported while the slow send is still waiting for its response.
+    expect(await failing).toEqual({ status: "failed", reason: "provider_error" });
+    releaseSlow.resolve();
+    expect(await slow).toEqual({ status: "sent" });
+    expect(logs).toEqual([{ event: "analytics.capture_failed", code: "analytics.provider_error" }]);
+    await instance.shutdown();
+  });
+
+  it("keeps outcomes separate across many overlapping immediate captures", async () => {
+    const count = 12;
+    const ids = Array.from(
+      { length: count },
+      (_, index) => `0192f0a0-0000-7000-8000-0000000e0b${String(index).padStart(2, "0")}`,
+    );
+    const failingIds = new Set(ids.filter((_, index) => index % 3 === 1));
+    const allInFlight = deferred();
+    let inFlight = 0;
+    const fetch: PostHogNodeFetch = async (_url, options) => {
+      const [event] = (JSON.parse(decode(options.body)) as { batch: Array<{ uuid: string }> })
+        .batch;
+      inFlight += 1;
+      if (inFlight === count) allInFlight.resolve();
+      // Every request waits until all of them are open, then they settle in reverse order.
+      await allInFlight.promise;
+      const position = ids.indexOf(event?.uuid ?? "");
+      await new Promise((resolve) => setTimeout(resolve, (count - position) * 2));
+      return ingestResponse(failingIds.has(event?.uuid ?? "") ? 503 : 200);
+    };
+    const { instance, logs } = emitter({ fetch, delivery: "immediate" });
+
+    const outcomes = await Promise.all(
+      ids.map((id) =>
+        instance.capture({
+          subject: granted,
+          event: "task_created",
+          properties: created,
+          eventId: id,
+        }),
+      ),
+    );
+
+    expect(outcomes).toEqual(
+      ids.map((id) =>
+        failingIds.has(id)
+          ? { status: "failed", reason: "provider_error" }
+          : { status: "sent" as const },
+      ),
+    );
+    expect(logs).toEqual(
+      [...failingIds].map(() => ({
+        event: "analytics.capture_failed",
+        code: "analytics.provider_error",
+      })),
+    );
+    await instance.shutdown();
+  });
+
+  it("still logs provider errors from batched background flushes", async () => {
+    const { fetch } = fakeIngest({ status: 503 });
+    const { instance, logs } = emitter({ fetch, flushAt: 1, flushIntervalMs: 60_000 });
+    expect(
+      await instance.capture({
+        subject: granted,
+        event: "task_created",
+        properties: created,
+        eventId,
+      }),
+    ).toEqual({ status: "queued" });
+    await vi.waitFor(() =>
+      expect(logs).toContainEqual({
+        event: "analytics.provider_error",
+        code: "analytics.provider_error",
+      }),
+    );
+    expect(JSON.stringify(logs)).not.toContain(analyticsId);
+    await instance.shutdown();
   });
 
   it("bounds the batched queue, dropping the oldest events while the provider is unreachable", async () => {

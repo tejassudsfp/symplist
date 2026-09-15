@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { PostHog, type PostHogOptions } from "posthog-node";
 import type { AnalyticsConsentState } from "./browser.ts";
 import { checkOutgoingEvent, posthogUsAppHost, posthogUsIngestHost } from "./config.ts";
@@ -111,6 +112,15 @@ class TimeoutSignal extends Error {
   override readonly name = "AnalyticsTimeout";
 }
 
+/**
+ * The state of one immediate capture. posthog-node reports a failed immediate send only by emitting
+ * `error` on the client it shares with every other capture, and the error carries nothing that names
+ * the event, so the emitter attributes it through the async context the send runs in.
+ */
+interface ImmediateCaptureScope {
+  providerFailed: boolean;
+}
+
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_resolve, reject) => {
@@ -162,9 +172,19 @@ export function createServerAnalytics(options: ServerAnalyticsOptions): ServerAn
     },
     ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
   });
-  client.on("error", () =>
-    warn({ event: "analytics.provider_error", code: "analytics.provider_error" }),
-  );
+  // One listener for the life of the client. posthog-node emits `error` synchronously inside the
+  // failing send, and each immediate capture runs its send inside its own async context, so the
+  // failure is recorded only on the capture that caused it; concurrent captures never observe each
+  // other's errors. Errors outside any capture (batched background flushes) are logged here.
+  const immediateCaptures = new AsyncLocalStorage<ImmediateCaptureScope>();
+  client.on("error", () => {
+    const scope = immediateCaptures.getStore();
+    if (scope !== undefined) {
+      scope.providerFailed = true;
+      return;
+    }
+    warn({ event: "analytics.provider_error", code: "analytics.provider_error" });
+  });
 
   let stopped = false;
 
@@ -197,17 +217,14 @@ export function createServerAnalytics(options: ServerAnalyticsOptions): ServerAn
           client.capture(message);
           return { status: "queued" };
         }
-        // posthog-node reports HTTP failures of an immediate send through its error event.
-        let providerFailed = false;
-        const stopListening = client.on("error", () => {
-          providerFailed = true;
-        });
-        try {
-          await withTimeout(client.captureImmediate(message), options.immediateTimeoutMs ?? 3000);
-        } finally {
-          stopListening();
-        }
-        if (!providerFailed) return { status: "sent" };
+        // posthog-node reports HTTP failures of an immediate send through its error event, which the
+        // client-wide listener records on this capture's scope only.
+        const scope: ImmediateCaptureScope = { providerFailed: false };
+        await withTimeout(
+          immediateCaptures.run(scope, () => client.captureImmediate(message)),
+          options.immediateTimeoutMs ?? 3000,
+        );
+        if (!scope.providerFailed) return { status: "sent" };
         warn({ event: "analytics.capture_failed", code: "analytics.provider_error" });
         return { status: "failed", reason: "provider_error" };
       } catch (error) {

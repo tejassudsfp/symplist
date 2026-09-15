@@ -27,7 +27,10 @@ describe("runtimeReport", () => {
     const exec = vi.fn<ExecFileFn>().mockResolvedValue({ stdout: "git version 2.47.3" });
     await runtimeReport(exec);
 
-    const [file, args, options] = exec.mock.calls[0]!;
+    expect(exec).toHaveBeenCalledTimes(1);
+    const call = exec.mock.calls[0];
+    if (call === undefined) throw new Error("runtimeReport did not call Git");
+    const [file, args, options] = call;
     expect(file).toBe("git");
     expect(args).toEqual(["--version"]);
     expect(options.env).toMatchObject({ GIT_CONFIG_NOSYSTEM: "1", HOME: "/nonexistent" });
