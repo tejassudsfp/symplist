@@ -1,9 +1,15 @@
+import type { D1AccessService } from "@symplist/core/access";
 import type { AccountDeletionService } from "@symplist/core/account";
 import { int, sql, uuidv7 } from "@symplist/db";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { bootTestApp, type TestApp } from "../../../test/harness.ts";
 import { REALTIME_ACCESS_NOTIFIER, type RealtimeAccessNotifier } from "../seams.ts";
-import { ACCOUNT_DELETION, ACCOUNT_DELETION_EFFECTS } from "./access.providers.ts";
+import {
+  ACCESS_SERVICE,
+  ACCOUNT_DELETION,
+  ACCOUNT_DELETION_EFFECTS,
+  RestrictionEffectRegistry,
+} from "./access.providers.ts";
 
 let app: TestApp | undefined;
 afterEach(async () => {
@@ -79,5 +85,54 @@ describe("account deletion through the api platform (§5.6)", () => {
       committedAt: now,
     });
     expect(app.logs.text()).not.toContain(user.email);
+  });
+});
+
+describe("feature restriction effects (§5.5)", () => {
+  it("runs registered feature effects after the access cache eviction, isolating failures", async () => {
+    const order: string[] = [];
+    const realtime: RealtimeAccessNotifier = {
+      accessRestricted: vi.fn(async () => {
+        order.push("realtime");
+      }),
+      sessionsEnded: vi.fn(async () => undefined),
+    };
+    app = await bootTestApp({
+      providers: [{ provide: REALTIME_ACCESS_NOTIFIER, useValue: realtime }],
+    });
+    const registry = app.inject<RestrictionEffectRegistry>(RestrictionEffectRegistry);
+    registry.register({
+      name: "probe_failing_eviction",
+      afterCommit: async () => {
+        order.push("failing");
+        throw new Error("cache unavailable");
+      },
+    });
+    const evicted = vi.fn(async () => {
+      order.push("probe");
+    });
+    registry.register({ name: "probe_cache_eviction", afterCommit: evicted });
+    expect(() => registry.register({ name: "probe_cache_eviction", afterCommit: evicted })).toThrow(
+      /already registered/,
+    );
+    expect(() => registry.register({ name: "Bad Name", afterCommit: evicted })).toThrow();
+
+    const user = await app.createSignedInUser();
+    const outcome = await app.inject<D1AccessService>(ACCESS_SERVICE).restrict({
+      userId: user.id,
+      reason: "suspended",
+      writeId: uuidv7(app.clock.now()),
+      now: app.clock.now(),
+    });
+    expect(outcome.applied).toBe(true);
+    expect(evicted).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: user.id, reason: "suspended" }),
+    );
+    expect(order.filter((step) => step !== "failing")).toEqual(["probe", "realtime"]);
+    expect(order.indexOf("failing")).toBeLessThan(order.indexOf("probe"));
+    expect(app.logs.events("access.restriction_effect_failed")).toMatchObject([
+      { effect: "probe_failing_eviction" },
+    ]);
+    expect(app.logs.text()).not.toContain("cache unavailable");
   });
 });

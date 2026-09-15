@@ -72,9 +72,13 @@ describe("loadMigrations", () => {
     expect(names[0]).toBe("0001_users.sql");
   });
 
-  it("keeps foundation files inside the 0001-0019 range", async () => {
+  it("keeps foundation files inside the 0001-0019 range and feature files inside their ranges", async () => {
     const numbers = (await loadMigrations()).map((migration) => Number(migration.name.slice(0, 4)));
-    expect(numbers.every((number) => number >= 1 && number <= 19)).toBe(true);
+    // Below 0100 only the foundation range exists; feature ranges run from 0100 to 1099 (§3.4).
+    expect(
+      numbers.filter((number) => number < 100).every((number) => number >= 1 && number <= 19),
+    ).toBe(true);
+    expect(numbers.every((number) => number >= 1 && number <= 1099)).toBe(true);
   });
 
   it("rejects badly named and empty files", async () => {

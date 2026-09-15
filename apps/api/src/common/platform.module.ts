@@ -25,6 +25,7 @@ import {
   ACCOUNT_DELETION,
   ACCOUNT_KEYS,
   accessProviders,
+  RestrictionEffectRegistry,
 } from "./access/access.providers.ts";
 import { SessionService } from "./auth/session.service.ts";
 import { CLOCK, type Clock, systemClock } from "./clock.ts";
@@ -82,6 +83,7 @@ const exported = [
   ACCESS_SERVICE,
   ACCOUNT_KEYS,
   ACCOUNT_DELETION,
+  RestrictionEffectRegistry,
   IDEMPOTENCY_STORE,
   AppLogger,
   NestLoggerAdapter,
