@@ -69,6 +69,48 @@ python3 -m http.server 8000 --directory "design/UI sample" --bind 127.0.0.1
 
 Then open `http://127.0.0.1:8000/workspace_now.dc.html`. This serves a design reference, not the application. The export references online fonts; its state/theme/viewport controls are design-review tooling.
 
+## Self-hosting prompt
+
+Self-hosting is a project requirement; a runnable release is not available yet. Give the following prompt to your preferred development assistant with this repository open:
+
+```text
+Help me self-host Symplist from this checkout. First read README.md,
+docs/notes/files/00_index.md, 07_architecture.md, 08_self_hosting.md,
+and the relevant security, access, analytics, and execution specifications.
+Inspect the actual source and release status before proposing commands.
+
+If the application is not implemented yet, state that clearly. Use
+“docs/prompts/build prompt.md” for the implementation scope; do not pretend
+the UI reference is a deployable app or invent installation commands.
+
+For a runnable version, prepare and verify a reproducible deployment using
+Next.js, NestJS, D1 via direct REST, encrypted R2 storage, and Resend.
+Default DURABLE=false so no Trigger credentials are required; explain the
+optional Trigger setup. Keep billing/paywall/AI quotas disabled and PostHog
+analytics off unless I explicitly enable it. Configure AI providers/models
+and Composio only with my own credentials and authorized connections.
+
+Explain BETA_ACCESS_REQUIRED and let me choose private invite admission or
+access for all verified accounts. Preserve authentication and ownership in
+either mode. Set up the operator account explicitly, never by first signup.
+
+Provide a complete environment checklist without printing secrets, database
+migrations, Git runtime setup, encryption/recovery-key generation and backup,
+HTTPS/origin/callback configuration, startup commands, and health checks.
+Include persistent reminder recovery, artifact-link protections, backups,
+restore, upgrades, and troubleshooting. Use Render initially unless I choose
+another host, and keep the setup portable. No central hosted license or
+analytics service may be mandatory.
+
+Run available build/tests and a clean-install smoke test. Distinguish local
+verification from live integration checks requiring credentials. Prepare
+reviewable deployment files first; ask before creating paid resources,
+publishing a live service, or sending external test messages. Finish with
+exact commands, required configuration, and any genuinely blocked steps.
+```
+
+See [self-hosting preparation](docs/notes/files/08_self_hosting.md) for the full requirements. Never paste live secrets into an issue or a prompt.
+
 ## Privacy and analytics
 
 PostHog is selected for product analytics. The implementation must use a small explicit event allowlist, with autocapture, session replay, and automatic page/URL collection disabled. Task text, documents, prompts, chats, secrets, emails, share keys, and private URLs must never enter analytics. Standalone artifact viewers and Vault/authentication surfaces do not load the analytics client.
