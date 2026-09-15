@@ -8,6 +8,7 @@ import {
   type DbClient,
   type MigrationLogEvent,
   type MigrationTarget,
+  processCircuitBreaker,
 } from "@symplist/db";
 import { AppLogger } from "../../common/logging/logger.ts";
 import { API_CONFIG, type ApiConfig, runsMigrationsOnStartup } from "../config/api-config.ts";
@@ -21,7 +22,10 @@ export const DB_CLIENT = "symplist:DB_CLIENT";
  */
 export const LOCAL_DATA_DIR = "symplist:LOCAL_DATA_DIR";
 
-/** Injection token for the api's D1 request counters (§3.1). */
+/**
+ * Injection token for the api's D1 request counters (§3.1), which report the state of the
+ * process-wide circuit the api D1 client trips and honors.
+ */
 export const D1_COUNTERS = "symplist:D1_COUNTERS";
 
 /** The api's database client with the handles its lifecycle needs. */
@@ -67,6 +71,7 @@ export async function createApiDatabase(
       apiToken: CLOUDFLARE_D1_API_TOKEN,
       lane: "api",
       runtime: "api",
+      circuit: processCircuitBreaker,
       counters,
     });
     close = () => undefined;
@@ -94,7 +99,8 @@ export const API_DATABASE = "symplist:API_DATABASE";
 export const dbProviders: Provider[] = [
   {
     provide: D1_COUNTERS,
-    useFactory: () => new D1Counters({ runtime: "api", lane: "api" }),
+    useFactory: () =>
+      new D1Counters({ runtime: "api", lane: "api", circuit: processCircuitBreaker }),
   },
   {
     provide: API_DATABASE,
