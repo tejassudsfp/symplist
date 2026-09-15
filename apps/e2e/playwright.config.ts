@@ -1,11 +1,20 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig, devices } from "@playwright/test";
 
-const webUrl = process.env.E2E_WEB_URL ?? "http://127.0.0.1:3000";
+const webPort = Number(process.env.E2E_WEB_PORT ?? 3000);
+const webUrl = process.env.E2E_WEB_URL ?? `http://127.0.0.1:${webPort}`;
+const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
+
+/** Public origins baked into the production build; the shell spec needs no running api. */
+const webBuildEnv = {
+  NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:4000",
+  NEXT_PUBLIC_WS_URL: process.env.NEXT_PUBLIC_WS_URL ?? "ws://127.0.0.1:4000",
+};
 
 /**
- * End-to-end, accessibility and visual tests at the three verified viewports (§17). The api (local
- * drivers, scripted model) and a production web build are added as `webServer` entries once the web
- * shell exists.
+ * End-to-end, accessibility and visual tests at the three verified viewports (§17). The web app runs
+ * as a production build (`next build`, then `next start`). The api (local drivers, scripted model)
+ * joins as a second `webServer` entry when the first api-backed flows land.
  */
 export default defineConfig({
   testDir: "./tests",
@@ -17,6 +26,19 @@ export default defineConfig({
     "{testDir}/__screenshots__/{platform}/{projectName}/{testFilePath}/{arg}{ext}",
   expect: { toHaveScreenshot: { maxDiffPixelRatio: 0.01, animations: "disabled" } },
   use: { baseURL: webUrl, trace: "on-first-retry" },
+  webServer: process.env.E2E_WEB_URL
+    ? undefined
+    : {
+        command: `pnpm --filter @symplist/web build && pnpm --filter @symplist/web exec next start --hostname 127.0.0.1 --port ${webPort}`,
+        cwd: repoRoot,
+        url: `${webUrl}/now`,
+        env: webBuildEnv,
+        timeout: 300_000,
+        // Never attach to a server started elsewhere (for example another worktree on the same port).
+        reuseExistingServer: false,
+        stdout: "pipe",
+        stderr: "pipe",
+      },
   projects: [
     {
       name: "desktop",
