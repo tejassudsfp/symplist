@@ -129,9 +129,12 @@ export class RunOutputRelay {
     try {
       key = await this.accountKey(ownership.ownerId);
     } catch (error) {
+      // A D1 timeout or network failure says nothing about the envelope: the worker must retry it,
+      // exactly like a failed ownership or status lookup.
       log.warn("internal.run_output_key_failed", { runId: body.runId, code: errorCode(error) });
-      return this.reject(body, "undecryptable");
+      return this.reject(body, "unavailable");
     }
+    // No key row at all: the account was crypto-shredded (§5.6), so the envelope can never decrypt.
     if (!key) return this.reject(body, "undecryptable");
 
     let chunks: UiMessageChunk[];

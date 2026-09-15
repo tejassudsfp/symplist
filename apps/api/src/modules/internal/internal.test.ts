@@ -545,6 +545,30 @@ describe("POST /internal/v1/runs/:runId/output (§8.2)", () => {
     expect(h.logLines().some((line) => line.includes("stale_generation"))).toBe(true);
   });
 
+  it("answers 503 when the owner's account key cannot be loaded, and relays the identical retry", async () => {
+    const { socket, frames } = collect(h, owner.ownerId);
+    await h.hub.subscribeConversation(socket, conversationTopic(conversationId), null);
+    const load = vi
+      .spyOn(h.app.accountKeys, "load")
+      .mockRejectedValueOnce(
+        Object.assign(new Error(`D1 timed out ${MARKER}`), { code: "db.unavailable" }),
+      );
+    const request = output(0);
+    const failed = await send(h, request);
+    expect(failed.status).toBe(503);
+    expect(failed.headers.get("retry-after")).toBe("1");
+    expect((failed.body.error as { code: string }).code).toBe("rate.limited");
+    expect(frames.filter((frame) => frame.t === "ev")).toEqual([]);
+
+    // The worker retries the byte-identical request once D1 answers again.
+    const retried = await send(h, request);
+    expect(retried).toMatchObject({ status: 202, body: { status: "accepted", relayed: 2 } });
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(frames.filter((frame) => frame.t === "ev")).toHaveLength(2);
+    expect(h.logLines().some((line) => line.includes("undecryptable"))).toBe(false);
+    expect(h.logLines().join("\n")).not.toContain(MARKER);
+  });
+
   it("rejects the wrong run: a path that differs from the body, an unknown run, or another run's envelope", async () => {
     const other = uuidv7();
     expect((await send(h, output(0, undefined, {}, runOutputPath(other)))).status).toBe(404);
