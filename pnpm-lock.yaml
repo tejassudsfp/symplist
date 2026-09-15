@@ -802,6 +802,9 @@ importers:
       '@symplist/testing':
         specifier: workspace:*
         version: link:../testing
+      '@types/mdast':
+        specifier: 4.0.4
+        version: 4.0.4
       '@types/node':
         specifier: 24.13.4
         version: 24.13.4

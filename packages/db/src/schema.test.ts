@@ -143,7 +143,10 @@ describe("foundation schema (§3.4)", () => {
         `SELECT name, strict FROM pragma_table_list WHERE schema = 'main' AND type = 'table' AND name NOT LIKE 'sqlite_%' AND name <> 'd1_migrations' ORDER BY name`,
       ),
     );
-    expect(tables.map((table) => table.name)).toEqual(foundationTables);
+    // Feature ranges add their own tables (§3.4); the foundation's set stays exactly this.
+    expect(
+      tables.map((table) => table.name).filter((name) => foundationTables.includes(name)),
+    ).toEqual(foundationTables);
     expect(tables.every((table) => table.strict === 1)).toBe(true);
   });
 
