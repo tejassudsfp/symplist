@@ -62,6 +62,10 @@ function toRow(row: DbRow): SessionAccessRow | null {
  * expired or foreign session closes with 4401; lost access, or an admitted socket whose
  * `access_generation` moved, closes with 4403; otherwise the socket's access state is refreshed, so
  * admission changes take effect on the next subscription.
+ *
+ * The periodic sweep and `refreshUser` (after a restriction commits) run independently, so each takes
+ * an access read ticket from the hub before reading D1: a result that returns after a newer read was
+ * applied is ignored rather than re-admitting a socket the newer read restricted.
  */
 export class AccessSweep {
   private timer: unknown;
@@ -120,6 +124,7 @@ export class AccessSweep {
         ),
       );
     }
+    const readTicket = hub.beginAccessRead();
     let rows: Map<string, SessionAccessRow>;
     try {
       const results = await db.batch(statements);
@@ -146,7 +151,7 @@ export class AccessSweep {
         closedSession += 1;
         continue;
       }
-      if (!hub.applyAccess(socket, row.access)) {
+      if (!hub.applyAccess(socket, row.access, readTicket)) {
         hub.close(socket, wsCloseCodes.accessLost, "access changed");
         closedAccess += 1;
       }

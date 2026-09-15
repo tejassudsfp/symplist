@@ -64,6 +64,8 @@ class SocketRecord implements RealtimeSocketState {
   readonly subscriptions = new Map<string, Subscription>();
   openTasks: readonly string[] = [];
   closed = false;
+  /** The access read ticket of the state last applied; 0 for the state the upgrade resolved. */
+  accessReadTicket = 0;
 
   constructor(
     readonly connection: RealtimeConnection,
@@ -144,6 +146,7 @@ export class TopicHub implements RealtimePublisher {
   private readonly bySession = new Map<string, Set<SocketRecord>>();
   private readonly topics = new Map<string, TopicState>();
   private highestSeq = 0;
+  private accessReads = 0;
   private readonly endedSessions = new Map<string, { readonly at: number }>();
   private readonly endedUsers = new Map<string, { readonly at: number }>();
   private readonly accessChanges = new Map<string, { readonly at: number }>();
@@ -261,11 +264,28 @@ export class TopicHub implements RealtimePublisher {
   }
 
   /**
-   * Applies a freshly read access state. Returns false when the socket must close: it was admitted and
-   * no longer is or its access generation moved, or it no longer passes the identity level (§5.5).
+   * A ticket for an access read that is about to start. Tickets increase with every call; a caller
+   * takes one before reading D1 and passes it to {@link applyAccess} with the result, so results that
+   * arrive out of order (a slow sweep finishing after a restriction's refresh) are recognised.
    */
-  applyAccess(socket: RealtimeSocketState, access: AccessState): boolean {
+  beginAccessRead(): number {
+    this.accessReads += 1;
+    return this.accessReads;
+  }
+
+  /**
+   * Applies an access state read under `readTicket` (§5.5). Updates are monotonic, whether or not the
+   * socket is admitted: a result with an older `access_generation` than the socket's state is out of
+   * date and ignored, and so is one with the same generation read before the result this socket last
+   * applied (fields such as `onboarding_step` change without a new generation). A newer generation is
+   * always newer data. Returns false when the socket must close: it was admitted and no longer is or
+   * its access generation moved, or it no longer passes the identity level.
+   */
+  applyAccess(socket: RealtimeSocketState, access: AccessState, readTicket: number): boolean {
     const record = socket as SocketRecord;
+    const current = record.access.accessGeneration;
+    if (access.accessGeneration < current) return true;
+    if (access.accessGeneration === current && readTicket < record.accessReadTicket) return true;
     const identity = this.options.access.satisfies(access, "identity");
     const admitted = identity && this.options.access.satisfies(access, "admitted");
     if (!identity || (record.admitted && !admitted)) return false;
@@ -273,9 +293,10 @@ export class TopicHub implements RealtimePublisher {
     // moved lost access at some point since it was authorized, even if a restore already followed and
     // the post-commit hook ran elsewhere (another instance during a deploy) or failed: its
     // subscriptions were authorized before the restriction, so it closes and resubscribes (§5.5).
-    if (record.admitted && access.accessGeneration !== record.access.accessGeneration) return false;
+    if (record.admitted && access.accessGeneration > current) return false;
     record.access = access;
     record.admitted = admitted;
+    record.accessReadTicket = Math.max(record.accessReadTicket, readTicket);
     return true;
   }
 

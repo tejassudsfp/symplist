@@ -628,6 +628,104 @@ describe("session and access freshness (§5.5)", () => {
     expect(await h.sweep.sweep()).toEqual({ checked: 2, closedSession: 0, closedAccess: 0 });
   });
 
+  it("never applies a sweep result read before a newer refresh, so a restricted socket is not re-admitted", async () => {
+    const h = await start();
+    const user = await h.user("locked");
+    const client = await h.connect(user.session);
+    await client.settle();
+    // Access was granted on another instance: the next sweep reads the user as admitted.
+    await h.app.db.run(
+      sql(
+        "UPDATE users SET beta_state = 'unlocked', access_generation = access_generation + 1 WHERE id = :id",
+        { id: user.id },
+      ),
+    );
+    const original = h.app.db.batch.bind(h.app.db);
+    let read: () => void = () => undefined;
+    let deliver: () => void = () => undefined;
+    const readDone = new Promise<void>((resolve) => {
+      read = resolve;
+    });
+    const held = new Promise<void>((resolve) => {
+      deliver = resolve;
+    });
+    vi.spyOn(h.app.db, "batch").mockImplementationOnce(async (statements, options) => {
+      const results = await original(statements, options);
+      read();
+      // The sweep's D1 answer is on its way back while the restriction commits and is refreshed.
+      await held;
+      return results;
+    });
+    const sweeping = h.sweep.sweep();
+    await readDone;
+
+    await h.app.db.run(
+      sql(
+        "UPDATE users SET beta_state = 'relocked', access_generation = access_generation + 1 WHERE id = :id",
+        { id: user.id },
+      ),
+    );
+    await h.sweep.refreshUser(user.id);
+    const [socket] = h.hub.socketsOfUser(user.id);
+    expect(socket).toMatchObject({ admitted: false, access: { betaState: "relocked" } });
+    const generation = socket?.access.accessGeneration;
+
+    deliver();
+    expect(await sweeping).toEqual({ checked: 1, closedSession: 0, closedAccess: 0 });
+    expect(h.hub.socketsOfUser(user.id)[0]).toMatchObject({
+      admitted: false,
+      access: { betaState: "relocked", accessGeneration: generation },
+    });
+  });
+
+  it("applies access state monotonically by access generation and by read order", () => {
+    const clock = new FakeClock(1_000_000);
+    const hub = new TopicHub({
+      registry: new TopicRegistry(),
+      access: {
+        satisfies: (state, level) => level === "identity" || state.betaState === "unlocked",
+      },
+      timers: clock,
+      log: new Log(),
+    });
+    const state = (betaState: "locked" | "unlocked" | "relocked", accessGeneration: number) => ({
+      emailVerifiedAt: 1,
+      betaState,
+      suspendedAt: null,
+      onboardingStep: "done" as const,
+      role: "member" as const,
+      accessGeneration,
+      accessEpoch: 0,
+      deletionState: "none" as const,
+    });
+    const socket = hub.connect(
+      { send: () => undefined, close: () => undefined, isOpen: () => true },
+      { userId: uuidv7(), sessionId: uuidv7(), access: state("locked", 4) },
+    );
+    const older = hub.beginAccessRead();
+    const newer = hub.beginAccessRead();
+    expect(hub.applyAccess(socket, state("relocked", 6), newer)).toBe(true);
+    // An identity-level socket ignores a result read before the one it applied…
+    expect(
+      hub.applyAccess(socket, { ...state("relocked", 6), onboardingStep: "name" }, older),
+    ).toBe(true);
+    expect(hub.applyAccess(socket, state("unlocked", 5), older)).toBe(true);
+    expect(socket).toMatchObject({
+      admitted: false,
+      access: { accessGeneration: 6, onboardingStep: "done" },
+    });
+    // …and a result with an older generation, whenever it was read.
+    expect(hub.applyAccess(socket, state("unlocked", 5), hub.beginAccessRead())).toBe(true);
+    expect(socket).toMatchObject({ admitted: false, access: { accessGeneration: 6 } });
+    // A newer generation that admits it applies.
+    expect(hub.applyAccess(socket, state("unlocked", 7), hub.beginAccessRead())).toBe(true);
+    expect(socket).toMatchObject({ admitted: true, access: { accessGeneration: 7 } });
+    // Once admitted, a stale result neither closes nor changes it; a moved generation closes it.
+    expect(hub.applyAccess(socket, state("relocked", 6), hub.beginAccessRead())).toBe(true);
+    expect(socket).toMatchObject({ admitted: true, access: { accessGeneration: 7 } });
+    expect(hub.applyAccess(socket, state("unlocked", 9), hub.beginAccessRead())).toBe(false);
+  });
+
   it("uses one D1 request for any number of sockets, and runs on its interval", async () => {
     const h = await start({ sweepIntervalMs: 30_000 }, { backgroundLoops: true });
     for (let index = 0; index < 3; index += 1) await h.connect((await h.user()).session);
