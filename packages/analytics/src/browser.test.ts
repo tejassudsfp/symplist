@@ -113,16 +113,24 @@ describe("excluded routes (§15)", () => {
     "/vault/items/1",
     "/oauth/consent",
     "/artifact/abc",
+    "/connections/callback",
+    "/connections/callback?status=success&connected_account_id=ca_1",
   ])("excludes %s", (path) => {
     expect(isExcludedAnalyticsPath(path)).toBe(true);
   });
 
-  it.each(["/", "/now", "/now/1", "/settings/account", "/vaulted", "/signing", "/welcome"])(
-    "does not exclude %s",
-    (path) => {
-      expect(isExcludedAnalyticsPath(path)).toBe(false);
-    },
-  );
+  it.each([
+    "/",
+    "/now",
+    "/now/1",
+    "/settings/account",
+    "/settings/connections",
+    "/vaulted",
+    "/signing",
+    "/welcome",
+  ])("does not exclude %s", (path) => {
+    expect(isExcludedAnalyticsPath(path)).toBe(false);
+  });
 });
 
 describe("browser analytics", () => {
@@ -253,11 +261,54 @@ describe("browser analytics", () => {
     expect(unset.calls.some(([method]) => method === "opt_out_capturing")).toBe(false);
   });
 
-  it("logout resets without opting in again, and consent re-applies after the next sign-in", async () => {
+  it("a stored denial clears PostHog state left on the device without ever loading the SDK", async () => {
+    const { analytics, calls, session, local, loads } = setup();
+    local.setItem("ph_phc_fictional_unit_key_posthog", '{"distinct_id":"previous"}');
+    local.setItem("__ph_opt_in_out_phc_fictional_unit_key", "1");
+    session.setItem("ph_phc_fictional_unit_key_window_id", "w");
+    local.setItem("sym_hint_draft", "keep");
+
+    expect(await analytics.applyConsent({ consent: "denied", analyticsId: "a1" })).toEqual({
+      status: "inactive",
+      reason: "consent_not_granted",
+    });
+
+    expect(loads()).toBe(0);
+    expect(calls).toEqual([]);
+    expect(session.length).toBe(0);
+    expect([local.length, local.getItem("sym_hint_draft")]).toEqual([1, "keep"]);
+  });
+
+  it("logout clears the stored identity even when this page never loaded the SDK", async () => {
+    const { analytics, calls, local, loads } = setup({ path: "/access" });
+    local.setItem("ph_phc_fictional_unit_key_posthog", '{"distinct_id":"a1"}');
+    await analytics.logout();
+    expect(loads()).toBe(0);
+    expect(calls).toEqual([]);
+    expect(local.length).toBe(0);
+  });
+
+  it("resets identity before identifying a different account on the same page", async () => {
     const { analytics, calls } = setup();
     await analytics.applyConsent({ consent: "granted", analyticsId: "a1" });
+    await analytics.applyConsent({ consent: "granted", analyticsId: "a1" });
+    expect(calls.filter(([method]) => method === "reset")).toEqual([]);
+    await analytics.applyConsent({ consent: "granted", analyticsId: "a2" });
+    expect(calls.slice(-3)).toEqual([
+      ["reset"],
+      ["opt_in_capturing", { captureEventName: false }],
+      ["identify", "a2"],
+    ]);
+  });
+
+  it("logout resets without opting in again, and consent re-applies after the next sign-in", async () => {
+    const { analytics, calls, local } = setup();
+    await analytics.applyConsent({ consent: "granted", analyticsId: "a1" });
+    local.setItem("ph_phc_fictional_unit_key_posthog", "{}");
     await analytics.logout();
     expect(calls.at(-1)).toEqual(["reset"]);
+    expect(calls.some(([method]) => method === "opt_out_capturing")).toBe(false);
+    expect(local.length).toBe(0);
     expect(analytics.track("search_used", search)).toEqual({
       status: "refused",
       reason: "consent_not_granted",

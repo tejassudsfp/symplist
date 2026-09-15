@@ -104,6 +104,23 @@ describe("client before_send", () => {
     expect(result?.$set_once).toEqual({});
   });
 
+  it("removes application properties from $identify instead of letting them through", () => {
+    const result = clientBeforeSend(
+      capture("$identify", {
+        distinct_id: "a1",
+        token: "phc_fictional",
+        $anon_distinct_id: "anon",
+        workspace: "Maya",
+        event_version: 1,
+      }),
+    );
+    expect(result?.properties).toEqual({
+      distinct_id: "a1",
+      token: "phc_fictional",
+      $anon_distinct_id: "anon",
+    });
+  });
+
   it.each([
     ["null", null],
     ["$pageview", capture("$pageview", {})],

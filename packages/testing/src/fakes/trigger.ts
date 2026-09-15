@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { createHash } from "node:crypto";
 import { type Clock, FakeClock } from "./clock.ts";
 import { findMarkerIn } from "./markers.ts";
 
@@ -102,7 +103,9 @@ export interface FakeRetrievedRun {
   readonly error: FakeRunError | undefined;
   readonly metadata: Readonly<Record<string, unknown>> | undefined;
   readonly tags: readonly string[];
+  /** The caller's key material (not the scoped hash), as the SDK reports it. */
   readonly idempotencyKey: string | undefined;
+  readonly idempotencyKeyScope: FakeIdempotencyKeyScope | undefined;
   readonly machine: FakeMachine | undefined;
   readonly attemptCount: number;
   readonly createdAt: Date;
@@ -124,12 +127,21 @@ export interface FakeRetrievedRun {
 
 export type FakeEnvironment = "DEVELOPMENT" | "STAGING" | "PRODUCTION" | "PREVIEW";
 
+/** The SDK 4.6 `BatchRunHandle`: no run ids. */
+export interface FakeBatchRunHandle {
+  readonly batchId: string;
+  readonly runCount: number;
+  readonly publicAccessToken: string;
+}
+
 /** The `ctx` fields a task handler receives. */
 export interface FakeTaskRunContext {
   readonly run: {
     readonly id: string;
     readonly tags: readonly string[];
+    /** The caller's key material, not the hash. */
     readonly idempotencyKey: string | undefined;
+    readonly idempotencyKeyScope: FakeIdempotencyKeyScope | undefined;
     readonly isTest: boolean;
     readonly createdAt: Date;
   };
@@ -270,6 +282,8 @@ interface RunState {
   readonly options: FakeTriggerOptions | undefined;
   readonly tags: string[];
   readonly idempotencyKey: string | undefined;
+  readonly idempotencyKeyScope: FakeIdempotencyKeyScope | undefined;
+  /** `<taskIdentifier> NUL <hash>`: the entry in the deduplication map. */
   readonly idempotencyScope: string | undefined;
   readonly machine: FakeMachine | undefined;
   readonly maxAttempts: number;
@@ -342,13 +356,29 @@ function toTags(tags: FakeTriggerOptions["tags"]): string[] {
   return list;
 }
 
-function toIdempotencyKey(key: FakeTriggerOptions["idempotencyKey"]): string | undefined {
-  if (key === undefined) return undefined;
-  const value = typeof key === "string" ? key : JSON.stringify(key);
-  if (value.length < 1 || value.length > 2048) {
+/** `idempotencyKeys.create` scopes (`@trigger.dev/core` 4.6.0). */
+export type FakeIdempotencyKeyScope = "run" | "attempt" | "global";
+
+/**
+ * The SDK's idempotency key hash: SHA-256 hex over the key material joined with `-`
+ * (`@trigger.dev/core` 4.6.0 `createIdempotencyKey`). A 64-character string is treated as an
+ * already-hashed key, exactly as the SDK's `isIdempotencyKey` does.
+ */
+export function hashTriggerIdempotencyKey(material: readonly string[]): string {
+  return createHash("sha256").update(material.join("-")).digest("hex");
+}
+
+function keyParts(key: string | readonly string[]): string[] {
+  const parts = typeof key === "string" ? [key] : [...key];
+  const joined = parts.join("-");
+  if (joined.length < 1 || joined.length > 2048) {
     throw new FakeTriggerApiError(400, "Idempotency keys must be 1-2048 characters");
   }
-  return value;
+  return parts;
+}
+
+function dedupeEntry(taskIdentifier: string, hash: string): string {
+  return `${taskIdentifier}\u0000${hash}`;
 }
 
 /** Copies a recorded value so later mutation by the caller cannot hide what was sent. */
@@ -395,11 +425,17 @@ export class FakeTriggerClient {
   >();
   private readonly runStates = new Map<string, RunState>();
   private readonly idempotency = new Map<string, { runId: string; expiresAt: number }>();
+  /** Keys made by `idempotencyKeys.create`, mapped back to their material and scope. */
+  private readonly keyCatalog = new Map<
+    string,
+    { readonly key: string; readonly scope: FakeIdempotencyKeyScope }
+  >();
   private readonly scheduleStates = new Map<string, ScheduleState>();
   private readonly currentRun = new AsyncLocalStorage<RunState>();
   private runSequence = 0;
   private scheduleSequence = 0;
   private batchSequence = 0;
+  private readonly batches = new Map<string, readonly string[]>();
 
   constructor(options: FakeTriggerClientOptions = {}) {
     this.clock = options.clock ?? new FakeClock();
@@ -428,8 +464,12 @@ export class FakeTriggerClient {
       options?: FakeTriggerOptions,
     ): Promise<FakeTaskRunResult> => {
       const parent = this.currentRun.getStore();
+      if (!parent) {
+        // The SDK refuses waits from backend code; only a task can wait on a child.
+        throw new Error("triggerAndWait can only be used from inside a task.run()");
+      }
       const { run } = this.createRun(taskIdentifier, payload, options, "triggerAndWait");
-      if (parent) this.transition(parent, "WAITING");
+      this.transition(parent, "WAITING");
       try {
         if (!terminalStatuses.includes(run.status)) {
           if (!this.handlers.has(taskIdentifier)) {
@@ -448,25 +488,54 @@ export class FakeTriggerClient {
           await this.execute(run.id);
         }
       } finally {
-        if (parent && parent.status === "WAITING") this.transition(parent, "EXECUTING");
+        if (parent.status === "WAITING") this.transition(parent, "EXECUTING");
       }
       return run.status === "COMPLETED"
         ? { ok: true, id: run.id, taskIdentifier, output: run.output }
         : { ok: false, id: run.id, taskIdentifier, error: run.error ?? { message: run.status } };
     },
 
+    /**
+     * `tasks.batchTrigger`: returns the SDK 4.6 `BatchRunHandle` (`batchId`, `runCount`,
+     * `publicAccessToken`), which carries no run ids; tests read them with `batchRuns(batchId)`. An
+     * item without its own key gets `[batchKey, index]` when the batch has a key, as in the SDK.
+     */
     batchTrigger: async (
       taskIdentifier: string,
       items: ReadonlyArray<{ readonly payload: unknown; readonly options?: FakeTriggerOptions }>,
-    ): Promise<{ readonly batchId: string; readonly runs: readonly FakeRunHandle[] }> => {
+      options?: {
+        readonly idempotencyKey?: string | readonly string[];
+        readonly idempotencyKeyTTL?: string;
+      },
+    ): Promise<FakeBatchRunHandle> => {
       if (items.length > 1000)
         throw new FakeTriggerApiError(400, "A batch holds at most 1,000 items");
-      const handles = items.map((item) => {
-        const { run } = this.createRun(taskIdentifier, item.payload, item.options, "batchTrigger");
-        return this.handleFor(run);
+      const batchKey = options?.idempotencyKey;
+      const runIds = items.map((item, index) => {
+        const itemKey =
+          item.options?.idempotencyKey ??
+          (batchKey === undefined
+            ? undefined
+            : [...(typeof batchKey === "string" ? [batchKey] : batchKey), `${index}`]);
+        const itemTtl = item.options?.idempotencyKeyTTL ?? options?.idempotencyKeyTTL;
+        const itemOptions: FakeTriggerOptions | undefined =
+          itemKey === undefined
+            ? item.options
+            : {
+                ...item.options,
+                idempotencyKey: itemKey,
+                ...(itemTtl === undefined ? {} : { idempotencyKeyTTL: itemTtl }),
+              };
+        return this.createRun(taskIdentifier, item.payload, itemOptions, "batchTrigger").run.id;
       });
       this.batchSequence += 1;
-      return { batchId: `batch_fake${String(this.batchSequence).padStart(6, "0")}`, runs: handles };
+      const batchId = `batch_fake${String(this.batchSequence).padStart(6, "0")}`;
+      this.batches.set(batchId, runIds);
+      return {
+        batchId,
+        runCount: runIds.length,
+        publicAccessToken: `fake_public_token_${batchId}`,
+      };
     },
   };
 
@@ -505,13 +574,70 @@ export class FakeTriggerClient {
     },
   };
 
+  /**
+   * `idempotencyKeys` with the SDK 4.6.0 scoping rules. A raw string or array passed to `trigger` is
+   * hashed with `run` scope: inside a task the parent run id joins the key material, so the same
+   * raw key triggered from two different runs (for example a Symplist retry run) creates two child
+   * runs; from backend code there is no run and the key behaves as global.
+   */
   readonly idempotencyKeys = {
-    /** Releases a key so the same key can trigger a new run. */
-    reset: async (taskIdentifier: string, key: string): Promise<{ readonly id: string }> => {
-      const scope = `${taskIdentifier} ${key}`;
-      const entry = this.idempotency.get(scope);
-      this.idempotency.delete(scope);
-      return { id: entry?.runId ?? key };
+    /** `idempotencyKeys.create(key, { scope })`: returns the 64-character hash. */
+    create: async (
+      key: string | readonly string[],
+      options: { readonly scope?: FakeIdempotencyKeyScope } = {},
+    ): Promise<string> => {
+      const scope = options.scope ?? "run";
+      const parts = keyParts(key);
+      const hash = hashTriggerIdempotencyKey([...parts, ...this.scopeSuffix(scope)]);
+      this.keyCatalog.set(hash, { key: parts.join("-"), scope });
+      return hash;
+    },
+
+    /**
+     * Releases a key so it can trigger a new run. Mirrors the SDK: a created (or 64-character) key is
+     * used as is; a raw key is re-hashed with `options.scope` (default `run`), which outside a task
+     * requires `parentRunId` and otherwise throws, as the SDK does.
+     */
+    reset: async (
+      taskIdentifier: string,
+      key: string | readonly string[],
+      options: {
+        readonly scope?: FakeIdempotencyKeyScope;
+        readonly parentRunId?: string;
+        readonly attemptNumber?: number;
+      } = {},
+    ): Promise<{ readonly id: string }> => {
+      const is64 = typeof key === "string" && key.length === 64;
+      let hash: string;
+      if (is64 && (this.keyCatalog.has(key) || options.scope === undefined)) {
+        hash = key;
+      } else {
+        const scope = options.scope ?? "run";
+        const current = this.currentRun.getStore();
+        let suffix: string[] = [];
+        if (scope === "run" || scope === "attempt") {
+          const parentRunId = options.parentRunId ?? current?.id;
+          const attemptNumber = options.attemptNumber ?? current?.attemptCount;
+          if (parentRunId === undefined || (scope === "attempt" && attemptNumber === undefined)) {
+            if (!is64) {
+              throw new Error(
+                `resetIdempotencyKey: parentRunId is required for '${scope}' scope when called outside a task context`,
+              );
+            }
+          } else {
+            suffix = scope === "run" ? [parentRunId] : [parentRunId, String(attemptNumber)];
+          }
+        }
+        const computed = hashTriggerIdempotencyKey([...keyParts(key), ...suffix]);
+        hash =
+          is64 && !this.idempotency.has(dedupeEntry(taskIdentifier, computed))
+            ? (key as string)
+            : computed;
+      }
+      const entryKey = dedupeEntry(taskIdentifier, hash);
+      const entry = this.idempotency.get(entryKey);
+      this.idempotency.delete(entryKey);
+      return { id: entry?.runId ?? hash };
     },
   };
 
@@ -790,6 +916,17 @@ export class FakeTriggerClient {
     this.transition(run, status);
   }
 
+  /** The runs a `batchTrigger` call created or deduplicated to, in item order (test helper). */
+  batchRuns(batchId: string): FakeRetrievedRun[] {
+    const runIds = this.batches.get(batchId);
+    if (!runIds) throw new FakeTriggerApiError(404, "Batch not found");
+    return runIds.map((runId) => {
+      const run = this.requireRun(runId);
+      this.refreshTimers(run);
+      return this.snapshot(run);
+    });
+  }
+
   /** Every recorded run, newest last. */
   allRuns(): FakeRetrievedRun[] {
     return [...this.runStates.values()].map((run) => {
@@ -829,6 +966,31 @@ export class FakeTriggerClient {
     for (const state of this.scheduleStates.values())
       add("schedule", null, state.object, "schedule");
     return hits;
+  }
+
+  /** The SDK's scope suffix for the current task context. */
+  private scopeSuffix(scope: FakeIdempotencyKeyScope): string[] {
+    const run = this.currentRun.getStore();
+    if (!run || scope === "global") return [];
+    return scope === "run" ? [run.id] : [run.id, String(run.attemptCount)];
+  }
+
+  /** `makeIdempotencyKey`: 64-character keys pass through; anything else is hashed with `run` scope. */
+  private resolveTriggerKey(key: string | readonly string[]): {
+    readonly hash: string;
+    readonly key: string;
+    readonly scope: FakeIdempotencyKeyScope | undefined;
+  } {
+    const parts = keyParts(key);
+    if (typeof key === "string" && key.length === 64) {
+      const created = this.keyCatalog.get(key);
+      return { hash: key, key: created?.key ?? key, scope: created?.scope };
+    }
+    return {
+      hash: hashTriggerIdempotencyKey([...parts, ...this.scopeSuffix("run")]),
+      key: parts.join("-"),
+      scope: "run",
+    };
   }
 
   private nextScheduleId(): string {
@@ -913,13 +1075,18 @@ export class FakeTriggerClient {
     const payloadSize = JSON.stringify(payload ?? null).length;
     if (payloadSize > 3 * 1024 * 1024) throw new FakeTriggerApiError(413, "Payload exceeds 3MB");
     const tags = toTags(options?.tags);
-    const idempotencyKey = toIdempotencyKey(options?.idempotencyKey);
+    const resolvedKey =
+      options?.idempotencyKey === undefined
+        ? undefined
+        : this.resolveTriggerKey(options.idempotencyKey);
+    const idempotencyKey = resolvedKey?.key;
     const parent = this.currentRun.getStore();
     const recordedPayload = snapshotValue(payload);
     const recordedOptions = options === undefined ? undefined : snapshotValue(options);
 
     const now = this.clock.now();
-    const scope = idempotencyKey === undefined ? undefined : `${taskIdentifier} ${idempotencyKey}`;
+    const scope =
+      resolvedKey === undefined ? undefined : dedupeEntry(taskIdentifier, resolvedKey.hash);
     if (scope !== undefined) {
       const entry = this.idempotency.get(scope);
       const existing = entry === undefined ? undefined : this.runStates.get(entry.runId);
@@ -959,6 +1126,7 @@ export class FakeTriggerClient {
       options: recordedOptions,
       tags,
       idempotencyKey,
+      idempotencyKeyScope: resolvedKey?.scope,
       idempotencyScope: scope,
       machine: options?.machine ?? registration?.definition.machine,
       maxAttempts: Math.max(1, options?.maxAttempts ?? registration?.definition.maxAttempts ?? 1),
@@ -1055,6 +1223,7 @@ export class FakeTriggerClient {
           id: run.id,
           tags: [...run.tags],
           idempotencyKey: run.idempotencyKey,
+          idempotencyKeyScope: run.idempotencyKeyScope,
           isTest: false,
           createdAt: new Date(run.createdAt),
         },
@@ -1104,6 +1273,7 @@ export class FakeTriggerClient {
       metadata: run.metadata === undefined ? undefined : snapshotValue(run.metadata),
       tags: [...run.tags],
       idempotencyKey: run.idempotencyKey,
+      idempotencyKeyScope: run.idempotencyKeyScope,
       machine: run.machine,
       attemptCount: run.attemptCount,
       createdAt: new Date(run.createdAt),

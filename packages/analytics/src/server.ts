@@ -293,6 +293,12 @@ export interface PostHogDeletionRequestResult {
   readonly personsDeleted: number;
   readonly eventsQueuedForDeletion: boolean;
   readonly recordingsQueuedForDeletion: boolean;
+  /**
+   * The person UUIDs behind the analytics id, looked up just before the delete. `deletion_status` is
+   * keyed by person UUID and the persons are gone after `bulk_delete`, so the caller records these
+   * to poll `eventDeletionStatus` until every one reports `completed`.
+   */
+  readonly personUuids: readonly string[];
   /** Person UUIDs PostHog could not delete. */
   readonly failedPersonUuids: readonly string[];
 }
@@ -302,7 +308,10 @@ export type PostHogEventDeletionStatus = "pending" | "completed" | "not_found";
 export interface PostHogPersonDeletionClient {
   /** The PostHog person UUIDs behind an analytics id, for polling deletion status. */
   findPersonUuids(analyticsId: string): Promise<readonly string[]>;
-  /** Deletes the person with its events and recordings (§5.6). */
+  /**
+   * Looks up the person UUIDs, then deletes the person with its events and recordings (§5.6). Safe
+   * to repeat: a second call finds no persons and PostHog queues nothing new.
+   */
   requestDeletion(analyticsId: string): Promise<PostHogDeletionRequestResult>;
   /** Event deletion status for one person UUID, polled by the api reconciler. */
   eventDeletionStatus(personUuid: string): Promise<PostHogEventDeletionStatus>;
@@ -389,20 +398,25 @@ export function createPostHogPersonDeletionClient(
   const invalid = (status: number) =>
     new PostHogDeletionError("analytics.deletion_invalid_response", { status, retryable: true });
 
+  const findPersonUuids = async (analyticsId: string): Promise<readonly string[]> => {
+    if (analyticsId.trim() === "") {
+      throw new PostHogDeletionError("analytics.deletion_rejected", { retryable: false });
+    }
+    const url = `${base}/?distinct_id=${encodeURIComponent(analyticsId)}`;
+    const body = await request(url, { method: "GET" }, 200);
+    if (!isRecord(body) || !Array.isArray(body.results)) throw invalid(200);
+    return body.results.flatMap((person) =>
+      isRecord(person) && typeof person.uuid === "string" && uuidPattern.test(person.uuid)
+        ? [person.uuid]
+        : [],
+    );
+  };
+
   return {
-    async findPersonUuids(analyticsId) {
-      const url = `${base}/?distinct_id=${encodeURIComponent(analyticsId)}`;
-      const body = await request(url, { method: "GET" }, 200);
-      if (!isRecord(body) || !Array.isArray(body.results)) throw invalid(200);
-      return body.results.flatMap((person) =>
-        isRecord(person) && typeof person.uuid === "string" ? [person.uuid] : [],
-      );
-    },
+    findPersonUuids,
 
     async requestDeletion(analyticsId) {
-      if (analyticsId.trim() === "") {
-        throw new PostHogDeletionError("analytics.deletion_rejected", { retryable: false });
-      }
+      const personUuids = await findPersonUuids(analyticsId);
       const body = await request(
         `${base}/bulk_delete/`,
         {
@@ -431,6 +445,7 @@ export function createPostHogPersonDeletionClient(
         personsDeleted: body.persons_deleted,
         eventsQueuedForDeletion: body.events_queued_for_deletion,
         recordingsQueuedForDeletion: body.recordings_queued_for_deletion,
+        personUuids,
         failedPersonUuids: errors.flatMap((entry) =>
           isRecord(entry) && typeof entry.person_uuid === "string" ? [entry.person_uuid] : [],
         ),

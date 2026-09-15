@@ -25,6 +25,8 @@ export const emailContrastPairs: ReadonlyArray<
   ["text", "surface"],
   ["text", "page"],
   ["text", "codeBackground"],
+  // The "Task" label of an opted-in title preview sits on the detail box.
+  ["muted", "codeBackground"],
   ["muted", "surface"],
   ["muted", "page"],
   ["accent", "surface"],

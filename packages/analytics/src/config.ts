@@ -35,7 +35,14 @@ export function applicationProperties(
 export function checkOutgoingEvent<
   Event extends { event: string; properties?: Record<string, unknown> },
 >(owner: "client" | "server", event: Event, sdkEvents: ReadonlySet<string>): boolean {
-  if (sdkEvents.has(event.event)) return true;
+  if (sdkEvents.has(event.event)) {
+    // SDK events (only `$identify`) carry no application properties: anything that is not an SDK
+    // property is removed, so a registered super property can never ride along.
+    for (const name of Object.keys(applicationProperties(event.properties))) {
+      delete event.properties?.[name];
+    }
+    return true;
+  }
   if (!isAnalyticsEventName(event.event)) return false;
   const { [eventVersionProperty]: version, ...own } = applicationProperties(event.properties);
   const validation = validateAnalyticsEvent(owner, event.event, own);

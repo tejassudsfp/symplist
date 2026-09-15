@@ -31,6 +31,23 @@ describe("capture transport", () => {
     expect(transport.byTemplate("otp_sign_in")).toEqual([]);
   });
 
+  it("rejects a reused idempotency key with a different message, like Resend's 409", async () => {
+    const transport = createCaptureEmailTransport();
+    await transport.send(message);
+    const conflict = transport.send({ ...message, subject: "You have a delayed task reminder" });
+    await expect(conflict).rejects.toBeInstanceOf(EmailSendError);
+    await expect(conflict).rejects.toMatchObject({
+      code: "email.idempotency_conflict",
+      status: 409,
+      retryable: false,
+    });
+    await expect(
+      transport.send({ ...message, headers: { "List-Unsubscribe": "<https://x.example/u>" } }),
+    ).rejects.toMatchObject({ code: "email.idempotency_conflict" });
+    expect(transport.messages).toHaveLength(1);
+    expect(transport.delivered()).toHaveLength(1);
+  });
+
   it("fails the next send on request without recording it", async () => {
     const transport = createCaptureEmailTransport();
     const failure = new EmailSendError("email.rate_limited", "Resend rate limit exceeded", {

@@ -589,7 +589,13 @@ export class FakeComposioClient {
   };
 
   readonly triggers = {
-    /** Verifies and parses a webhook from the raw body (`webhook-id`, `webhook-timestamp`, `webhook-signature`). */
+    /**
+     * Verifies and parses a webhook from the raw body (`webhook-id`, `webhook-timestamp`,
+     * `webhook-signature`). `version` and `rawPayload` match the SDK; `payload` is a simplified
+     * normalization, not the SDK's `IncomingTriggerPayload`, so connection lifecycle handlers should
+     * narrow on `rawPayload.type` (research "Composio" §8). Unlike the SDK, an already-parsed body is
+     * always refused, because signature checks need the raw bytes (§6.2).
+     */
     parse: async (
       request: Request | { readonly body: unknown; readonly headers: unknown },
       options?: { readonly verifySecret?: string; readonly tolerance?: number },

@@ -12,7 +12,9 @@ export type AnalyticsConsentState = "unset" | "granted" | "denied";
 
 /**
  * Route prefixes that never load the analytics client (§15): auth and OTP, the beta gate, the Vault,
- * OAuth consent, and share-host artifact routes.
+ * OAuth consent, and share-host artifact routes. `/connections/callback` is excluded too: its
+ * address can carry connection attempt parameters and external account ids (note 17), which
+ * posthog-js would otherwise keep in its local session state.
  */
 export const excludedAnalyticsPathPrefixes: readonly string[] = [
   "/signin",
@@ -20,6 +22,7 @@ export const excludedAnalyticsPathPrefixes: readonly string[] = [
   "/vault",
   "/oauth",
   "/artifact",
+  "/connections/callback",
 ];
 
 export function isExcludedAnalyticsPath(pathname: string): boolean {
@@ -96,7 +99,11 @@ export interface BrowserAnalytics {
   ): TrackOutcome;
   /** Withdrawal (§15): `opt_out_capturing()`, `reset()`, then removes `ph_*` storage keys. */
   withdraw(): Promise<void>;
-  /** Logout (§15): `reset()` without opting in again; consent is re-applied after sign-in. */
+  /**
+   * Logout (§15): `reset()` without opting in again, then removes PostHog's stored identity, even
+   * when this page never loaded posthog-js (for example sign-out from the beta gate), so the next
+   * account on the device never inherits it. Consent is re-applied after sign-in.
+   */
   logout(): Promise<void>;
 }
 
@@ -141,6 +148,8 @@ export function createBrowserAnalytics(options: BrowserAnalyticsOptions): Browse
 
   let client: PostHogBrowserClient | null = null;
   let active = false;
+  /** The analytics id the loaded client is identified as, to reset before another account. */
+  let identified: string | null = null;
   let consent: AnalyticsConsentState = "unset";
   let chain: Promise<unknown> = Promise.resolve();
 
@@ -160,6 +169,7 @@ export function createBrowserAnalytics(options: BrowserAnalyticsOptions): Browse
     }
   };
 
+  /** Stops capture on a loaded client and always clears PostHog's local state. */
   const deactivate = (withdrawn: boolean) => {
     if (client !== null) {
       try {
@@ -170,7 +180,8 @@ export function createBrowserAnalytics(options: BrowserAnalyticsOptions): Browse
       }
     }
     active = false;
-    if (withdrawn) cleanStorages();
+    identified = null;
+    cleanStorages();
   };
 
   return {
@@ -179,7 +190,11 @@ export function createBrowserAnalytics(options: BrowserAnalyticsOptions): Browse
         consent = input.consent;
         if (!enabled) return { status: "inactive", reason: "disabled" };
         if (input.consent !== "granted") {
-          if (client !== null) deactivate(input.consent === "denied");
+          // A stored denial also clears state left on this device by an earlier session, so an
+          // opt-out made elsewhere is respected here too (note 17).
+          if (client !== null || input.consent === "denied") {
+            deactivate(input.consent === "denied");
+          }
           return { status: "inactive", reason: "consent_not_granted" };
         }
         if (isExcludedAnalyticsPath(currentPath())) {
@@ -196,8 +211,13 @@ export function createBrowserAnalytics(options: BrowserAnalyticsOptions): Browse
               createPostHogConfig({ ...(options.apiHost ? { apiHost: options.apiHost } : {}) }),
             );
           }
+          if (identified !== null && identified !== input.analyticsId) {
+            // Another account on the same page: reset identity first (research C3).
+            client.reset();
+          }
           client.opt_in_capturing({ captureEventName: false });
           client.identify(input.analyticsId);
+          identified = input.analyticsId;
           active = true;
           return { status: "active" };
         } catch {
@@ -234,7 +254,7 @@ export function createBrowserAnalytics(options: BrowserAnalyticsOptions): Browse
     logout() {
       return serialize(async () => {
         consent = "unset";
-        if (client !== null) deactivate(false);
+        deactivate(false);
       });
     },
   };

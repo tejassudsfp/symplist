@@ -351,8 +351,14 @@ describe("PostHog person deletion (§5.6)", () => {
     throw new Error("expected failure");
   }
 
-  it("requests person, event and recording deletion with the personal key", async () => {
+  const lookup = (uuids: readonly string[]) =>
+    json(200, {
+      results: uuids.map((uuid, index) => ({ id: index + 1, uuid, distinct_ids: [analyticsId] })),
+    });
+
+  it("looks up person UUIDs, then requests person, event and recording deletion with the personal key", async () => {
     const { client, calls } = scripted([
+      lookup([personUuid]),
       json(202, {
         persons_found: 1,
         persons_deleted: 1,
@@ -367,9 +373,17 @@ describe("PostHog person deletion (§5.6)", () => {
       personsDeleted: 1,
       eventsQueuedForDeletion: true,
       recordingsQueuedForDeletion: true,
+      personUuids: [personUuid],
       failedPersonUuids: [],
     });
-    const [call] = calls;
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.url).toBe(
+      `https://us.posthog.com/api/projects/12345/persons/?distinct_id=${encodeURIComponent(analyticsId)}`,
+    );
+    expect(new Headers(calls[0]?.init.headers).get("Authorization")).toBe(
+      `Bearer ${personalApiKey}`,
+    );
+    const call = calls[1];
     expect(call?.url).toBe("https://us.posthog.com/api/projects/12345/persons/bulk_delete/");
     expect(call?.init.method).toBe("POST");
     const headers = new Headers(call?.init.headers);
@@ -384,6 +398,7 @@ describe("PostHog person deletion (§5.6)", () => {
 
   it("reports persons PostHog could not delete", async () => {
     const { client } = scripted([
+      lookup([personUuid]),
       json(202, {
         persons_found: 1,
         persons_deleted: 0,
@@ -403,7 +418,10 @@ describe("PostHog person deletion (§5.6)", () => {
     [500, "analytics.deletion_unavailable", true],
     [200, "analytics.deletion_rejected", false],
   ] as const)("maps HTTP %i to %s", async (status, code, retryable) => {
-    const { client } = scripted([json(status, { detail: analyticsId }, { "retry-after": "30" })]);
+    const { client } = scripted([
+      lookup([personUuid]),
+      json(status, { detail: analyticsId }, { "retry-after": "30" }),
+    ]);
     const error = await deletionError(client.requestDeletion(analyticsId));
     expect(error.code).toBe(code);
     expect(error.retryable).toBe(retryable);
@@ -411,12 +429,34 @@ describe("PostHog person deletion (§5.6)", () => {
     expect(error.retryAfterSeconds).toBe(30);
   });
 
+  it("never deletes when the lookup fails, and repeats safely after persons are gone", async () => {
+    const failing = scripted([json(429, {}, { "retry-after": "5" })]);
+    const error = await deletionError(failing.client.requestDeletion(analyticsId));
+    expect(error).toMatchObject({ code: "analytics.deletion_rate_limited", retryAfterSeconds: 5 });
+    expect(failing.calls).toHaveLength(1);
+
+    const repeat = scripted([
+      lookup([]),
+      json(202, {
+        persons_found: 0,
+        persons_deleted: 0,
+        events_queued_for_deletion: true,
+        recordings_queued_for_deletion: true,
+        deletion_errors: [],
+      }),
+    ]);
+    expect(await repeat.client.requestDeletion(analyticsId)).toMatchObject({
+      personsFound: 0,
+      personUuids: [],
+    });
+  });
+
   it("maps network failures and malformed responses", async () => {
     const network = scripted([new TypeError(`fetch failed ${analyticsId}`)]);
     expect((await deletionError(network.client.requestDeletion(analyticsId))).code).toBe(
       "analytics.deletion_network_error",
     );
-    const malformed = scripted([json(202, { persons_found: "one" })]);
+    const malformed = scripted([lookup([]), json(202, { persons_found: "one" })]);
     expect((await deletionError(malformed.client.requestDeletion(analyticsId))).code).toBe(
       "analytics.deletion_invalid_response",
     );
@@ -465,6 +505,7 @@ describe("PostHog person deletion (§5.6)", () => {
     ).toThrow();
     const { client, calls } = scripted([]);
     await deletionError(client.requestDeletion(" "));
+    await deletionError(client.findPersonUuids(""));
     await deletionError(client.eventDeletionStatus("not-a-uuid"));
     expect(calls).toEqual([]);
   });

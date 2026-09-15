@@ -237,11 +237,42 @@ describe("posthog-js in jsdom (§15)", () => {
     expect(document.cookie).toBe("");
   });
 
+  it("logout clears the stored identity so the next account on the device starts clean", async () => {
+    const analytics = createBrowserAnalytics({ enabled: true, projectKey, loadPostHog });
+    await analytics.applyConsent({ consent: "granted", analyticsId });
+    await flushPostHog();
+    expect(localStorage.getItem(`ph_${projectKey}_posthog`)).toContain(analyticsId);
+
+    await analytics.logout();
+
+    const leftovers = [...storageKeys(localStorage), ...storageKeys(sessionStorage)].filter(
+      (key) => key.startsWith("ph_") || key.startsWith("__ph_opt_in_out_"),
+    );
+    expect(leftovers).toEqual([]);
+
+    // A later page load for a signed-out visitor, or a denial from another device, finds nothing.
+    const nextPage = createBrowserAnalytics({ enabled: true, projectKey, loadPostHog });
+    localStorage.setItem(`ph_${projectKey}_posthog`, JSON.stringify({ distinct_id: analyticsId }));
+    const loadsBefore = loads;
+    await nextPage.applyConsent({ consent: "denied", analyticsId });
+    expect(loads).toBe(loadsBefore);
+    expect(localStorage.getItem(`ph_${projectKey}_posthog`)).toBeNull();
+    requests.length = 0;
+  });
+
   it("withdrawal opts out, resets, clears ph_* storage and sends nothing afterwards", async () => {
     const analytics = createBrowserAnalytics({ enabled: true, projectKey, loadPostHog });
     await analytics.applyConsent({ consent: "granted", analyticsId });
-    expect(storageKeys(localStorage).some((key) => key.startsWith("ph_"))).toBe(true);
+    expect(
+      analytics.track("appearance_changed", {
+        changed: "mode",
+        theme: "studio",
+        accent: "preset",
+        mode: "system",
+      }),
+    ).toEqual({ status: "sent" });
     await flushPostHog();
+    expect(storageKeys(localStorage).some((key) => key.startsWith("ph_"))).toBe(true);
     requests.length = 0;
 
     await analytics.withdraw();
