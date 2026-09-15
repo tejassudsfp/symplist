@@ -13,8 +13,21 @@ const fixtures = {
     console.log("run " + process.argv[2]);
     process.exitCode = Number(process.argv[3] ?? 0);
   `,
+  "exit-when.mjs": `
+    // argv: label, code, file: exits with code once file exists
+    import { existsSync } from "node:fs";
+    const [label, code, file] = process.argv.slice(2);
+    console.log("run " + label);
+    const waiting = setInterval(() => {
+      if (!existsSync(file)) return;
+      clearInterval(waiting);
+      process.exitCode = Number(code);
+    }, 10);
+  `,
   "service.mjs": `
-    // argv: name, readyDelayMs, then optional "exit-after:<ms>:<code>" or "print:<text>"
+    // argv: name, readyDelayMs, then optional "exit-after:<ms>:<code>", "print:<text>" or
+    // "touch:<file>" (written once the signal handlers are installed and READY is printed)
+    import { writeFileSync } from "node:fs";
     const [name, readyDelay = "0", extra = ""] = process.argv.slice(2);
     for (const signal of ["SIGINT", "SIGTERM"]) {
       process.on(signal, () => { console.log(name + " got " + signal); process.exit(0); });
@@ -23,6 +36,7 @@ const fixtures = {
     setTimeout(() => {
       if (extra.startsWith("print:")) console.log(extra.slice(6));
       else console.log(name + " READY");
+      if (extra.startsWith("touch:")) writeFileSync(extra.slice(6), "");
       if (extra.startsWith("exit-after:")) {
         const [, ms, code] = extra.split(":");
         setTimeout(() => process.exit(Number(code)), Number(ms));
@@ -193,9 +207,14 @@ describe("dev runner", () => {
   });
 
   it("exits non-zero and stops the others when a process exits while starting", async () => {
+    // The api exits only once web has installed its signal handlers, so web always reports SIGTERM.
+    const webStarted = join(root, "web-started");
     const { output, exit } = run({
       build: null,
-      processes: [node("web", "service.mjs", ["web"]), node("api", "exit.mjs", ["api-crash", "4"])],
+      processes: [
+        node("web", "service.mjs", ["web", "0", `touch:${webStarted}`]),
+        node("api", "exit-when.mjs", ["api-crash", "4", webStarted]),
+      ],
     });
     assert.equal(await exit, 4);
     assert.match(output.text, /api stopped while starting \(exit code 4\)/);
