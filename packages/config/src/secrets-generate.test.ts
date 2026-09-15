@@ -84,6 +84,10 @@ describe("pnpm secrets:generate (§16.3)", () => {
     expect(result.stderr).toContain("takes no arguments");
     const help = runSecretsGenerate(["--help"]);
     expect(help.status).toBe(0);
+    expect(help.stdout).toContain("Usage: pnpm secrets:generate");
     expect(help.stdout).not.toMatch(/_1=/);
+    const helpWithExtra = runSecretsGenerate(["--help", "--output"]);
+    expect(helpWithExtra.status).toBe(2);
+    expect(helpWithExtra.stdout).toBe("");
   });
 });

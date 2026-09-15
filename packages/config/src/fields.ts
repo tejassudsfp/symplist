@@ -151,7 +151,11 @@ export function parseOrigin(value: string, kind: OriginKind): URL | null {
   }
   if (!schemesByKind[kind].includes(url.protocol)) return null;
   if (url.username !== "" || url.password !== "") return null;
-  return url.origin === value ? url : null;
+  // The canonical text is built from the scheme and host rather than read from `URL.origin`, because
+  // this entry also runs in browsers (`@symplist/config/web`) and engines have disagreed on the
+  // origin of `ws:`/`wss:` URLs (some serialize it as "null"). `host` omits default ports and
+  // lowercases the hostname, and any path, query, fragment or trailing slash makes the text differ.
+  return `${url.protocol}//${url.host}` === value ? url : null;
 }
 
 /** Whether an origin uses the secure scheme of its kind (`https:` or `wss:`). */
@@ -189,6 +193,20 @@ export function credentialVariable() {
     .optional();
 }
 
+/**
+ * A PostHog project ingest key (`phc_…`), which is public by design. Personal API keys (`phx_…`) are
+ * server-only and api-only (§4.5), so they can never be configured under a project-key name.
+ */
+export const posthogProjectKeyPattern = /^phc_[A-Za-z0-9_-]{16,128}$/;
+
+/** An optional PostHog project ingest key; any other PostHog key is rejected. */
+export function posthogProjectKeyVariable() {
+  return optionalPatternVariable(
+    posthogProjectKeyPattern,
+    "must be a PostHog project ingest key (phc_…); personal API keys are server-only",
+  );
+}
+
 /** An optional JSON object, for example service-account credentials. */
 export function jsonObjectVariable() {
   const invalid = "must be a JSON object of at most 16384 characters";
@@ -216,9 +234,14 @@ export function isEmailAddress(value: string): boolean {
   return value.length <= 254 && emailSchema.safeParse(value).success;
 }
 
-/** Whether a value is an email address or `Display Name <address>`. */
+/**
+ * Whether a value is an email address or `Display Name <address>`. Display names are unquoted
+ * phrases, so RFC 5322 specials that would split or reinterpret the header (`,`, `;`, `:`, `@`,
+ * brackets, parentheses, quotes, backslashes) and control characters are refused.
+ */
 export function isMailbox(value: string): boolean {
-  const named = /^([^<>"\r\n\t]{1,100}?) <([^<>\s]+)>$/.exec(value);
+  if (/\p{Cc}/u.test(value)) return false;
+  const named = /^([^<>()[\]\\,;:@"]{1,100}?) <([^<>\s]+)>$/.exec(value);
   if (named) {
     const [, name, address] = named;
     return (

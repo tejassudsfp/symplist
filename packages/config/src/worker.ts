@@ -141,18 +141,36 @@ export interface WorkerSyncEnvVar {
 }
 
 /**
- * Variables never synced even though the worker reads them: `TRIGGER_SECRET_KEY` is injected by
- * Trigger.dev itself (the api's key must never reach Trigger), and `NODE_ENV` is set by the image.
+ * Trigger.dev's `syncEnvVars` extension silently drops every name starting with `TRIGGER_` (its
+ * `UNSYNCABLE_ENV_VARS_PREFIXES`), so no `TRIGGER_*` variable can travel through the allowlist.
  */
-export const workerSyncExcludedVariables: readonly string[] = Object.freeze([
-  "NODE_ENV",
-  "TRIGGER_SECRET_KEY",
-]);
+export const triggerUnsyncablePrefix = "TRIGGER_";
 
-/** The value synced for `TRIGGER_AI_SDK_OTEL_AUTOREGISTER`, regardless of the deploy environment. */
-const fixedSyncValues: Readonly<Record<string, string>> = Object.freeze({
+/**
+ * Variables never synced even though the worker reads them: `TRIGGER_SECRET_KEY` is injected by
+ * Trigger.dev itself (the api's key must never reach Trigger), `NODE_ENV` is set by the image, and
+ * `TRIGGER_AI_SDK_OTEL_AUTOREGISTER` comes from `workerImageEnv` because sync would drop it.
+ */
+export const workerSyncExcludedVariables: readonly string[] = Object.freeze(
+  workerVariableNames.filter(
+    (name) => name === "NODE_ENV" || name.startsWith(triggerUnsyncablePrefix),
+  ),
+);
+
+/**
+ * Fixed values the deployed worker image must carry (§8.3): `TRIGGER_AI_SDK_OTEL_AUTOREGISTER=0`.
+ * `syncEnvVars` cannot deliver a `TRIGGER_*` name, so `trigger.config.ts` bakes these into the image
+ * with a build layer: `context.addLayer({ id: "symplist-env", image: { instructions:
+ * workerImageEnvInstructions } })`. The worker schema still requires them at task startup.
+ */
+export const workerImageEnv: Readonly<{ TRIGGER_AI_SDK_OTEL_AUTOREGISTER: "0" }> = Object.freeze({
   TRIGGER_AI_SDK_OTEL_AUTOREGISTER: "0",
 });
+
+/** Dockerfile `ENV` instructions for `workerImageEnv`. */
+export const workerImageEnvInstructions: readonly string[] = Object.freeze(
+  Object.entries(workerImageEnv).map(([name, value]) => `ENV ${name}=${value}`),
+);
 
 /**
  * The fixed variable names the worker syncs, with whether each is secret. Secret families sync as
@@ -191,17 +209,20 @@ export function workerSyncEntry(name: string): { readonly isSecret: boolean } | 
 /**
  * The variables to sync from a deploy environment (typically CI's `process.env`), for
  * `syncEnvVars(() => workerSyncEnvVars(process.env))` in `trigger.config.ts`. Only allowlisted names
- * are selected, `TRIGGER_AI_SDK_OTEL_AUTOREGISTER` is always `0`, and the selection is validated
- * with the worker schema first, so a deploy never syncs an invalid or forbidden configuration.
- * Throws a `ConfigError` naming the problems.
+ * are selected, and the selection is validated with the worker schema (together with
+ * `workerImageEnv`, which the image provides) before anything is returned, so an invalid or forbidden
+ * configuration is never synced. Throws a `ConfigError` naming the problems.
+ *
+ * Trigger.dev catches errors thrown inside the `syncEnvVars` callback and only logs a warning, so a
+ * throw here skips the sync but does not stop the deploy. To fail the deploy, `trigger.config.ts` must
+ * catch the `ConfigError`, print it and exit non-zero.
  */
 export function workerSyncEnvVars(env: EnvRecord): WorkerSyncEnvVar[] {
   const selected: Record<string, string> = {};
   for (const [name, value] of Object.entries(presentVariables(env))) {
     if (workerSyncEntry(name)) selected[name] = value;
   }
-  Object.assign(selected, fixedSyncValues);
-  const result = parseWorkerConfig(selected, { platformInjected: false });
+  const result = parseWorkerConfig({ ...selected, ...workerImageEnv }, { platformInjected: false });
   if (!result.ok) throw new ConfigError("worker", result.issues);
   return Object.entries(selected)
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))

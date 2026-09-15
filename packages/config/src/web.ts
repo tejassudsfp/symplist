@@ -8,9 +8,9 @@ import {
   isSecureOrigin,
   issuesFromZod,
   optionalOriginVariable,
-  optionalPatternVariable,
   originVariable,
   parseOrigin,
+  posthogProjectKeyVariable,
   presentVariables,
 } from "./fields.ts";
 import { isSecretVariable } from "./secrets.ts";
@@ -49,10 +49,7 @@ const webVariableShape = {
    * The PostHog project ingest key (`phc_…`), which is public by design. A personal API key
    * (`phx_…`) or any other value is rejected, so a server credential can never be bundled.
    */
-  NEXT_PUBLIC_POSTHOG_KEY: optionalPatternVariable(
-    /^phc_[A-Za-z0-9_-]{16,128}$/,
-    "must be a PostHog project ingest key (phc_…); personal API keys are server-only",
-  ),
+  NEXT_PUBLIC_POSTHOG_KEY: posthogProjectKeyVariable(),
   NEXT_PUBLIC_POSTHOG_HOST: optionalOriginVariable("http"),
   /** Vercel project setting that enables Corepack so pnpm 12.4.2 is used (§1). */
   ENABLE_EXPERIMENTAL_COREPACK: z.literal("1", { error: "must be 1" }).optional(),

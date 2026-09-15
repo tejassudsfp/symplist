@@ -5,7 +5,6 @@ import {
   type EnvRecord,
   enumVariable,
   integerWithDefaultVariable,
-  isLoopbackHostname,
   isSecureOrigin,
   mailboxVariable,
   optionalEmailVariable,
@@ -191,15 +190,6 @@ function apiRuleIssues(fields: ApiFields): ConfigIssue[] {
     });
   }
 
-  if (fields.POSTHOG_HOST !== undefined && production) {
-    const host = parseOrigin(fields.POSTHOG_HOST, "http");
-    if (host && isLoopbackHostname(host.hostname)) {
-      issues.push({
-        variable: "POSTHOG_HOST",
-        message: "must not be a loopback host when NODE_ENV=production",
-      });
-    }
-  }
   return issues;
 }
 

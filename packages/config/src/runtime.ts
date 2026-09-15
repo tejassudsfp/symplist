@@ -19,6 +19,7 @@ import {
   optionalPatternVariable,
   originVariable,
   parseOrigin,
+  posthogProjectKeyVariable,
   presentVariables,
   timeZoneVariable,
 } from "./fields.ts";
@@ -70,11 +71,15 @@ function gitTmpDirVariable() {
     .transform((value) => value ?? join(tmpdir(), "symplist-git"));
 }
 
-/** `TRIGGER_SECRET_KEY`: a Trigger.dev environment secret key. */
+/**
+ * `TRIGGER_SECRET_KEY`: a Trigger.dev environment secret key (`tr_dev_…`, `tr_prod_…`). A personal
+ * access token (`tr_pat_…`, the CI-only `TRIGGER_ACCESS_TOKEN`) is refused, so the deploy credential
+ * can never be held by the api or the worker under another name (§4.5).
+ */
 export function triggerSecretKeyVariable() {
   return optionalPatternVariable(
-    /^tr_[A-Za-z0-9_]{8,256}$/,
-    "must be a Trigger.dev secret key (tr_…)",
+    /^tr_(?!pat_)[A-Za-z0-9_]{8,256}$/,
+    "must be a Trigger.dev environment secret key (tr_…), not a personal access token",
   );
 }
 
@@ -134,7 +139,7 @@ export const sharedVariableShape = {
   COMPOSIO_API_KEY: credentialVariable(),
 
   ANALYTICS_ENABLED: booleanVariable(false),
-  POSTHOG_PROJECT_KEY: credentialVariable(),
+  POSTHOG_PROJECT_KEY: posthogProjectKeyVariable(),
   POSTHOG_HOST: optionalOriginVariable("http"),
 
   OPENAI_API_KEY: credentialVariable(),
@@ -199,7 +204,8 @@ function requireWhen(
 /**
  * Cross-field rules shared by both runtimes (§16.1): production refuses the local drivers and the
  * scripted model and requires secure origins; drivers require their credentials; provider
- * credential groups are complete; analytics with a project key needs its host.
+ * credential groups are complete; analytics with a project key needs its host, which production
+ * refuses on loopback.
  */
 export function sharedRuleIssues(
   values: SharedRuleValues,
@@ -275,6 +281,12 @@ export function sharedRuleIssues(
       issues.push({
         variable: "POSTHOG_HOST",
         message: "must use https unless it is a loopback host",
+      });
+    }
+    if (host && production && isLoopbackHostname(host.hostname)) {
+      issues.push({
+        variable: "POSTHOG_HOST",
+        message: "must not be a loopback host when NODE_ENV=production",
       });
     }
   }

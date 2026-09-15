@@ -11,6 +11,8 @@ import {
   loadWorkerConfig,
   parseWorkerConfig,
   workerConfigSchema,
+  workerImageEnv,
+  workerImageEnvInstructions,
   workerSecretFamilies,
   workerSyncAllowlist,
   workerSyncEntry,
@@ -117,8 +119,35 @@ describe("worker configuration: rules", () => {
       }).ok,
     ).toBe(true);
     expect(issuesOf(productionWorkerEnv({ TRIGGER_SECRET_KEY: "not-a-trigger-key" }))).toEqual([
-      issue("TRIGGER_SECRET_KEY", "Trigger.dev secret key"),
+      issue("TRIGGER_SECRET_KEY", "Trigger.dev environment secret key"),
     ]);
+  });
+
+  it("never holds the CI deploy token or the PostHog personal API key under another name", () => {
+    const deployToken = credential("tr_pat_");
+    const deployIssues = issuesOf(productionWorkerEnv({ TRIGGER_SECRET_KEY: deployToken }));
+    expect(deployIssues).toEqual([issue("TRIGGER_SECRET_KEY", "not a personal access token")]);
+    const personalKey = credential("phx_");
+    const posthogIssues = issuesOf(
+      productionWorkerEnv({
+        ANALYTICS_ENABLED: "true",
+        POSTHOG_HOST: "https://us.i.posthog.com",
+        POSTHOG_PROJECT_KEY: personalKey,
+      }),
+    );
+    expect(posthogIssues).toEqual([issue("POSTHOG_PROJECT_KEY", "PostHog project ingest key")]);
+    expect(JSON.stringify([deployIssues, posthogIssues])).not.toMatch(
+      new RegExp(`${deployToken}|${personalKey}`),
+    );
+    expect(
+      parseWorkerConfig(
+        productionWorkerEnv({
+          ANALYTICS_ENABLED: "true",
+          POSTHOG_HOST: "https://us.i.posthog.com",
+          POSTHOG_PROJECT_KEY: credential("phc_"),
+        }),
+      ).ok,
+    ).toBe(true);
   });
 
   it.each([
@@ -140,6 +169,15 @@ describe("worker configuration: rules", () => {
       expect(issuesOf(localWorkerEnv({ [name]: "true" }))).toEqual([issue(name, "must be false")]);
     },
   );
+
+  it("production refuses a loopback PostHog host, as on the api", () => {
+    expect(issuesOf(productionWorkerEnv({ POSTHOG_HOST: "http://localhost:8000" }))).toEqual([
+      issue("POSTHOG_HOST", "must not be a loopback host when NODE_ENV=production"),
+    ]);
+    expect(parseWorkerConfig(localWorkerEnv({ POSTHOG_HOST: "http://localhost:8000" })).ok).toBe(
+      true,
+    );
+  });
 
   it("holds AI provider credentials even when DURABLE=true", () => {
     expect(parseWorkerConfig(productionWorkerEnv({ TOGETHER_API_KEY: credential() })).ok).toBe(
@@ -215,10 +253,13 @@ describe("worker syncEnvVars allowlist (§4.5, §8.8)", () => {
     }
   });
 
-  it("covers every worker variable except the platform-set ones and marks secrets", () => {
+  it("covers every worker variable except the platform-set and TRIGGER_* ones and marks secrets", () => {
     expect(new Set(workerSyncAllowlist.map((entry) => entry.name))).toEqual(
       new Set(
-        workerVariableNames.filter((name) => !["NODE_ENV", "TRIGGER_SECRET_KEY"].includes(name)),
+        workerVariableNames.filter(
+          (name) =>
+            !["NODE_ENV", "TRIGGER_SECRET_KEY", "TRIGGER_AI_SDK_OTEL_AUTOREGISTER"].includes(name),
+        ),
       ),
     );
     for (const { name, isSecret } of workerSyncAllowlist) {
@@ -229,6 +270,35 @@ describe("worker syncEnvVars allowlist (§4.5, §8.8)", () => {
     expect(workerSyncEntry("CONTENT_KEK_latest")).toBeUndefined();
     expect(workerSyncEntry("OPENAI_API_KEY")).toEqual({ isSecret: true });
     expect(workerSyncEntry("WEB_ORIGIN")).toEqual({ isSecret: false });
+  });
+
+  it("never returns a TRIGGER_* name, which Trigger.dev's syncEnvVars silently drops", () => {
+    // Mirrors UNSYNCABLE_ENV_VARS_PREFIXES in @trigger.dev/build 4.6.0 extensions/core/syncEnvVars.
+    for (const { name } of workerSyncAllowlist) expect(name.startsWith("TRIGGER_")).toBe(false);
+    const synced = workerSyncEnvVars(productionWorkerEnv());
+    expect(synced.filter(({ name }) => name.startsWith("TRIGGER_"))).toEqual([]);
+    expect(workerSyncEntry("TRIGGER_AI_SDK_OTEL_AUTOREGISTER")).toBeUndefined();
+  });
+
+  it("bakes TRIGGER_AI_SDK_OTEL_AUTOREGISTER=0 into the image instead (§8.3)", () => {
+    expect(workerImageEnv).toEqual({ TRIGGER_AI_SDK_OTEL_AUTOREGISTER: "0" });
+    expect(workerImageEnvInstructions).toEqual(["ENV TRIGGER_AI_SDK_OTEL_AUTOREGISTER=0"]);
+    expect(Object.isFrozen(workerImageEnv)).toBe(true);
+    // A deployed run process gets synced values plus the image env and passes startup validation.
+    const deployed = Object.fromEntries(
+      workerSyncEnvVars(productionWorkerEnv()).map(({ name, value }) => [name, value]),
+    );
+    const runProcess = {
+      ...deployed,
+      ...workerImageEnv,
+      NODE_ENV: "production",
+      TRIGGER_SECRET_KEY: credential("tr_prod_"),
+    };
+    expect(parseWorkerConfig(runProcess).ok).toBe(true);
+    const { TRIGGER_AI_SDK_OTEL_AUTOREGISTER: _image, ...withoutImageEnv } = runProcess;
+    expect(issuesOf(withoutImageEnv)).toEqual([
+      issue("TRIGGER_AI_SDK_OTEL_AUTOREGISTER", "is required"),
+    ]);
   });
 
   it("selects only allowlisted variables from a CI environment and validates them", () => {
@@ -251,12 +321,8 @@ describe("worker syncEnvVars allowlist (§4.5, §8.8)", () => {
     expect(names).not.toContain("NODE_ENV");
     expect(names).not.toContain("GITHUB_SHA");
     expect(names).not.toContain("COMPOSIO_API_KEY");
+    expect(names).not.toContain("TRIGGER_AI_SDK_OTEL_AUTOREGISTER");
     expect(names).toEqual([...names].sort());
-    expect(synced).toContainEqual({
-      name: "TRIGGER_AI_SDK_OTEL_AUTOREGISTER",
-      value: "0",
-      isSecret: false,
-    });
     expect(synced).toContainEqual({
       name: "CONTENT_KEK_1",
       value: deploy.CONTENT_KEK_1,
@@ -272,15 +338,11 @@ describe("worker syncEnvVars allowlist (§4.5, §8.8)", () => {
     for (const entry of synced) expect(workerSyncEntry(entry.name)).toBeDefined();
   });
 
-  it("forces TRIGGER_AI_SDK_OTEL_AUTOREGISTER to 0 even when CI sets it otherwise", () => {
+  it("ignores a CI value for TRIGGER_AI_SDK_OTEL_AUTOREGISTER; the image value always wins", () => {
     const synced = workerSyncEnvVars(
       productionWorkerEnv({ TRIGGER_AI_SDK_OTEL_AUTOREGISTER: "1" }),
     );
-    expect(synced).toContainEqual({
-      name: "TRIGGER_AI_SDK_OTEL_AUTOREGISTER",
-      value: "0",
-      isSecret: false,
-    });
+    expect(synced.map(({ name }) => name)).not.toContain("TRIGGER_AI_SDK_OTEL_AUTOREGISTER");
   });
 
   it("refuses to sync an invalid or local configuration", () => {
