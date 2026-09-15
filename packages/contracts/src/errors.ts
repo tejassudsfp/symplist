@@ -1,6 +1,6 @@
 import { accessErrorCodes } from "./access/errors.ts";
 import { analyticsErrorCodes } from "./analytics/errors.ts";
-import { commonErrorCodes } from "./common/errors.ts";
+import { commonErrorCodes, type ErrorHttpStatus } from "./common/errors.ts";
 import { connectionsErrorCodes } from "./connections/errors.ts";
 import { documentsErrorCodes } from "./documents/errors.ts";
 import { schedulingErrorCodes } from "./scheduling/errors.ts";
@@ -41,3 +41,13 @@ export const errorCodes = Object.freeze({
 });
 
 export type ErrorCode = keyof typeof errorCodes;
+
+/** Whether a string is one of the declared error codes. */
+export function isErrorCode(value: string): value is ErrorCode {
+  return Object.hasOwn(errorCodes, value);
+}
+
+/** The HTTP status a declared error code is returned with. */
+export function errorHttpStatus(code: ErrorCode): ErrorHttpStatus {
+  return errorCodes[code];
+}
