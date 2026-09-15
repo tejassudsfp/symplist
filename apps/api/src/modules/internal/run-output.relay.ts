@@ -68,6 +68,10 @@ export interface RunOutputRelayOptions {
 
 const executing = new Set<string>(executingRunStatuses);
 
+function copyKey(key: AccountDataKey | null): AccountDataKey | null {
+  return key ? { ...key, key: Uint8Array.from(key.key) } : null;
+}
+
 /**
  * The api side of the run output path (§8.2): deduplicates on `(runId, seq)`, checks run ownership
  * (cached for the run's life) and status and executor generation (re-read at most every 10 seconds),
@@ -137,6 +141,7 @@ export class RunOutputRelay {
         runChunkContext(ownership.ownerId, body.runId, body.seq),
         body.envelope,
       );
+      zeroize(key.key);
       let parsed: unknown;
       try {
         parsed = JSON.parse(plaintext);
@@ -147,6 +152,7 @@ export class RunOutputRelay {
       if (!result.success) return this.reject(body, "invalid_plaintext");
       chunks = result.data;
     } catch (error) {
+      zeroize(key.key);
       log.warn("internal.run_output_decrypt_failed", {
         runId: body.runId,
         seq: body.seq,
@@ -256,15 +262,20 @@ export class RunOutputRelay {
     return value;
   }
 
+  /**
+   * The owner's account key, re-read at most every 10 seconds. Callers get a private copy and zeroise
+   * it after use, so a concurrent refresh or eviction that zeroises the cached key between this
+   * lookup and the decryption can never hand a zeroed key to a request in flight.
+   */
   private async accountKey(ownerId: string): Promise<AccountDataKey | null> {
     const now = this.options.timers.now();
     const cached = this.keys.get(ownerId);
-    if (cached && now - cached.readAt < this.stateTtlMs) return cached.key;
+    if (cached && now - cached.readAt < this.stateTtlMs) return copyKey(cached.key);
     const key = await this.options.accountKeys.load(ownerId);
     const previous = this.keys.get(ownerId);
     if (previous?.key && previous.key !== key) zeroize(previous.key.key);
     this.keys.set(ownerId, { key, readAt: this.options.timers.now() });
-    return key;
+    return copyKey(key);
   }
 
   private evictIdle(): void {

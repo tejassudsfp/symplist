@@ -1,5 +1,6 @@
 import type { IncomingMessage } from "node:http";
 import { Controller, HttpCode, Inject, Param, Post, Req, Res } from "@nestjs/common";
+import { SkipThrottle } from "@nestjs/throttler";
 import {
   INTERNAL_BODY_LIMITS,
   INTERNAL_CONTENT_TYPE,
@@ -20,8 +21,10 @@ interface StatusResponse {
 /**
  * `POST /internal/v1/runs/:runId/output` (§8.2): signed, encrypted run output chunks relayed to the
  * run's conversation topic. 202 when relayed, 200 for a duplicate `(runId, seq)`; every ownership,
- * status or generation failure returns `not_found`. Route class `signed`.
+ * status or generation failure returns `not_found`. Route class `signed`; per-IP throttling is skipped
+ * because each run pushes up to ten batches a second from shared Trigger egress addresses.
  */
+@SkipThrottle()
 @Controller()
 export class RunOutputController {
   constructor(

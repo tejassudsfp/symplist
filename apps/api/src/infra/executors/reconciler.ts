@@ -56,6 +56,7 @@ const skipped: ReconcileReport = {
 export class ExecutionReconciler {
   private timer: unknown;
   private running: Promise<ReconcileReport> | undefined;
+  private stopped = false;
   private readonly intervalMs: number;
   private readonly heartbeatTimeoutMs: number;
   private readonly pageSize: number;
@@ -80,13 +81,16 @@ export class ExecutionReconciler {
     }, this.intervalMs);
   }
 
+  /** Stops the timer; a pass in progress ends after the subject it is handling. */
   async stop(): Promise<void> {
+    this.stopped = true;
     if (this.timer !== undefined) this.options.timers.clearInterval(this.timer);
     this.timer = undefined;
     await this.running?.catch(() => undefined);
   }
 
   reconcileOnce(): Promise<ReconcileReport> {
+    if (this.stopped) return Promise.resolve(skipped);
     this.running ??= this.pass().finally(() => {
       this.running = undefined;
     });
@@ -106,6 +110,7 @@ export class ExecutionReconciler {
       log.warn("executor.reconcile_state_unavailable", { code: errorCode(error) });
       return skipped;
     }
+    this.abortSwitchedLocalJobs(readiness);
     if (!readiness.usable) return skipped;
 
     let failures = 0;
@@ -126,6 +131,7 @@ export class ExecutionReconciler {
     let stopped = 0;
     const executor = executorKindFor(readiness.mode);
     for (const { kind, tracker } of registry.trackedKinds()) {
+      if (this.stopped) break;
       let active: readonly ActiveExecution[];
       try {
         active = await tracker.listActive({ executor, limit: this.pageSize });
@@ -135,6 +141,8 @@ export class ExecutionReconciler {
         continue;
       }
       for (const execution of active) {
+        // Shutdown must not wait for a whole page of Trigger polls.
+        if (this.stopped) break;
         if (execution.executor !== executor) continue;
         try {
           const outcome =
@@ -167,6 +175,25 @@ export class ExecutionReconciler {
     return report;
   }
 
+  /**
+   * After `executor:switch` the jobs still running in this process belong to a retired generation: the
+   * switch already marked their runs interrupted, so their controllers are aborted here instead of
+   * waiting for each handler's next generation check (§8.1).
+   */
+  private abortSwitchedLocalJobs(readiness: ReturnType<ExecutorStateReader["readiness"]>): void {
+    const local = this.options.local;
+    if (!local || local.runningCount() === 0) return;
+    let aborted = 0;
+    if (readiness.usable) aborted = local.abortStale(readiness.generation);
+    else if (readiness.reason === "mode_mismatch") aborted = local.abortStale(null);
+    if (aborted > 0) {
+      this.options.log.warn("executor.local_jobs_switched", {
+        count: aborted,
+        generation: readiness.generation,
+      });
+    }
+  }
+
   private async reconcileLocal(
     kind: string,
     tracker: ExecutionTracker,
@@ -183,17 +210,49 @@ export class ExecutionReconciler {
     return changed ? "interrupted" : "none";
   }
 
+  /**
+   * A durable run without a recorded Trigger run id: the dispatcher stored the id on the intent but
+   * failed to record it on the run. Without this the run would never be polled and would stay active
+   * forever after Trigger ended it. Reads the intent, repairs the run record, and returns the id.
+   */
+  private async recoverTriggerRunId(
+    kind: string,
+    tracker: ExecutionTracker,
+    execution: ActiveExecution,
+  ): Promise<string | null> {
+    const intent = await this.options.repository.findBySubject(kind, execution.subjectId);
+    if (intent?.executor !== "trigger" || intent.triggerRunId === null) return null;
+    try {
+      await tracker.recordDispatch(execution.subjectId, {
+        executor: "trigger",
+        triggerRunId: intent.triggerRunId,
+        generation: intent.executorGeneration,
+        now: this.options.timers.now(),
+      });
+    } catch (error) {
+      this.options.log.warn("executor.reconcile_dispatch_repair_failed", {
+        kind,
+        subjectId: execution.subjectId,
+        code: errorCode(error),
+      });
+    }
+    return intent.triggerRunId;
+  }
+
   private async reconcileTrigger(
     kind: string,
     tracker: ExecutionTracker,
     execution: ActiveExecution,
   ): Promise<"interrupted" | "stopped" | "none"> {
     const trigger = this.options.trigger;
-    if (!trigger || execution.triggerRunId === null) return "none";
+    if (!trigger) return "none";
+    const triggerRunId =
+      execution.triggerRunId ?? (await this.recoverTriggerRunId(kind, tracker, execution));
+    if (triggerRunId === null) return "none";
     const observation = await trigger.observe({
       kind,
       subjectId: execution.subjectId,
-      triggerRunId: execution.triggerRunId,
+      triggerRunId,
     });
     if (observation.state === "active" || observation.state === "unknown") return "none";
     const now = this.options.timers.now();
@@ -208,7 +267,7 @@ export class ExecutionReconciler {
       this.options.log.warn("executor.trigger_run_ended", {
         kind,
         subjectId: execution.subjectId,
-        triggerRunId: execution.triggerRunId,
+        triggerRunId,
         state: observation.state,
         status: observation.state === "failed" ? observation.status : null,
       });

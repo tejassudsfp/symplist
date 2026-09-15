@@ -1,5 +1,6 @@
 import type { IncomingMessage } from "node:http";
 import { Controller, HttpCode, Inject, Post, Req } from "@nestjs/common";
+import { SkipThrottle } from "@nestjs/throttler";
 import {
   INTERNAL_BODY_LIMITS,
   INTERNAL_CONTENT_TYPE,
@@ -16,7 +17,10 @@ import { mediaType, readRawBody } from "./raw-body.ts";
 /**
  * `POST /internal/v1/events` (§6.2): worker announcements with ids-only payloads, dispatched to the
  * handler registered for their type. Route class `signed`: no cookies are read and no CORS applies.
+ * Worker traffic arrives from shared Trigger egress addresses, so per-IP throttling is skipped; the
+ * signature is the only gate (§5.3).
  */
+@SkipThrottle()
 @Controller()
 export class InternalEventsController {
   constructor(

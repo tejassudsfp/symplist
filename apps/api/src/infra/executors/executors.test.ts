@@ -1010,6 +1010,112 @@ describe("reconciler", () => {
     expect(await new ExecutorStateRepository(h.db).read()).toMatchObject({ mode: "local" });
   });
 
+  it("aborts in-process jobs of a retired generation or mode after an executor switch", async () => {
+    const h = await track(harness("local"));
+    const aborted: string[] = [];
+    h.registry.registerLocalHandler("simon_run", (job, context) => {
+      return new Promise((_resolve, reject) => {
+        context.signal.addEventListener("abort", () => {
+          aborted.push(
+            `${job.subjectId}:${(context.signal.reason as LocalExecutionAborted).reason}`,
+          );
+          reject(context.signal.reason);
+        });
+      });
+    });
+    const local = new LocalExecutor({ registry: h.registry, timers: h.clock, log: h.log });
+    const dispatcher = new ExecutionDispatcher({
+      repository: h.repository,
+      state: h.state,
+      registry: h.registry,
+      executor: local,
+      timers: h.clock,
+      log: h.log,
+    });
+    const reconciler = new ExecutionReconciler({
+      state: h.state,
+      repository: h.repository,
+      registry: h.registry,
+      dispatcher,
+      local,
+      timers: h.clock,
+      log: h.log,
+    });
+    const job = (subjectId: string, generation: number) => ({
+      intentId: subjectId,
+      kind: "simon_run",
+      subjectId,
+      ownerId: OWNER,
+      generation,
+    });
+    await local.start(job("old", 1), definition(h.tracker));
+    await local.start(job("current", 3), definition(h.tracker));
+    await h.clock.advance(0);
+
+    // local → durable → local moved the generation to 3: only the generation-1 job is stale.
+    await setMode(h.db, "local", 3);
+    await reconciler.reconcileOnce();
+    await h.clock.advance(0);
+    expect(aborted).toEqual(["old:switched"]);
+    expect(local.isRunning("simon_run", "current")).toBe(true);
+
+    // Switched to durable: nothing may keep running in process.
+    await setMode(h.db, "durable", 4);
+    expect((await reconciler.reconcileOnce()).ran).toBe(false);
+    await h.clock.advance(0);
+    expect(aborted).toEqual(["old:switched", "current:switched"]);
+    expect(local.runningCount()).toBe(0);
+    expect(h.log.events()).toContain("executor.local_jobs_switched");
+  });
+
+  it("polls a durable run whose Trigger run id reached only its intent, and repairs the run", async () => {
+    const h = await track(harness("durable"));
+    const trigger = new TriggerExecutor(h.trigger);
+    const dispatcher = new ExecutionDispatcher({
+      repository: h.repository,
+      state: h.state,
+      registry: h.registry,
+      executor: trigger,
+      timers: h.clock,
+      log: h.log,
+    });
+    const reconciler = new ExecutionReconciler({
+      state: h.state,
+      repository: h.repository,
+      registry: h.registry,
+      dispatcher,
+      trigger,
+      timers: h.clock,
+      log: h.log,
+    });
+    const { id, subjectId } = await addIntent(h.db);
+    const handle = await h.trigger.tasks.trigger(
+      "simon-run",
+      { runId: subjectId },
+      { idempotencyKey: subjectId },
+    );
+    h.trigger.startRun(handle.id);
+    h.trigger.failRun(handle.id, "CRASHED");
+    await h.db.run(
+      sql(
+        "UPDATE dispatch_intents SET status = 'dispatched', executor = 'trigger', trigger_run_id = :run, dispatched_at = 1 WHERE id = :id",
+        { run: handle.id, id },
+      ),
+    );
+    // The dispatcher stored the run id on the intent but its recordDispatch on the run failed.
+    h.tracker.add(subjectId, { ownerId: OWNER, executor: "trigger", triggerRunId: null });
+
+    expect(await reconciler.reconcileOnce()).toMatchObject({ interrupted: 1 });
+    expect(h.tracker.runs.get(subjectId)).toMatchObject({
+      status: "interrupted",
+      outcomeCode: "executor_failed",
+      triggerRunId: handle.id,
+    });
+    expect(h.tracker.dispatches).toEqual([
+      { subjectId, executor: "trigger", triggerRunId: handle.id },
+    ]);
+  });
+
   it("refuses executors of the wrong mode", async () => {
     const h = await track(harness("local"));
     const local = new LocalExecutor({ registry: h.registry, timers: h.clock, log: h.log });
@@ -1108,6 +1214,125 @@ describe("executor switch (§8.1)", () => {
       interrupted: 0,
       cancelledTriggerRuns: 0,
     });
+  });
+
+  it("completes a switch that stopped after advancing the generation when the command is run again", async () => {
+    const h = await track(harness("durable"));
+    const handles = await Promise.all(
+      ["a", "b"].map((name) =>
+        h.trigger.tasks.trigger("simon-run", { runId: name }, { idempotencyKey: name }),
+      ),
+    );
+    const subjects = [
+      "01996d2a-4c00-7000-8000-000000000041",
+      "01996d2a-4c00-7000-8000-000000000042",
+    ];
+    handles.forEach((handle, index) => {
+      h.trigger.startRun(handle.id);
+      h.tracker.add(must(subjects[index]), {
+        ownerId: OWNER,
+        executor: "trigger",
+        triggerRunId: handle.id,
+      });
+    });
+    const markInterrupted = vi
+      .spyOn(h.tracker, "markInterrupted")
+      .mockRejectedValueOnce(
+        Object.assign(new Error("D1 unavailable"), { code: "db.unavailable" }),
+      );
+    const switcher = new ExecutorSwitch({
+      db: h.db,
+      registry: h.registry,
+      trigger: h.trigger,
+      now: () => 1,
+      log: h.log,
+    });
+    await expect(switcher.switchTo("local")).rejects.toMatchObject({ code: "db.unavailable" });
+    expect(await new ExecutorStateRepository(h.db).read()).toMatchObject({
+      mode: "local",
+      generation: 2,
+    });
+    expect(h.tracker.runs.get(must(subjects[0]))?.status).toBe("running");
+
+    markInterrupted.mockRestore();
+    expect(await switcher.switchTo("local")).toMatchObject({
+      advanced: false,
+      generation: 2,
+      interrupted: 2,
+      cancelFailures: 0,
+    });
+    for (const subject of subjects) {
+      expect(h.tracker.runs.get(subject)).toMatchObject({
+        status: "interrupted",
+        outcomeCode: "executor_switched",
+      });
+    }
+    for (const handle of handles) {
+      expect((await h.trigger.runs.retrieve(handle.id)).status).toBe("CANCELED");
+    }
+  });
+
+  it("leaves a run whose Trigger cancel failed active so a rerun retries it, and treats 404 as gone", async () => {
+    const h = await track(harness("durable"));
+    const handle = await h.trigger.tasks.trigger(
+      "simon-run",
+      { runId: "a" },
+      { idempotencyKey: "a" },
+    );
+    h.trigger.startRun(handle.id);
+    const failing = "01996d2a-4c00-7000-8000-000000000051";
+    const vanished = "01996d2a-4c00-7000-8000-000000000052";
+    h.tracker.add(failing, { ownerId: OWNER, executor: "trigger", triggerRunId: handle.id });
+    h.tracker.add(vanished, { ownerId: OWNER, executor: "trigger", triggerRunId: "run_unknown" });
+    const cancel = vi
+      .spyOn(h.trigger.runs, "cancel")
+      .mockRejectedValueOnce(new FakeTriggerApiError(503, "unavailable"));
+    const switcher = new ExecutorSwitch({
+      db: h.db,
+      registry: h.registry,
+      trigger: h.trigger,
+      now: () => 1,
+      log: h.log,
+    });
+    expect(await switcher.switchTo("local")).toMatchObject({
+      advanced: true,
+      interrupted: 1,
+      cancelledTriggerRuns: 0,
+      cancelFailures: 1,
+    });
+    expect(h.tracker.runs.get(failing)?.status).toBe("running");
+    expect(h.tracker.runs.get(vanished)?.status).toBe("interrupted");
+
+    cancel.mockRestore();
+    expect(await switcher.switchTo("local")).toMatchObject({
+      advanced: false,
+      interrupted: 1,
+      cancelledTriggerRuns: 1,
+      cancelFailures: 0,
+    });
+    expect(h.tracker.runs.get(failing)?.status).toBe("interrupted");
+    expect((await h.trigger.runs.retrieve(handle.id)).status).toBe("CANCELED");
+  });
+
+  it("needs Trigger credentials in local mode only when leftover durable runs must be cancelled", async () => {
+    const h = await track(harness("local"));
+    const switcher = new ExecutorSwitch({
+      db: h.db,
+      registry: h.registry,
+      trigger: null,
+      now: () => 1,
+      log: h.log,
+    });
+    expect(await switcher.switchTo("local")).toMatchObject({ advanced: false, interrupted: 0 });
+    h.tracker.add("01996d2a-4c00-7000-8000-000000000061", {
+      ownerId: OWNER,
+      executor: "trigger",
+      triggerRunId: "run_leftover",
+    });
+    await expect(switcher.switchTo("local")).rejects.toMatchObject({
+      code: "executor.not_configured",
+    });
+    expect(h.tracker.runs.get("01996d2a-4c00-7000-8000-000000000061")?.status).toBe("running");
   });
 
   it("requires Trigger credentials to leave durable mode", async () => {
@@ -1269,18 +1494,47 @@ describe("execution post-commit hook (§5.5)", () => {
     expect(cancel.mock.calls).toEqual([["run_mine"]]);
   });
 
-  it("aborts local controllers in local mode", async () => {
+  it("aborts only the restricted user's local controllers in local mode", async () => {
     const h = await track(harness("local"));
+    h.registry.registerLocalHandler(
+      "simon_run",
+      (_job, context) =>
+        new Promise((_resolve, reject) => {
+          context.signal.addEventListener("abort", () => reject(context.signal.reason));
+        }),
+    );
     const local = new LocalExecutor({ registry: h.registry, timers: h.clock, log: h.log });
-    const abort = vi.spyOn(local, "abortSubjects");
+    const mine = "01996d2a-4c00-7000-8000-000000000071";
+    const theirs = "01996d2a-4c00-7000-8000-000000000072";
+    h.tracker.add(mine, { ownerId: OWNER, executor: "local" });
+    h.tracker.add(theirs, { ownerId: OTHER_OWNER, executor: "local" });
+    for (const [subjectId, ownerId] of [
+      [mine, OWNER],
+      [theirs, OTHER_OWNER],
+    ] as const) {
+      await local.start(
+        { intentId: subjectId, kind: "simon_run", subjectId, ownerId, generation: 1 },
+        definition(h.tracker),
+      );
+    }
+    await h.clock.advance(0);
     const hook = new ExecutionPostCommitHook({
       repository: h.repository,
       local,
       trigger: null,
       log: h.log,
     });
-    await hook.onAccessRestricted({ userId: OWNER, reason: "suspended", cancelledRunIds: ["r1"] });
-    expect(abort).toHaveBeenCalledWith(null, ["r1"], "stopped");
+    // A buggy caller names another user's run: it must not be touched.
+    await hook.onAccessRestricted({
+      userId: OWNER,
+      reason: "suspended",
+      cancelledRunIds: [mine, theirs],
+    });
+    await h.clock.advance(0);
+    expect(local.isRunning("simon_run", mine)).toBe(false);
+    expect(h.tracker.runs.get(mine)?.status).toBe("stopped");
+    expect(local.isRunning("simon_run", theirs)).toBe(true);
+    expect(h.tracker.runs.get(theirs)?.status).toBe("running");
   });
 });
 

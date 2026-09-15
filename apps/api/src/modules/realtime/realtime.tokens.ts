@@ -27,6 +27,8 @@ export interface RealtimeDependencies {
     readonly framesPerWindow?: number;
     readonly bufferCapacity?: number;
     readonly idleTopicMs?: number;
+    /** The session resolver's cache TTL, the margin for upgrades racing a post-commit hook. */
+    readonly sessionCacheTtlMs?: number;
   };
 }
 

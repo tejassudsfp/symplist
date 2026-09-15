@@ -116,17 +116,42 @@ export class LocalExecutor implements Executor {
     return this.running.size;
   }
 
-  /** Aborts local jobs of a kind whose subject ids are listed (restriction, executor switch). */
+  /**
+   * Aborts local jobs of a kind whose subject ids are listed (Stop, restriction). With `ownerId`, only
+   * jobs of that owner are aborted, so a restriction never touches another user's work.
+   */
   abortSubjects(
     kind: string | null,
     subjectIds: readonly string[],
     reason: LocalAbortReason,
+    ownerId?: string,
   ): number {
     let aborted = 0;
     const wanted = new Set(subjectIds);
     for (const entry of this.running.values()) {
-      if ((kind === null || entry.job.kind === kind) && wanted.has(entry.job.subjectId)) {
+      if (
+        (kind === null || entry.job.kind === kind) &&
+        wanted.has(entry.job.subjectId) &&
+        (ownerId === undefined || entry.job.ownerId === ownerId)
+      ) {
         entry.controller.abort(new LocalExecutionAborted(reason));
+        aborted += 1;
+      }
+    }
+    return aborted;
+  }
+
+  /**
+   * Aborts, with `switched`, every job dispatched under a generation other than `generation`, or every
+   * job when `generation` is null (the recorded mode is no longer local). The executor switch runs in
+   * another process and cannot reach these controllers; the reconciler calls this when it sees the move.
+   */
+  abortStale(generation: number | null): number {
+    let aborted = 0;
+    for (const entry of this.running.values()) {
+      if (entry.controller.signal.aborted) continue;
+      if (generation === null || entry.job.generation !== generation) {
+        entry.controller.abort(new LocalExecutionAborted("switched"));
         aborted += 1;
       }
     }

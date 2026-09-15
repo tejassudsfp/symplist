@@ -26,8 +26,9 @@ export interface InternalEventClientOptions {
 /**
  * Announces worker-originated changes to the api on `/internal/v1/events` (§6.2, §7): ids, enums,
  * counts and envelopes only, validated before signing. A retry resends the identical signed request, so
- * the api's event-id replay memory makes delivery at most once; a 404 after a lost response means the
- * first delivery already took effect.
+ * the api's event-id replay memory makes delivery at most once; a 404 to a retry after a lost response
+ * means the first delivery already took effect, and is reported as delivered. A 404 to the first try is
+ * a rejection.
  */
 export class InternalEventClient {
   private readonly timers: WorkerTimers;
@@ -74,6 +75,16 @@ export class InternalEventClient {
         Math.min(remaining, 2_000),
       );
       if (result.outcome === "delivered" || result.outcome === "duplicate") return "delivered";
+      if (result.outcome === "rejected" && result.status === 404 && tryNumber > 1) {
+        // The byte-identical request was accepted before: an earlier try reached the api, which
+        // remembered the event id, but its response was lost. The api answers replays with 404.
+        this.options.logger.info("internal_event.delivered_on_retry", {
+          eventId: event.id,
+          kind: event.type,
+          tryCount: tryNumber,
+        });
+        return "delivered";
+      }
       if (result.outcome === "rejected") {
         this.options.logger.warn("internal_event.rejected", {
           eventId: event.id,

@@ -55,6 +55,8 @@ export interface LocalSchedulerOptions {
   readonly state: SchedulerStateReader;
   readonly timers: RuntimeTimers;
   readonly log: OperationalLog;
+  /** How long `stop` waits for aborted jobs to settle; defaults to 5 seconds. */
+  readonly shutdownGraceMs?: number;
 }
 
 /**
@@ -109,7 +111,10 @@ export class LocalScheduler {
     for (const slot of this.hourly.values()) this.arm(slot);
   }
 
-  /** Stops the timers, aborts running jobs and waits for them to settle. */
+  /**
+   * Stops the timers, aborts running jobs and waits up to the grace period for them to settle, so a job
+   * that ignores its signal can never hold api shutdown (and the HTTP drain after it) open.
+   */
   async stop(): Promise<void> {
     this.stopped = true;
     for (const slot of [this.scan, ...this.hourly.values()]) {
@@ -117,7 +122,22 @@ export class LocalScheduler {
       slot.timer = undefined;
     }
     this.controller.abort();
-    await Promise.allSettled([...this.running.values()]);
+    const running = [...this.running.values()];
+    if (running.length === 0) return;
+    let timer: unknown;
+    const settled = await Promise.race([
+      Promise.allSettled(running).then(() => true),
+      new Promise<boolean>((resolve) => {
+        timer = this.options.timers.setTimeout(
+          () => resolve(false),
+          this.options.shutdownGraceMs ?? 5_000,
+        );
+      }),
+    ]);
+    this.options.timers.clearTimeout(timer);
+    if (!settled) {
+      this.options.log.warn("scheduler.stop_grace_elapsed", { count: this.running.size });
+    }
   }
 
   private add(slot: Slot, registration: ScheduledJobRegistration): () => void {
@@ -137,10 +157,15 @@ export class LocalScheduler {
     };
   }
 
-  private arm(slot: Slot): void {
+  /**
+   * Arms the slot's next firing after `after` (the firing that just ran, when re-arming). Timers run on
+   * a monotonic clock while `now()` is wall-clock time, so a callback can run a little before its due
+   * instant; arming from `now` alone would then schedule the same minute again and fire it twice.
+   */
+  private arm(slot: Slot, after?: number): void {
     if (!this.active || slot.jobs.size === 0) return;
     const now = this.options.timers.now();
-    const due = nextMinuteOf(now + 1, slot.minutes);
+    const due = nextMinuteOf(Math.max(now, after ?? now) + 1, slot.minutes);
     slot.timer = this.options.timers.setTimeout(() => {
       slot.timer = undefined;
       void this.fire(slot, due);
@@ -150,7 +175,7 @@ export class LocalScheduler {
   private async fire(slot: Slot, due: number): Promise<void> {
     if (!this.active) return;
     // Re-arm first, so a slow guard read never delays the next firing.
-    this.arm(slot);
+    this.arm(slot, due);
     let state: Awaited<ReturnType<SchedulerStateReader["readFresh"]>>;
     try {
       state = await this.options.state.readFresh();

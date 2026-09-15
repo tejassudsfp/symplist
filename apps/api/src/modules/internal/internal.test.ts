@@ -35,16 +35,21 @@ import { FakeClock } from "@symplist/testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { createApp } from "../../app.ts";
+import type { ExecutorStateReader } from "../../infra/executors/executor-state.ts";
 import { ExecutorsModule } from "../../infra/executors/executors.module.ts";
 import type { OperationalLog, OperationalLogFields } from "../../infra/scheduler/runtime.ts";
 import { AuthWsAdapter } from "../realtime/auth-ws.adapter.ts";
 import { RealtimeModule } from "../realtime/realtime.module.ts";
 import { TopicHub } from "../realtime/topic-hub.ts";
 import { TopicRegistry } from "../realtime/topic-registry.ts";
+import type { AccountKeyReader } from "./account-keys.ts";
 import { InternalModule } from "./internal.module.ts";
 import { InternalEventHandlerRegistry } from "./internal-event-handlers.ts";
+import { InternalEventsController } from "./internal-events.controller.ts";
 import { internalRouteClasses } from "./internal-route-classes.ts";
 import { EventIdMemory } from "./replay-memory.ts";
+import { RunOutputController } from "./run-output.controller.ts";
+import { RunOutputRelay } from "./run-output.relay.ts";
 import { recordWebhookDelivery, webhookReceiptBatch } from "./webhook-receipts.ts";
 
 /* ------------------------------------------------------------------------------------------------
@@ -286,11 +291,14 @@ describe("POST /internal/v1/events (§6.2)", () => {
     h.handlers.register({ type: "tasks.changed", handle: handled });
   });
 
-  it("declares the signed route class for both internal routes", () => {
+  it("declares the signed route class for both internal routes and skips IP throttling", () => {
     expect(internalRouteClasses).toEqual({
       "POST /internal/v1/events": "signed",
       "POST /internal/v1/runs/:runId/output": "signed",
     });
+    for (const controller of [InternalEventsController, RunOutputController]) {
+      expect(Reflect.getMetadata("THROTTLER:SKIPdefault", controller)).toBe(true);
+    }
   });
 
   it("dispatches a valid signed event to its handler without the v1 prefix, cookies or CORS", async () => {
@@ -373,6 +381,26 @@ describe("POST /internal/v1/events (§6.2)", () => {
     expect(h.log.lines.filter((line) => line.includes('"reason":"replayed"'))).toHaveLength(2);
   });
 
+  it("remembers an event id until its signature leaves the window, even when signed ahead of the api clock", async () => {
+    const now = Math.floor(h.clock.now() / 1000);
+    const body = event();
+    const request = signed(h, INTERNAL_EVENTS_PATH, body, {
+      eventId: body.id,
+      timestamp: now + 300,
+    });
+    expect((await send(h, request)).status).toBe(202);
+    // Ten minutes later the timestamp is exactly 300 seconds old, so the signature is still fresh.
+    await h.clock.advance(600_000);
+    expect((await send(h, request)).status).toBe(404);
+    await h.clock.advance(999);
+    expect((await send(h, request)).status).toBe(404);
+    await h.clock.advance(1);
+    expect((await send(h, request)).status).toBe(404);
+    expect(handled).toHaveBeenCalledTimes(1);
+    expect(h.log.lines.filter((line) => line.includes('"reason":"replayed"'))).toHaveLength(2);
+    expect(h.log.lines.filter((line) => line.includes('"reason":"stale"'))).toHaveLength(1);
+  });
+
   it("rejects a key version that is not configured and accepts the previous configured version", async () => {
     const body = event();
     const request = signed(h, INTERNAL_EVENTS_PATH, body, { eventId: body.id });
@@ -451,6 +479,16 @@ describe("event id replay memory", () => {
     expect(memory.reserve("a")).toBe("reserved");
     memory.release("a");
     expect(memory.reserve("a")).toBe("reserved");
+  });
+
+  it("keeps an id until the end of its signature window when that is later than 10 minutes", async () => {
+    const clock = new FakeClock(0);
+    const memory = new EventIdMemory(clock);
+    expect(memory.reserve("early", 601_000)).toBe("reserved");
+    await clock.advance(600_000);
+    expect(memory.reserve("early", 601_000)).toBe("replayed");
+    await clock.advance(1_000);
+    expect(memory.reserve("early", 1_201_000)).toBe("reserved");
   });
 });
 
@@ -646,6 +684,62 @@ describe("POST /internal/v1/runs/:runId/output (§8.2)", () => {
 /* ------------------------------------------------------------------------------------------------
  * Webhook receipts
  * --------------------------------------------------------------------------------------------- */
+
+describe("run output relay key cache (§8.2)", () => {
+  it("decrypts with a private copy of the cached key, so a concurrent eviction never zeroes it mid-request", async () => {
+    const clock = new FakeClock(Date.UTC(2026, 8, 15, 10));
+    const keys = createKeyProvider({
+      CONTENT_KEK: { current: 1, versions: new Map([[1, secret(31)]]) },
+    });
+    const ownerId = uuidv7();
+    const runId = uuidv7();
+    const conversationId = uuidv7();
+    const { key } = createAccountKey(keys, ownerId);
+    const log = new Log();
+    const relay = new RunOutputRelay({
+      source: {
+        ownership: async () => ({ runId, ownerId, conversationId }),
+        state: async () => ({ status: "running", executorGeneration: 1 }),
+      },
+      accountKeys: {
+        load: async () => ({ ...key, key: Uint8Array.from(key.key) }),
+      } as unknown as AccountKeyReader,
+      executorState: {
+        readCached: async () => ({ generation: 1 }),
+      } as unknown as ExecutorStateReader,
+      hub: new TopicHub({
+        registry: new TopicRegistry(),
+        access: { satisfies: () => true },
+        timers: clock,
+        log,
+      }),
+      timers: clock,
+      log,
+    });
+    const body = (seq: number) => ({
+      runId,
+      attempt: 1,
+      seq,
+      envelope: encryptFieldText(
+        key,
+        runChunkContext(ownerId, runId, seq),
+        JSON.stringify([{ type: "text-start", id: "t1" }]),
+      ),
+    });
+    expect(await relay.accept(runId, body(0))).toEqual({ status: "accepted", relayed: 1 });
+
+    // Zeroise every cached key right after the next lookup hands one out, before decryption runs.
+    const cache = (relay as unknown as { keys: Map<string, unknown> }).keys;
+    const get = cache.get.bind(cache);
+    cache.get = (ownerKey: string) => {
+      const value = get(ownerKey);
+      queueMicrotask(() => relay.clear());
+      return value;
+    };
+    expect(await relay.accept(runId, body(1))).toEqual({ status: "accepted", relayed: 1 });
+    expect(log.lines.join("\n")).not.toContain("undecryptable");
+  });
+});
 
 describe("webhook receipts (§6.2)", () => {
   let db: LocalSqliteClient;

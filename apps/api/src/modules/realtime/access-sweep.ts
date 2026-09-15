@@ -59,8 +59,9 @@ function toRow(row: DbRow): SessionAccessRow | null {
 /**
  * The gateway's freshness check (§5.5): one batched D1 request (one statement per 90 sessions) reads
  * session revocation and expiry with the owner's access fields for every connected socket. A revoked,
- * expired or foreign session closes with 4401; lost access closes with 4403; otherwise the socket's
- * access state is refreshed, so admission changes take effect on the next subscription.
+ * expired or foreign session closes with 4401; lost access, or an admitted socket whose
+ * `access_generation` moved, closes with 4403; otherwise the socket's access state is refreshed, so
+ * admission changes take effect on the next subscription.
  */
 export class AccessSweep {
   private timer: unknown;

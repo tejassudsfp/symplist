@@ -193,13 +193,16 @@ export class TopicHub implements RealtimePublisher {
   /** Remembers ended sessions for a minute, for `staleUpgrade`. */
   noteSessionsEnded(userId: string, sessionIds: readonly string[] | "all"): void {
     const now = this.options.timers.now();
+    this.purgeRecentChanges(now);
     if (sessionIds === "all") this.endedUsers.set(userId, { at: now });
     else for (const sessionId of sessionIds) this.endedSessions.set(sessionId, { at: now });
   }
 
   /** Remembers a user's access change for a minute, for `staleUpgrade`. */
   noteAccessChanged(userId: string): void {
-    this.accessChanges.set(userId, { at: this.options.timers.now() });
+    const now = this.options.timers.now();
+    this.purgeRecentChanges(now);
+    this.accessChanges.set(userId, { at: now });
   }
 
   connect(connection: RealtimeConnection, identity: SessionContext): RealtimeSocketState {
@@ -259,13 +262,18 @@ export class TopicHub implements RealtimePublisher {
 
   /**
    * Applies a freshly read access state. Returns false when the socket must close: it was admitted and
-   * no longer is, or it no longer passes the identity level (§5.5).
+   * no longer is or its access generation moved, or it no longer passes the identity level (§5.5).
    */
   applyAccess(socket: RealtimeSocketState, access: AccessState): boolean {
     const record = socket as SocketRecord;
     const identity = this.options.access.satisfies(access, "identity");
     const admitted = identity && this.options.access.satisfies(access, "admitted");
     if (!identity || (record.admitted && !admitted)) return false;
+    // Every restriction and restore moves `access_generation` (§5.4). An admitted socket whose generation
+    // moved lost access at some point since it was authorized, even if a restore already followed and
+    // the post-commit hook ran elsewhere (another instance during a deploy) or failed: its
+    // subscriptions were authorized before the restriction, so it closes and resubscribes (§5.5).
+    if (record.admitted && access.accessGeneration !== record.access.accessGeneration) return false;
     record.access = access;
     record.admitted = admitted;
     return true;

@@ -18,6 +18,24 @@ export interface ExecutorSwitchReport {
   readonly rebound: number;
 }
 
+const allExecutors: readonly ExecutorKind[] = Object.freeze(["local", "trigger"]);
+
+function missingTrigger(): ExecutorError {
+  return new ExecutorError(
+    "executor.not_configured",
+    "Cancelling durable runs needs TRIGGER_SECRET_KEY in the environment",
+  );
+}
+
+/** The HTTP status of a Trigger SDK error, when it carries one. */
+function httpStatus(error: unknown): number | undefined {
+  const status =
+    typeof error === "object" && error !== null && "status" in error
+      ? (error as { status: unknown }).status
+      : undefined;
+  return typeof status === "number" ? status : undefined;
+}
+
 export interface ExecutorSwitchOptions {
   readonly db: DbClient;
   readonly registry: ExecutionRegistry;
@@ -32,8 +50,9 @@ export interface ExecutorSwitchOptions {
  * `executor:switch --to local|durable` (§8.1): advances the executor generation, cancels the old
  * executor's active runs (calling Trigger `runs.cancel` when leaving durable mode) and marks them
  * `interrupted` with Retry, then rebinds pending intents to the new generation so the executor of the
- * new mode dispatches them. Every step after the generation advance is idempotent, so re-running the
- * command completes an interrupted switch.
+ * new mode dispatches them. Every step after the generation advance is idempotent and always runs for
+ * the executor the target mode retires, so re-running the command completes a switch that stopped
+ * part-way. A run whose Trigger cancel failed stays active, so the rerun retries its cancel.
  */
 export class ExecutorSwitch {
   private readonly state: ExecutorStateRepository;
@@ -54,14 +73,13 @@ export class ExecutorSwitch {
       );
     }
     const before = await this.state.read();
-    const oldExecutors: readonly ExecutorKind[] =
-      before.mode === null ? ["local", "trigger"] : [executorKindFor(before.mode)];
-    const retired = oldExecutors.filter((executor) => executor !== executorKindFor(target));
-    if (retired.includes("trigger") && !this.options.trigger) {
-      throw new ExecutorError(
-        "executor.not_configured",
-        "Cancelling durable runs needs TRIGGER_SECRET_KEY in the environment",
-      );
+    // The executor the target mode does not use. It is retired on every run of the command, not only
+    // when the mode changes, so a rerun finishes the cancels and interruptions of an earlier attempt.
+    const retired: readonly ExecutorKind[] = allExecutors.filter(
+      (executor) => executor !== executorKindFor(target),
+    );
+    if (target === "local" && before.mode !== "local" && !this.options.trigger) {
+      throw missingTrigger();
     }
 
     let generation = before.generation;
@@ -130,17 +148,25 @@ export class ExecutorSwitch {
           after = execution.subjectId;
           if (execution.executor !== executor) continue;
           if (executor === "trigger" && execution.triggerRunId !== null) {
+            const trigger = this.options.trigger;
+            // Leftover durable runs found while already in local mode still need their cancel.
+            if (!trigger) throw missingTrigger();
             try {
-              await this.options.trigger?.runs.cancel(execution.triggerRunId);
+              await trigger.runs.cancel(execution.triggerRunId);
               cancelled += 1;
             } catch (error) {
-              cancelFailures += 1;
-              this.options.log.warn("executor.switch_cancel_failed", {
-                kind,
-                subjectId: execution.subjectId,
-                triggerRunId: execution.triggerRunId,
-                code: errorCode(error),
-              });
+              if (httpStatus(error) !== 404) {
+                // Left active: marking it interrupted would lose the cancel, and Trigger would keep
+                // running it until its own generation guard stops it. The rerun retries the cancel.
+                cancelFailures += 1;
+                this.options.log.warn("executor.switch_cancel_failed", {
+                  kind,
+                  subjectId: execution.subjectId,
+                  triggerRunId: execution.triggerRunId,
+                  code: errorCode(error),
+                });
+                continue;
+              }
             }
           }
           const changed = await tracker.markInterrupted(execution.subjectId, {

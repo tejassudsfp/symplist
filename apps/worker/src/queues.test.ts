@@ -124,6 +124,15 @@ describe("D1 queue family (§3.1)", () => {
     expect(violations).toEqual([]);
   });
 
+  it("constructs D1 clients only in infra/clients.ts, so no task can bypass the family rule", () => {
+    const constructors =
+      /\b(?:createD1RestClient|createLocalSqliteClient|createWorkerLane|processLane)\b/;
+    const offenders = [...workerSources()]
+      .filter(([file, source]) => file !== d1ClientModules[0] && constructors.test(source))
+      .map(([file]) => relative(srcDir, file));
+    expect(offenders).toEqual([]);
+  });
+
   it("detects violations in the checker's own fixtures", () => {
     const task = join(triggerDir, "fixture", "task.ts");
     const helper = join(triggerDir, "fixture", "helper.ts");

@@ -238,6 +238,29 @@ describe("internal event client (§6.2)", () => {
     });
   });
 
+  it("reports a replay 404 to a retry after a lost response as delivered", async () => {
+    const clock = new FakeClock(Date.UTC(2026, 8, 15, 12));
+    const trigger = new FakeTriggerClient({ clock });
+    // The first try reaches the api and takes effect, but the connection drops before the response.
+    const api = fakeApi(clock, (index) => (index === 0 ? "network" : 404));
+    const events = new InternalEventClient({
+      keys,
+      apiOrigin: API,
+      logger: createWorkerLogger(trigger.logger),
+      fetch: api.fetchImpl,
+      timers: clock,
+    });
+    const announcing = events.announce({
+      type: "tasks.changed",
+      ownerId: uuidv7(),
+      payload: { count: 1 },
+    });
+    await clock.advance(1_000);
+    expect(await announcing).toBe("delivered");
+    expect(api.received).toHaveLength(2);
+    expect(api.received[0]?.eventId).toBe(api.received[1]?.eventId);
+  });
+
   it("refuses payloads with content before anything is sent, and reports rejections", async () => {
     const clock = new FakeClock();
     const trigger = new FakeTriggerClient({ clock });

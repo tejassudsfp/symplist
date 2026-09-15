@@ -12,9 +12,13 @@ export interface WsSessionResolver {
   fromUpgradeRequest(request: IncomingMessage): Promise<SessionContext | null>;
 }
 
-/** A session resolved for an upgrade, with when it was read. */
+/** A session resolved for an upgrade, with the earliest instant its state may date from. */
 export interface VerifiedUpgrade {
   readonly session: SessionContext;
+  /**
+   * When verification started, less the session cache TTL: the resolver may answer from a cache entry
+   * up to that old (§3.3), so any logout or restriction after this instant may be missing from it.
+   */
   readonly verifiedAt: number;
 }
 
@@ -49,6 +53,8 @@ export class RealtimeUpgradeGate {
       readonly access: AccessLevelPolicy;
       readonly log: OperationalLog;
       readonly now: () => number;
+      /** The session and access cache TTL of the resolver (§3.3); defaults to 10 seconds. */
+      readonly sessionCacheTtlMs?: number;
     },
   ) {
     this.origins = new Set(options.allowedOrigins);
@@ -70,6 +76,9 @@ export class RealtimeUpgradeGate {
       callback(false, 403, "Forbidden");
       return;
     }
+    // Taken before the lookup: a post-commit hook that runs while the session is being read (or that
+    // the resolver's cache predates) must still refuse the connection.
+    const verifiedAt = this.options.now() - (this.options.sessionCacheTtlMs ?? 10_000);
     this.options.resolver.fromUpgradeRequest(info.req).then(
       (session) => {
         if (!session) {
@@ -80,7 +89,7 @@ export class RealtimeUpgradeGate {
           callback(false, 403, "Forbidden");
           return;
         }
-        this.sessions.set(info.req, { session, verifiedAt: this.options.now() });
+        this.sessions.set(info.req, { session, verifiedAt });
         callback(true);
       },
       (error: unknown) => {

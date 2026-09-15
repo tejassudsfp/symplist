@@ -1,6 +1,7 @@
 import type { IncomingMessage } from "node:http";
 import {
   INTERNAL_SIGNATURE_HEADERS,
+  INTERNAL_SIGNATURE_WINDOW_SECONDS,
   type KeyProvider,
   verifyInternalRequest,
 } from "@symplist/crypto";
@@ -59,10 +60,12 @@ export class InternalRequestVerifier {
         path: (request as { originalUrl?: string }).originalUrl ?? request.url ?? "",
         body,
       },
-      { nowMs: this.options.timers.now() },
+      { nowMs: this.options.timers.now(), windowSeconds: INTERNAL_SIGNATURE_WINDOW_SECONDS },
     );
     if (!result.ok) return this.fail(route, result.reason);
-    const reserved = this.options.memory.reserve(result.eventId);
+    // The signature stays fresh while floor(now / 1000) is within the window of its timestamp.
+    const freshUntilMs = (result.timestamp + INTERNAL_SIGNATURE_WINDOW_SECONDS + 1) * 1000;
+    const reserved = this.options.memory.reserve(result.eventId, freshUntilMs);
     if (reserved === "replayed") return this.fail(route, "replayed");
     if (reserved === "full") return this.fail(route, "memory_full");
     const { memory } = this.options;

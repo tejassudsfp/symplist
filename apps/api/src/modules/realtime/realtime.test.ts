@@ -238,6 +238,7 @@ class Client {
 interface Harness {
   app: NestExpressApplication;
   db: LocalSqliteClient;
+  resolver: WsSessionResolver;
   url: string;
   hub: TopicHub;
   registry: TopicRegistry;
@@ -261,17 +262,21 @@ afterEach(async () => {
   }
 });
 
-async function start(tuning: RealtimeDependencies["tuning"] = {}): Promise<Harness> {
+async function start(
+  tuning: RealtimeDependencies["tuning"] = {},
+  options: { readonly resolver?: (db: DbClient) => WsSessionResolver } = {},
+): Promise<Harness> {
   const db = createLocalSqliteClient({ path: ":memory:", env: { NODE_ENV: "test" } });
   await applyMigrations(db);
   const log = new Log();
+  const resolver = (options.resolver ?? sessionResolver)(db);
 
   @Module({
     imports: [
       RealtimeModule.forRoot({
         useFactory: (): RealtimeDependencies => ({
           db,
-          sessions: sessionResolver(db),
+          sessions: resolver,
           access: accessPolicy,
           allowedOrigins: [WEB_ORIGIN],
           log,
@@ -291,6 +296,7 @@ async function start(tuning: RealtimeDependencies["tuning"] = {}): Promise<Harne
   const harness: Harness = {
     app,
     db,
+    resolver,
     url,
     hub: app.get(TopicHub),
     registry: app.get(TopicRegistry),
@@ -373,7 +379,7 @@ describe("WebSocket upgrade authentication (§7)", () => {
   it("rejects a missing or foreign Origin with 403 before looking at the session", async () => {
     const h = await start();
     const user = await addUser(h.db);
-    const resolve = vi.spyOn(sessionResolver(h.db), "fromUpgradeRequest");
+    const resolve = vi.spyOn(h.resolver, "fromUpgradeRequest");
     expect((await rawUpgrade(h.url, { cookie: `sym_session=${user.sessionId}` })).status).toBe(403);
     expect(
       (
@@ -384,6 +390,13 @@ describe("WebSocket upgrade authentication (§7)", () => {
       ).status,
     ).toBe(403);
     expect(resolve).not.toHaveBeenCalled();
+    const accepted = await rawUpgrade(h.url, {
+      origin: WEB_ORIGIN,
+      cookie: `sym_session=${user.sessionId}`,
+    });
+    accepted.socket?.destroy();
+    expect(accepted.status).toBe(101);
+    expect(resolve).toHaveBeenCalledTimes(1);
   });
 
   it("rejects a missing, revoked or expired session with 401 and ignores bearer tokens", async () => {
@@ -793,6 +806,35 @@ describe("session and access freshness (§5.5)", () => {
     expect(h.hub.socketsOfUser(locked.userId)[0]?.access.suspendedAt).toBe(1);
   });
 
+  it("closes an admitted socket whose access generation moved, even when access was restored", async () => {
+    const h = await start();
+    const restored = await addUser(h.db);
+    const steady = await addUser(h.db);
+    const locked = await addUser(h.db, { betaState: "locked" });
+    const clients = {
+      restored: await h.connect(restored),
+      steady: await h.connect(steady),
+      locked: await h.connect(locked),
+    };
+    // A relock and a restore committed on another instance: admitted again, one generation later.
+    await h.db.batch([
+      sql("UPDATE users SET access_generation = access_generation + 2 WHERE id = :id", {
+        id: restored.userId,
+      }),
+      sql(
+        "UPDATE users SET beta_state = 'unlocked', access_generation = access_generation + 1 WHERE id = :id",
+        { id: locked.userId },
+      ),
+    ]);
+    expect(await h.sweep.sweep()).toEqual({ checked: 3, closedSession: 0, closedAccess: 1 });
+    expect((await clients.restored.closed).code).toBe(4403);
+    await clients.steady.settle();
+    await clients.locked.settle();
+    // A socket that was only at identity level is refreshed instead: it is admitted from now on.
+    expect(h.hub.socketsOfUser(locked.userId)[0]).toMatchObject({ admitted: true });
+    expect(await h.sweep.sweep()).toEqual({ checked: 2, closedSession: 0, closedAccess: 0 });
+  });
+
   it("uses one D1 request for any number of sockets", async () => {
     const h = await start();
     for (let index = 0; index < 3; index += 1) await h.connect(await addUser(h.db));
@@ -843,6 +885,83 @@ describe("session and access freshness (§5.5)", () => {
 });
 
 describe("upgrades racing a post-commit hook", () => {
+  it("refuses an upgrade whose session lookup was in flight when its session ended or access changed", async () => {
+    let pause: Promise<void> = Promise.resolve();
+    let lookedUp: () => void = () => undefined;
+    const h = await start(
+      {},
+      {
+        resolver: (db) => {
+          const inner = sessionResolver(db);
+          return {
+            async fromUpgradeRequest(request) {
+              const session = await inner.fromUpgradeRequest(request);
+              lookedUp();
+              await pause;
+              return session;
+            },
+          };
+        },
+      },
+    );
+    const alice = await addUser(h.db);
+    const bob = await addUser(h.db);
+    const cases = [
+      {
+        user: alice,
+        code: 4401,
+        commit: () =>
+          h.hook.onSessionsEnded({
+            userId: alice.userId,
+            sessionIds: [alice.sessionId],
+            reason: "logout",
+          }),
+      },
+      {
+        user: bob,
+        code: 4403,
+        commit: () =>
+          h.hook.onAccessRestricted({
+            userId: bob.userId,
+            reason: "relocked",
+            cancelledRunIds: [],
+          }),
+      },
+    ];
+    for (const { user, code, commit } of cases) {
+      let release: () => void = () => undefined;
+      pause = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const read = new Promise<void>((resolve) => {
+        lookedUp = resolve;
+      });
+      const connecting = h.connect(user);
+      // The session was read as valid; the logout or restriction commits before the socket opens.
+      await read;
+      await commit();
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      release();
+      const client = await connecting;
+      expect((await client.closed).code).toBe(code);
+      expect(h.hub.socketsOfUser(user.userId)).toHaveLength(0);
+    }
+  });
+
+  it("refuses an upgrade answered from a session cache that predates a logout", async () => {
+    const h = await start();
+    const user = await addUser(h.db);
+    // The auth_sessions row is untouched, as a cached session lookup would still see it.
+    await h.hook.onSessionsEnded({
+      userId: user.userId,
+      sessionIds: [user.sessionId],
+      reason: "revoked",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const client = await h.connect(user);
+    expect((await client.closed).code).toBe(4401);
+  });
+
   it("refuses a connection verified before its session ended or its access changed", async () => {
     const clock = new FakeClock(1_000_000);
     const hub = new TopicHub({
@@ -882,13 +1001,24 @@ describe("upgrades racing a post-commit hook", () => {
 
 describe("shutdown (§7)", () => {
   it("closes every socket with 1001 and refuses new upgrades", async () => {
-    const h = await start();
+    const h = await start({ shutdownGraceMs: 400 });
     const user = await addUser(h.db);
     const client = await h.connect(user);
     await client.settle();
+    // A client that never answers the close handshake holds the grace period open.
+    const stuck = await rawUpgrade(h.url, {
+      origin: WEB_ORIGIN,
+      cookie: `sym_session=${user.sessionId}`,
+    });
+    expect(stuck.status).toBe(101);
     const closing = h.app.close();
     expect((await client.closed).code).toBe(1001);
+    expect(
+      (await rawUpgrade(h.url, { origin: WEB_ORIGIN, cookie: `sym_session=${user.sessionId}` }))
+        .status,
+    ).toBe(503);
     await closing;
+    stuck.socket?.destroy();
     harnesses.splice(harnesses.indexOf(h), 1);
     h.db.close();
   });

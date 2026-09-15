@@ -64,6 +64,9 @@ export class RealtimeModule {
               access: dependencies.access,
               log: dependencies.log ?? nestOperationalLog("RealtimeUpgradeGate"),
               now: () => (dependencies.timers ?? systemTimers).now(),
+              ...(dependencies.tuning?.sessionCacheTtlMs === undefined
+                ? {}
+                : { sessionCacheTtlMs: dependencies.tuning.sessionCacheTtlMs }),
             }),
         },
         {

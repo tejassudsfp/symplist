@@ -29,7 +29,7 @@ export class ExecutionPostCommitHook implements AccessPostCommitHook {
     if (event.cancelledRunIds.length === 0) return;
     const { local, trigger, repository, log } = this.options;
     if (local) {
-      local.abortSubjects(null, event.cancelledRunIds, "stopped");
+      local.abortSubjects(null, event.cancelledRunIds, "stopped", event.userId);
       return;
     }
     if (!trigger) return;

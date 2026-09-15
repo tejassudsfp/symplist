@@ -65,6 +65,9 @@ function describe(report: ExecutorSwitchReport): string[] {
       ? `Executor mode ${report.from ?? "unrecorded"} -> ${report.to}; generation ${report.generation}.`
       : `Executor mode is already ${report.to} (generation ${report.generation}); completed the switch steps.`,
     `Interrupted runs: ${report.interrupted}. Cancelled Trigger runs: ${report.cancelledTriggerRuns} (failures: ${report.cancelFailures}). Rebound pending intents: ${report.rebound}.`,
+    ...(report.cancelFailures > 0
+      ? ["Runs whose Trigger cancel failed are still active; run the command again to retry them."]
+      : []),
     `Restart the api with DURABLE=${report.to === "durable" ? "true" : "false"} so it dispatches under the new generation.`,
   ];
 }

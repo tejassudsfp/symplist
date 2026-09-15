@@ -7,7 +7,7 @@ import {
   type ScheduledJobContext,
   type SchedulerStateReader,
 } from "./local-scheduler.ts";
-import type { OperationalLog, OperationalLogFields } from "./runtime.ts";
+import type { OperationalLog, OperationalLogFields, RuntimeTimers } from "./runtime.ts";
 
 const HOUR = 3_600_000;
 const MINUTE = 60_000;
@@ -217,5 +217,77 @@ describe("LocalScheduler (§12.2)", () => {
     expect(() =>
       scheduler.registerScanner({ name: "Bad Name", run: async () => undefined }),
     ).toThrow();
+  });
+  it("fires each slot once when a timer runs slightly before its wall-clock due instant", async () => {
+    let now = start;
+    const pending: { callback: () => void; at: number }[] = [];
+    const timers: RuntimeTimers = {
+      now: () => now,
+      setTimeout: (callback, delayMs) => {
+        const entry = { callback, at: now + delayMs };
+        pending.push(entry);
+        return entry;
+      },
+      clearTimeout: (handle) => {
+        const index = pending.indexOf(handle as (typeof pending)[number]);
+        if (index >= 0) pending.splice(index, 1);
+      },
+      setInterval: () => undefined,
+      clearInterval: () => undefined,
+    };
+    const guard = state({ mode: "local", generation: 1 });
+    const scheduler = new LocalScheduler({
+      durable: false,
+      state: guard.reader,
+      timers,
+      log: new Log(),
+    });
+    const scans: number[] = [];
+    scheduler.registerScanner({
+      name: "reminder-scan",
+      run: async (context) => void scans.push(context.scheduledFor),
+    });
+    scheduler.start();
+    const first = pending.shift();
+    expect(first && utc(first.at)).toBe("09:15");
+    // The wall clock lags the monotonic timer by 2 ms when the callback runs.
+    now = (first?.at ?? 0) - 2;
+    first?.callback();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(scans.map(utc)).toEqual(["09:15"]);
+    expect(pending.map((entry) => utc(entry.at))).toEqual(["09:30"]);
+    await scheduler.stop();
+  });
+  it("stops within the grace period even when a job ignores its abort signal", async () => {
+    const clock = new FakeClock(start);
+    const log = new Log();
+    const scheduler = new LocalScheduler({
+      durable: false,
+      state: state({ mode: "local", generation: 1 }).reader,
+      timers: clock,
+      log,
+      shutdownGraceMs: 1_000,
+    });
+    let started = false;
+    scheduler.registerScanner({
+      name: "reminder-scan",
+      run: () => {
+        started = true;
+        return new Promise<void>(() => undefined);
+      },
+    });
+    scheduler.start();
+    await clock.advance(8 * MINUTE);
+    expect(started).toBe(true);
+    let stopped = false;
+    const stopping = scheduler.stop().then(() => {
+      stopped = true;
+    });
+    await clock.advance(999);
+    expect(stopped).toBe(false);
+    await clock.advance(1);
+    await stopping;
+    expect(stopped).toBe(true);
+    expect(log.events.map((entry) => entry.event)).toContain("scheduler.stop_grace_elapsed");
   });
 });
