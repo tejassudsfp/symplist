@@ -1,3 +1,4 @@
+import { localDataPaths } from "@symplist/config";
 import type { WorkerConfig } from "@symplist/config/worker";
 import { createKeyProvider, type ManagedKeyProvider } from "@symplist/crypto";
 import {
@@ -6,17 +7,11 @@ import {
   createLocalSqliteClient,
   createWorkerLane,
   type DbClient,
-  DEFAULT_LOCAL_DATABASE_PATH,
   type FetchLike,
   processLane,
   type RateLane,
 } from "@symplist/db";
-import {
-  createLocalObjectStore,
-  createR2ObjectStore,
-  DEFAULT_LOCAL_OBJECTS_DIR,
-  type ObjectStore,
-} from "@symplist/storage";
+import { createLocalObjectStore, createR2ObjectStore, type ObjectStore } from "@symplist/storage";
 import { d1QueueFamilyConcurrency } from "../queues.ts";
 import { WorkerError } from "./errors.ts";
 
@@ -39,8 +34,9 @@ export function createWorkerDb(
   options: { readonly fetch?: FetchLike; readonly lane?: RateLane } = {},
 ): DbClient {
   if (config.DATA_DRIVER === "local") {
+    // The same file the api uses under LOCAL_DATA_DIR, so `trigger dev` and the api share state.
     return createLocalSqliteClient({
-      path: DEFAULT_LOCAL_DATABASE_PATH,
+      path: localDataPaths(config.LOCAL_DATA_DIR).database,
       env: { NODE_ENV: config.NODE_ENV },
     });
   }
@@ -58,11 +54,11 @@ export function createWorkerDb(
   });
 }
 
-/** R2 for `DATA_DRIVER=d1`, the local filesystem store otherwise (§1, decision A7). */
+/** R2 for `DATA_DRIVER=d1`, the local filesystem store under `LOCAL_DATA_DIR` otherwise (§1, A7). */
 export function createWorkerObjectStore(config: WorkerConfig): ObjectStore {
   if (config.DATA_DRIVER === "local") {
     return createLocalObjectStore({
-      root: DEFAULT_LOCAL_OBJECTS_DIR,
+      root: localDataPaths(config.LOCAL_DATA_DIR).objects,
       env: { NODE_ENV: config.NODE_ENV },
     });
   }

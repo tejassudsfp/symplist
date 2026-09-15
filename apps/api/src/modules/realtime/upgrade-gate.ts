@@ -12,6 +12,16 @@ export interface WsSessionResolver {
   fromUpgradeRequest(request: IncomingMessage): Promise<SessionContext | null>;
 }
 
+/** The whole seconds to wait when a lookup was refused with `rate.limited`, or null. */
+function rateLimitRetryAfter(error: unknown): number | null {
+  if (typeof error !== "object" || error === null) return null;
+  const { code, retryAfter } = error as { code?: unknown; retryAfter?: unknown };
+  if (code !== "rate.limited") return null;
+  return typeof retryAfter === "number" && Number.isSafeInteger(retryAfter) && retryAfter > 0
+    ? retryAfter
+    : 1;
+}
+
 /** A session resolved for an upgrade, with the earliest instant its state may date from. */
 export interface VerifiedUpgrade {
   readonly session: SessionContext;
@@ -93,6 +103,13 @@ export class RealtimeUpgradeGate {
         callback(true);
       },
       (error: unknown) => {
+        const retryAfter = rateLimitRetryAfter(error);
+        if (retryAfter !== null) {
+          // The client's network is over the unknown-session bucket (§5.8): refused before D1.
+          this.options.log.warn("realtime.upgrade_rate_limited", { retryAfter });
+          callback(false, 503, "Service Unavailable", { "Retry-After": String(retryAfter) });
+          return;
+        }
         this.options.log.error("realtime.upgrade_session_failed", { code: errorCode(error) });
         callback(false, 500, "Internal Server Error");
       },

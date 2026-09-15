@@ -24,8 +24,15 @@ import { DB_CLIENT } from "../../infra/db/db.providers.ts";
 import { IpFailureLimiter } from "../../infra/limits/ip-failures.ts";
 import { CLOCK, type Clock } from "../clock.ts";
 import { AppLogger } from "../logging/logger.ts";
-import { REALTIME_ACCESS_NOTIFIER, type RealtimeAccessNotifier } from "../seams.ts";
+import {
+  REALTIME_ACCESS_NOTIFIER,
+  type RealtimeAccessNotifier,
+  type SessionEndReason,
+} from "../seams.ts";
 import { clearSessionCookies, cookieNames, setSessionCookies } from "./session-cookies.ts";
+
+/** Who a session lookup is counted against in the `session_unknown` bucket (§5.8). */
+type FailureClient = { readonly req: Request } | { readonly address: string | null };
 
 /**
  * Login sessions for the api (§3.3, §5.1): resolves the session cookie through the 10-second cache
@@ -92,12 +99,12 @@ export class SessionService {
     req: Request,
     options: { readonly fresh: boolean },
   ): Promise<ResolvedSession | null> {
-    return this.lookup(this.tokenFrom(req), options, req);
+    return this.lookup(this.tokenFrom(req), options, { req });
   }
 
   /**
-   * Resolves a session token taken from a cookie, with the same caching as {@link resolve}. Callers
-   * without an Express request (the WebSocket upgrade) apply their own per-client limit.
+   * Resolves a session token taken from a cookie, with the same caching as {@link resolve} and no
+   * per-client limit. Callers that serve clients use {@link resolveUpgrade} or {@link resolve}.
    */
   async resolveToken(
     token: string | null,
@@ -106,10 +113,23 @@ export class SessionService {
     return this.lookup(token, options, null);
   }
 
+  /**
+   * Resolves the session cookie of a WebSocket upgrade (§7) with the same caching as
+   * {@link resolve} and the same `session_unknown` failure bucket, keyed by the client address the
+   * upgrade computed under `TRUST_PROXY_HOPS` (`upgradeClientIp`), so invented tokens on upgrades
+   * cannot spend the api lane's D1 budget either (§3.1, §5.8).
+   */
+  async resolveUpgrade(
+    token: string | null,
+    clientAddress: string | null,
+  ): Promise<ResolvedSession | null> {
+    return this.lookup(token, { fresh: false }, { address: clientAddress });
+  }
+
   private async lookup(
     token: string | null,
     options: { readonly fresh: boolean },
-    req: Request | null,
+    client: FailureClient | null,
   ): Promise<ResolvedSession | null> {
     if (!token || !isWellFormedSessionToken(token)) return null;
     const key = computeDigest(this.keys, "SESSION_DIGEST_SECRET", "session", token).digest;
@@ -118,14 +138,14 @@ export class SessionService {
       const cached = this.cache.get(key);
       if (cached) return cached;
     }
-    if (req) this.failures.assertAllowed("session_unknown", req);
+    if (client) this.assertClientAllowed(client);
     const now = this.clock.now();
     const found = await this.store.lookup(token, now);
     if (found.status !== "live") {
       this.cache.rememberMissing(key);
       // Only tokens that name no session count: a stale cookie of a revoked or expired session is
       // an ordinary browser, while an invented token is not.
-      if (req && found.status === "unknown") this.failures.recordFailure("session_unknown", req);
+      if (client && found.status === "unknown") this.recordClientFailure(client);
       return null;
     }
     const resolved = found.resolved;
@@ -133,6 +153,16 @@ export class SessionService {
     this.cache.set(key, resolved);
     this.touchLater(resolved, now);
     return resolved;
+  }
+
+  private assertClientAllowed(client: FailureClient): void {
+    if ("req" in client) this.failures.assertAllowed("session_unknown", client.req);
+    else this.failures.assertAllowedAddress("session_unknown", client.address);
+  }
+
+  private recordClientFailure(client: FailureClient): void {
+    if ("req" in client) this.failures.recordFailure("session_unknown", client.req);
+    else this.failures.recordFailureAddress("session_unknown", client.address);
   }
 
   /** Evaluates a guard level for a resolved session, honoring `BETA_ACCESS_REQUIRED` (§5.4). */
@@ -185,15 +215,21 @@ export class SessionService {
     clearSessionCookies(res, this.config);
   }
 
-  /** Revokes one session (logout): evicts its cache entries and closes its sockets with 4401. */
-  async revoke(context: Pick<SessionContext, "userId" | "sessionId">): Promise<boolean> {
+  /**
+   * Revokes one session: evicts its cache entries and closes its sockets with 4401. `reason` is
+   * `logout` for the session signing itself out and `revoked` when another session revokes it.
+   */
+  async revoke(
+    context: Pick<SessionContext, "userId" | "sessionId">,
+    reason: SessionEndReason = "logout",
+  ): Promise<boolean> {
     const revoked = await this.store.revoke({
       sessionId: context.sessionId,
       userId: context.userId,
       now: this.clock.now(),
     });
     this.cache.evictSession(context.sessionId, { revoked });
-    if (revoked) await this.notifySessionsEnded(context.userId, [context.sessionId]);
+    if (revoked) await this.notifySessionsEnded(context.userId, [context.sessionId], reason);
     return revoked;
   }
 
@@ -202,7 +238,7 @@ export class SessionService {
     const ids = await this.store.revokeAll({ userId, now: this.clock.now() });
     for (const id of ids) this.cache.evictSession(id, { revoked: true });
     this.cache.evictUser(userId);
-    if (ids.length > 0) await this.notifySessionsEnded(userId, ids);
+    if (ids.length > 0) await this.notifySessionsEnded(userId, ids, "revoked");
     return ids;
   }
 
@@ -216,11 +252,12 @@ export class SessionService {
 
   private async notifySessionsEnded(
     userId: string,
-    sessionIds: readonly string[] | null,
+    sessionIds: readonly string[],
+    reason: SessionEndReason,
   ): Promise<void> {
     if (!this.realtime) return;
     try {
-      await this.realtime.sessionsEnded({ userId, sessionIds });
+      await this.realtime.sessionsEnded({ userId, sessionIds, reason });
     } catch (error) {
       this.logger.warn("session.realtime_notify_failed", { error });
     }

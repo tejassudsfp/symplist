@@ -33,6 +33,13 @@ export class LimitsProbeController {
     return { ip: clientIp(req) };
   }
 
+  /** The address Express computed for the request, with no bucket, to compare with upgrades. */
+  @Get(".well-known/client-ip")
+  @RouteClass("public_read")
+  address(@Req() req: Request) {
+    return { ip: clientIp(req) };
+  }
+
   @Post("artifact/:id/password")
   @RouteClass("share_form")
   password(@Req() req: Request) {

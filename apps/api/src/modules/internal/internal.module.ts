@@ -1,10 +1,14 @@
-import { type DynamicModule, Module } from "@nestjs/common";
-import { createRunRelaySource } from "@symplist/core/events";
+import {
+  type DynamicModule,
+  Inject,
+  Injectable,
+  Module,
+  type OnApplicationShutdown,
+} from "@nestjs/common";
 import { ExecutorStateService } from "../../infra/executors/executor-state.ts";
 import type { ModuleDependenciesOptions } from "../../infra/scheduler/module-options.ts";
 import { nestOperationalLog, systemTimers } from "../../infra/scheduler/runtime.ts";
 import { TopicHub } from "../realtime/topic-hub.ts";
-import { AccountKeyReader } from "./account-keys.ts";
 import { INTERNAL_DEPENDENCIES, type InternalDependencies } from "./internal.tokens.ts";
 import { InternalEventHandlerRegistry } from "./internal-event-handlers.ts";
 import { InternalEventsController } from "./internal-events.controller.ts";
@@ -14,10 +18,21 @@ import { EventIdMemory } from "./replay-memory.ts";
 import { RunOutputController } from "./run-output.controller.ts";
 import { RunOutputRelay } from "./run-output.relay.ts";
 
+/** Zeroises the relay's cached account keys once the application shut down (§4.1). */
+@Injectable()
+export class RunOutputRelayLifecycle implements OnApplicationShutdown {
+  constructor(@Inject(RunOutputRelay) private readonly relay: RunOutputRelay) {}
+
+  onApplicationShutdown(): void {
+    this.relay.clear();
+  }
+}
+
 /**
- * Internal worker endpoints (§6.2, §8.2), outside `/v1`, without cookies or CORS. Global: features
- * inject `InternalEventHandlerRegistry` to handle their worker announcements. Requires
- * `RealtimeModule` (the topic hub) and `ExecutorsModule` (the executor generation).
+ * Internal worker endpoints (§6.2, §8.2), outside `/v1`, in the `signed` route class: no cookies, no
+ * CORS, the platform's error envelope and request context. Global: features inject
+ * `InternalEventHandlerRegistry` to handle their worker announcements. Requires `RealtimeModule` (the
+ * topic hub) and `ExecutorsModule` (the executor generation).
  */
 @Module({})
 // biome-ignore lint/complexity/noStaticOnlyClass: Nest dynamic modules are classes with a static forRoot.
@@ -71,11 +86,8 @@ export class InternalModule {
             hub: TopicHub,
           ) =>
             new RunOutputRelay({
-              source:
-                dependencies.runRelaySource === undefined
-                  ? createRunRelaySource({ db: dependencies.db })
-                  : dependencies.runRelaySource,
-              accountKeys: new AccountKeyReader(dependencies.db, dependencies.keys),
+              source: dependencies.runRelaySource,
+              accountKeys: dependencies.accountKeys,
               executorState,
               hub,
               timers: dependencies.timers ?? systemTimers,
@@ -85,8 +97,9 @@ export class InternalModule {
                 : { stateTtlMs: dependencies.tuning.runStateTtlMs }),
             }),
         },
+        RunOutputRelayLifecycle,
       ],
-      exports: [InternalEventHandlerRegistry],
+      exports: [InternalEventHandlerRegistry, RunOutputRelay],
     };
   }
 }

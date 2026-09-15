@@ -1,7 +1,13 @@
 import { errorEnvelopeSchema, validationErrorSchema } from "@symplist/contracts";
 import { sql as dbSql } from "@symplist/db";
 import { afterEach, describe, expect, it } from "vitest";
-import { bootTestApp, generatedSecret, type TestApp, testApiEnv } from "../test/harness.ts";
+import {
+  bootTestApp,
+  generatedSecret,
+  type TestApp,
+  type TestResponse,
+  testApiEnv,
+} from "../test/harness.ts";
 import { BootstrapProbeModule } from "../test/probes/bootstrap.probe.ts";
 import { jsonBodyLimitBytes, startApi } from "./app.ts";
 import { isProduction, runsMigrationsOnStartup } from "./infra/config/api-config.ts";
@@ -109,6 +115,71 @@ describe("api bootstrap (§6, §16.1)", () => {
     });
     expect(response.status).toBe(413);
     expect(response.json<{ error: { code: string } }>().error.code).toBe("request.too_large");
+  });
+
+  it("limits bodies of unauthenticated routes far below the document limit (§3.1)", async () => {
+    app = await bootTestApp({ imports: [BootstrapProbeModule] });
+    const { session } = await app.createSignedInUser();
+    const json = (bytes: number) => ({ padding: "x".repeat(bytes) });
+    const code = (response: { json<T>(): T }) =>
+      response.json<{ error: { code: string } }>().error.code;
+
+    // Pre-session auth routes: 16 KiB, also when the path is written in another case.
+    const auth = (path: string, bytes: number) =>
+      app?.request("POST", path, { csrf: "1", body: json(bytes) }) as Promise<TestResponse>;
+    expect((await auth("/v1/auth/probe-body", 15 * 1024)).status).toBe(201);
+    const tooLarge = await auth("/v1/auth/probe-body", 17 * 1024);
+    expect(tooLarge.status).toBe(413);
+    expect(code(tooLarge)).toBe("request.too_large");
+    expect((await auth("/V1/Auth/probe-body", 17 * 1024)).status).toBe(413);
+
+    // Webhooks: 256 KiB, with the raw body kept for the signature.
+    const webhook = (bytes: number) =>
+      app?.post("/webhooks/probe", { origin: null, body: json(bytes) });
+    expect((await webhook(250 * 1024))?.status).toBe(201);
+    expect((await webhook(257 * 1024))?.status).toBe(413);
+
+    // OAuth forms: 64 KiB, parsed flat.
+    const form = (bytes: number) =>
+      fetch(`${app?.baseUrl}/oauth/token`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: `grant_type=authorization_code&code=${"c".repeat(bytes)}`,
+      });
+    const accepted = await form(60 * 1024);
+    expect(accepted.status).toBe(201);
+    expect(await accepted.json()).toMatchObject({ keys: 2 });
+    expect((await form(65 * 1024)).status).toBe(413);
+
+    // Internal endpoints never take JSON or forms: 1 KiB.
+    const internal = await app.post("/internal/v1/probe-body", {
+      origin: null,
+      body: json(2 * 1024),
+    });
+    expect(internal.status).toBe(413);
+
+    // A cookie-authenticated route still takes a whole document (2 × DOC_MAX_BYTES).
+    const documentBytes = 2 * app.config.DOC_MAX_BYTES;
+    const document = await app.post("/v1/probe/document", { session, body: json(documentBytes) });
+    expect(document.status).toBe(201);
+    expect(document.json<{ rawBytes: number }>().rawBytes).toBeGreaterThan(documentBytes);
+  });
+
+  it("maps framework HTTP exceptions to stable codes over HTTP instead of internal", async () => {
+    app = await bootTestApp({ imports: [BootstrapProbeModule] });
+    const { session } = await app.createSignedInUser();
+    const forbidden = await app.get("/v1/probe/forbidden", { session });
+    expect(forbidden.status).toBe(403);
+    expect(errorEnvelopeSchema.parse(forbidden.json()).error.code).toBe("auth.csrf_invalid");
+    const unauthorized = await app.get("/v1/probe/unauthorized", { session });
+    expect(unauthorized.status).toBe(401);
+    expect(errorEnvelopeSchema.parse(unauthorized.json()).error.code).toBe("auth.session_required");
+    expect(unauthorized.text).not.toContain("maya@example.test");
+    const unsupported = await app.post("/v1/probe/unsupported", { session });
+    expect(unsupported.status).toBe(400);
+    expect(errorEnvelopeSchema.parse(unsupported.json()).error.code).toBe("validation");
+    expect(unsupported.text).not.toContain("text/xml");
+    expect(app.logs.events("http.unhandled_error")).toEqual([]);
   });
 
   it("applies trust proxy from TRUST_PROXY_HOPS and runs migrations on startup outside production", async () => {

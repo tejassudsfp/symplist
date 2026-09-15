@@ -12,6 +12,7 @@ import { CLOCK, type Clock } from "./common/clock.ts";
 import { ApiError, sendApiError } from "./common/errors/api-error.ts";
 import { ApiExceptionFilter, toApiError } from "./common/errors/exception.filter.ts";
 import { validationExceptionFactory } from "./common/errors/validation.ts";
+import { bodyParsers, jsonBodyLimitBytes } from "./common/http/body-parsers.ts";
 import { corsDelegate } from "./common/http/cors.ts";
 import { globalPrefix, unprefixedRoutes } from "./common/http/global-prefix.ts";
 import { hostSurfaceMiddleware } from "./common/http/host-surface.ts";
@@ -23,13 +24,9 @@ import {
   requestStateOf,
 } from "./common/request-context.ts";
 import { API_CONFIG, type ApiConfig } from "./infra/config/api-config.ts";
+import { AuthWsAdapter } from "./modules/realtime/auth-ws.adapter.ts";
 
-export { globalPrefix, unprefixedRoutes };
-
-/** JSON bodies may carry a whole document (`DOC_MAX_BYTES`) with escaping overhead (§3.2). */
-export function jsonBodyLimitBytes(config: Pick<ApiConfig, "DOC_MAX_BYTES">): number {
-  return config.DOC_MAX_BYTES * 2 + 64 * 1024;
-}
+export { globalPrefix, jsonBodyLimitBytes, unprefixedRoutes };
 
 function requestLogMiddleware(logger: AppLogger) {
   return (req: Request, res: Response, next: NextFunction): void => {
@@ -50,10 +47,11 @@ function requestLogMiddleware(logger: AppLogger) {
 }
 
 /**
- * Applies the bootstrap order of §6 and §10.4 to an application created with `rawBody: true`:
- * trust proxy, helmet, request context and request logs, host routing, cookie parsing, CORS for
- * `/v1/*` only, body limits, the Standard Schema validation pipe, the error envelope filter and the
- * `/v1` global prefix with its exclusions.
+ * Applies the bootstrap order of §6, §7 and §10.4 to an application created with
+ * `bodyParser: false`: trust proxy, helmet, request context and request logs, host routing, cookie
+ * parsing, CORS for `/v1/*` only, the per-path body parsers (which keep the raw body), the Standard
+ * Schema validation pipe, the error envelope filter, the `/v1` global prefix with its exclusions and
+ * the authenticating WebSocket adapter, which must be installed before the gateway binds at init.
  */
 export function configureApp(app: NestExpressApplication): void {
   const config = app.get<ApiConfig>(API_CONFIG);
@@ -68,12 +66,13 @@ export function configureApp(app: NestExpressApplication): void {
   app.use(hostSurfaceMiddleware(config));
   app.use(cookieParser());
   app.enableCors(corsDelegate(config));
-  app.useBodyParser("json", { limit: jsonBodyLimitBytes(config) });
+  for (const parser of bodyParsers(config)) app.use(parser);
   app.useGlobalPipes(
     new StandardSchemaValidationPipe({ exceptionFactory: validationExceptionFactory }),
   );
   app.useGlobalFilters(new ApiExceptionFilter(logger));
   app.setGlobalPrefix(globalPrefix, { exclude: [...unprefixedRoutes] });
+  app.useWebSocketAdapter(new AuthWsAdapter(app));
 }
 
 /**
@@ -99,7 +98,7 @@ export async function initializeApp(app: NestExpressApplication): Promise<void> 
 /** Creates, configures and initializes the application without listening. */
 export async function createApp(options: AppModuleOptions): Promise<NestExpressApplication> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule.forRoot(options), {
-    rawBody: true,
+    bodyParser: false,
     bufferLogs: true,
     abortOnError: false,
   });

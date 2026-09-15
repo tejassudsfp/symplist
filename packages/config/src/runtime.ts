@@ -23,6 +23,7 @@ import {
   presentVariables,
   timeZoneVariable,
 } from "./fields.ts";
+import { defaultLocalDataDir, isValidLocalDataDir } from "./local-data.ts";
 import {
   duplicateSecretIssues,
   type GeneratedSecretFamily,
@@ -72,6 +73,19 @@ function gitTmpDirVariable() {
 }
 
 /**
+ * `LOCAL_DATA_DIR`: the absolute directory holding the local D1 and R2 stand-ins, shared by the api and
+ * `trigger dev`. Unset, it resolves to `<repo>/.local-data` (see `defaultLocalDataDir`).
+ */
+function localDataDirVariable() {
+  const invalid = "must be an absolute directory path";
+  return z
+    .string({ error: invalid })
+    .refine(isValidLocalDataDir, { error: invalid })
+    .optional()
+    .transform((value) => value ?? defaultLocalDataDir());
+}
+
+/**
  * `TRIGGER_SECRET_KEY`: a Trigger.dev environment secret key (`tr_dev_…`, `tr_prod_…`). A personal
  * access token (`tr_pat_…`, the CI-only `TRIGGER_ACCESS_TOKEN`) is refused, so the deploy credential
  * can never be held by the api or the worker under another name (§4.5).
@@ -110,6 +124,7 @@ export const sharedVariableShape = {
     default: docMaxBytesLimit,
   }),
   GIT_TMP_DIR: gitTmpDirVariable(),
+  LOCAL_DATA_DIR: localDataDirVariable(),
 
   AI_ENABLED: booleanVariable(true),
   AI_DEFAULT_TIER: enumWithDefaultVariable(["fast", "smart"], "fast"),

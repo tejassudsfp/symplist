@@ -3,3 +3,4 @@ export * from "./deletion.ts";
 export * from "./keys.ts";
 export * from "./purge.ts";
 export * from "./purge-contributors/index.ts";
+export * from "./purge-steps.ts";

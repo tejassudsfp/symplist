@@ -1,5 +1,5 @@
-import { join } from "node:path";
 import type { Provider } from "@nestjs/common";
+import { localDataPaths } from "@symplist/config";
 import { createLocalObjectStore, createR2ObjectStore, type ObjectStore } from "@symplist/storage";
 import { API_CONFIG, type ApiConfig } from "../config/api-config.ts";
 import { LOCAL_DATA_DIR } from "../db/db.providers.ts";
@@ -22,7 +22,7 @@ export function createApiObjectStore(config: ApiConfig, localDataDir: string): O
     });
   }
   return createLocalObjectStore({
-    root: join(localDataDir, "objects"),
+    root: localDataPaths(localDataDir).objects,
     env: { NODE_ENV: config.NODE_ENV },
   });
 }

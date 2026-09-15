@@ -37,6 +37,7 @@ const retryableCodes = new Set([
   "integration.rate_limited",
   "ai.unavailable",
   "trigger.unavailable",
+  "account_purge.incomplete",
 ]);
 
 function mapped(code: string): WorkerError {

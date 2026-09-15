@@ -1,5 +1,5 @@
 import type { IncomingMessage } from "node:http";
-import { type BeforeApplicationShutdown, Inject } from "@nestjs/common";
+import { Inject } from "@nestjs/common";
 import { SkipThrottle } from "@nestjs/throttler";
 import {
   type OnGatewayConnection,
@@ -45,13 +45,12 @@ interface LiveSocket {
  * `wss://<api>/v1/ws` (§7). Upgrades are authenticated by `AuthWsAdapter`; the socket carries events
  * plus `sub`, `unsub` and `ping`. More than 20 client frames per 10 seconds or more than 50
  * subscriptions closes with 1008. The server pings every 30 seconds and terminates sockets that
- * missed the previous ping; shutdown closes every socket with 1001 and waits up to 5 seconds.
+ * missed the previous ping. Shutdown is driven by the platform's `ShutdownCoordinator` through
+ * `REALTIME_SHUTDOWN`: {@link stopAccepting}, then {@link closeAll} with 1001, before HTTP drains.
  */
 @SkipThrottle()
 @WebSocketGateway({ path: wsPath, maxPayload: wsMaxPayloadBytes })
-export class RealtimeGateway
-  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect, BeforeApplicationShutdown
-{
+export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server: WsServer;
 
@@ -72,6 +71,7 @@ export class RealtimeGateway
 
   afterInit(server: WsServer): void {
     this.server = server;
+    if (this.dependencies.backgroundLoops === false) return;
     this.heartbeat = this.timers.setInterval(
       () => this.beat(),
       this.dependencies.tuning?.heartbeatIntervalMs ?? wsHeartbeatIntervalMs,
@@ -124,12 +124,25 @@ export class RealtimeGateway
     if (live) this.hub.disconnect(live.state);
   }
 
-  async beforeApplicationShutdown(): Promise<void> {
+  /**
+   * Refuses every later upgrade and stops publishing, relaying and the background heartbeat and sweep.
+   * Idempotent.
+   */
+  stopAccepting(): void {
     this.gate.close();
     this.hub.beginShutdown();
     this.sweep.stop();
     if (this.heartbeat !== undefined) this.timers.clearInterval(this.heartbeat);
     this.heartbeat = undefined;
+  }
+
+  /**
+   * Closes every socket with `code` and resolves once all closed or the grace period passed, the
+   * shorter of `timeoutMs` and the tuned `shutdownGraceMs`. The grace runs on real time: a client that
+   * never answers the close handshake must not hold shutdown, whatever clock drives the gateway.
+   */
+  async closeAll(code: 1001, timeoutMs: number): Promise<void> {
+    this.stopAccepting();
     const clients = [...(this.server?.clients ?? [])];
     if (clients.length === 0) return;
     const closing = clients.map(
@@ -142,17 +155,22 @@ export class RealtimeGateway
           client.once("close", () => resolve());
           const live = this.live.get(client);
           if (live) this.hub.disconnect(live.state);
-          client.close(wsCloseCodes.goingAway, "server restarting");
+          client.close(code, "server restarting");
         }),
     );
-    let timer: unknown;
+    const graceMs = Math.min(timeoutMs, this.dependencies.tuning?.shutdownGraceMs ?? timeoutMs);
+    let timer: ReturnType<typeof setTimeout> | undefined;
     await Promise.race([
       Promise.all(closing),
       new Promise<void>((resolve) => {
-        timer = this.timers.setTimeout(resolve, this.dependencies.tuning?.shutdownGraceMs ?? 5_000);
+        timer = setTimeout(resolve, graceMs);
+        timer.unref();
       }),
     ]);
-    this.timers.clearTimeout(timer);
+    clearTimeout(timer);
+    for (const client of clients) {
+      if (client.readyState !== CLOSED) client.terminate();
+    }
   }
 
   private beat(): void {

@@ -1,5 +1,5 @@
-import { join } from "node:path";
 import type { Provider } from "@nestjs/common";
+import { localDataPaths } from "@symplist/config";
 import {
   applyMigrations,
   createD1RestClient,
@@ -15,11 +15,11 @@ import { API_CONFIG, type ApiConfig, runsMigrationsOnStartup } from "../config/a
 /** Injection token for the api's {@link DbClient} (D1 REST on the api lane, or local SQLite). */
 export const DB_CLIENT = "symplist:DB_CLIENT";
 
-/** Injection token for the directory holding local development data (`DATA_DRIVER=local`). */
+/**
+ * Injection token for the absolute directory holding local development data (`DATA_DRIVER=local`):
+ * `LOCAL_DATA_DIR`, shared with `trigger dev`, unless a test supplies its own directory.
+ */
 export const LOCAL_DATA_DIR = "symplist:LOCAL_DATA_DIR";
-
-/** Default local data directory, relative to the api's working directory (§16.1). */
-export const DEFAULT_LOCAL_DATA_DIR = ".local-data";
 
 /** Injection token for the api's D1 request counters (§3.1). */
 export const D1_COUNTERS = "symplist:D1_COUNTERS";
@@ -72,7 +72,7 @@ export async function createApiDatabase(
     close = () => undefined;
   } else {
     const local = createLocalSqliteClient({
-      path: join(localDataDir, "d1.sqlite"),
+      path: localDataPaths(localDataDir).database,
       env: { NODE_ENV: config.NODE_ENV },
     });
     client = local;

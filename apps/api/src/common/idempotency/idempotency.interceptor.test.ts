@@ -1,6 +1,6 @@
 import { decryptFieldText, idempotencyResponseContext } from "@symplist/crypto";
 import { type MigrationTarget, sql } from "@symplist/db";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { bootTestApp, type TestApp, type TestSession } from "../../../test/harness.ts";
 import {
   IdempotencyProbeModule,
@@ -214,6 +214,109 @@ describe("Idempotency-Key interceptor (§6.1)", () => {
     expect(retry.json()).toEqual({ folded: true });
     expect(effects()).toEqual(["folded"]);
     expect(await app.db.all(sql("SELECT label FROM probe_effects"))).toEqual([{ label: "folded" }]);
+  });
+});
+
+describe("folding the claim into the deciding batch (§3.1, §6.1)", () => {
+  const labels = async () =>
+    (await app.db.all<{ label: string }>(sql("SELECT label FROM probe_effects"))).map(
+      (row) => row.label,
+    );
+
+  beforeEach(async () => {
+    await app.db.run(sql("DELETE FROM probe_effects"));
+  });
+
+  it("claims, applies the effect and records the response in the handler's single batch", async () => {
+    const key = freshKey();
+    const batch = vi.spyOn(app.db, "batch");
+    const first = await app.post("/v1/idem/labels", {
+      session,
+      body: { label: "urgent" },
+      idempotencyKey: key,
+    });
+    // One request reads the handler's account key; the claim, effect and completion are the other.
+    expect(batch).toHaveBeenCalledTimes(2);
+    const folded = batch.mock.calls[1]?.[0] ?? [];
+    expect(folded.map((statement) => statement.sql.trim().split(/\s+/)[0])).toEqual([
+      "INSERT",
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+    ]);
+    batch.mockRestore();
+    expect(first.status).toBe(201);
+    expect(first.json()).toEqual({ label: "urgent" });
+    expect(first.headers.get(IDEMPOTENCY_REPLAYED_HEADER.toLowerCase())).toBeNull();
+    const row = await app.db.first(
+      sql("SELECT status, http_status FROM idempotency_records WHERE key = :key", { key }),
+    );
+    expect(row).toEqual({ status: "completed", http_status: 201 });
+    expect(await labels()).toEqual(["urgent"]);
+  });
+
+  it("replays an exact retry without a second effect and refuses another input under the key", async () => {
+    const key = freshKey();
+    const request = { session, body: { label: "home" }, idempotencyKey: key };
+    await app.post("/v1/idem/labels", request);
+    const retry = await app.post("/v1/idem/labels", request);
+    expect(retry.status).toBe(201);
+    expect(retry.json()).toEqual({ label: "home" });
+    expect(retry.headers.get(IDEMPOTENCY_REPLAYED_HEADER.toLowerCase())).toBe("true");
+    const other = await app.post("/v1/idem/labels", {
+      session,
+      body: { label: "work" },
+      idempotencyKey: key,
+    });
+    expect(other.status).toBe(422);
+    expect(codeOf(other)).toBe("idempotency.mismatch");
+    expect(await labels()).toEqual(["home"]);
+    expect(effects()).toEqual(["label:home"]);
+  });
+
+  it("applies the effect exactly once when identical requests race", async () => {
+    const key = freshKey();
+    const request = { session, body: { label: "race" }, idempotencyKey: key };
+    const responses = await Promise.all(
+      Array.from({ length: 5 }, () => app.post("/v1/idem/labels", request)),
+    );
+    expect(responses.map((response) => response.status)).toEqual([201, 201, 201, 201, 201]);
+    expect(
+      responses.filter((response) => response.headers.get("idempotency-replayed") === "true"),
+    ).toHaveLength(4);
+    expect(await labels()).toEqual(["race"]);
+  });
+
+  it("claims nothing for invalid input and fails closed when a handler never folds its claim", async () => {
+    const invalid = await app.post("/v1/idem/labels", {
+      session,
+      body: { label: "" },
+      idempotencyKey: freshKey(),
+    });
+    expect(codeOf(invalid)).toBe("validation");
+
+    const key = freshKey();
+    const forgotten = await app.post("/v1/idem/labels/forgotten", {
+      session,
+      body: { label: "lost" },
+      idempotencyKey: key,
+    });
+    expect(forgotten.status).toBe(500);
+    expect(app.logs.events("idempotency.fold_incomplete")).toHaveLength(1);
+    expect(
+      await app.db.first(
+        sql("SELECT COUNT(*) AS n FROM idempotency_records WHERE key = :key", { key }),
+      ),
+    ).toEqual({ n: 0 });
+
+    // A route that is not folded has no folded claim to use.
+    const unfolded = await app.post("/v1/idem/labels/unfolded", {
+      session,
+      body: {},
+      idempotencyKey: freshKey(),
+    });
+    expect(unfolded.status).toBe(500);
+    expect(await labels()).toEqual([]);
   });
 });
 

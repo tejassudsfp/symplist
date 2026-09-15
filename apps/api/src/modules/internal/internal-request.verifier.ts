@@ -47,7 +47,7 @@ export class InternalRequestVerifier {
     },
   ) {}
 
-  verify(request: IncomingMessage, body: Buffer, route: string): InternalVerification {
+  verify(request: IncomingMessage, body: Buffer, endpoint: string): InternalVerification {
     const result = verifyInternalRequest(
       this.options.keys,
       {
@@ -62,12 +62,12 @@ export class InternalRequestVerifier {
       },
       { nowMs: this.options.timers.now(), windowSeconds: INTERNAL_SIGNATURE_WINDOW_SECONDS },
     );
-    if (!result.ok) return this.fail(route, result.reason);
+    if (!result.ok) return this.fail(endpoint, result.reason);
     // The signature stays fresh while floor(now / 1000) is within the window of its timestamp.
     const freshUntilMs = (result.timestamp + INTERNAL_SIGNATURE_WINDOW_SECONDS + 1) * 1000;
     const reserved = this.options.memory.reserve(result.eventId, freshUntilMs);
-    if (reserved === "replayed") return this.fail(route, "replayed");
-    if (reserved === "full") return this.fail(route, "memory_full");
+    if (reserved === "replayed") return this.fail(endpoint, "replayed");
+    if (reserved === "full") return this.fail(endpoint, "memory_full");
     const { memory } = this.options;
     const eventId = result.eventId;
     return {
@@ -76,8 +76,8 @@ export class InternalRequestVerifier {
     };
   }
 
-  private fail(route: string, reason: InternalVerificationFailure): InternalVerification {
-    this.options.log.warn("internal.request_rejected", { route, reason });
+  private fail(endpoint: string, reason: InternalVerificationFailure): InternalVerification {
+    this.options.log.warn("internal.request_rejected", { endpoint, reason });
     return { ok: false, reason };
   }
 }

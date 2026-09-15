@@ -9,6 +9,7 @@ import {
   parseApiConfig,
 } from "./api.ts";
 import { ConfigError, type ConfigIssue } from "./errors.ts";
+import { defaultLocalDataDir } from "./local-data.ts";
 import { credential, generatedSecret, localApiEnv, productionApiEnv } from "./testing/fixtures.ts";
 
 function issuesOf(env: Record<string, string | undefined>): readonly ConfigIssue[] {
@@ -53,6 +54,7 @@ describe("api configuration: valid environments", () => {
       QUICK_CHAT_TTL_HOURS: 24,
       DOC_MAX_BYTES: 1_048_576,
       GIT_TMP_DIR: join(tmpdir(), "symplist-git"),
+      LOCAL_DATA_DIR: defaultLocalDataDir(),
       AI_ENABLED: true,
       AI_DEFAULT_TIER: "fast",
       AI_FAST_PROVIDER: "openai",
@@ -107,6 +109,7 @@ describe("api configuration: valid environments", () => {
         OPENAI_API_KEY: credential("sk-"),
         DEFAULT_TIMEZONE: "Asia/Kolkata",
         GIT_TMP_DIR: "/var/tmp/symplist-git",
+        LOCAL_DATA_DIR: "/var/tmp/symplist-data",
         OTP_LENGTH: "8",
         PORT: "65535",
       }),
@@ -117,6 +120,7 @@ describe("api configuration: valid environments", () => {
     expect(config.AI_FAST_PROVIDER).toBe("bedrock");
     expect(config.AI_PROVIDER_MODE).toBe("scripted");
     expect(config.DEFAULT_TIMEZONE).toBe("Asia/Kolkata");
+    expect(config.LOCAL_DATA_DIR).toBe("/var/tmp/symplist-data");
     expect(config.OTP_LENGTH).toBe(8);
     expect(config.PORT).toBe(65_535);
   });
@@ -199,6 +203,8 @@ describe("api configuration: field validation", () => {
     ["DEFAULT_TIMEZONE", "Mars/Olympus", "IANA time zone"],
     ["DEFAULT_TIMEZONE", "+05:30", "IANA time zone"],
     ["GIT_TMP_DIR", ".local-data/git", "absolute directory"],
+    ["LOCAL_DATA_DIR", ".local-data", "absolute directory"],
+    ["LOCAL_DATA_DIR", "relative/data", "absolute directory"],
     ["EMAIL_FROM_SECURITY", undefined, "is required"],
     ["EMAIL_FROM_SECURITY", "security at example", "email address"],
     ["EMAIL_FROM_SECURITY", "Symplist <security@example.com", "email address"],

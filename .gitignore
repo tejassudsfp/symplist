@@ -18,6 +18,8 @@ coverage/
 Thumbs.db
 .idea/
 .vscode/
+# Local development data: the DATA_DRIVER=local SQLite file and object store (LOCAL_DATA_DIR)
+.local-data
 # Local deployment state
 .wrangler/
 .vercel/

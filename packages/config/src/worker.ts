@@ -148,12 +148,15 @@ export const triggerUnsyncablePrefix = "TRIGGER_";
 
 /**
  * Variables never synced even though the worker reads them: `TRIGGER_SECRET_KEY` is injected by
- * Trigger.dev itself (the api's key must never reach Trigger), `NODE_ENV` is set by the image, and
- * `TRIGGER_AI_SDK_OTEL_AUTOREGISTER` comes from `workerImageEnv` because sync would drop it.
+ * Trigger.dev itself (the api's key must never reach Trigger), `NODE_ENV` is set by the image,
+ * `TRIGGER_AI_SDK_OTEL_AUTOREGISTER` comes from `workerImageEnv` because sync would drop it, and
+ * `LOCAL_DATA_DIR` names a directory on a developer machine, which means nothing in a deployed image
+ * (where the local drivers are refused).
  */
 export const workerSyncExcludedVariables: readonly string[] = Object.freeze(
   workerVariableNames.filter(
-    (name) => name === "NODE_ENV" || name.startsWith(triggerUnsyncablePrefix),
+    (name) =>
+      name === "NODE_ENV" || name === "LOCAL_DATA_DIR" || name.startsWith(triggerUnsyncablePrefix),
   ),
 );
 

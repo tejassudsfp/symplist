@@ -341,6 +341,7 @@ describe("access caches and relock propagation (§3.3, §5.5)", () => {
     expect(realtime.sessionsEnded).toHaveBeenCalledWith({
       userId: user.id,
       sessionIds: [user.session.sessionId],
+      reason: "logout",
     });
 
     const all = await app.sessions.revokeAll(user.id);

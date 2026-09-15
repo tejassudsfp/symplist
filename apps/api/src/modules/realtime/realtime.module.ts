@@ -5,11 +5,11 @@ import { AccessSweep } from "./access-sweep.ts";
 import { RealtimeGateway } from "./realtime.gateway.ts";
 import {
   REALTIME_DEPENDENCIES,
-  REALTIME_POST_COMMIT_HOOK,
   REALTIME_PUBLISHER,
   type RealtimeDependencies,
 } from "./realtime.tokens.ts";
 import { RealtimeSessionControl } from "./session-control.ts";
+import { RealtimeShutdownControl } from "./shutdown-control.ts";
 import { TopicHub } from "./topic-hub.ts";
 import { TopicRegistry } from "./topic-registry.ts";
 import { RealtimeUpgradeGate } from "./upgrade-gate.ts";
@@ -17,8 +17,9 @@ import { RealtimeUpgradeGate } from "./upgrade-gate.ts";
 /**
  * The WebSocket gateway and realtime publication (§7). Global: features inject `TopicRegistry` to
  * register topic authorizers and snapshot providers, and `REALTIME_PUBLISHER` (or `TopicHub`) to
- * publish. The bootstrap installs `AuthWsAdapter` and hands `REALTIME_POST_COMMIT_HOOK` to the
- * restriction routine.
+ * publish. The bootstrap installs `AuthWsAdapter`; `PlatformSeamsModule` binds
+ * `RealtimeSessionControl` to `REALTIME_ACCESS_NOTIFIER` and `RealtimeShutdownControl` to
+ * `REALTIME_SHUTDOWN`.
  */
 @Module({})
 // biome-ignore lint/complexity/noStaticOnlyClass: Nest dynamic modules are classes with a static forRoot.
@@ -84,7 +85,7 @@ export class RealtimeModule {
             }),
         },
         {
-          provide: REALTIME_POST_COMMIT_HOOK,
+          provide: RealtimeSessionControl,
           inject: [REALTIME_DEPENDENCIES, TopicHub, AccessSweep],
           useFactory: (dependencies: RealtimeDependencies, hub: TopicHub, sweep: AccessSweep) =>
             new RealtimeSessionControl({
@@ -94,8 +95,20 @@ export class RealtimeModule {
             }),
         },
         RealtimeGateway,
+        {
+          provide: RealtimeShutdownControl,
+          inject: [RealtimeGateway],
+          useFactory: (gateway: RealtimeGateway) => new RealtimeShutdownControl(gateway),
+        },
       ],
-      exports: [TopicRegistry, TopicHub, REALTIME_PUBLISHER, REALTIME_POST_COMMIT_HOOK],
+      exports: [
+        TopicRegistry,
+        TopicHub,
+        REALTIME_PUBLISHER,
+        AccessSweep,
+        RealtimeSessionControl,
+        RealtimeShutdownControl,
+      ],
     };
   }
 }

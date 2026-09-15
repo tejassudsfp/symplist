@@ -19,6 +19,8 @@ import {
 export interface SchedulerDependencies {
   /** `DURABLE`: the local scheduler runs only when false. */
   readonly durable: boolean;
+  /** Starts the scheduler's timers at bootstrap; defaults to true. */
+  readonly backgroundLoops?: boolean;
   readonly timers?: RuntimeTimers;
   readonly log?: OperationalLog;
 }
@@ -27,9 +29,13 @@ export const SCHEDULER_DEPENDENCIES = "symplist:scheduler-dependencies";
 
 @Injectable()
 export class LocalSchedulerLifecycle implements OnApplicationBootstrap, BeforeApplicationShutdown {
-  constructor(@Inject(LocalScheduler) private readonly scheduler: LocalScheduler) {}
+  constructor(
+    @Inject(LocalScheduler) private readonly scheduler: LocalScheduler,
+    @Inject(SCHEDULER_DEPENDENCIES) private readonly dependencies: SchedulerDependencies,
+  ) {}
 
   onApplicationBootstrap(): void {
+    if (this.dependencies.backgroundLoops === false) return;
     this.scheduler.start();
   }
 

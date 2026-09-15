@@ -25,18 +25,26 @@ afterAll(() => app.close());
   config rules run exactly as in production code paths;
 - `DATA_DRIVER=local`: a SQLite file and an object store in a new temporary directory
   (`app.dataDir`), with every migration applied at startup and the directory removed by `close()`;
-- a `FakeClock` (`app.clock`) bound to `CLOCK`, so sessions, caches, idempotency expiry and the per-IP
-  buckets move only when the test calls `app.clock.advance(ms)`;
-- a `FakeTriggerClient` (`app.trigger`) bound to `TRIGGER_CLIENT`;
+- a `FakeClock` (`app.clock`) bound to `CLOCK` and `RUNTIME_TIMERS`, so sessions, caches, idempotency
+  expiry, the per-IP buckets, replay windows and every realtime, executor and scheduler timer move
+  only when the test calls `app.clock.advance(ms)`;
+- a `FakeTriggerClient` (`app.trigger`) bound to `TRIGGER_CLIENT` (the api uses it only when
+  `DURABLE=true`);
 - a capture email transport (`app.email`) bound to `EMAIL_TRANSPORT`;
-- captured structured logs (`app.logs`) at `debug` level.
+- captured structured logs (`app.logs`) at `debug` level;
+- every runtime module wired as in production: the executors, the WebSocket gateway on the same port
+  (`app.wsUrl`), the internal endpoints, the local scheduler and the account purge, with their seams
+  bound by `PlatformSeamsModule`. Background loops (reconciler, dispatcher kick at bootstrap,
+  heartbeat, access sweep, local scheduler) are off unless the test passes
+  `runtime: { backgroundLoops: true }`, so moving the clock by days does not run every firing.
 
 | Option | Use |
 | --- | --- |
 | `env` | Environment overrides, for example `{ BETA_ACCESS_REQUIRED: "false", TRUST_PROXY_HOPS: "1" }`. Pass the same full `testApiEnv()` result to two apps when they must share secrets. |
 | `imports` | Extra modules, typically a probe module with test controllers. Every controller route still needs `@RouteClass` or the app refuses to boot. |
-| `providers` | Extra global providers, such as fakes for the realtime seams (`REALTIME_ACCESS_NOTIFIER`, `RUN_CANCELLER`, `REALTIME_SHUTDOWN`) or `ACCOUNT_DELETION_EFFECTS`. |
-| `overrides` | `[{ token, value }]` replacing existing providers after the module graph is built. |
+| `providers` | Extra global providers, such as feature fakes. The platform's own services (sessions, access, shutdown, account deletion) see these before the bound seams, so a fake `REALTIME_ACCESS_NOTIFIER`, `RUN_CANCELLER`, `REALTIME_SHUTDOWN` or `ACCOUNT_DELETION_EFFECTS` here observes exactly the platform's calls. |
+| `overrides` | `[{ token, value }]` replacing existing providers after the module graph is built, for example a seam everywhere it is injected. |
+| `runtime` | Runtime module overrides: `backgroundLoops`, `eventsContributors` (replacing the core events contributors of the same domains, to register a probe execution kind with a tracker or a run relay source), `realtime: { tuning, events }`, `internal: { tuning }`, `executors: { tuning }`. |
 | `clock`, `trigger` | Reuse a clock or Trigger client, for example across two apps. |
 | `dataDir` | Reuse a data directory to simulate a restart or a second instance (the caller then removes it). |
 | `logLevel` | Minimum captured level; defaults to `debug`. |
@@ -67,6 +75,22 @@ expect(response.status).toBe(201);
   `shareHost: true` to address the share host (`http://127.0.0.1:<port>`; the api host is
   `http://localhost:<port>`).
 - `accessState(userId)` reads the user's access fields fresh from D1.
+
+## WebSockets, worker clients and executors
+
+- `test/ws-client.ts`: `WsTestClient.connect(app.wsUrl, { origin, cookie })` opens a real socket and
+  records frames and the close code (`waitFor`, `settle`, `closed`); `rawUpgrade(url, headers)`
+  observes refused upgrades (status and headers) or acts as a client that never answers.
+- Worker clients run against the booted api over HTTP by importing them from
+  `apps/worker/src/infra/` (`RunOutputPushClient`, `InternalEventClient`) with `keys: app.keys`,
+  `apiOrigin: app.baseUrl` and `timers: app.clock`; `test/platform.test.ts` is the reference.
+- `test/executors/memory-tracker.ts` is an in-memory `ExecutionTracker` with the conditional semantics a
+  D1 tracker must have. The executor contract suite (`describeExecutorContract` from
+  `@symplist/testing`) runs in `src/infra/executors/executor.contract.test.ts` against the local
+  executor, the Trigger executor over `FakeTriggerClient`, and live Trigger when `LIVE_TRIGGER=1` and
+  `TRIGGER_SECRET_KEY` are set (optionally `LIVE_TRIGGER_TASK_ID`, default `symplist-healthcheck`).
+- Idempotent mutations that must apply exactly once fold their claim into the deciding batch; see
+  `src/common/idempotency/README.md` for the rules and the worked example.
 
 ## Inspecting effects
 

@@ -1,4 +1,15 @@
-import { BadRequestException, HttpException, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  HttpException,
+  InternalServerErrorException,
+  MethodNotAllowedException,
+  NotFoundException,
+  PayloadTooLargeException,
+  UnauthorizedException,
+  UnsupportedMediaTypeException,
+} from "@nestjs/common";
 import { ThrottlerException } from "@nestjs/throttler";
 import { errorEnvelopeSchema, rateLimitedErrorSchema } from "@symplist/contracts";
 import { RateLimitedError } from "@symplist/crypto";
@@ -33,6 +44,37 @@ describe("error envelope mapping (§6)", () => {
     expect(toApiError(new DbUnknownOutcomeError("timeout")).code).toBe("internal");
     expect(toApiError(new Error("boom")).code).toBe("internal");
     expect(toApiError("thrown string").code).toBe("internal");
+  });
+
+  it("maps Nest HTTP exceptions by status to stable codes instead of internal", () => {
+    const cases: Array<[HttpException, string, number]> = [
+      [new BadRequestException("Unexpected token in JSON"), "validation", 400],
+      [new HttpException({ error: "custom body" }, 400), "validation", 400],
+      [
+        new UnauthorizedException("Token expired for maya@example.test"),
+        "auth.session_required",
+        401,
+      ],
+      [new ForbiddenException("Forbidden resource"), "auth.csrf_invalid", 403],
+      [new NotFoundException("Cannot POST /internal/v1/nope"), "not_found", 404],
+      [new MethodNotAllowedException(), "not_found", 404],
+      [new PayloadTooLargeException("request entity too large"), "request.too_large", 413],
+      [new UnsupportedMediaTypeException("text/xml"), "validation", 400],
+      [new HttpException("Too Many Requests", 429), "rate.limited", 503],
+    ];
+    for (const [exception, code, status] of cases) {
+      const mapped = toApiError(exception);
+      expect([mapped.code, mapped.status], exception.name).toEqual([code, status]);
+      const envelope = JSON.stringify(mapped.toEnvelope("req-1"));
+      expect(envelope).not.toContain("maya@example.test");
+      expect(envelope).not.toContain("custom body");
+      expect(envelope).not.toContain("/internal/v1/nope");
+    }
+    expect(toApiError(new HttpException("Too Many Requests", 429)).retryAfter).toBe(1);
+    // Statuses without a safe mapping stay internal.
+    expect(toApiError(new ConflictException("conflict")).code).toBe("internal");
+    expect(toApiError(new InternalServerErrorException("boom")).code).toBe("internal");
+    expect(toApiError(new HttpException("unavailable", 503)).code).toBe("internal");
   });
 
   it("gives unknown and unauthorized resources the identical not_found body", () => {

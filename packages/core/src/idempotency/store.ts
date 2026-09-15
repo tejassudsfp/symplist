@@ -8,7 +8,7 @@ import {
   verifyDigest,
   zeroize,
 } from "@symplist/crypto";
-import type { DbClient, DbRow, Statement } from "@symplist/db";
+import type { DbClient, DbRow, Statement, StatementResult } from "@symplist/db";
 import { int, sql, uuidv7 } from "@symplist/db";
 import { AccountKeyStore } from "../account/keys.ts";
 
@@ -54,6 +54,25 @@ export interface IdempotencyClaim {
 
 export type IdempotencyBeginResult =
   | { readonly kind: "started"; readonly claim: IdempotencyClaim }
+  | { readonly kind: "replay"; readonly response: StoredIdempotentResponse }
+  | { readonly kind: "mismatch" }
+  | { readonly kind: "in_progress" };
+
+/**
+ * A claim built to be folded into the caller's own deciding batch (§3.1, §6.1): the claim statements
+ * go first, every effect statement is guarded by `claim.guard`, and the batch also carries
+ * `completeStatement` for the claim. D1 runs a batch as one transaction, so the record is either
+ * absent (and no effect applied) or completed together with the effect: exactly once, in one request.
+ */
+export interface FoldedIdempotencyClaim {
+  readonly claim: IdempotencyClaim;
+  /** The claim insert and the record read; place them first in the batch, in this order. */
+  readonly statements: readonly Statement[];
+}
+
+/** What a folded claim decided, read back from its batch. */
+export type FoldedClaimDecision =
+  | { readonly kind: "started" }
   | { readonly kind: "replay"; readonly response: StoredIdempotentResponse }
   | { readonly kind: "mismatch" }
   | { readonly kind: "in_progress" };
@@ -153,11 +172,70 @@ export class IdempotencyStore {
    * account key.
    */
   async begin(request: IdempotencyRequest): Promise<IdempotencyBeginResult> {
+    const { claim, statements } = this.claimStatements(request, { takeOverAbandoned: true });
+    const results = await this.db.batch([
+      ...statements,
+      this.accountKeys.selectStatement(request.userId),
+    ]);
+    const row = results[1]?.results[0];
+    if (!row) throw new IdempotencyStateError("The user of this idempotency record does not exist");
+
+    if (row.write_id === claim.writeId) {
+      const keyRow = results[2]?.results[0];
+      if (keyRow) wrappedKeyRows.set(claim, keyRow);
+      return { kind: "started", claim };
+    }
+    return this.decideExisting(request, row, () => {
+      const keyRow = results[2]?.results[0];
+      if (!keyRow) throw new IdempotencyStateError("The account key of this record is unavailable");
+      return this.accountKeys.unwrapRow(keyRow);
+    });
+  }
+
+  /**
+   * The claim of `request` as statements for the caller's deciding batch (§6.1 folding). Unlike
+   * {@link begin}, a folded claim never takes over a pending record: a pending folded record can only
+   * remain from a batch whose outcome is unknown, so its effect may already have applied, and only an
+   * expired record (past the 24-hour replay contract) is claimed again.
+   */
+  foldedClaim(request: IdempotencyRequest): FoldedIdempotencyClaim {
+    return this.claimStatements(request, { takeOverAbandoned: false });
+  }
+
+  /**
+   * Reads a folded claim's decision from its batch results. `offset` is the index of the first claim
+   * statement in the batch. A replay decrypts the recorded response with `accountKey`, the owner's
+   * account data key the caller already holds for its own statements.
+   */
+  decideFoldedClaim(input: {
+    readonly request: IdempotencyRequest;
+    readonly folded: FoldedIdempotencyClaim;
+    readonly results: readonly StatementResult[];
+    readonly accountKey: AccountDataKey;
+    readonly offset?: number;
+  }): FoldedClaimDecision {
+    const row = input.results[(input.offset ?? 0) + 1]?.results[0];
+    if (!row) throw new IdempotencyStateError("The user of this idempotency record does not exist");
+    if (row.write_id === input.folded.claim.writeId) return { kind: "started" };
+    return this.decideExisting(input.request, row, () => input.accountKey, { borrowedKey: true });
+  }
+
+  private claimStatements(
+    request: IdempotencyRequest,
+    options: { readonly takeOverAbandoned: boolean },
+  ): FoldedIdempotencyClaim {
     checkRequest(request);
     const writeId = uuidv7(request.now);
     const fingerprint = this.fingerprint(request.input);
     const record = { scope: request.scope, user: request.userId, key: request.key };
-    const results = await this.db.batch([
+    const takeover = options.takeOverAbandoned
+      ? `
+            OR (idempotency_records.status = 'pending'
+                AND idempotency_records.updated_at <= :lease_cutoff
+                AND idempotency_records.fingerprint = excluded.fingerprint
+                AND idempotency_records.fingerprint_version = excluded.fingerprint_version)`
+      : "";
+    const statements: Statement[] = [
       sql(
         `INSERT INTO idempotency_records
            (scope, user_id, key, fingerprint, fingerprint_version, status, http_status, response_enc,
@@ -170,11 +248,7 @@ export class IdempotencyStore {
            status = 'pending', http_status = NULL, response_enc = NULL,
            created_at = excluded.created_at, updated_at = excluded.updated_at,
            expires_at = excluded.expires_at, write_id = excluded.write_id
-         WHERE idempotency_records.expires_at <= excluded.created_at
-            OR (idempotency_records.status = 'pending'
-                AND idempotency_records.updated_at <= :lease_cutoff
-                AND idempotency_records.fingerprint = excluded.fingerprint
-                AND idempotency_records.fingerprint_version = excluded.fingerprint_version)`,
+         WHERE idempotency_records.expires_at <= excluded.created_at${takeover}`,
         {
           ...record,
           fingerprint: fingerprint.digest,
@@ -182,7 +256,9 @@ export class IdempotencyStore {
           now: int(request.now),
           expires: int(request.now + this.ttlMs),
           w: writeId,
-          lease_cutoff: int(request.now - this.pendingLeaseMs),
+          ...(options.takeOverAbandoned
+            ? { lease_cutoff: int(request.now - this.pendingLeaseMs) }
+            : {}),
         },
       ),
       sql(
@@ -190,18 +266,19 @@ export class IdempotencyStore {
          FROM idempotency_records WHERE scope = :scope AND user_id = :user AND key = :key`,
         record,
       ),
-      this.accountKeys.selectStatement(request.userId),
-    ]);
-    const row = results[1]?.results[0];
-    if (!row) throw new IdempotencyStateError("The user of this idempotency record does not exist");
+    ];
+    const fields = { scope: request.scope, userId: request.userId, key: request.key, writeId };
+    const claim: IdempotencyClaim = Object.freeze({ ...fields, guard: claimGuard(fields) });
+    return Object.freeze({ claim, statements: Object.freeze(statements) });
+  }
 
-    if (row.write_id === writeId) {
-      const fields = { scope: request.scope, userId: request.userId, key: request.key, writeId };
-      const claim: IdempotencyClaim = Object.freeze({ ...fields, guard: claimGuard(fields) });
-      const keyRow = results[2]?.results[0];
-      if (keyRow) wrappedKeyRows.set(claim, keyRow);
-      return { kind: "started", claim };
-    }
+  /** The decision for a record another request claimed: mismatch, in progress or replay. */
+  private decideExisting(
+    request: IdempotencyRequest,
+    row: DbRow,
+    accountKey: () => AccountDataKey,
+    options: { readonly borrowedKey?: boolean } = {},
+  ): Exclude<FoldedClaimDecision, { readonly kind: "started" }> {
     const matches = verifyDigest(
       this.keys,
       "IDEMPOTENCY_SECRET",
@@ -211,14 +288,12 @@ export class IdempotencyStore {
     );
     if (!matches) return { kind: "mismatch" };
     if (row.status !== "completed") return { kind: "in_progress" };
-
-    const keyRow = results[2]?.results[0];
-    if (!keyRow) throw new IdempotencyStateError("The account key of this record is unavailable");
-    const accountKey = this.accountKeys.unwrapRow(keyRow);
+    const key = accountKey();
     try {
-      return { kind: "replay", response: this.decryptResponse(accountKey, request, row) };
+      return { kind: "replay", response: this.decryptResponse(key, request, row) };
     } finally {
-      zeroize(accountKey.key);
+      // A key the caller lent stays usable for the caller; a key unwrapped here is zeroised.
+      if (!options.borrowedKey) zeroize(key.key);
     }
   }
 

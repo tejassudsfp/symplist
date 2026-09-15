@@ -1,4 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createAccountKey, createKeyProvider, KeyUnavailableError } from "@symplist/crypto";
 import {
   applyMigrations,
@@ -127,6 +130,30 @@ describe("worker clients", () => {
       "REMINDER_UNSUBSCRIBE_SECRET",
     ]);
     expect(() => keys.current("SESSION_DIGEST_SECRET")).toThrow(KeyUnavailableError);
+  });
+
+  it("opens the api's SQLite file and object store under LOCAL_DATA_DIR for the local driver", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "symplist-worker-local-"));
+    try {
+      const config = loadWorkerRuntimeConfig(workerEnv({ LOCAL_DATA_DIR: dir }));
+      // The api creates and migrates the database; the worker opens the same file.
+      const api = createLocalSqliteClient({
+        path: join(dir, "d1.sqlite"),
+        env: { NODE_ENV: "test" },
+      });
+      await applyMigrations(api);
+      const db = createWorkerDb(config);
+      expect(await db.first(sql("SELECT generation FROM executor_state WHERE id = 1"))).toEqual({
+        generation: 1,
+      });
+      (db as { close?: () => void }).close?.();
+      api.close();
+      const objects = createWorkerObjectStore(config);
+      await objects.put({ key: "u/probe/object.sym", body: new Uint8Array([1]) });
+      expect(readdirSync(join(dir, "objects")).length).toBeGreaterThan(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("loads an account data key and fails with a stable code for a shredded account", async () => {

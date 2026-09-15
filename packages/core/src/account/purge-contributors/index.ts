@@ -13,7 +13,12 @@ import { tasksPurgeContributor } from "./tasks.ts";
 import type { PurgeContributor } from "./types.ts";
 import { vaultPurgeContributor } from "./vault.ts";
 
-export type { PurgeContributor, PurgeInput } from "./types.ts";
+export type {
+  PurgeContributor,
+  PurgeInput,
+  PurgeProviderDependencies,
+  PurgeProviderInput,
+} from "./types.ts";
 
 /** Every domain's purge contribution, children before parents (§5.6 step 4). */
 export const purgeContributors: readonly PurgeContributor[] = [

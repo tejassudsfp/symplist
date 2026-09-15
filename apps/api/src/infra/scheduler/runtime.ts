@@ -13,6 +13,21 @@ export interface RuntimeTimers {
   clearInterval(handle: unknown): void;
 }
 
+/**
+ * Injection token for the {@link RuntimeTimers} of the realtime gateway, internal endpoints, executors
+ * and local scheduler: real timers in production, the test's `FakeClock` under the harness.
+ */
+export const RUNTIME_TIMERS = "symplist:RUNTIME_TIMERS";
+
+/** Whether a clock also schedules timers (a `FakeClock` does), so it can drive every runtime timer. */
+export function isRuntimeTimers(value: unknown): value is RuntimeTimers {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  return ["now", "setTimeout", "clearTimeout", "setInterval", "clearInterval"].every(
+    (name) => typeof candidate[name] === "function",
+  );
+}
+
 /** Real timers. Background timers are unreferenced so they never keep a process (or a CLI) alive. */
 export const systemTimers: RuntimeTimers = {
   now: () => Date.now(),

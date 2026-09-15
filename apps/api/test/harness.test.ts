@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { CLOCK } from "../src/common/clock.ts";
 import { TRIGGER_CLIENT } from "../src/common/seams.ts";
 import { EMAIL_TRANSPORT } from "../src/infra/email/email.providers.ts";
+import { RUNTIME_TIMERS } from "../src/infra/scheduler/runtime.ts";
 import { OBJECT_STORE } from "../src/infra/storage/storage.providers.ts";
 import { bootTestApp, type TestApp, testApiEnv } from "./harness.ts";
 
@@ -34,7 +35,11 @@ describe("api test harness", () => {
     const trigger = new FakeTriggerClient();
     app = await bootTestApp({ trigger });
     expect(app.inject(CLOCK)).toBe(app.clock);
+    expect(app.inject(RUNTIME_TIMERS)).toBe(app.clock);
     expect(app.inject(TRIGGER_CLIENT)).toBe(trigger);
+    // Every platform seam is bound by the runtime modules, so none is reported missing at startup.
+    expect(app.logs.events("platform.seam_unbound")).toEqual([]);
+    expect(app.wsUrl).toBe(`${app.baseUrl.replace("http", "ws")}/v1/ws`);
     const transport = app.inject<EmailTransport>(EMAIL_TRANSPORT);
     await transport.send({
       to: "maya@example.test",

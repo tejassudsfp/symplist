@@ -253,15 +253,21 @@ describe("worker syncEnvVars allowlist (§4.5, §8.8)", () => {
     }
   });
 
-  it("covers every worker variable except the platform-set and TRIGGER_* ones and marks secrets", () => {
+  it("covers every worker variable except the platform-set, local-only and TRIGGER_* ones and marks secrets", () => {
     expect(new Set(workerSyncAllowlist.map((entry) => entry.name))).toEqual(
       new Set(
         workerVariableNames.filter(
           (name) =>
-            !["NODE_ENV", "TRIGGER_SECRET_KEY", "TRIGGER_AI_SDK_OTEL_AUTOREGISTER"].includes(name),
+            ![
+              "NODE_ENV",
+              "LOCAL_DATA_DIR",
+              "TRIGGER_SECRET_KEY",
+              "TRIGGER_AI_SDK_OTEL_AUTOREGISTER",
+            ].includes(name),
         ),
       ),
     );
+    expect(workerSyncEntry("LOCAL_DATA_DIR")).toBeUndefined();
     for (const { name, isSecret } of workerSyncAllowlist) {
       expect(isSecret).toBe(Object.hasOwn(providerCredentialInventory, name));
     }
