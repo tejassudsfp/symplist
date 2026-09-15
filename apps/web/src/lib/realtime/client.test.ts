@@ -1,3 +1,9 @@
+import {
+  type ConversationId,
+  conversationIdSchema,
+  type TaskId,
+  taskIdSchema,
+} from "@symplist/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CLOSE_FORBIDDEN,
@@ -8,7 +14,7 @@ import {
   type TopicHandlers,
   type WebSocketLike,
 } from "./client.ts";
-import { parseServerFrame } from "./frames.ts";
+import { conversationTopic, MAX_SERVER_FRAME_LENGTH, parseServerFrame } from "./frames.ts";
 
 class FakeSocket implements WebSocketLike {
   static instances: FakeSocket[] = [];
@@ -56,8 +62,18 @@ class FakeSocket implements WebSocketLike {
   }
 }
 
-const conversationId = "01929f3e-7c1a-7b2e-9a55-3c2f1d0e9b8a";
-const conversation = `conversation:${conversationId}` as const;
+/** A valid lowercase UUIDv7 literal: `kind` names the id family, `sequence` fills the last group. */
+function uuidV7(kind: "a" | "c" | "e", sequence: number): string {
+  return `01929f3e-7c1a-7${kind}00-8000-${sequence.toString(16).padStart(12, "0")}`;
+}
+
+const taskId = (sequence: number): TaskId => taskIdSchema.parse(uuidV7("a", sequence));
+const conversationIdAt = (sequence: number): ConversationId =>
+  conversationIdSchema.parse(uuidV7("c", sequence));
+const eventId = (sequence: number): string => uuidV7("e", sequence);
+
+const conversationId = conversationIdAt(1);
+const conversation = conversationTopic(conversationId);
 
 let online = true;
 let onlineListeners: Array<() => void> = [];
@@ -125,14 +141,14 @@ describe("subscriptions", () => {
   it("subscribes to the user topic with open tasks and to conversations with cursors", () => {
     const client = makeClient();
     const user = recorder();
-    client.subscribeUser(["task-1", "task-2"], user.handlers);
+    client.subscribeUser([taskId(1), taskId(2)], user.handlers);
     client.connect();
     expect(latest().url).toBe("wss://api.symplist.test/v1/ws");
     expect(statuses).toEqual(["connecting"]);
     latest().serverOpen();
     client.subscribeConversation(conversationId, recorder().handlers);
     expect(latest().sent).toEqual([
-      { t: "sub", topic: "user", cursor: null, openTasks: ["task-1", "task-2"] },
+      { t: "sub", topic: "user", cursor: null, openTasks: [taskId(1), taskId(2)] },
       { t: "sub", topic: conversation, cursor: null },
     ]);
     expect(client.status).toBe("open");
@@ -149,7 +165,7 @@ describe("subscriptions", () => {
       t: "ev",
       topic: conversation,
       seq: 11,
-      id: "e11",
+      id: eventId(11),
       type: "chunk",
       data: {},
     });
@@ -157,7 +173,7 @@ describe("subscriptions", () => {
       t: "ev",
       topic: conversation,
       seq: 11,
-      id: "e11",
+      id: eventId(11),
       type: "chunk",
       data: {},
     });
@@ -165,7 +181,7 @@ describe("subscriptions", () => {
       t: "ev",
       topic: conversation,
       seq: 9,
-      id: "e9",
+      id: eventId(9),
       type: "chunk",
       data: {},
     });
@@ -173,7 +189,7 @@ describe("subscriptions", () => {
       t: "ev",
       topic: conversation,
       seq: 12,
-      id: "e12",
+      id: eventId(12),
       type: "run.status",
       data: {},
     });
@@ -203,25 +219,65 @@ describe("subscriptions", () => {
     client.connect();
     latest().serverOpen();
     const user = client.subscribeUser([], recorder().handlers);
-    user.setOpenTasks(["a"]);
-    user.setOpenTasks(["a"]);
+    user.setOpenTasks([taskId(1)]);
+    user.setOpenTasks([taskId(1)]);
+    // Repeated ids are sent once, so this is the same set of open tasks.
+    user.setOpenTasks([taskId(1), taskId(1)]);
     expect(latest().sent).toEqual([
       { t: "sub", topic: "user", cursor: null, openTasks: [] },
-      { t: "sub", topic: "user", cursor: null, openTasks: ["a"] },
+      { t: "sub", topic: "user", cursor: null, openTasks: [taskId(1)] },
     ]);
-    expect(() => user.setOpenTasks(Array.from({ length: 21 }, (_, index) => `t${index}`))).toThrow(
-      RangeError,
+    expect(() =>
+      user.setOpenTasks(Array.from({ length: 21 }, (_, index) => taskId(index))),
+    ).toThrow(RangeError);
+    expect(() =>
+      client.subscribeConversation("../../etc" as ConversationId, recorder().handlers),
+    ).toThrow(TypeError);
+    expect(() => client.subscribeConversation("" as ConversationId, recorder().handlers)).toThrow(
+      TypeError,
     );
-    expect(() => client.subscribeConversation("../../etc", recorder().handlers)).toThrow(TypeError);
-    expect(() => client.subscribeConversation("", recorder().handlers)).toThrow(TypeError);
+  });
+
+  it("rejects task and conversation ids that are not lowercase UUIDv7s", () => {
+    const client = makeClient();
+    client.connect();
+    latest().serverOpen();
+    const invalidIds = [
+      "task-1",
+      "",
+      // UUIDv4
+      "3b241101-e2bb-4255-8caf-4136c566a962",
+      // Uppercase UUIDv7
+      uuidV7("a", 1).toUpperCase(),
+      // Wrong variant nibble
+      "01929f3e-7c1a-7a00-c000-000000000001",
+      `${uuidV7("a", 1)}\n`,
+    ];
+    for (const invalid of invalidIds) {
+      expect(() => client.subscribeUser([invalid as TaskId], recorder().handlers)).toThrow(
+        TypeError,
+      );
+      expect(() =>
+        client.subscribeConversation(invalid as ConversationId, recorder().handlers),
+      ).toThrow(TypeError);
+      expect(() => conversationTopic(invalid as ConversationId)).toThrow(TypeError);
+    }
+    const user = client.subscribeUser([taskId(1)], recorder().handlers);
+    expect(() => user.setOpenTasks([taskId(2), "task-3" as TaskId])).toThrow(TypeError);
+    // Rejected ids never reach the socket or leave a subscription behind.
+    expect(latest().sent).toEqual([
+      { t: "sub", topic: "user", cursor: null, openTasks: [taskId(1)] },
+    ]);
   });
 
   it("refuses more than 50 subscriptions", () => {
     const client = makeClient();
     for (let index = 0; index < 50; index += 1) {
-      client.subscribeConversation(`c${index}`, recorder().handlers);
+      client.subscribeConversation(conversationIdAt(index), recorder().handlers);
     }
-    expect(() => client.subscribeConversation("c50", recorder().handlers)).toThrow(RangeError);
+    expect(() => client.subscribeConversation(conversationIdAt(50), recorder().handlers)).toThrow(
+      RangeError,
+    );
   });
 
   it("ignores malformed or unexpected frames", () => {
@@ -233,10 +289,27 @@ describe("subscriptions", () => {
     for (const frame of [
       "not json",
       "{}",
-      { t: "ev", topic: conversation, seq: -1, id: "x", type: "chunk", data: {} },
-      { t: "ev", topic: "conversation:<script>", seq: 1, id: "x", type: "chunk", data: {} },
+      { t: "ev", topic: conversation, seq: -1, id: eventId(1), type: "chunk", data: {} },
+      { t: "ev", topic: conversation, seq: 1, id: "x", type: "chunk", data: {} },
+      { t: "ev", topic: conversation, seq: 1, id: eventId(1), type: "Chunk!", data: {} },
+      { t: "ev", topic: "conversation:<script>", seq: 1, id: eventId(1), type: "chunk", data: {} },
+      {
+        t: "ev",
+        topic: conversation.toUpperCase(),
+        seq: 1,
+        id: eventId(1),
+        type: "chunk",
+        data: {},
+      },
       { t: "snapshot", topic: "conversation:other", seq: 1, data: {} },
+      { t: "snapshot", topic: conversation, seq: 1, data: {}, extra: true },
       { t: "shell", cmd: "rm" },
+      JSON.stringify({
+        t: "snapshot",
+        topic: conversation,
+        seq: 1,
+        data: "x".repeat(MAX_SERVER_FRAME_LENGTH),
+      }),
     ]) {
       latest().serverSend(frame);
     }
@@ -256,7 +329,7 @@ describe("resync, snapshot and err handling", () => {
       t: "ev",
       topic: conversation,
       seq: 5,
-      id: "e5",
+      id: eventId(5),
       type: "chunk",
       data: {},
     });
@@ -298,7 +371,7 @@ describe("resync, snapshot and err handling", () => {
 describe("reconnect", () => {
   it("reconnects with jittered exponential backoff and resubscribes with cursors", () => {
     const client = makeClient({ initialBackoffMs: 1000, maxBackoffMs: 8000 });
-    client.subscribeUser(["t1"], recorder().handlers);
+    client.subscribeUser([taskId(1)], recorder().handlers);
     client.subscribeConversation(conversationId, recorder().handlers);
     client.connect();
     latest().serverOpen();
@@ -306,7 +379,7 @@ describe("reconnect", () => {
       t: "ev",
       topic: conversation,
       seq: 77,
-      id: "e77",
+      id: eventId(77),
       type: "chunk",
       data: {},
     });
@@ -339,7 +412,7 @@ describe("reconnect", () => {
 
     latest().serverOpen();
     expect(latest().sent).toEqual([
-      { t: "sub", topic: "user", cursor: null, openTasks: ["t1"] },
+      { t: "sub", topic: "user", cursor: null, openTasks: [taskId(1)] },
       { t: "sub", topic: conversation, cursor: 77 },
     ]);
   });
@@ -428,7 +501,7 @@ describe("heartbeat and frame budget", () => {
       heartbeatIntervalMs: 999_999,
     });
     for (let index = 0; index < 5; index += 1) {
-      client.subscribeConversation(`c${index}`, recorder().handlers);
+      client.subscribeConversation(conversationIdAt(index), recorder().handlers);
     }
     client.connect();
     latest().serverOpen();

@@ -1,4 +1,14 @@
-import type { ClientFrame, Topic } from "@symplist/contracts";
+import {
+  type ClientFrame,
+  type ConversationId,
+  type TaskId,
+  type Topic,
+  userTopic,
+  wsClientFrameRateLimit,
+  wsCloseCodes,
+  wsHeartbeatIntervalMs,
+  wsPath,
+} from "@symplist/contracts";
 import { publicOrigins } from "../public-config.ts";
 import {
   conversationSubscribeFrame,
@@ -51,8 +61,11 @@ export interface Subscription {
 }
 
 export interface UserSubscription extends Subscription {
-  /** Replaces the open task ids sent with the `user` subscription (at most 20). */
-  setOpenTasks(taskIds: readonly string[]): void;
+  /**
+   * Replaces the open task ids sent with the `user` subscription (at most 20). Throws a TypeError for
+   * an id that is not a valid task id and a RangeError for more than 20 ids.
+   */
+  setOpenTasks(taskIds: readonly TaskId[]): void;
 }
 
 export interface RealtimeTimers {
@@ -73,7 +86,7 @@ export interface RealtimeClientOptions {
   readonly stableAfterMs?: number;
   readonly heartbeatIntervalMs?: number;
   readonly heartbeatTimeoutMs?: number;
-  /** Client frame budget, kept under the server's 20 frames per 10 seconds (§7). */
+  /** Client frame budget, kept under the server's frame rate limit (§7). */
   readonly maxFramesPerWindow?: number;
   readonly frameWindowMs?: number;
   /** Online state and change notifications; defaults to `navigator.onLine` and window events. */
@@ -90,15 +103,23 @@ interface TopicEntry {
   readonly topic: Topic;
   readonly listeners: Set<TopicHandlers>;
   cursor: number | null;
-  openTasks: readonly string[];
+  openTasks: readonly TaskId[];
   confirmed: boolean;
 }
 
 const OPEN = 1;
+/** Client-side close codes; the gateway's own codes come from the contracts. */
 const CLOSE_NORMAL = 1000;
 const CLOSE_HEARTBEAT = 4000;
-export const CLOSE_UNAUTHORIZED = 4401;
-export const CLOSE_FORBIDDEN = 4403;
+/** Session revoked or expired (`wsCloseCodes.sessionEnded`). */
+export const CLOSE_UNAUTHORIZED = wsCloseCodes.sessionEnded;
+/** Access lost (`wsCloseCodes.accessLost`). */
+export const CLOSE_FORBIDDEN = wsCloseCodes.accessLost;
+
+/** Pings ahead of the server's heartbeat interval so an idle but healthy socket stays open. */
+const DEFAULT_HEARTBEAT_INTERVAL_MS = wsHeartbeatIntervalMs - 5_000;
+/** Leaves headroom under the server's limit for frames sent just before a window rolls over. */
+const DEFAULT_MAX_FRAMES_PER_WINDOW = wsClientFrameRateLimit.frames - 4;
 
 const browserTimers: RealtimeTimers = {
   setTimeout: (callback, ms) => globalThis.setTimeout(callback, ms),
@@ -199,27 +220,32 @@ export class RealtimeClient {
     this.setStatus("closed");
   }
 
-  subscribeUser(openTasks: readonly string[], handlers: TopicHandlers): UserSubscription {
+  /**
+   * Subscribes to the `user` topic. Open task ids are validated as UUIDv7 task ids (TypeError) and
+   * limited to 20 (RangeError); repeated ids are sent once.
+   */
+  subscribeUser(openTasks: readonly TaskId[], handlers: TopicHandlers): UserSubscription {
     const frame = userSubscribeFrame(openTasks);
-    const entry = this.addListener("user", handlers);
-    const changed = entry.openTasks.join(",") !== openTasks.join(",");
-    entry.openTasks = [...openTasks];
+    const entry = this.addListener(userTopic, handlers);
+    const changed = entry.openTasks.join(",") !== frame.openTasks.join(",");
+    entry.openTasks = [...frame.openTasks];
     if (entry.listeners.size === 1 || changed) this.sendSubscribe(entry, frame);
     return {
-      topic: "user",
+      topic: userTopic,
       setOpenTasks: (taskIds) => {
         const next = userSubscribeFrame(taskIds);
-        const current = this.topics.get("user");
+        const current = this.topics.get(userTopic);
         if (!current?.listeners.has(handlers)) return;
-        if (current.openTasks.join(",") === taskIds.join(",")) return;
-        current.openTasks = [...taskIds];
+        if (current.openTasks.join(",") === next.openTasks.join(",")) return;
+        current.openTasks = [...next.openTasks];
         this.sendSubscribe(current, next);
       },
-      unsubscribe: () => this.removeListener("user", handlers),
+      unsubscribe: () => this.removeListener(userTopic, handlers),
     };
   }
 
-  subscribeConversation(conversationId: string, handlers: TopicHandlers): Subscription {
+  /** Subscribes to a conversation topic. Throws a TypeError when the id is not a valid UUIDv7. */
+  subscribeConversation(conversationId: ConversationId, handlers: TopicHandlers): Subscription {
     const topic = conversationTopic(conversationId);
     const entry = this.addListener(topic, handlers);
     if (entry.listeners.size === 1) {
@@ -291,7 +317,7 @@ export class RealtimeClient {
     for (const entry of this.topics.values()) {
       entry.confirmed = false;
       this.enqueue(
-        entry.topic === "user"
+        entry.topic === userTopic
           ? userSubscribeFrame(entry.openTasks)
           : conversationSubscribeFrame(entry.topic, entry.cursor),
       );
@@ -322,7 +348,7 @@ export class RealtimeClient {
           this.options.onError?.(frame.code);
           return;
         }
-        if (frame.code === "not_found" && entry.topic !== "user") {
+        if (frame.code === "not_found" && entry.topic !== userTopic) {
           // Unknown and foreign conversations are indistinguishable; never resubscribe to them.
           this.topics.delete(entry.topic);
         }
@@ -336,7 +362,7 @@ export class RealtimeClient {
         for (const listener of [...entry.listeners]) listener.onResync?.();
         this.sendSubscribe(
           entry,
-          entry.topic === "user"
+          entry.topic === userTopic
             ? userSubscribeFrame(entry.openTasks)
             : conversationSubscribeFrame(entry.topic, null),
         );
@@ -423,7 +449,7 @@ export class RealtimeClient {
   }
 
   private scheduleHeartbeat(): void {
-    const interval = this.options.heartbeatIntervalMs ?? 25_000;
+    const interval = this.options.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS;
     this.heartbeatTimer = this.timers.setTimeout(() => {
       this.heartbeatTimer = null;
       const socket = this.socket;
@@ -457,8 +483,8 @@ export class RealtimeClient {
   private flush(): void {
     const socket = this.socket;
     if (!socket || socket.readyState !== OPEN) return;
-    const windowMs = this.options.frameWindowMs ?? 10_000;
-    const budget = this.options.maxFramesPerWindow ?? 16;
+    const windowMs = this.options.frameWindowMs ?? wsClientFrameRateLimit.windowMs;
+    const budget = this.options.maxFramesPerWindow ?? DEFAULT_MAX_FRAMES_PER_WINDOW;
     while (this.queue.length > 0) {
       const now = this.now();
       this.sentAt = this.sentAt.filter((time) => now - time < windowMs);
@@ -514,5 +540,5 @@ export class RealtimeClient {
 /** The socket URL for the configured public WebSocket origin, or null when it is not configured. */
 export function realtimeUrl(): string | null {
   const { wsOrigin } = publicOrigins();
-  return wsOrigin ? `${wsOrigin}/v1/ws` : null;
+  return wsOrigin ? `${wsOrigin}${wsPath}` : null;
 }
