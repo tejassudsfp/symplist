@@ -1,0 +1,16 @@
+export * as access from "./access/index.ts";
+export * as account from "./account/index.ts";
+export * as analytics from "./analytics/index.ts";
+export * as connections from "./connections/index.ts";
+export * as documents from "./documents/index.ts";
+export * from "./domains.ts";
+export * as events from "./events/index.ts";
+export * as idempotency from "./idempotency/index.ts";
+export * as mcp from "./mcp/index.ts";
+export * as preferences from "./preferences/index.ts";
+export * as scheduling from "./scheduling/index.ts";
+export * as search from "./search/index.ts";
+export * as sharing from "./sharing/index.ts";
+export * as simon from "./simon/index.ts";
+export * as tasks from "./tasks/index.ts";
+export * as vault from "./vault/index.ts";

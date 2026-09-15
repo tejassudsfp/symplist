@@ -1,0 +1,44 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "rootDir": "src",
+    "outDir": "dist",
+    "tsBuildInfoFile": "dist/tsconfig.tsbuildinfo",
+    "types": ["node"]
+  },
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx"],
+  "references": [
+    {
+      "path": "../analytics"
+    },
+    {
+      "path": "../config"
+    },
+    {
+      "path": "../contracts"
+    },
+    {
+      "path": "../crypto"
+    },
+    {
+      "path": "../db"
+    },
+    {
+      "path": "../docs"
+    },
+    {
+      "path": "../email"
+    },
+    {
+      "path": "../integrations"
+    },
+    {
+      "path": "../search"
+    },
+    {
+      "path": "../storage"
+    }
+  ]
+}

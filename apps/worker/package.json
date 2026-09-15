@@ -1,6 +1,8 @@
 {
   "name": "@symplist/worker",
+  "version": "0.0.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "trigger dev",
@@ -9,10 +11,25 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@trigger.dev/sdk": "4.6.0"
+    "@symplist/agent": "workspace:*",
+    "@symplist/analytics": "workspace:*",
+    "@symplist/config": "workspace:*",
+    "@symplist/contracts": "workspace:*",
+    "@symplist/core": "workspace:*",
+    "@symplist/crypto": "workspace:*",
+    "@symplist/db": "workspace:*",
+    "@symplist/docs": "workspace:*",
+    "@symplist/email": "workspace:*",
+    "@symplist/integrations": "workspace:*",
+    "@symplist/search": "workspace:*",
+    "@symplist/storage": "workspace:*",
+    "@trigger.dev/sdk": "4.6.0",
+    "zod": "4.6.5"
   },
   "devDependencies": {
+    "@symplist/testing": "workspace:*",
     "@trigger.dev/build": "4.6.0",
+    "@trigger.dev/core": "4.6.0",
     "@types/node": "24.13.4",
     "trigger.dev": "4.6.0",
     "typescript": "7.0.2",

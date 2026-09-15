@@ -1,0 +1,118 @@
+{
+  "name": "@symplist/core",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./access": {
+      "source": "./src/access/index.ts",
+      "types": "./dist/access/index.d.ts",
+      "default": "./dist/access/index.js"
+    },
+    "./account": {
+      "source": "./src/account/index.ts",
+      "types": "./dist/account/index.d.ts",
+      "default": "./dist/account/index.js"
+    },
+    "./tasks": {
+      "source": "./src/tasks/index.ts",
+      "types": "./dist/tasks/index.d.ts",
+      "default": "./dist/tasks/index.js"
+    },
+    "./preferences": {
+      "source": "./src/preferences/index.ts",
+      "types": "./dist/preferences/index.d.ts",
+      "default": "./dist/preferences/index.js"
+    },
+    "./idempotency": {
+      "source": "./src/idempotency/index.ts",
+      "types": "./dist/idempotency/index.d.ts",
+      "default": "./dist/idempotency/index.js"
+    },
+    "./events": {
+      "source": "./src/events/index.ts",
+      "types": "./dist/events/index.d.ts",
+      "default": "./dist/events/index.js"
+    },
+    "./documents": {
+      "source": "./src/documents/index.ts",
+      "types": "./dist/documents/index.d.ts",
+      "default": "./dist/documents/index.js"
+    },
+    "./search": {
+      "source": "./src/search/index.ts",
+      "types": "./dist/search/index.d.ts",
+      "default": "./dist/search/index.js"
+    },
+    "./simon": {
+      "source": "./src/simon/index.ts",
+      "types": "./dist/simon/index.d.ts",
+      "default": "./dist/simon/index.js"
+    },
+    "./scheduling": {
+      "source": "./src/scheduling/index.ts",
+      "types": "./dist/scheduling/index.d.ts",
+      "default": "./dist/scheduling/index.js"
+    },
+    "./vault": {
+      "source": "./src/vault/index.ts",
+      "types": "./dist/vault/index.d.ts",
+      "default": "./dist/vault/index.js"
+    },
+    "./sharing": {
+      "source": "./src/sharing/index.ts",
+      "types": "./dist/sharing/index.d.ts",
+      "default": "./dist/sharing/index.js"
+    },
+    "./connections": {
+      "source": "./src/connections/index.ts",
+      "types": "./dist/connections/index.d.ts",
+      "default": "./dist/connections/index.js"
+    },
+    "./mcp": {
+      "source": "./src/mcp/index.ts",
+      "types": "./dist/mcp/index.d.ts",
+      "default": "./dist/mcp/index.js"
+    },
+    "./analytics": {
+      "source": "./src/analytics/index.ts",
+      "types": "./dist/analytics/index.d.ts",
+      "default": "./dist/analytics/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -p tsconfig.typecheck.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@symplist/analytics": "workspace:*",
+    "@symplist/config": "workspace:*",
+    "@symplist/contracts": "workspace:*",
+    "@symplist/crypto": "workspace:*",
+    "@symplist/db": "workspace:*",
+    "@symplist/docs": "workspace:*",
+    "@symplist/email": "workspace:*",
+    "@symplist/integrations": "workspace:*",
+    "@symplist/search": "workspace:*",
+    "@symplist/storage": "workspace:*",
+    "temporal-polyfill": "1.0.5",
+    "uuid": "14.0.2",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@symplist/testing": "workspace:*",
+    "@types/node": "24.13.4",
+    "typescript": "7.0.2",
+    "vitest": "5.0.1"
+  }
+}

@@ -1,17 +1,14 @@
 {
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "target": "ES2023",
-    "lib": ["ES2023"],
-    "module": "ESNext",
+    "module": "esnext",
     "moduleResolution": "bundler",
     "types": ["node"],
-    "strict": true,
-    "noUncheckedIndexedAccess": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "isolatedModules": true,
-    "verbatimModuleSyntax": true,
-    "noEmit": true
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "customConditions": ["source"],
+    "allowImportingTsExtensions": true
   },
-  "include": ["src", "trigger.config.ts"]
+  "include": ["src", "trigger.config.ts", "vitest.config.ts"]
 }

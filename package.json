@@ -9,7 +9,20 @@
   },
   "scripts": {
     "typecheck": "pnpm -r typecheck",
+    "lint": "biome ci .",
+    "format": "biome check --write .",
     "test": "pnpm -r test",
+    "build": "pnpm --filter @symplist/web build && tsc -b tsconfig.build.json",
+    "build:web:clean": "node scripts/clean-dist.mjs && pnpm --filter @symplist/web build",
+    "e2e": "pnpm --filter @symplist/e2e e2e",
+    "db:migrate": "node -e \"console.log('db:migrate is implemented in Phase C3')\"",
+    "secrets:generate": "node -e \"console.log('secrets:generate is implemented in Phase C1')\"",
     "trigger:dev": "pnpm --filter @symplist/worker dev"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.13",
+    "@types/node": "24.13.4",
+    "typescript": "7.0.2",
+    "vitest": "5.0.1"
   }
 }

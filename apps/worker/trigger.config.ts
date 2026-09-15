@@ -1,5 +1,5 @@
-import { defineConfig } from "@trigger.dev/sdk";
 import { aptGet } from "@trigger.dev/build/extensions/core";
+import { defineConfig } from "@trigger.dev/sdk";
 
 export default defineConfig({
   project: "proj_rryekrktnjnrdzvabzqd",
@@ -20,6 +20,8 @@ export default defineConfig({
     },
   },
   build: {
+    // Bundle workspace packages from their TypeScript sources, so deploys never need a prior build (§2.2).
+    conditions: ["source"],
     // Document history uses the Git CLI inside deployed tasks.
     extensions: [aptGet({ packages: ["git"] })],
   },

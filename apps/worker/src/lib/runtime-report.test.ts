@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { parseGitVersion, runtimeReport, type ExecFileFn } from "./runtime-report";
+import { type ExecFileFn, parseGitVersion, runtimeReport } from "./runtime-report";
 
 describe("parseGitVersion", () => {
   it("extracts the version from standard Git output", () => {
@@ -35,7 +35,9 @@ describe("runtimeReport", () => {
   });
 
   it("reports null Git instead of failing when the binary is missing", async () => {
-    const exec = vi.fn<ExecFileFn>().mockRejectedValue(Object.assign(new Error("spawn git ENOENT"), { code: "ENOENT" }));
+    const exec = vi
+      .fn<ExecFileFn>()
+      .mockRejectedValue(Object.assign(new Error("spawn git ENOENT"), { code: "ENOENT" }));
     const report = await runtimeReport(exec);
 
     expect(report.git).toBeNull();

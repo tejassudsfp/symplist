@@ -6,16 +6,37 @@ packages:
 allowBuilds:
   # Trigger.dev CLI: remote image builds for `trigger deploy`.
   '@depot/cli': true
+  # Transitive through posthog-js; its postinstall only prints a funding banner, so it stays off.
+  core-js: false
   # Bundler used by the Trigger.dev CLI.
   esbuild: true
 
-# Deliberately pinned current releases that are newer than pnpm's minimum release age.
+# Deliberately pinned current releases that are newer than pnpm's minimum release age (1 day).
+# Each entry notes its publish time (UTC); remove it once that time is more than a day old.
 minimumReleaseAgeExclude:
-  - '@trigger.dev/build@4.6.0'
-  - '@trigger.dev/core@4.6.0'
-  - '@trigger.dev/schema-to-json@4.6.0'
-  - '@trigger.dev/sdk@4.6.0'
-  - '@vitest/mocker@5.0.1'
-  - '@vitest/spy@5.0.1'
-  - trigger.dev@4.6.0
-  - vitest@5.0.1
+  - '@ai-sdk/gateway@4.0.81' # transitive (ai); published 2026-09-14T19:52Z
+  - '@ai-sdk/google-vertex@5.0.82' # published 2026-09-15T04:19Z
+  - '@ai-sdk/google@4.0.70' # transitive (@ai-sdk/google-vertex); published 2026-09-15T04:19Z
+  - '@ai-sdk/react@4.0.104' # published 2026-09-15T04:19Z
+  - '@aws-sdk/client-s3@3.1132.0' # published 2026-09-14T19:36Z
+  - '@nestjs/common@12.0.3' # published 2026-09-15T07:57Z
+  - '@nestjs/core@12.0.3' # published 2026-09-15T07:57Z
+  - '@nestjs/platform-express@12.0.3' # published 2026-09-15T07:57Z
+  - '@nestjs/platform-ws@12.0.3' # published 2026-09-15T07:57Z
+  - '@nestjs/testing@12.0.3' # published 2026-09-15T07:57Z
+  - '@nestjs/websockets@12.0.3' # published 2026-09-15T07:58Z
+  - '@posthog/core@1.54.1' # transitive (posthog-js, posthog-node); published 2026-09-15T07:03Z
+  - '@vitest/mocker@5.0.1' # transitive (vitest); published 2026-09-15T08:50Z
+  - '@vitest/spy@5.0.1' # transitive (vitest); published 2026-09-15T08:50Z
+  - ai@7.0.101 # published 2026-09-15T04:23Z
+  - hono@4.13.8 # published 2026-09-15T07:31Z
+  - posthog-js@1.433.4 # published 2026-09-15T07:10Z
+  - posthog-node@5.52.3 # published 2026-09-15T07:02Z
+  - vitest@5.0.1 # published 2026-09-15T08:49Z
+
+# @nestjs/throttler 6.5.0 declares peers up to Nest 11; Nest 12 support is merged upstream but unreleased.
+# Remove once @nestjs/throttler 6.6.0 (or later) is pinned.
+peerDependencyRules:
+  allowedVersions:
+    '@nestjs/throttler>@nestjs/common': '12'
+    '@nestjs/throttler>@nestjs/core': '12'
