@@ -16,7 +16,7 @@ Checkpoint file for the end-to-end build. Read this first when resuming; update 
 | 0 | Workspace scaffold, Trigger.dev worker with a registered healthcheck task | Done |
 | A | Research: verify latest stable versions and current APIs for every dependency | Done (`docs/build/research/`) |
 | B | Architecture and contracts: repository layout, D1 schema, API/WebSocket protocol, shared contracts, test conventions | Done ([architecture](architecture.md) revised after 56-issue adversarial review, verified) |
-| C | Foundation: apps and shared packages, configuration, storage/crypto/email adapters, auth guard skeleton, theme tokens, CI | In progress (C0 done; C-a: 4 of 5 slices merged, web shell in review; C-b running) |
+| C | Foundation: apps and shared packages, configuration, storage/crypto/email adapters, auth guard skeleton, theme tokens, CI | Done (C0, C-a, C-b, C-close, code review c7 fixes; independent verification 39/43 PASS, the other 4 deferred below) |
 | D1 | Feature wave 1: identity/access/admin, workspace/tasks, appearance, documents/Git, keyboard/search core | Pending |
 | D2 | Feature wave 2: Simon/executors/Composio/quick chat, scheduling/notifications/calendar, Vault, sharing/handoff, connections/MCP, analytics/consent | Pending |
 | E | Integration, end-to-end flows, visual verification at 1440/1024/390 across themes | Pending |
@@ -32,3 +32,34 @@ Checkpoint file for the end-to-end build. Read this first when resuming; update 
 - 2026-09-15: Phase C-a slices merged after adversarial review: contracts/config (8 defects fixed), crypto (7 fixed), data/storage/migrations (11 fixed), email/analytics/testing fakes (11 fixed). Merged tree: lint clean, 15 projects typecheck, ~1,180 tests pass (live D1/R2 suites skipped pending credentials), build and docs check pass. Phase C-b (api core; realtime, executors, worker infrastructure) started from 5ae570d.
 - 2026-09-16: Owner set the current milestone: complete Phases C, D1, D2 and E on local stand-ins, merge everything into one clean `feat/symplist-build`, then pause for API keys before live checks and Phases F and G.
 - 2026-09-16: Owner asked to close Phase C fully before D1: after the C-b merge, a C-close pass builds all open foundation items (pnpm dev, api Dockerfile and image test, CI job skeletons, font subsets, release-age cleanup, analytics and fake fidelity fixes, dist type resolution, Trigger re-registration, C-b leftovers) and an independent Phase C verification runs.
+- 2026-09-16: **Phase C done.**
+  - Summary of the phase:
+    - C0 laid out the workspace: 13 packages, 4 apps, seams and CI.
+    - C-a merged five slices after adversarial review: contracts and config, crypto, data, storage and migrations, the web shell, and email, analytics and testing fakes.
+    - C-b built the api platform (c6: bootstrap, route classes, sessions, access, idempotency, abuse limits, hardened after a security review) and the realtime gateway, internal endpoints, executors and worker infrastructure (c7).
+    - C-close wired the platform together (cz-a: seams, runtime modules, account purge runtime, executor contract suite, body limits, `LOCAL_DATA_DIR`) and the tooling (cz-b: `pnpm dev` supervisor, api image and deploy checks, CI e2e and api-image jobs, font subsets, analytics capture isolation, Composio fake fidelity, `pnpm smoke:local`).
+    - Phase C verification added the Trigger config loader test and the email transport contract suite (decisions CZV.1 and CZV.2).
+  - All six findings of [code review c7](reviews/code-review-c7.md) are fixed, each with a regression test that failed before the fix (decisions C7R.1–C7R.6):
+    - relay key-load failures answer 503;
+    - internal event replays report 409 while in progress and 200 when completed;
+    - realtime access updates are monotonic;
+    - local dispatch has a durable start marker (migration 0018);
+    - run output dedupes outside the event id memory;
+    - sign out everywhere is judged by session creation time.
+  - Also added:
+    - worker `d1.requests` counters every minute and at task end (decision CZV.3);
+    - a structural test that every package manifest follows §2.2 point 1.
+  - Independent verification: 39 of 43 checks PASS.
+  - Final local run, all passing:
+    - `pnpm lint` with zero warnings, `pnpm typecheck`;
+    - `pnpm test`: 2,384 Vitest tests plus 47 script tests, with 9 live tests skipped for missing credentials;
+    - `pnpm build`, `pnpm build:web:clean`, `pnpm install --frozen-lockfile`;
+    - `pnpm e2e` (shell and smoke specs: 30 passed, 12 skipped because they run only at other viewports; evidence screenshots unchanged);
+    - `pnpm smoke:local`, `node scripts/check-api-deploy.mjs` (18 migrations), `python3 scripts/check_docs.py`.
+  - Deferred, with target phase:
+    - AI provider and Composio wrapper contract suites: D2.
+    - D1 load test (§3.1): D2/E.
+    - Purge contributors for tasks, preferences, search and access: D1 feature waves.
+    - Per-endpoint one-time secret scans (§6.1) and the Simon Trigger marker-string test (§8.3): D2.
+    - Deploy configuration and CI `migrate`/`deploy-trigger` jobs: G.
+    - Live suites (D1, R2, Trigger, OpenAI, Composio, PostHog): after credentials are provided.
