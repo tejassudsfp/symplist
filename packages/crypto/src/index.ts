@@ -13,6 +13,7 @@ export {
 export * from "./envelopes.ts";
 export * from "./errors.ts";
 export { DERIVED_KEY_BYTES, deriveKey, HKDF_LABELS, type HkdfLabel } from "./hkdf.ts";
+export * from "./internal-signature.ts";
 export * from "./key-provider.ts";
 export type * from "./keys.ts";
 export * from "./passwords.ts";

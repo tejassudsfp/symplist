@@ -10,6 +10,7 @@
   "scripts": {
     "build": "tsc -b",
     "start": "node --enable-source-maps dist/main.js",
+    "executor:switch": "node --enable-source-maps --env-file-if-exists=.env dist/infra/executors/executor-switch.cli.js",
     "typecheck": "tsc -p tsconfig.typecheck.json",
     "test": "vitest run"
   },
