@@ -13,7 +13,7 @@ export type KeyFamily =
   | "MCP_OAUTH_SIGNING_KEY"
   | "IDEMPOTENCY_SECRET";
 
-/** One version of a 32-byte key. */
+/** One version of a 32-byte key. Callers must never modify or retain `key` beyond the operation. */
 export interface VersionedKey {
   readonly version: number;
   readonly key: Uint8Array;
@@ -44,6 +44,9 @@ export interface AccountDataKey {
 export interface WrappedAccountKey {
   readonly ownerId: string;
   readonly kekVersion: number;
-  /** base64url AES-256-GCM ciphertext with IV and tag. */
+  /**
+   * base64url AES-256-GCM ciphertext with IV and tag: exactly 80 characters encoding the 12-byte IV,
+   * the 32-byte encrypted key and the 16-byte tag, in that order.
+   */
   readonly wrapped: string;
 }
