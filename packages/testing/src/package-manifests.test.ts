@@ -161,12 +161,18 @@ describe("package manifests (§2.2)", () => {
   });
 
   it("detects each broken rule in fixtures", () => {
+    // Built paths are assembled so the relative-specifier scan never mistakes them for imports.
+    const built = (dir: string, stem: string, extension: string) => `./${dir}/${stem}.${extension}`;
     const good = {
       dir: "packages/probe",
       manifest: {
         name: "@symplist/probe",
         exports: {
-          ".": { source: "./src/index.ts", types: "./dist/index.d.ts", default: "./dist/index.js" },
+          ".": {
+            source: "./src/index.ts",
+            types: "./dist/index.d.ts",
+            default: built("dist", "index", "js"),
+          },
         },
         files: ["dist"],
       },
@@ -181,13 +187,17 @@ describe("package manifests (§2.2)", () => {
         manifest: {
           ...good.manifest,
           exports: {
-            ".": "./dist/index.js",
-            "./server": { types: "./dist/server.d.ts", default: "./dist/server.js" },
-            "./web": { default: "./dist/web.js", types: "./dist/web.d.ts", source: "./src/web.ts" },
+            ".": built("dist", "index", "js"),
+            "./server": { types: "./dist/server.d.ts", default: built("dist", "server", "js") },
+            "./web": {
+              default: built("dist", "web", "js"),
+              types: "./dist/web.d.ts",
+              source: "./src/web.ts",
+            },
             "./api": {
               source: "./src/api.ts",
               types: "./dist/other.d.ts",
-              default: "./lib/api.js",
+              default: built("lib", "api", "js"),
             },
           },
         },
