@@ -238,11 +238,11 @@ describe("internal event client (§6.2)", () => {
     });
   });
 
-  it("reports a replay 404 to a retry after a lost response as delivered", async () => {
+  it("reports the api's completed replay (200) to a retry after a lost response as delivered", async () => {
     const clock = new FakeClock(Date.UTC(2026, 8, 15, 12));
     const trigger = new FakeTriggerClient({ clock });
     // The first try reaches the api and takes effect, but the connection drops before the response.
-    const api = fakeApi(clock, (index) => (index === 0 ? "network" : 404));
+    const api = fakeApi(clock, (index) => (index === 0 ? "network" : 200));
     const events = new InternalEventClient({
       keys,
       apiOrigin: API,
@@ -259,6 +259,60 @@ describe("internal event client (§6.2)", () => {
     expect(await announcing).toBe("delivered");
     expect(api.received).toHaveLength(2);
     expect(api.received[0]?.eventId).toBe(api.received[1]?.eventId);
+  });
+
+  it("keeps retrying while the api reports an earlier try in progress, until the handler's outcome is known", async () => {
+    const clock = new FakeClock(Date.UTC(2026, 8, 15, 12));
+    const trigger = new FakeTriggerClient({ clock });
+    // Try 1 times out while its handler runs; try 2 finds it in progress (409); the handler then
+    // fails and the api forgets the id, so try 3 runs the handler again and it succeeds.
+    const api = fakeApi(clock, (index) => (index === 0 ? "network" : index === 1 ? 409 : 202));
+    const events = new InternalEventClient({
+      keys,
+      apiOrigin: API,
+      logger: createWorkerLogger(trigger.logger),
+      fetch: api.fetchImpl,
+      timers: clock,
+    });
+    const announcing = events.announce({
+      type: "tasks.changed",
+      ownerId: uuidv7(),
+      payload: { count: 1 },
+    });
+    await clock.advance(2_000);
+    expect(await announcing).toBe("delivered");
+    expect(api.received).toHaveLength(3);
+    expect(new Set(api.received.map((entry) => entry.eventId)).size).toBe(1);
+  });
+
+  it("never counts a 404 or a try still in progress as delivered", async () => {
+    const clock = new FakeClock(Date.UTC(2026, 8, 15, 12));
+    const trigger = new FakeTriggerClient({ clock });
+    const logger = createWorkerLogger(trigger.logger);
+    const rejectedApi = fakeApi(clock, (index) => (index === 0 ? "network" : 404));
+    const rejecting = new InternalEventClient({
+      keys,
+      apiOrigin: API,
+      logger,
+      fetch: rejectedApi.fetchImpl,
+      timers: clock,
+    });
+    const first = rejecting.announce({ type: "tasks.changed", ownerId: uuidv7(), payload: {} });
+    await clock.advance(1_000);
+    expect(await first).toBe("rejected");
+
+    const busyApi = fakeApi(clock, (index) => (index === 0 ? "network" : 409));
+    const waiting = new InternalEventClient({
+      keys,
+      apiOrigin: API,
+      logger,
+      fetch: busyApi.fetchImpl,
+      timers: clock,
+    });
+    const second = waiting.announce({ type: "tasks.changed", ownerId: uuidv7(), payload: {} });
+    await clock.advance(5_000);
+    expect(await second).toBe("unconfirmed");
+    expect(busyApi.received).toHaveLength(3);
   });
 
   it("refuses payloads with content before anything is sent, and reports rejections", async () => {

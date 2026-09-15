@@ -41,7 +41,12 @@ export function signedApiRequest(input: {
   };
 }
 
-export type DeliveryOutcome = "delivered" | "duplicate" | "rejected" | "retryable";
+/**
+ * How one try ended: taken (202/204), already taken by an earlier request with the same event id
+ * (200), still being handled under an earlier request with the same event id (409, retry later),
+ * refused (other 4xx) or worth retrying (timeouts, 408, 429, 5xx).
+ */
+export type DeliveryOutcome = "delivered" | "duplicate" | "in_progress" | "rejected" | "retryable";
 
 /** Sends one signed request with a timeout; never reads or returns the response body. */
 export async function deliver(
@@ -58,6 +63,7 @@ export async function deliver(
     const status = response.status;
     if (status === 202 || status === 204) return { outcome: "delivered", status };
     if (status === 200) return { outcome: "duplicate", status };
+    if (status === 409) return { outcome: "in_progress", status };
     if (status === 408 || status === 429 || status >= 500) return { outcome: "retryable", status };
     return { outcome: "rejected", status };
   } catch {

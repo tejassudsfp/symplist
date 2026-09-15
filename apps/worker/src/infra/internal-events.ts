@@ -11,7 +11,12 @@ import type { WorkerLogger } from "./logger.ts";
 import { deliver, signedApiRequest, type WorkerFetch } from "./signed-request.ts";
 import { sleep, systemWorkerTimers, type WorkerTimers } from "./timers.ts";
 
-export type AnnounceOutcome = "delivered" | "rejected" | "dropped";
+/**
+ * `delivered`: the api handled the event (now or on an earlier try). `rejected`: the api refused it.
+ * `unconfirmed`: the api was still handling an earlier try when the retries ran out, so the event may
+ * or may not take effect. `dropped`: the api could not be reached.
+ */
+export type AnnounceOutcome = "delivered" | "rejected" | "unconfirmed" | "dropped";
 
 export interface InternalEventClientOptions {
   readonly keys: KeyProvider;
@@ -26,9 +31,10 @@ export interface InternalEventClientOptions {
 /**
  * Announces worker-originated changes to the api on `/internal/v1/events` (§6.2, §7): ids, enums,
  * counts and envelopes only, validated before signing. A retry resends the identical signed request, so
- * the api's event-id replay memory makes delivery at most once; a 404 to a retry after a lost response
- * means the first delivery already took effect, and is reported as delivered. A 404 to the first try is
- * a rejection.
+ * the api's event-id replay memory makes delivery at most once, and its answer to a retry says what
+ * became of the earlier try: 200 when it took effect (delivered), 409 while its handler is still
+ * running (retry later: the handler may still fail, which makes the api forget the id and handle the
+ * next try afresh). Any other 4xx is a rejection, on every try.
  */
 export class InternalEventClient {
   private readonly timers: WorkerTimers;
@@ -65,6 +71,7 @@ export class InternalEventClient {
     });
     const maxAttempts = this.options.maxAttempts ?? 3;
     const deadline = this.timers.now() + (this.options.retryWindowMs ?? 5_000);
+    let inProgress = false;
     for (let tryNumber = 1; tryNumber <= maxAttempts; tryNumber += 1) {
       const remaining = deadline - this.timers.now();
       if (remaining <= 0) break;
@@ -74,10 +81,9 @@ export class InternalEventClient {
         this.timers,
         Math.min(remaining, 2_000),
       );
-      if (result.outcome === "delivered" || result.outcome === "duplicate") return "delivered";
-      if (result.outcome === "rejected" && result.status === 404 && tryNumber > 1) {
-        // The byte-identical request was accepted before: an earlier try reached the api, which
-        // remembered the event id, but its response was lost. The api answers replays with 404.
+      if (result.outcome === "delivered") return "delivered";
+      if (result.outcome === "duplicate") {
+        // An earlier try reached the api and took effect, but its response was lost.
         this.options.logger.info("internal_event.delivered_on_retry", {
           eventId: event.id,
           kind: event.type,
@@ -85,6 +91,7 @@ export class InternalEventClient {
         });
         return "delivered";
       }
+      if (result.outcome === "in_progress") inProgress = true;
       if (result.outcome === "rejected") {
         this.options.logger.warn("internal_event.rejected", {
           eventId: event.id,
@@ -98,6 +105,13 @@ export class InternalEventClient {
         const wait = Math.min(250 * 3 ** (tryNumber - 1), deadline - this.timers.now());
         if (wait > 0) await sleep(this.timers, wait);
       }
+    }
+    if (inProgress) {
+      this.options.logger.warn("internal_event.unconfirmed", {
+        eventId: event.id,
+        kind: event.type,
+      });
+      return "unconfirmed";
     }
     this.options.logger.warn("internal_event.dropped", { eventId: event.id, kind: event.type });
     return "dropped";

@@ -15,6 +15,8 @@ export interface SignedInternalRequest {
 }
 
 export interface VerifiedInternalRequest extends SignedInternalRequest {
+  /** Records that the request took effect, so replays of its event id are answered as duplicates. */
+  complete(): void;
   /** Forgets the event id after a failure that had no effect, so a retry is accepted. */
   release(): void;
 }
@@ -24,6 +26,9 @@ export type InternalVerificationFailure =
   | "stale"
   | "unknown_key"
   | "invalid_signature"
+  /** The event id's earlier request is still being handled. */
+  | "in_progress"
+  /** The event id's earlier request took effect. */
   | "replayed"
   | "memory_full";
 
@@ -63,12 +68,18 @@ export class InternalRequestVerifier {
     if (!signature.ok) return signature;
     const { eventId, keyVersion, freshUntilMs } = signature;
     const reserved = this.options.memory.reserve(eventId, freshUntilMs);
-    if (reserved === "replayed") return this.fail(endpoint, "replayed");
+    if (reserved === "in_progress") return this.fail(endpoint, "in_progress");
+    if (reserved === "completed") return this.fail(endpoint, "replayed");
     if (reserved === "full") return this.fail(endpoint, "memory_full");
     const { memory } = this.options;
     return {
       ok: true,
-      request: { eventId, keyVersion, release: () => memory.release(eventId) },
+      request: {
+        eventId,
+        keyVersion,
+        complete: () => memory.complete(eventId),
+        release: () => memory.release(eventId),
+      },
     };
   }
 

@@ -301,17 +301,51 @@ describe("POST /internal/v1/events (§6.2)", () => {
     expect(h.logLines().filter((line) => line.includes('"reason":"stale"'))).toHaveLength(2);
   });
 
-  it("rejects a replayed event id for 10 minutes, even with a fresh signature", async () => {
+  it("answers a replayed event id as a completed duplicate for 10 minutes, even with a fresh signature", async () => {
     const body = event();
     const request = signed(h, INTERNAL_EVENTS_PATH, body, { eventId: body.id });
     expect((await send(h, request)).status).toBe(202);
-    expect((await send(h, request)).status).toBe(404);
+    expect(await send(h, request)).toMatchObject({ status: 200, body: { status: "duplicate" } });
     await h.clock.advance(60_000);
     expect(
       (await send(h, signed(h, INTERNAL_EVENTS_PATH, body, { eventId: body.id }))).status,
-    ).toBe(404);
+    ).toBe(200);
     expect(handled).toHaveBeenCalledTimes(1);
     expect(h.logLines().filter((line) => line.includes('"reason":"replayed"'))).toHaveLength(2);
+  });
+
+  it("answers 409 while an earlier try is still being handled, so a handler failure is never taken for delivery", async () => {
+    let fail: (error: unknown) => void = () => undefined;
+    handled.mockImplementationOnce(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          fail = reject;
+        }),
+    );
+    const body = event();
+    const request = signed(h, INTERNAL_EVENTS_PATH, body, { eventId: body.id });
+    // The first try is still running its handler when the worker gives up on it and retries.
+    const first = send(h, request);
+    await vi.waitFor(() => expect(handled).toHaveBeenCalledTimes(1));
+    const inProgress = await send(h, request);
+    expect(inProgress.status).toBe(409);
+    expect((inProgress.body.error as { code: string }).code).toBe("idempotency.in_progress");
+
+    // The handler fails afterwards: the id is forgotten and the next identical try runs it again.
+    fail(Object.assign(new Error("D1 unavailable"), { code: "db.unavailable" }));
+    expect((await first).status).toBe(500);
+    expect((await send(h, request)).status).toBe(202);
+    expect(handled).toHaveBeenCalledTimes(2);
+    expect(await send(h, request)).toMatchObject({ status: 200, body: { status: "duplicate" } });
+    expect(handled).toHaveBeenCalledTimes(2);
+  });
+
+  it("forgets the id of a request refused before any handler ran, so an identical retry gets the same answer", async () => {
+    const unhandled = event({ type: "notifications.created" });
+    const request = signed(h, INTERNAL_EVENTS_PATH, unhandled, { eventId: unhandled.id });
+    expect((await send(h, request)).status).toBe(400);
+    expect((await send(h, request)).status).toBe(400);
+    expect(handled).not.toHaveBeenCalled();
   });
 
   it("remembers an event id until its signature leaves the window, even when signed ahead of the api clock", async () => {
@@ -324,9 +358,9 @@ describe("POST /internal/v1/events (§6.2)", () => {
     expect((await send(h, request)).status).toBe(202);
     // Ten minutes later the timestamp is exactly 300 seconds old, so the signature is still fresh.
     await h.clock.advance(600_000);
-    expect((await send(h, request)).status).toBe(404);
+    expect((await send(h, request)).status).toBe(200);
     await h.clock.advance(999);
-    expect((await send(h, request)).status).toBe(404);
+    expect((await send(h, request)).status).toBe(200);
     await h.clock.advance(1);
     expect((await send(h, request)).status).toBe(404);
     expect(handled).toHaveBeenCalledTimes(1);
@@ -401,16 +435,22 @@ describe("POST /internal/v1/events (§6.2)", () => {
 });
 
 describe("event id replay memory", () => {
-  it("expires ids after 10 minutes and fails closed when full", async () => {
+  it("tells an id in progress from a completed one, expires ids after 10 minutes and fails closed when full", async () => {
     const clock = new FakeClock(0);
     const memory = new EventIdMemory(clock, { capacity: 2 });
     expect(memory.reserve("a")).toBe("reserved");
-    expect(memory.reserve("a")).toBe("replayed");
+    expect(memory.reserve("a")).toBe("in_progress");
+    memory.complete("a");
+    expect(memory.reserve("a")).toBe("completed");
     expect(memory.reserve("b")).toBe("reserved");
     expect(memory.reserve("c")).toBe("full");
     await clock.advance(600_000);
     expect(memory.reserve("a")).toBe("reserved");
     memory.release("a");
+    expect(memory.reserve("a")).toBe("reserved");
+    // Completing an id that was released or never reserved remembers nothing.
+    memory.release("a");
+    memory.complete("a");
     expect(memory.reserve("a")).toBe("reserved");
   });
 
@@ -418,8 +458,9 @@ describe("event id replay memory", () => {
     const clock = new FakeClock(0);
     const memory = new EventIdMemory(clock);
     expect(memory.reserve("early", 601_000)).toBe("reserved");
+    memory.complete("early");
     await clock.advance(600_000);
-    expect(memory.reserve("early", 601_000)).toBe("replayed");
+    expect(memory.reserve("early", 601_000)).toBe("completed");
     await clock.advance(1_000);
     expect(memory.reserve("early", 1_201_000)).toBe("reserved");
   });

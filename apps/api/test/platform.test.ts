@@ -223,6 +223,62 @@ describe("platform end to end", () => {
     ]);
   });
 
+  it("never reports an event delivered while the handler of its first try can still fail", async () => {
+    const { app } = await boot();
+    const user = await app.createUser();
+    let fail: (error: unknown) => void = () => undefined;
+    const handle = vi
+      .fn<InternalEventHandler["handle"]>(async () => undefined)
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((_resolve, reject) => {
+            fail = reject;
+          }),
+      );
+    app.inject<InternalEventHandlerRegistry>(InternalEventHandlerRegistry).register({
+      type: "probe.announced",
+      handle,
+    });
+    const { lines, logger } = workerLog();
+    const worker = new InternalEventClient({
+      keys: app.keys,
+      apiOrigin: app.baseUrl,
+      logger,
+      timers: app.clock,
+    });
+    const rejections = (reason: string) =>
+      app.logs.events("internal.request_rejected").filter((line) => line.reason === reason).length;
+    /** Moves the shared fake clock in small steps until `check` passes. */
+    const advanceUntil = (check: () => void) =>
+      vi.waitFor(
+        async () => {
+          await app.clock.advance(25);
+          check();
+        },
+        { timeout: 3_000, interval: 5 },
+      );
+
+    const announcing = worker.announce({
+      type: "probe.announced",
+      ownerId: user.id,
+      payload: { taskIds: [uuidv7(app.clock.now())] },
+    });
+    // Try 1 reaches the handler, which is still running when the worker stops waiting at 2 seconds.
+    await vi.waitFor(() => expect(handle).toHaveBeenCalledTimes(1));
+    await app.clock.advance(2_000);
+    // Try 2 finds the first try still in progress instead of being told the event was delivered.
+    await advanceUntil(() => expect(rejections("in_progress")).toBe(1));
+    // The first try's handler fails afterwards; the api forgets the id and try 3 handles it again.
+    fail(Object.assign(new Error("D1 unavailable"), { code: "db.unavailable" }));
+    await vi.waitFor(() =>
+      expect(app.logs.events("internal.event_handler_failed")).toHaveLength(1),
+    );
+    await advanceUntil(() => expect(handle).toHaveBeenCalledTimes(2));
+    expect(await announcing).toBe("delivered");
+    expect(app.logs.events("internal.event_handled")).toHaveLength(1);
+    expect(lines.join("\n")).not.toContain("internal_event.delivered_on_retry");
+  });
+
   it("relays encrypted run output pushed by the worker over HTTP to the owner's conversation socket", async () => {
     const { app, runs } = await boot();
     const owner = await app.createSignedInUser();
