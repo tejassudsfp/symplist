@@ -10,6 +10,47 @@ export const INBOX_SIZE = { min: 240, default: 280, max: 400 } as const;
 export const CHAT_SIZE = { min: 300, default: 340, max: 480 } as const;
 export const PAGE_MIN_SIZE = 360;
 
+export interface PanelSizeRange {
+  readonly min: number;
+  readonly default: number;
+  readonly max: number;
+}
+
+/**
+ * The horizontal space a theme's panel inset (a CSS margin shorthand of px lengths, for example
+ * `12px 12px 12px 0`) takes beside a framed panel: left plus right.
+ */
+export function horizontalInset(shorthand: string): number {
+  const lengths = shorthand
+    .trim()
+    .split(/\s+/)
+    .map((part) => {
+      const match = /^(\d+(?:\.\d+)?)(?:px)?$/.exec(part);
+      return match?.[1] ? Number(match[1]) : 0;
+    });
+  const [top = 0, right = top, , left = right] = lengths;
+  return right + left;
+}
+
+/**
+ * Desktop panel sizes for a theme. The sample draws the task list at 280 px and the chat at 340 px
+ * and floats inset themes' panels with a margin around them, so a framed panel slot is its panel
+ * width plus the inset; the resize limits (task list 240–400, chat 300–480) apply to the panel
+ * itself.
+ */
+export function panelSizes(panelInset: string): {
+  readonly inbox: PanelSizeRange;
+  readonly chat: PanelSizeRange;
+} {
+  const inset = horizontalInset(panelInset);
+  const widen = (range: PanelSizeRange): PanelSizeRange => ({
+    min: range.min + inset,
+    default: range.default + inset,
+    max: range.max + inset,
+  });
+  return { inbox: widen(INBOX_SIZE), chat: widen(CHAT_SIZE) };
+}
+
 export interface ShellState {
   /** Desktop: the task list panel is collapsed to the rail's "Show task list" control. */
   readonly inboxCollapsed: boolean;

@@ -140,10 +140,18 @@ describe("validateRemap", () => {
     expect(validateRemap("palette.open", "mod+k", actions, prefs, "other")).toMatchObject({
       ok: true,
     });
-    expect(validateRemap("run.stop", "mod+k", actions, prefs, "other")).toMatchObject({
-      ok: false,
-      reason: "reserved",
-    });
+    for (const platform of ["mac", "other"] as const) {
+      // Reserved on every platform (decision W8), even when the palette gives Mod+K up.
+      const unbound = { ...prefs, overrides: { "palette.open": null } };
+      expect(validateRemap("run.stop", "mod+k", actions, unbound, platform)).toMatchObject({
+        ok: false,
+        reason: "reserved",
+      });
+      expect(validateRemap("run.stop", "mod+s", actions, unbound, platform)).toMatchObject({
+        ok: false,
+        reason: "reserved",
+      });
+    }
   });
 
   it("reports conflicts in overlapping contexts, including sequence prefixes", () => {

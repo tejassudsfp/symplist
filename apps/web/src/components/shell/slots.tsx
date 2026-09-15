@@ -28,6 +28,11 @@ export interface ShellSlots {
   readonly chat?: (taskId: string) => ReactNode;
   /** Chat header subtitle, normally the task title. */
   readonly chatTitle?: (taskId: string) => ReactNode;
+  /**
+   * A short status for the collapsed chat's corner control, such as "Approval waiting" or "Simon is
+   * working" (Simon feature). It shows as a dot on the control and is part of its accessible name.
+   */
+  readonly chatStatus?: (taskId: string) => string | null;
   /** Bottom-right floating quick chat, shown only when no task is selected (decision D1). */
   readonly quickChat?: ReactNode;
 }

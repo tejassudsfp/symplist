@@ -28,6 +28,12 @@ export interface WorkspaceRoute {
 /** Imperative controls the app shell exposes to actions (panels and pane focus). */
 export interface ShellController {
   focusPane(pane: PaneId): void;
+  /**
+   * Shows the task list (expanding it, opening the laptop drawer, or waiting for a pending navigation
+   * to reach the phone's list view) and focuses its heading once it is visible. Collection shortcuts
+   * call it after navigating, so `g` then `l` opens Later and focuses its list (note 13).
+   */
+  revealInbox(): void;
   toggleInbox(): void;
   toggleChat(): void;
   isInboxVisible(): boolean;

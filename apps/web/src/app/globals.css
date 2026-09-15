@@ -589,6 +589,14 @@
     z-index: 10;
   }
 
+  .sym-chat-corner-dot {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--sym-warn);
+  }
+
   .sym-quick-chat-slot {
     position: absolute;
     right: 18px;

@@ -99,17 +99,24 @@ describe("AppShell on a collection route", () => {
 describe("AppShell on a task route", () => {
   it("adds the chat panel and collapses it to a corner control", async () => {
     const user = userEvent.setup();
-    renderShell({ path: `/now/${taskId}`, slots: { chatTitle: () => "Refresh my portfolio" } });
+    renderShell({
+      path: `/now/${taskId}`,
+      slots: {
+        chatTitle: () => "Refresh my portfolio",
+        chatStatus: (id) => (id === taskId ? "Approval waiting" : null),
+      },
+    });
     const chat = screen.getByRole("complementary", { name: "Simon" });
     expect(chat).toHaveAttribute("data-pane", "chat");
     expect(within(chat).getByText("Refresh my portfolio")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Hide chat" }));
-    const corner = await screen.findByRole("button", { name: "Show chat" });
+    const corner = await screen.findByRole("button", { name: "Show chat, Approval waiting" });
+    expect(corner.querySelector('[data-slot="chat-status"]')).not.toBeNull();
     expect(document.querySelector(".sym-workspace")).toHaveAttribute("data-chat", "collapsed");
     await waitFor(() => expect(corner).toHaveFocus());
     await user.click(corner);
     expect(document.querySelector(".sym-workspace")).toHaveAttribute("data-chat", "expanded");
-    expect(screen.queryByRole("button", { name: "Show chat" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Show chat/ })).not.toBeInTheDocument();
     await waitFor(() =>
       expect(screen.getByRole("heading", { level: 2, name: "Simon" })).toHaveFocus(),
     );
@@ -120,6 +127,10 @@ describe("AppShell on a task route", () => {
     renderShell({ path: `/now/${taskId}` });
     await user.click(screen.getByRole("button", { name: "Hide task list" }));
     expect(document.querySelector(".sym-workspace")).toHaveAttribute("data-inbox", "collapsed");
+    // Focus moves to the control that replaced the list, never to the hidden panel.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Show task list" })).toHaveFocus(),
+    );
     await user.click(screen.getByRole("button", { name: "Show task list" }));
     expect(document.querySelector(".sym-workspace")).toHaveAttribute("data-inbox", "expanded");
     await waitFor(() =>
@@ -155,9 +166,26 @@ describe("keyboard actions through the shell", () => {
     renderShell({ path: `/now/${taskId}` });
     await user.keyboard("gl");
     expect(navigation.push).toHaveBeenCalledWith("/later");
+    // Collection shortcuts focus the task list (note 13).
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { level: 2, name: "Now" })).toHaveFocus(),
+    );
     await user.keyboard("gc");
     await waitFor(() =>
       expect(screen.getByRole("heading", { level: 2, name: "Simon" })).toHaveFocus(),
+    );
+  });
+
+  it("expands a collapsed task list before focusing it for a collection shortcut", async () => {
+    const user = userEvent.setup();
+    renderShell({ path: `/now/${taskId}` });
+    await user.click(screen.getByRole("button", { name: "Hide task list" }));
+    expect(document.querySelector(".sym-workspace")).toHaveAttribute("data-inbox", "collapsed");
+    await user.keyboard("gn");
+    expect(navigation.push).toHaveBeenCalledWith("/now");
+    expect(document.querySelector(".sym-workspace")).toHaveAttribute("data-inbox", "expanded");
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { level: 2, name: "Now" })).toHaveFocus(),
     );
   });
 

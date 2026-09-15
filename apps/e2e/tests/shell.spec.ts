@@ -263,10 +263,36 @@ test.describe("app shell", () => {
         expect(html).toContain(`data-mode="${mode}"`);
         await page.waitForFunction(() => document.querySelector("[data-group]") !== null);
         await expect(page.locator("html")).toHaveCSS("color-scheme", mode);
+        // The sample's panel widths (task list 280 px, chat 340 px) hold inside every theme's
+        // inset frame.
+        const inboxBox = await page.getByRole("region", { name: "Now" }).boundingBox();
+        const chatBox = await page.getByRole("complementary", { name: "Simon" }).boundingBox();
+        expect(Math.round(inboxBox?.width ?? 0), `${themeId} task list width`).toBe(280);
+        expect(Math.round(chatBox?.width ?? 0), `${themeId} chat width`).toBe(340);
         await expectNoAxeViolations(page);
         await evidence(page, testInfo, `theme-${themeId}-${mode}`);
       }
     }
+  });
+
+  test("follows the device brightness in System mode without a reload", async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await context.addCookies([
+      { name: "sym_appearance", value: "v1.paper.system.teal", url: baseURL ?? "" },
+    ]);
+    await page.emulateMedia({ colorScheme: "dark" });
+    await openShell(page, "/now");
+    const html = page.locator("html");
+    await expect(html).toHaveAttribute("data-mode", "system");
+    await expect(html).toHaveCSS("color-scheme", "dark");
+    // Paper Dark `bg` #1F1B17 and Paper Light `bg` #EFEAE0 from the sample.
+    await expect(page.locator("body")).toHaveCSS("background-color", "rgb(31, 27, 23)");
+    await page.emulateMedia({ colorScheme: "light" });
+    await expect(html).toHaveCSS("color-scheme", "light");
+    await expect(page.locator("body")).toHaveCSS("background-color", "rgb(239, 234, 224)");
   });
 
   test("falls back to the default theme without losing accent and mode", async ({
@@ -372,6 +398,8 @@ test.describe("app shell", () => {
     await expect(page.locator("[data-slot=sequence-hint]")).toBeVisible();
     await page.keyboard.press("l");
     await expect(page).toHaveURL(/\/later$/);
+    // Collection shortcuts open the collection with its task list focused (note 13).
+    await expect(page.getByRole("heading", { level: 2, name: "Later" })).toBeFocused();
 
     await page.evaluate(() => {
       const input = document.createElement("input");

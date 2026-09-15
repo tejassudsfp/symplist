@@ -34,6 +34,8 @@ export interface DispatchKeyEvent extends KeyEventLike {
   readonly keyCode?: number;
   readonly defaultPrevented: boolean;
   preventDefault(): void;
+  /** `KeyboardEvent.getModifierState`, used to recognize AltGr character input. */
+  getModifierState?(key: string): boolean;
 }
 
 export type DispatchResult =
@@ -122,6 +124,12 @@ export class KeyboardDispatcher {
     const chord = chordFromEvent(event, this.options.platform);
     if (!chord) return { kind: "ignored" };
     const focus = describeFocus(event.target, this.options.document);
+    // AltGr reports Control and Alt on Windows and Linux while it types a character (for example
+    // `@` on German and French layouts); in a text field that is typing, never a shortcut.
+    if (focus.typing && event.getModifierState?.("AltGraph") === true) {
+      this.resetSequence();
+      return { kind: "ignored" };
+    }
     const candidates = this.candidatesFor(focus.contexts, focus.pane);
 
     if (this.pending) {

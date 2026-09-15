@@ -26,6 +26,7 @@ function navigation(
   href: string,
   binding: string,
   keywords: string[],
+  options: { readonly focusList?: boolean } = {},
 ): AppAction {
   return {
     id,
@@ -35,18 +36,31 @@ function navigation(
     keywords,
     defaultBinding: binding,
     availability: () => enabled,
-    run: ({ services }) => services.navigate(href),
+    run: ({ services }) => {
+      services.navigate(href);
+      // Collections open with their task list focused (note 13). Outside the workspace (settings,
+      // archive) there is no shell controller yet, so the navigation alone applies.
+      if (options.focusList) services.shell?.revealInbox();
+    },
   };
 }
 
 /** Shell navigation and panel actions with the note 13 bindings. */
 export const shellActions: readonly AppAction[] = [
-  navigation("shell.go_now", "Go to Now", "/now", "g n", ["collection", "today"]),
-  navigation("shell.go_later", "Go to Later", "/later", "g l", ["collection", "someday"]),
-  navigation("shell.go_unclassified", "Go to Unclassified", "/unclassified", "g u", [
-    "collection",
-    "inbox",
-  ]),
+  navigation("shell.go_now", "Go to Now", "/now", "g n", ["collection", "today"], {
+    focusList: true,
+  }),
+  navigation("shell.go_later", "Go to Later", "/later", "g l", ["collection", "someday"], {
+    focusList: true,
+  }),
+  navigation(
+    "shell.go_unclassified",
+    "Go to Unclassified",
+    "/unclassified",
+    "g u",
+    ["collection", "inbox"],
+    { focusList: true },
+  ),
   navigation("shell.go_archive", "Open archive", "/archive", "g a", ["completed", "restore"]),
   navigation("shell.go_settings", "Open settings", "/settings/account", "g s", ["preferences"]),
   {

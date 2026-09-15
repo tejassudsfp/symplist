@@ -6,11 +6,97 @@ import { unified } from "unified";
 import { cn } from "@/lib/utils";
 
 /** Longest source rendered as Markdown; anything longer is shown as plain text. */
-export const MAX_MARKDOWN_LENGTH = 200_000;
+export const MAX_MARKDOWN_LENGTH = 50_000;
 /** Deeper nesting (hostile blockquote or list towers) is flattened to text. */
 export const MAX_MARKDOWN_DEPTH = 24;
+/**
+ * Parser work limits. The Markdown parser is superlinear (and recursive) on some inputs: thousands
+ * of emphasis delimiters, deeply nested brackets, or towers of container markers take seconds to
+ * minutes or overflow the stack well under the length limit. Sources beyond these limits render as
+ * plain text, which keeps every character visible without parsing it.
+ */
+export const MAX_MARKDOWN_EMPHASIS_DELIMITERS = 2_000;
+export const MAX_MARKDOWN_BACKTICKS = 2_000;
+export const MAX_MARKDOWN_BRACKETS = 2_000;
+export const MAX_MARKDOWN_BRACKET_DEPTH = 32;
+export const MAX_MARKDOWN_LINE_CONTAINERS = 16;
+export const MAX_MARKDOWN_CONTAINER_MARKERS = 4_000;
+export const MAX_MARKDOWN_INDENT_COLUMNS = 96;
 
 const processor = unified().use(remarkParse).use(remarkGfm).freeze();
+
+const listMarkerPattern = /^(?:[-*+]|\d{1,9}[.)])(?=[ \t]|$)/;
+
+/**
+ * A linear pre-scan that decides whether a source is cheap enough to parse: emphasis and
+ * strikethrough delimiters, backticks, brackets and their open depth within a paragraph, container markers
+ * (`>` and list markers) per line and in total, and leading indentation. Code blocks are counted too:
+ * whether a line is code depends on the surrounding containers and HTML blocks, so skipping
+ * "probable" code would let crafted input past the limits.
+ */
+export function isMarkdownTooComplex(source: string): boolean {
+  if (source.length > MAX_MARKDOWN_LENGTH) return true;
+  let delimiters = 0;
+  let backticks = 0;
+  let brackets = 0;
+  let bracketDepth = 0;
+  let containerMarkers = 0;
+  for (const line of source.split("\n")) {
+    let index = 0;
+    let columns = 0;
+    let containers = 0;
+    while (index < line.length) {
+      const character = line[index];
+      if (character === " ") {
+        columns += 1;
+        index += 1;
+      } else if (character === "\t") {
+        columns += 4 - (columns % 4);
+        index += 1;
+      } else if (character === ">") {
+        containers += 1;
+        index += 1;
+      } else {
+        const marker = listMarkerPattern.exec(line.slice(index, index + 11));
+        if (!marker) break;
+        containers += 1;
+        index += marker[0].length;
+      }
+    }
+    containerMarkers += containers;
+    if (
+      columns > MAX_MARKDOWN_INDENT_COLUMNS ||
+      containers > MAX_MARKDOWN_LINE_CONTAINERS ||
+      containerMarkers > MAX_MARKDOWN_CONTAINER_MARKERS
+    ) {
+      return true;
+    }
+    // Links never span a blank line, so bracket depth is tracked per paragraph.
+    if (index >= line.length) bracketDepth = 0;
+    for (; index < line.length; index += 1) {
+      const character = line[index];
+      if (character === "\\") {
+        index += 1;
+      } else if (character === "*" || character === "_" || character === "~") {
+        delimiters += 1;
+      } else if (character === "`") {
+        backticks += 1;
+      } else if (character === "[") {
+        brackets += 1;
+        bracketDepth += 1;
+        if (bracketDepth > MAX_MARKDOWN_BRACKET_DEPTH || brackets > MAX_MARKDOWN_BRACKETS) {
+          return true;
+        }
+      } else if (character === "]" && bracketDepth > 0) {
+        bracketDepth -= 1;
+      }
+    }
+    if (delimiters > MAX_MARKDOWN_EMPHASIS_DELIMITERS || backticks > MAX_MARKDOWN_BACKTICKS) {
+      return true;
+    }
+  }
+  return false;
+}
 
 export interface SafeDestination {
   readonly href: string;
@@ -343,18 +429,23 @@ export interface SafeMarkdownProps {
  */
 export function SafeMarkdown({ source, className, headingLevelStart = 3 }: SafeMarkdownProps) {
   const content = useMemo(() => {
-    if (source.length > MAX_MARKDOWN_LENGTH) {
-      return <p className="whitespace-pre-wrap">{source}</p>;
+    const plain = <p className="whitespace-pre-wrap">{source}</p>;
+    if (isMarkdownTooComplex(source)) return plain;
+    try {
+      const root = processor.parse(source);
+      const context: RenderContext = {
+        definitions: collectDefinitions(root),
+        headingLevelStart,
+        insideLink: false,
+      };
+      return root.children.map((child: RootContent, index) =>
+        renderNode(child, context, 1, `${index}`),
+      );
+    } catch {
+      // A parser failure on untrusted input (for example a stack overflow the pre-scan did not
+      // predict) must never take down the surrounding view: show the source as text instead.
+      return plain;
     }
-    const root = processor.parse(source);
-    const context: RenderContext = {
-      definitions: collectDefinitions(root),
-      headingLevelStart,
-      insideLink: false,
-    };
-    return root.children.map((child: RootContent, index) =>
-      renderNode(child, context, 1, `${index}`),
-    );
   }, [source, headingLevelStart]);
   return <div className={cn("sym-markdown", className)}>{content}</div>;
 }

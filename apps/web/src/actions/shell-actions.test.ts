@@ -10,6 +10,7 @@ import type {
 function environment(route: WorkspaceRoute | null, withShell = true) {
   const shell: ShellController = {
     focusPane: vi.fn(),
+    revealInbox: vi.fn(),
     toggleInbox: vi.fn(),
     toggleChat: vi.fn(),
     isInboxVisible: () => true,
@@ -37,6 +38,21 @@ describe("shell actions", () => {
     ["shell.go_now", "/now"],
     ["shell.go_later", "/later"],
     ["shell.go_unclassified", "/unclassified"],
+  ])("%s opens the %s collection and focuses its task list", async (id, href) => {
+    const { env, services, shell } = environment({ collection: "now", taskId: "t1" });
+    expect(byId(id).availability(env)).toEqual({ enabled: true });
+    await byId(id).run(env);
+    expect(services.navigate).toHaveBeenCalledWith(href);
+    expect(shell.revealInbox).toHaveBeenCalledTimes(1);
+    expect(services.assign).not.toHaveBeenCalled();
+
+    // Outside the workspace (settings, archive) there is no list to focus before navigation.
+    const outside = environment(null, false);
+    await byId(id).run(outside.env);
+    expect(outside.services.navigate).toHaveBeenCalledWith(href);
+  });
+
+  it.each([
     ["shell.go_archive", "/archive"],
     ["shell.go_settings", "/settings/account"],
   ])("%s navigates client-side to %s", async (id, href) => {
@@ -45,6 +61,13 @@ describe("shell actions", () => {
     await byId(id).run(env);
     expect(services.navigate).toHaveBeenCalledWith(href);
     expect(services.assign).not.toHaveBeenCalled();
+  });
+
+  it("does not move focus to the list for archive and settings", async () => {
+    const { env, shell } = environment({ collection: "now", taskId: null });
+    await byId("shell.go_archive").run(env);
+    await byId("shell.go_settings").run(env);
+    expect(shell.revealInbox).not.toHaveBeenCalled();
   });
 
   it("opens the Vault with a full document navigation", async () => {

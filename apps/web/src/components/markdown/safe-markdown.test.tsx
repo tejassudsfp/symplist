@@ -1,6 +1,7 @@
 import { render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  isMarkdownTooComplex,
   MAX_MARKDOWN_DEPTH,
   MAX_MARKDOWN_LENGTH,
   SafeMarkdown,
@@ -183,11 +184,73 @@ describe("hostile Markdown", () => {
     expect(within(root).getByRole("link").textContent).toContain("(xn--pple-43d.com)");
   });
 
-  it("flattens pathological nesting instead of recursing without bound", () => {
-    const source = `${">".repeat(5000)} deep`;
+  it("flattens nesting deeper than the render limit instead of recursing without bound", () => {
+    // 40 nested list levels by indentation stay under the parser limits but exceed the render depth.
+    const source = Array.from({ length: 40 }, (_, level) => `${"  ".repeat(level)}- level ${level}`)
+      .join("\n")
+      .concat("\n");
+    expect(isMarkdownTooComplex(source)).toBe(false);
     const root = renderMarkdown(source);
-    expect(root.querySelectorAll("blockquote").length).toBeLessThanOrEqual(MAX_MARKDOWN_DEPTH);
-    expect(root.textContent).toContain("deep");
+    expect(root.querySelectorAll("ul").length).toBeGreaterThan(1);
+    expect(root.querySelectorAll("ul").length).toBeLessThanOrEqual(MAX_MARKDOWN_DEPTH);
+    expect(root.textContent).toContain("level 39");
+  });
+
+  it.each([
+    // Each of these overflowed the parser's stack (a render crash) or took seconds to minutes to
+    // parse while staying under the length limit.
+    ["a blockquote tower on one line", `${">".repeat(40_000)} deep`],
+    ["an ordered list tower", `${"1. ".repeat(13_000)}deep`],
+    ["a mixed container tower", `${"> - ".repeat(3_000)}deep`],
+    ["thousands of emphasis delimiters", `${"*a".repeat(20_000)} deep`],
+    ["nested emphasis", `${"*a ".repeat(4_000)}deep${" a*".repeat(4_000)}`],
+    ["strikethrough runs", `${"~a".repeat(20_000)} deep`],
+    ["nested images", `${"![".repeat(8_000)}deep${"](y)".repeat(8_000)}`],
+    ["nested link labels", `${"[".repeat(16_000)}deep${"]".repeat(16_000)}`],
+    [
+      "code spans of every length",
+      `${Array.from({ length: 280 }, (_, i) => "`".repeat(i)).join("a")} deep`,
+    ],
+    [
+      "a deeply indented list",
+      Array.from({ length: 300 }, (_, i) => `${"  ".repeat(i)}- deep`).join("\n"),
+    ],
+    ["thousands of list items", "- deep\n".repeat(12_000)],
+    ["thousands of footnote references", "[^deep]".repeat(7_000)],
+  ])("renders %s as plain text without parsing it", (_label, source) => {
+    expect(isMarkdownTooComplex(source)).toBe(true);
+    const started = performance.now();
+    const root = renderMarkdown(source);
+    expect(performance.now() - started).toBeLessThan(5_000);
+    expect(root.querySelectorAll("blockquote, ol, ul, em, strong, del, a, code")).toHaveLength(0);
+    expect(root.querySelector("p")?.textContent).toBe(source);
+    assertInert(root);
+  });
+
+  it("keeps parsing realistic long messages under the complexity limits", () => {
+    const section = [
+      "## Projects to feature",
+      "",
+      "A **lighter**, quieter portfolio with _fewer_ projects and `better` writing.",
+      "",
+      "- [x] Field notes app, see [the notes](https://example.com/notes)",
+      "- [ ] Library redesign for the ~~city~~ archive",
+      "  1. Export images at 1600px",
+      "  2. Check every link",
+      "",
+      "> Rule of thumb: if I wouldn't bring it up in a conversation, it doesn't go on the site.",
+      "",
+      "```sh",
+      "magick in.png -resize 1600x -quality 82 out.webp",
+      "```",
+      "",
+    ].join("\n");
+    const source = section.repeat(40);
+    expect(source.length).toBeGreaterThan(10_000);
+    expect(isMarkdownTooComplex(source)).toBe(false);
+    const root = renderMarkdown(source);
+    expect(root.querySelectorAll("h4")).toHaveLength(40);
+    expect(root.querySelectorAll("a")).toHaveLength(40);
   });
 
   it("renders oversized input as plain text", () => {

@@ -6,6 +6,7 @@ import { ActionsProvider } from "@/actions/provider";
 import { actionRegistry } from "@/actions/registry-index";
 import type { ActionServices, AppAction, ShellController } from "@/actions/types";
 import { useAnnouncer } from "@/components/ui/status-announcer";
+import type { ThemeId } from "@/theme/registry";
 import { isExcludedRoute, parseWorkspaceRoute } from "./routes.ts";
 import { TopBar } from "./top-bar.tsx";
 import { INBOX_TITLE_ID, MAIN_ID, Workspace } from "./workspace.tsx";
@@ -33,6 +34,8 @@ export interface AppShellProps {
   readonly children: ReactNode;
   /** Defaults to the app-wide registry; tests pass a smaller set. */
   readonly actions?: readonly AppAction[];
+  /** The theme from the appearance cookie, used to size the framed workspace panels. */
+  readonly themeId?: ThemeId;
 }
 
 /**
@@ -40,7 +43,7 @@ export interface AppShellProps {
  * Unclassified and their tasks) or a plain main region for settings, archive and administration.
  * It owns the keyboard action registry for everything inside it.
  */
-export function AppShell({ children, actions = actionRegistry }: AppShellProps) {
+export function AppShell({ children, actions = actionRegistry, themeId }: AppShellProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { announce } = useAnnouncer();
@@ -84,7 +87,7 @@ export function AppShell({ children, actions = actionRegistry }: AppShellProps) 
         <TopBar />
         <div className="sym-body">
           {route ? (
-            <Workspace route={route} onController={onController}>
+            <Workspace route={route} onController={onController} {...(themeId ? { themeId } : {})}>
               {children}
             </Workspace>
           ) : (

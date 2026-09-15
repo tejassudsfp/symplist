@@ -302,6 +302,31 @@ describe("typing and IME guard", () => {
     expect(h.ran).toEqual(["palette"]);
   });
 
+  it("treats AltGr character input in a text field as typing, not a Control+Alt shortcut", () => {
+    const h = setup((r) => [
+      action({
+        id: "remapped",
+        context: "app",
+        defaultBinding: "mod+alt+q",
+        run: track("remapped", r),
+      }),
+    ]);
+    // AltGr+Q types "@" on a German layout and reports both Control and Alt.
+    const typed = h.press(byId("composer"), {
+      key: "@",
+      code: "KeyQ",
+      ctrlKey: true,
+      altKey: true,
+      modifierAltGraph: true,
+    });
+    expect(typed.result).toEqual({ kind: "ignored" });
+    expect(typed.event.defaultPrevented).toBe(false);
+    expect(h.ran).toEqual([]);
+    // The same chord without AltGr is still the shortcut, even while typing.
+    h.press(byId("composer"), { key: "q", ctrlKey: true, altKey: true });
+    expect(h.ran).toEqual(["remapped"]);
+  });
+
   it("never dispatches during IME composition, even for modified shortcuts", () => {
     const h = setup((r) => [
       action({

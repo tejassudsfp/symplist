@@ -43,6 +43,7 @@ const reservedCommon = [
   "mod+d",
   "mod+j",
   "mod+o",
+  "mod+k",
   "mod+s",
   "mod+c",
   "mod+v",
@@ -91,17 +92,7 @@ const reservedByPlatform: Readonly<Record<Platform, readonly string[]>> = {
     "ctrl+arrowup",
     "ctrl+arrowdown",
   ],
-  other: [
-    "alt+f4",
-    "mod+h",
-    "mod+e",
-    "mod+k",
-    "mod+f4",
-    "alt+home",
-    "mod+shift+b",
-    "meta+d",
-    "meta+l",
-  ],
+  other: ["alt+f4", "mod+h", "mod+e", "mod+f4", "alt+home", "mod+shift+b", "meta+d", "meta+l"],
 };
 
 /**

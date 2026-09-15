@@ -9,6 +9,7 @@ import {
   useMemo,
   useReducer,
   useRef,
+  useState,
 } from "react";
 import { type PanelSize, usePanelRef } from "react-resizable-panels";
 import { ACTION_CONTEXT_ATTRIBUTE, describeFocus, PANE_ATTRIBUTE } from "@/actions/focus";
@@ -17,16 +18,16 @@ import type { PaneId, ShellController, WorkspaceRoute } from "@/actions/types";
 import { EmptyState, ThemeIllustration } from "@/components/ui/empty-state";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { HintTooltip } from "@/components/ui/tooltip";
+import { DEFAULT_THEME_ID, isThemeId, type ThemeId, themes } from "@/theme/registry";
 import { ChatIcon, ChevronIcon, CollectionIcon, PanelToggleIcon } from "./collection-icons.tsx";
 import { collectionMeta, collections } from "./routes.ts";
 import {
-  CHAT_SIZE,
-  INBOX_SIZE,
   initialShellState,
   isChatVisible,
   isInboxVisible,
   type LayoutMode,
   PAGE_MIN_SIZE,
+  panelSizes,
   shellReducer,
 } from "./shell-state.ts";
 import { useShellSlots } from "./slots.tsx";
@@ -35,6 +36,7 @@ import { useLayoutMode } from "./use-layout-mode.ts";
 export const INBOX_TITLE_ID = "sym-inbox-title";
 export const CHAT_TITLE_ID = "sym-chat-title";
 export const MAIN_ID = "main";
+export const SHOW_LIST_ID = "sym-show-task-list";
 
 function focusById(id: string) {
   requestAnimationFrame(() => {
@@ -100,6 +102,7 @@ function IconRail({
           <HintTooltip label="Show task list">
             <button
               type="button"
+              id={SHOW_LIST_ID}
               className="sym-rail-item"
               aria-label="Show task list"
               onClick={onShowList}
@@ -213,6 +216,7 @@ function PageFrame({
     );
   }
   const taskId = route.taskId;
+  const chatStatus = slots.chatStatus?.(taskId) ?? null;
   return (
     <main id={MAIN_ID} className="sym-page" tabIndex={-1} {...{ [PANE_ATTRIBUTE]: "page" }}>
       <div className="sym-page-header">
@@ -241,11 +245,14 @@ function PageFrame({
           type="button"
           id="sym-chat-corner"
           className="sym-floating-control sym-chat-corner"
-          aria-label="Show chat"
+          aria-label={chatStatus ? `Show chat, ${chatStatus}` : "Show chat"}
           onClick={onShowChat}
         >
           <ChatIcon />
           Chat
+          {chatStatus ? (
+            <span aria-hidden="true" className="sym-chat-corner-dot" data-slot="chat-status" />
+          ) : null}
         </button>
       ) : null}
     </main>
@@ -321,10 +328,24 @@ function ChatFrame({
   );
 }
 
+/**
+ * Desktop panel sizes for the theme on screen: the live document theme when there is one, else the
+ * first-paint theme from the appearance cookie.
+ */
+export function workspacePanelSizes(themeId: ThemeId, doc: Document | undefined) {
+  const live = doc?.documentElement.dataset.theme;
+  return panelSizes(themes[isThemeId(live) ? live : themeId].geometry.panelInset);
+}
+
 export interface WorkspaceProps {
   readonly route: WorkspaceRoute;
   /** Receives the shell controller used by keyboard and palette actions. */
   readonly onController: (controller: ShellController | null) => void;
+  /**
+   * The theme rendered on first paint (from the appearance cookie), which sizes the framed panels.
+   * A theme changed in place while the workspace is open keeps the current widths.
+   */
+  readonly themeId?: ThemeId;
   readonly children: ReactNode;
 }
 
@@ -335,14 +356,28 @@ export interface WorkspaceProps {
  * a time. The DOM tree is identical in every mode, so page and chat content never remount when the
  * window crosses a breakpoint.
  */
-export function Workspace({ route, onController, children }: WorkspaceProps) {
+export function Workspace({
+  route,
+  onController,
+  themeId = DEFAULT_THEME_ID,
+  children,
+}: WorkspaceProps) {
   const mode = useLayoutMode();
+  // Fixed for the life of the workspace: changing a panel's size props re-registers it and would
+  // discard the user's resized widths. The live document theme wins over the first-paint prop, so a
+  // workspace opened after an in-place theme change (for example from Appearance settings) uses it;
+  // during hydration both are the same cookie theme.
+  const [sizes] = useState(() =>
+    workspacePanelSizes(themeId, typeof document === "undefined" ? undefined : document),
+  );
   const slots = useShellSlots();
   const [state, dispatch] = useReducer(shellReducer, route, initialShellState);
   const inboxPanel = usePanelRef();
   const chatPanel = usePanelRef();
   const modeRef = useRef(mode);
   const drawerTrigger = useRef<HTMLElement | null>(null);
+  /** Set by `revealInbox` while the list is not visible yet (for example during navigation). */
+  const pendingInboxFocus = useRef(false);
 
   useEffect(() => {
     modeRef.current = mode;
@@ -396,10 +431,13 @@ export function Workspace({ route, onController, children }: WorkspaceProps) {
       dispatch({ type: "set-inbox-collapsed", collapsed: true });
     }
     requestAnimationFrame(() => {
+      // Return focus to whatever opened the drawer, else to the rail's "Show task list" control that
+      // replaces the hidden list (as the chat corner control does for the chat), else the rail item.
       const target =
         drawerTrigger.current?.isConnected && drawerTrigger.current
           ? drawerTrigger.current
-          : document.querySelector<HTMLElement>('.sym-rail [aria-current="page"]');
+          : (document.querySelector<HTMLElement>(`#${SHOW_LIST_ID}`) ??
+            document.querySelector<HTMLElement>('.sym-rail [aria-current="page"]'));
       drawerTrigger.current = null;
       target?.focus();
     });
@@ -463,6 +501,13 @@ export function Workspace({ route, onController, children }: WorkspaceProps) {
     stateRef.current = state;
   }, [state]);
 
+  // Complete a pending `revealInbox` once the list is visible (after navigation or expansion).
+  useEffect(() => {
+    if (!pendingInboxFocus.current || !isInboxVisible(state, mode)) return;
+    pendingInboxFocus.current = false;
+    focusById(INBOX_TITLE_ID);
+  }, [state, mode]);
+
   const controller = useMemo<ShellController>(
     () => ({
       focusPane: (pane: PaneId) => {
@@ -487,6 +532,23 @@ export function Workspace({ route, onController, children }: WorkspaceProps) {
           );
           (composer ?? document.getElementById(CHAT_TITLE_ID))?.focus();
         });
+      },
+      revealInbox: () => {
+        const current = stateRef.current;
+        const layout = modeRef.current;
+        if (isInboxVisible(current, layout)) {
+          pendingInboxFocus.current = false;
+          focusById(INBOX_TITLE_ID);
+          return;
+        }
+        pendingInboxFocus.current = true;
+        if (layout === "desktop") {
+          dispatch({ type: "set-inbox-collapsed", collapsed: false });
+        } else if (layout === "laptop") {
+          drawerTrigger.current = document.activeElement as HTMLElement | null;
+          dispatch({ type: "set-drawer", open: true });
+        }
+        // On a phone the list view appears when the navigation reaches the collection route.
       },
       toggleInbox: () => {
         if (isInboxVisible(stateRef.current, modeRef.current)) hideList();
@@ -544,9 +606,9 @@ export function Workspace({ route, onController, children }: WorkspaceProps) {
           id="sym-inbox-panel"
           panelRef={inboxPanel}
           className="sym-panel-slot sym-panel-slot--framed"
-          defaultSize={INBOX_SIZE.default}
-          minSize={INBOX_SIZE.min}
-          maxSize={INBOX_SIZE.max}
+          defaultSize={sizes.inbox.default}
+          minSize={sizes.inbox.min}
+          maxSize={sizes.inbox.max}
           collapsible
           collapsedSize={0}
           groupResizeBehavior="preserve-pixel-size"
@@ -580,9 +642,9 @@ export function Workspace({ route, onController, children }: WorkspaceProps) {
               id="sym-chat-panel"
               panelRef={chatPanel}
               className="sym-panel-slot sym-panel-slot--framed"
-              defaultSize={state.chatCollapsed ? 0 : CHAT_SIZE.default}
-              minSize={CHAT_SIZE.min}
-              maxSize={CHAT_SIZE.max}
+              defaultSize={state.chatCollapsed ? 0 : sizes.chat.default}
+              minSize={sizes.chat.min}
+              maxSize={sizes.chat.max}
               collapsible
               collapsedSize={0}
               groupResizeBehavior="preserve-pixel-size"
