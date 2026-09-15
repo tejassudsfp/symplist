@@ -297,6 +297,10 @@ export class TaskService {
         const archived = new Map(cached.archived);
         for (const record of [...roots, ...members]) archived.set(record.id, record);
         this.cache?.set({ ...cached, archived });
+      } else if (cached) {
+        // This read proved the entry stale (another api instance or the worker wrote), so the cache
+        // must not keep serving it for the rest of its TTL (decision WS2).
+        this.cache?.delete(input.ownerId);
       }
       return buildArchivePage({
         roots,

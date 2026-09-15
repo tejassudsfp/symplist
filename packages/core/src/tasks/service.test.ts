@@ -993,6 +993,44 @@ describe("reads", () => {
     ).rejects.toMatchObject({ field: "cursor" });
     void ids;
   });
+
+  it("evicts a tree cache entry an archive read proves stale (decision WS2)", async () => {
+    const owner = await insertUser();
+    const cache = new MemoryTaskTreeCache({ now });
+    const tasks = new TaskService({
+      db,
+      keys,
+      policy: { betaAccessRequired: true },
+      now,
+      cache,
+      archiveContributors: [],
+    });
+    const id = await create(tasks, owner, "Book the pottery class", { collection: "later" });
+    clock += 1;
+    await tasks.complete({ ownerId: owner, taskId: id, mode: "all", stopRun: false });
+    const cachedVersion = cache.get(owner)?.version;
+    expect(cachedVersion).toBeDefined();
+
+    // A read at the cached version keeps the entry and folds the archived rows into it.
+    await tasks.listArchive({ ownerId: owner });
+    expect(cache.get(owner)?.version).toBe(cachedVersion);
+    expect(cache.get(owner)?.archived.has(id)).toBe(true);
+
+    // Another api instance or the worker moves the version; this process saw no commit.
+    await db.batch([
+      sql(
+        `UPDATE users SET task_tree_version = task_tree_version + 1, task_tree_write_id = :w
+         WHERE id = :id`,
+        { id: owner, w: uuidv7(clock) },
+      ),
+    ]);
+    expect(cache.get(owner)?.version).toBe(cachedVersion);
+
+    await tasks.listArchive({ ownerId: owner });
+    expect(cache.get(owner)).toBeUndefined();
+    // The next read is served from D1 at the version the other writer left behind.
+    expect((await tasks.state(owner)).version).toBe((cachedVersion as number) + 1);
+  });
 });
 
 describe("the tree cache budget (§3.3)", () => {
