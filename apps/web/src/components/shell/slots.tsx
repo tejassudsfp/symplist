@@ -11,11 +11,14 @@ export interface ShellIdentity {
 }
 
 /**
- * Content features plug into the shell frame. Every slot is optional; the shell renders empty-state
- * placeholders until a feature supplies data.
+ * Content features plug into the shell frame. Every slot is optional: a missing slot leaves its area
+ * empty, except the task list, which shows its empty state. In the app, `FeatureSlots`
+ * (`feature-slots.tsx`) fills the slots with each feature's seam component.
  */
 export interface ShellSlots {
   readonly identity?: ShellIdentity | null;
+  /** Top bar, beside the Vault link: the Vault's lock status (vault feature). */
+  readonly vaultStatus?: ReactNode;
   /** Top bar, right side: the notification control (scheduling feature). */
   readonly notificationControl?: ReactNode;
   /** Top bar: "Simon is working on …" while a run is active elsewhere (Simon feature). */
@@ -24,6 +27,12 @@ export interface ShellSlots {
   readonly inbox?: (collection: CollectionId) => ReactNode;
   /** Task page header controls: title, completion, view switch, menu (documents and workspace). */
   readonly taskHeader?: (taskId: string) => ReactNode;
+  /**
+   * The selected task's page in the page frame (documents feature), rendered before the route's own
+   * content. Task routes render nothing themselves, so the page keeps its state when the task moves
+   * to another collection.
+   */
+  readonly page?: (taskId: string) => ReactNode;
   /** Task chat content and composer (Simon feature). */
   readonly chat?: (taskId: string) => ReactNode;
   /** Chat header subtitle, normally the task title. */
@@ -35,6 +44,13 @@ export interface ShellSlots {
   readonly chatStatus?: (taskId: string) => string | null;
   /** Bottom-right floating quick chat, shown only when no task is selected (decision D1). */
   readonly quickChat?: ReactNode;
+  /**
+   * The command palette (search feature), mounted once inside the action registry and kept mounted
+   * when the route moves between the workspace and other pages.
+   */
+  readonly commandPalette?: ReactNode;
+  /** The analytics consent banner (analytics feature), mounted once like the palette. */
+  readonly consentBanner?: ReactNode;
 }
 
 const ShellSlotsContext = createContext<ShellSlots>({});

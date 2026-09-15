@@ -88,12 +88,12 @@ function ProfileMenu() {
 }
 
 /**
- * The restrained top bar (overall.md): profile control at top left with Vault beside it, then slots
- * for the running indicator and the notification control. The Vault link is a full document
- * navigation into its excluded route group and never names items (§15, profile_menu.md).
+ * The restrained top bar (overall.md): profile control at top left with Vault and its status beside
+ * it, then slots for the running indicator and the notification control. The Vault link is a full
+ * document navigation into its excluded route group and never names items (§15, profile_menu.md).
  */
 export function TopBar() {
-  const { runningIndicator, notificationControl } = useShellSlots();
+  const { vaultStatus, runningIndicator, notificationControl } = useShellSlots();
   return (
     <header className="sym-topbar">
       <ProfileMenu />
@@ -101,6 +101,9 @@ export function TopBar() {
         <LockIcon />
         <span>Vault</span>
       </a>
+      <div className="sym-topbar-slot" data-slot="vault-status">
+        {vaultStatus}
+      </div>
       <div className="sym-topbar-spacer" />
       <div className="sym-topbar-slot" data-slot="running-indicator">
         {runningIndicator}

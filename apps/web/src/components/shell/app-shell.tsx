@@ -8,6 +8,7 @@ import type { ActionServices, AppAction, ShellController } from "@/actions/types
 import { useAnnouncer } from "@/components/ui/status-announcer";
 import type { ThemeId } from "@/theme/registry";
 import { isExcludedRoute, parseWorkspaceRoute } from "./routes.ts";
+import { useShellSlots } from "./slots.tsx";
 import { TopBar } from "./top-bar.tsx";
 import { INBOX_TITLE_ID, MAIN_ID, Workspace } from "./workspace.tsx";
 
@@ -41,12 +42,14 @@ export interface AppShellProps {
 /**
  * The signed-in app frame: a skip link, the top bar, and either the workspace (Now, Later,
  * Unclassified and their tasks) or a plain main region for settings, archive and administration.
- * It owns the keyboard action registry for everything inside it.
+ * It owns the keyboard action registry for everything inside it, and mounts the command palette and
+ * consent banner once, outside the route-dependent body, so neither remounts on navigation.
  */
 export function AppShell({ children, actions = actionRegistry, themeId }: AppShellProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { announce } = useAnnouncer();
+  const { commandPalette, consentBanner } = useShellSlots();
   const controllerRef = useRef<ShellController | null>(null);
 
   const route = useMemo(() => parseWorkspaceRoute(pathname), [pathname]);
@@ -95,6 +98,12 @@ export function AppShell({ children, actions = actionRegistry, themeId }: AppShe
               {children}
             </main>
           )}
+        </div>
+        <div className="contents" data-slot="command-palette">
+          {commandPalette}
+        </div>
+        <div className="contents" data-slot="consent-banner">
+          {consentBanner}
         </div>
       </div>
     </ActionsProvider>

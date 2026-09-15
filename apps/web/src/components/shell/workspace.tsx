@@ -238,7 +238,10 @@ function PageFrame({
         </button>
       </div>
       <div className="sym-page-scroll">
-        <div className="sym-sheet">{children}</div>
+        <div className="sym-sheet">
+          {slots.page?.(taskId)}
+          {children}
+        </div>
       </div>
       {chatCollapsed ? (
         <button
@@ -313,17 +316,7 @@ function ChatFrame({
           </button>
         </HintTooltip>
       </div>
-      <div className="flex min-h-0 flex-1 flex-col overflow-auto p-3.5">
-        {slots.chat ? (
-          slots.chat(taskId)
-        ) : (
-          <EmptyState
-            align="center"
-            title="No messages yet"
-            description="Ask Simon about this task. He reads the page one section at a time and can update it for you."
-          />
-        )}
-      </div>
+      <div className="flex min-h-0 flex-1 flex-col overflow-auto p-3.5">{slots.chat?.(taskId)}</div>
     </aside>
   );
 }

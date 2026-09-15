@@ -15,16 +15,3 @@ export function CollectionHome({ collection }: { collection: CollectionId }) {
     </>
   );
 }
-
-/** The task page area before the documents feature supplies the editor (sample empty document). */
-export function TaskPageHome() {
-  return (
-    <>
-      <h1 className="sr-only">Task page</h1>
-      <EmptyState
-        title="Nothing on this page yet"
-        description="Start writing, or ask Simon to draft a first section."
-      />
-    </>
-  );
-}
