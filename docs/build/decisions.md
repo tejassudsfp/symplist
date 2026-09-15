@@ -49,6 +49,7 @@ Build defaults recorded when architecture review 1 (`docs/build/reviews/architec
 | R11 | **One-time secrets are never replayable.** Invite codes, API keys, share tokens and OAuth codes appear only in the minting response; idempotency records keep a redacted outcome, and retries return `secretUnavailable: true` with a revoke-and-replace path. | Build default | Notes 04 and 16 (show once) |
 | R12 | **Account deletion is an immediate crypto-shred** (deleting the account key row in the same batch as the restriction), followed by an idempotent purge of Composio accounts (revoked upstream), R2 objects, D1 rows and PostHog data. Residual window: D1 Time Travel retains prior states for 30 days; R2 is unversioned; Trigger holds no content (decision R2); PostHog deletion is asynchronous. | Build default | P4; settings account brief (deletion process) |
 | R13 | **Admin bootstrap runs once**, only while no admin and no bootstrap event exist, and never clears suspension or relock; re-bootstrapping needs an explicit forced CLI run with actor and reason. | Build default | Note 04 (bootstrap first administrator) |
+| R14 | **Resend delivery webhooks are optional.** The webhook is implemented and recommended, but `RESEND_WEBHOOK_SECRET` is not required: without it the endpoint returns 404, deliveries stop at `accepted`, bounce/complaint suppression is off, and the bounced-address settings state is hidden (architecture §12.5). | Confirmed | Note 15 (permanent failure suppression) |
 
 ## Product behavior defaults (task_actions, archive, calendar briefs)
 

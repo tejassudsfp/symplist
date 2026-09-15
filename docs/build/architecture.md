@@ -711,6 +711,7 @@ Restore, unlock, Restore access and channel re-enable never un-cancel anything; 
 ### 12.5 Email webhooks
 
 - `POST /webhooks/resend` verifies with `resend.webhooks.verify({ payload: req.rawBody.toString('utf8'), headers: { id, timestamp, signature }, webhookSecret: RESEND_WEBHOOK_SECRET })`, rejects failures with 400 without logging the body, records `svix-id` in `webhook_receipts` in the same batch as its effect, orders by the event's `created_at`, and subscribes only to `email.delivered`, `email.bounced`, `email.complained`, `email.failed`, `email.suppressed` and `email.delivery_delayed`. Only a Permanent bounce or a complaint adds a suppression.
+- `RESEND_WEBHOOK_SECRET` is optional (decision R14). When it is unset, `POST /webhooks/resend` returns 404 and records nothing, outbox rows stop at `accepted` (never `delivered`, `bounced` or `uncertain`-resolved), no automatic suppressions are added, the provider-uncertain reconciliation leaves such rows `uncertain` for operator review, and Settings → Notifications hides the bounced-address state. Startup logs one warning that delivery tracking is disabled.
 
 ## 13. Sharing and handoff
 
