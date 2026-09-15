@@ -23,6 +23,8 @@ export interface DispatchIntentRecord {
   readonly createdAt: number;
   readonly updatedAt: number;
   readonly dispatchedAt: number | null;
+  /** When the dispatcher last began running the intent in the api process (local mode), if ever. */
+  readonly localStartedAt: number | null;
   readonly writeId: string;
 }
 
@@ -34,7 +36,7 @@ export interface DispatchClaim {
 }
 
 const columns =
-  "id, owner_id, kind, subject_id, status, executor, executor_generation, trigger_run_id, attempts, created_at, updated_at, dispatched_at, write_id";
+  "id, owner_id, kind, subject_id, status, executor, executor_generation, trigger_run_id, attempts, created_at, updated_at, dispatched_at, local_started_at, write_id";
 
 /** The executor generation inside a feature's accept batch (§8.1). */
 export const CURRENT_EXECUTOR_GENERATION_SQL =
@@ -62,6 +64,10 @@ function toRecord(row: DbRow): DispatchIntentRecord {
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
     dispatchedAt: row.dispatched_at === null ? null : Number(row.dispatched_at),
+    localStartedAt:
+      row.local_started_at === null || row.local_started_at === undefined
+        ? null
+        : Number(row.local_started_at),
     writeId: String(row.write_id),
   });
 }
@@ -198,8 +204,59 @@ export class DispatchIntentRepository {
   }
 
   /**
+   * Records, conditional on a local claim, that the intent is about to run in the api process: the
+   * local executor's idempotency guard (§8.1). Returns the claim to continue with (its write id
+   * changed), or null when the claim was lost or the intent already carries a start.
+   */
+  async markLocalStart(
+    claim: DispatchClaim,
+    input: { readonly now: number },
+  ): Promise<DispatchClaim | null> {
+    if (claim.executor !== "local") throw new Error("Only a local claim starts in process");
+    const writeId = newWriteId();
+    const results = await this.db.batch([
+      sql(
+        `UPDATE dispatch_intents
+         SET local_started_at = :now, updated_at = :now, write_id = :w
+         WHERE id = :id AND write_id = :claim AND status = 'pending' AND executor = 'local'
+           AND trigger_run_id IS NULL AND local_started_at IS NULL`,
+        { now: int(input.now), w: writeId, id: claim.intent.id, claim: claim.writeId },
+      ),
+      sql(`SELECT ${columns} FROM dispatch_intents WHERE id = :id AND write_id = :w`, {
+        id: claim.intent.id,
+        w: writeId,
+      }),
+    ]);
+    const row = verifiedRow(results);
+    return row ? { intent: toRecord(row), executor: "local", writeId } : null;
+  }
+
+  /**
+   * Clears the start marker of a local claim whose start failed before any job code ran, so a later
+   * pass starts the intent. False when the claim moved on (the marker then stays, and the intent is
+   * never started in process again).
+   */
+  async releaseLocalStart(claim: DispatchClaim, input: { readonly now: number }): Promise<boolean> {
+    const writeId = newWriteId();
+    const results = await this.db.batch([
+      sql(
+        `UPDATE dispatch_intents
+         SET local_started_at = NULL, updated_at = :now, write_id = :w
+         WHERE id = :id AND write_id = :claim AND status = 'pending'`,
+        { now: int(input.now), w: writeId, id: claim.intent.id, claim: claim.writeId },
+      ),
+      sql(`SELECT id FROM dispatch_intents WHERE id = :id AND write_id = :w`, {
+        id: claim.intent.id,
+        w: writeId,
+      }),
+    ]);
+    return verifiedRow(results) !== null;
+  }
+
+  /**
    * Marks a claimed intent dispatched and stores its Trigger run id, conditional on the claim's write
-   * id. False when another claim took over (the Trigger idempotency key keeps that harmless).
+   * id. False when another claim took over (the Trigger idempotency key, or the local start marker,
+   * keeps that harmless).
    */
   async markDispatched(
     claim: DispatchClaim,

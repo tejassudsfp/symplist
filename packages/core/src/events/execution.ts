@@ -105,7 +105,11 @@ export interface ExecutionTracker {
     readonly after?: string;
     readonly ownerId?: string;
   }): Promise<readonly ActiveExecution[]>;
-  /** Records which executor took the subject and its Trigger run id, after the intent is dispatched. */
+  /**
+   * Records which executor took the subject and its Trigger run id: after the intent is dispatched to
+   * Trigger, or, for the local executor, just before the job starts in process (so a start lost with
+   * its api is reconciled). Idempotent: the dispatcher may record the same dispatch again.
+   */
   recordDispatch(
     subjectId: string,
     dispatch: {

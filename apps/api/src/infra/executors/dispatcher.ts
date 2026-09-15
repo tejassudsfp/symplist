@@ -1,8 +1,16 @@
-import { type ExecutionJob, executorKindFor } from "@symplist/core/events";
+import {
+  type ExecutionJob,
+  type ExecutionKindDefinition,
+  executorKindFor,
+} from "@symplist/core/events";
 import { errorCode, type OperationalLog, type RuntimeTimers } from "../scheduler/runtime.ts";
-import type { DispatchIntentRecord, DispatchIntentRepository } from "./dispatch-intents.ts";
+import type {
+  DispatchClaim,
+  DispatchIntentRecord,
+  DispatchIntentRepository,
+} from "./dispatch-intents.ts";
 import type { ExecutionRegistry } from "./execution-registry.ts";
-import type { Executor } from "./executor.ts";
+import type { Executor, StartedExecution } from "./executor.ts";
 import type { ExecutorStateReader } from "./executor-state.ts";
 
 export interface DispatchReport {
@@ -32,6 +40,14 @@ const emptyReport: DispatchReport = { considered: 0, dispatched: 0, failed: 0, s
  * Picks pending dispatch intents after commit (§8.1): reads the executor generation fresh, claims
  * each intent with a write id, starts it on the configured executor and stores the Trigger run id.
  * Only the executor of the configured mode is ever called.
+ *
+ * An intent starts at most one execution even when its dispatch outcome is lost (a failed
+ * `markDispatched`, or a claim another pass took over after the lease): durable work relies on
+ * Trigger's idempotency key (the subject id), and local work on a start marker written to the intent,
+ * conditional on the claim, before the job runs. A claimed intent that already carries the marker is
+ * marked dispatched without starting again; if its api died before the job ran, the reconciler
+ * interrupts the subject for want of a heartbeat, because the subject records the local executor
+ * before the job starts.
  */
 export class ExecutionDispatcher {
   private running: Promise<DispatchReport> | undefined;
@@ -140,9 +156,22 @@ export class ExecutionDispatcher {
           ownerId: intent.ownerId,
           generation: readiness.generation,
         };
-        const started = await executor.start(job, definition, claim.intent.triggerRunId);
+        let dispatchClaim: DispatchClaim = claim;
+        let started: StartedExecution;
+        if (executor.kind === "local") {
+          const local = await this.startLocally(claim, job, definition);
+          if (!local) {
+            skipped += 1;
+            log.warn("executor.dispatch_claim_lost", { kind: intent.kind, intentId: intent.id });
+            continue;
+          }
+          dispatchClaim = local.claim;
+          started = local.started;
+        } else {
+          started = await executor.start(job, definition, claim.intent.triggerRunId);
+        }
         const now = timers.now();
-        const marked = await repository.markDispatched(claim, {
+        const marked = await repository.markDispatched(dispatchClaim, {
           triggerRunId: started.triggerRunId,
           now,
         });
@@ -151,12 +180,15 @@ export class ExecutionDispatcher {
           log.warn("executor.dispatch_claim_lost", { kind: intent.kind, intentId: intent.id });
           continue;
         }
-        await registry.tracker(intent.kind)?.recordDispatch(intent.subjectId, {
-          executor: started.executor,
-          triggerRunId: started.triggerRunId,
-          generation: readiness.generation,
-          now,
-        });
+        // Local subjects recorded their executor before the job started.
+        if (executor.kind !== "local") {
+          await registry.tracker(intent.kind)?.recordDispatch(intent.subjectId, {
+            executor: started.executor,
+            triggerRunId: started.triggerRunId,
+            generation: readiness.generation,
+            now,
+          });
+        }
         dispatched += 1;
         log.info("executor.dispatched", {
           kind: intent.kind,
@@ -176,6 +208,58 @@ export class ExecutionDispatcher {
       }
     }
     return { considered: intents.length, dispatched, failed, skipped };
+  }
+
+  /**
+   * Starts a claimed intent in the api process at most once (§8.1). An intent that already carries the
+   * start marker landed on the execution an earlier pass started, so it is not started again. Otherwise
+   * the marker is written (conditional on the claim), the subject records the local executor, and only
+   * then the job starts; a start that throws before any job code ran clears the marker again. Returns
+   * null when the claim was lost before the marker was written.
+   */
+  private async startLocally(
+    claim: DispatchClaim,
+    job: ExecutionJob,
+    definition: ExecutionKindDefinition,
+  ): Promise<{ readonly claim: DispatchClaim; readonly started: StartedExecution } | null> {
+    const { repository, registry, executor, timers, log } = this.options;
+    const tracker = registry.tracker(job.kind);
+    const recordLocal = () =>
+      tracker?.recordDispatch(job.subjectId, {
+        executor: "local",
+        triggerRunId: null,
+        generation: job.generation,
+        now: timers.now(),
+      });
+    if (claim.intent.localStartedAt !== null) {
+      log.info("executor.dispatch_deduplicated", {
+        kind: job.kind,
+        intentId: job.intentId,
+        subjectId: job.subjectId,
+        executor: "local",
+      });
+      await recordLocal();
+      return { claim, started: { executor: "local", triggerRunId: null } };
+    }
+    const marked = await repository.markLocalStart(claim, { now: timers.now() });
+    if (!marked) return null;
+    try {
+      await recordLocal();
+      return { claim: marked, started: await executor.start(job, definition, null) };
+    } catch (error) {
+      try {
+        await repository.releaseLocalStart(marked, { now: timers.now() });
+      } catch (releaseError) {
+        // The marker stays: the intent is never started in process, and the reconciler interrupts
+        // its subject once it has gone without a heartbeat.
+        log.warn("executor.local_start_release_failed", {
+          kind: job.kind,
+          intentId: job.intentId,
+          code: errorCode(releaseError),
+        });
+      }
+      throw error;
+    }
   }
 
   /**

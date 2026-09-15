@@ -392,6 +392,131 @@ describe("dispatch in local mode", () => {
     expect((await dispatcher.dispatchPending()).considered).toBe(0);
   });
 
+  function localDispatch(h: Harness) {
+    const handler = vi.fn<LocalExecutionHandler>(async () => undefined);
+    h.registry.registerLocalHandler("simon_run", handler);
+    const local = new LocalExecutor({ registry: h.registry, timers: h.clock, log: h.log });
+    const dispatcher = new ExecutionDispatcher({
+      repository: h.repository,
+      state: h.state,
+      registry: h.registry,
+      executor: local,
+      timers: h.clock,
+      log: h.log,
+      claimLeaseMs: 60_000,
+    });
+    return { handler, local, dispatcher };
+  }
+
+  it("never starts a finished local job again after marking its intent dispatched failed", async () => {
+    const h = await track(harness("local"));
+    const { handler, dispatcher } = localDispatch(h);
+    const { id, subjectId } = await addIntent(h.db);
+    h.tracker.add(subjectId, { ownerId: OWNER, executor: null, status: "queued" });
+    const markDispatched = vi
+      .spyOn(h.repository, "markDispatched")
+      .mockRejectedValueOnce(Object.assign(new Error("lost"), { code: "db.unknown_outcome" }));
+
+    expect((await dispatcher.dispatchPending()).failed).toBe(1);
+    await h.clock.advance(0);
+    expect(handler).toHaveBeenCalledTimes(1);
+    // The job finished; its intent is still pending behind the claim.
+    expect(await intentRow(h.db, id)).toMatchObject({ status: "pending", executor: "local" });
+
+    await h.clock.advance(60_000);
+    expect(await dispatcher.dispatchPending()).toMatchObject({ dispatched: 1, failed: 0 });
+    await h.clock.advance(0);
+    markDispatched.mockRestore();
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(await intentRow(h.db, id)).toMatchObject({ status: "dispatched", executor: "local" });
+    expect(h.log.events()).toContain("executor.dispatch_deduplicated");
+    expect((await dispatcher.dispatchPending()).considered).toBe(0);
+  });
+
+  it("never starts a local job again when its claim was lost after it started", async () => {
+    const h = await track(harness("local"));
+    const { handler, dispatcher } = localDispatch(h);
+    const { subjectId } = await addIntent(h.db);
+    h.tracker.add(subjectId, { ownerId: OWNER, executor: null, status: "queued" });
+    vi.spyOn(h.repository, "markDispatched").mockResolvedValueOnce(false);
+
+    expect((await dispatcher.dispatchPending()).skipped).toBe(1);
+    await h.clock.advance(60_000);
+    await dispatcher.dispatchPending();
+    await h.clock.advance(60_000);
+    await dispatcher.dispatchPending();
+    await h.clock.advance(0);
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it("records the local executor on the subject before starting, so a start lost with its api is interrupted", async () => {
+    const h = await track(harness("local"));
+    const { handler, local, dispatcher } = localDispatch(h);
+    const { id, subjectId } = await addIntent(h.db);
+    h.tracker.add(subjectId, {
+      ownerId: OWNER,
+      executor: null,
+      status: "queued",
+      createdAt: h.clock.now(),
+    });
+    // An api that wrote the start marker and died before running the job.
+    await h.db.run(
+      sql(
+        `UPDATE dispatch_intents
+         SET executor = 'local', local_started_at = :now, updated_at = :stale, write_id = :w
+         WHERE id = :id`,
+        { now: int(h.clock.now()), stale: int(h.clock.now() - 60_000), w: newWriteId(), id },
+      ),
+    );
+    expect((await dispatcher.dispatchPending()).dispatched).toBe(1);
+    await h.clock.advance(0);
+    expect(handler).not.toHaveBeenCalled();
+    expect(h.tracker.runs.get(subjectId)).toMatchObject({ executor: "local", status: "queued" });
+
+    const reconciler = new ExecutionReconciler({
+      state: h.state,
+      repository: h.repository,
+      registry: h.registry,
+      dispatcher,
+      local,
+      timers: h.clock,
+      log: h.log,
+    });
+    await h.clock.advance(60_000);
+    await reconciler.reconcileOnce();
+    expect(h.tracker.runs.get(subjectId)).toMatchObject({
+      status: "interrupted",
+      outcomeCode: "executor_lost",
+    });
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("forgets the start marker when the local start fails before running, so a later pass starts it", async () => {
+    const h = await track(harness("local"));
+    const local = new LocalExecutor({ registry: h.registry, timers: h.clock, log: h.log });
+    const dispatcher = new ExecutionDispatcher({
+      repository: h.repository,
+      state: h.state,
+      registry: h.registry,
+      executor: local,
+      timers: h.clock,
+      log: h.log,
+      claimLeaseMs: 60_000,
+    });
+    const { id, subjectId } = await addIntent(h.db);
+    h.tracker.add(subjectId, { ownerId: OWNER, executor: null, status: "queued" });
+    // No handler registered yet: the start throws before any job code runs.
+    expect((await dispatcher.dispatchPending()).failed).toBe(1);
+    expect(await intentRow(h.db, id)).toMatchObject({ status: "pending", local_started_at: null });
+
+    const handler = vi.fn<LocalExecutionHandler>(async () => undefined);
+    h.registry.registerLocalHandler("simon_run", handler);
+    await h.clock.advance(60_000);
+    expect((await dispatcher.dispatchPending()).dispatched).toBe(1);
+    await h.clock.advance(0);
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
   it("refuses to pair a local configuration with the Trigger executor", async () => {
     const h = await track(harness("local"));
     expect(
