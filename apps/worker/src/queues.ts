@@ -1,3 +1,4 @@
+import { D1_BUDGET, workerProcessRate } from "@symplist/db";
 import { queue } from "@trigger.dev/sdk";
 
 /**
@@ -14,3 +15,16 @@ export const reminderScan = queue({ name: "reminder-scan", concurrencyLimit: 1 }
 
 /** Every queue in the D1 family. */
 export const d1QueueFamily = [d1, d1Git, reminderScan] as const;
+
+/** N: the most D1-using task processes that can run at once across the family. */
+export const d1QueueFamilyConcurrency: number = d1QueueFamily.reduce(
+  (sum, family) => sum + (family.concurrencyLimit ?? 0),
+  0,
+);
+
+/** Each worker process's sustained D1 rate: `1 req/s ÷ N` (§3.1). */
+export const workerD1RatePerProcess: number = workerProcessRate(d1QueueFamilyConcurrency);
+
+if (d1QueueFamilyConcurrency !== D1_BUDGET.worker.familyConcurrency) {
+  throw new Error("The D1 queue family and the worker D1 budget disagree on N");
+}

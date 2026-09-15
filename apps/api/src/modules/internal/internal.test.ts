@@ -1,0 +1,810 @@
+import { Module } from "@nestjs/common";
+import type { NestExpressApplication } from "@nestjs/platform-express";
+import type { AccessState, ConversationId } from "@symplist/contracts";
+import { conversationTopic } from "@symplist/contracts";
+import {
+  INTERNAL_CONTENT_TYPE,
+  INTERNAL_EVENTS_PATH,
+  type InternalEventHandler,
+  type RunLifecycleStatus,
+  type RunRelaySource,
+  runOutputPath,
+} from "@symplist/core/events";
+import {
+  type AccountDataKey,
+  computeInternalSignature,
+  createAccountKey,
+  createKeyProvider,
+  encryptFieldText,
+  generateToken,
+  type ManagedKeyProvider,
+  runChunkContext,
+  signInternalRequest,
+} from "@symplist/crypto";
+import {
+  applyMigrations,
+  createLocalSqliteClient,
+  type DbClient,
+  int,
+  type LocalSqliteClient,
+  newWriteId,
+  sql,
+  uuidv7,
+} from "@symplist/db";
+import { FakeClock } from "@symplist/testing";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
+import { createApp } from "../../app.ts";
+import type { ExecutorStateReader } from "../../infra/executors/executor-state.ts";
+import { ExecutorsModule } from "../../infra/executors/executors.module.ts";
+import type { OperationalLog, OperationalLogFields } from "../../infra/scheduler/runtime.ts";
+import { AuthWsAdapter } from "../realtime/auth-ws.adapter.ts";
+import { RealtimeModule } from "../realtime/realtime.module.ts";
+import { TopicHub } from "../realtime/topic-hub.ts";
+import { TopicRegistry } from "../realtime/topic-registry.ts";
+import type { AccountKeyReader } from "./account-keys.ts";
+import { InternalModule } from "./internal.module.ts";
+import { InternalEventHandlerRegistry } from "./internal-event-handlers.ts";
+import { InternalEventsController } from "./internal-events.controller.ts";
+import { internalRouteClasses } from "./internal-route-classes.ts";
+import { EventIdMemory } from "./replay-memory.ts";
+import { RunOutputController } from "./run-output.controller.ts";
+import { RunOutputRelay } from "./run-output.relay.ts";
+import { recordWebhookDelivery, webhookReceiptBatch } from "./webhook-receipts.ts";
+
+/* ------------------------------------------------------------------------------------------------
+ * Fixtures
+ * --------------------------------------------------------------------------------------------- */
+
+const MARKER = "MARKER-2b91-run-output-plaintext";
+const secret = (seed: number) => Buffer.alloc(32, seed).toString("base64url");
+const SECRET_V1 = secret(11);
+const SECRET_V2 = secret(12);
+
+class Log implements OperationalLog {
+  readonly lines: string[] = [];
+  info(event: string, fields?: OperationalLogFields) {
+    this.lines.push(JSON.stringify({ event, ...fields }));
+  }
+  warn(event: string, fields?: OperationalLogFields) {
+    this.lines.push(JSON.stringify({ event, ...fields }));
+  }
+  error(event: string, fields?: OperationalLogFields) {
+    this.lines.push(JSON.stringify({ event, ...fields }));
+  }
+}
+
+const admitted: AccessState = {
+  emailVerifiedAt: 1,
+  betaState: "unlocked",
+  suspendedAt: null,
+  onboardingStep: "done",
+  role: "member",
+  accessGeneration: 1,
+  accessEpoch: 0,
+  deletionState: "none",
+};
+
+class FakeRuns implements RunRelaySource {
+  readonly runs = new Map<
+    string,
+    { ownerId: string; conversationId: string; status: RunLifecycleStatus; generation: number }
+  >();
+  ownershipCalls = 0;
+  stateCalls = 0;
+
+  async ownership(runId: string) {
+    this.ownershipCalls += 1;
+    const run = this.runs.get(runId);
+    return run ? { runId, ownerId: run.ownerId, conversationId: run.conversationId } : null;
+  }
+
+  async state(runId: string) {
+    this.stateCalls += 1;
+    const run = this.runs.get(runId);
+    return run ? { status: run.status, executorGeneration: run.generation } : null;
+  }
+}
+
+interface Harness {
+  app: NestExpressApplication;
+  base: string;
+  db: LocalSqliteClient;
+  clock: FakeClock;
+  keys: ManagedKeyProvider;
+  log: Log;
+  runs: FakeRuns;
+  hub: TopicHub;
+  handlers: InternalEventHandlerRegistry;
+}
+
+const harnesses: Harness[] = [];
+afterEach(async () => {
+  for (const harness of harnesses.splice(0)) {
+    await harness.app.close();
+    harness.db.close();
+  }
+});
+
+async function start(): Promise<Harness> {
+  const db = createLocalSqliteClient({ path: ":memory:", env: { NODE_ENV: "test" } });
+  await applyMigrations(db);
+  await db.run(sql("UPDATE executor_state SET mode = 'durable', generation = 3 WHERE id = 1"));
+  const clock = new FakeClock(Date.UTC(2026, 8, 15, 10, 0, 0));
+  const keys = createKeyProvider({
+    INTERNAL_EVENT_SECRET: {
+      current: 2,
+      versions: new Map([
+        [1, SECRET_V1],
+        [2, SECRET_V2],
+      ]),
+    },
+    CONTENT_KEK: { current: 1, versions: new Map([[1, secret(21)]]) },
+  });
+  const log = new Log();
+  const runs = new FakeRuns();
+
+  @Module({
+    imports: [
+      ExecutorsModule.forRoot({
+        useFactory: () => ({
+          db,
+          durable: true,
+          trigger: {
+            tasks: { trigger: async () => ({ id: "run_x" }) },
+            runs: {
+              retrieve: async () => ({ id: "x", status: "QUEUED" }),
+              cancel: async () => undefined,
+            },
+          },
+          timers: clock,
+          log,
+          backgroundLoops: false,
+          contributors: [],
+        }),
+      }),
+      RealtimeModule.forRoot({
+        useFactory: () => ({
+          db,
+          sessions: { fromUpgradeRequest: async () => null },
+          access: {
+            satisfies: (state: AccessState, level: string) =>
+              level === "identity" || state.betaState === "unlocked",
+          },
+          allowedOrigins: ["http://localhost:3000"],
+          timers: clock,
+          log,
+          events: { "tasks.changed": z.object({ taskIds: z.array(z.string()) }) },
+        }),
+      }),
+      InternalModule.forRoot({
+        useFactory: () => ({ db, keys, timers: clock, log, runRelaySource: runs }),
+      }),
+    ],
+  })
+  class TestModule {}
+
+  const app = await createApp(TestModule, { logger: ["error"] });
+  app.useWebSocketAdapter(new AuthWsAdapter(app));
+  await app.listen(0, "127.0.0.1");
+  const harness: Harness = {
+    app,
+    base: await app.getUrl(),
+    db,
+    clock,
+    keys,
+    log,
+    runs,
+    hub: app.get(TopicHub),
+    handlers: app.get(InternalEventHandlerRegistry),
+  };
+  harnesses.push(harness);
+  return harness;
+}
+
+interface SignedRequest {
+  readonly path: string;
+  readonly body: Buffer;
+  readonly headers: Record<string, string>;
+}
+
+function signed(
+  h: Harness,
+  path: string,
+  body: unknown,
+  options: { eventId?: string; timestamp?: number; bodyOverride?: Buffer } = {},
+): SignedRequest {
+  const raw = options.bodyOverride ?? Buffer.from(JSON.stringify(body));
+  const headers = signInternalRequest(h.keys, {
+    timestamp: options.timestamp ?? Math.floor(h.clock.now() / 1000),
+    eventId: options.eventId ?? uuidv7(),
+    method: "POST",
+    path,
+    body: raw,
+  });
+  return { path, body: raw, headers: { ...headers, "content-type": INTERNAL_CONTENT_TYPE } };
+}
+
+async function send(h: Harness, request: SignedRequest, extra: Record<string, string> = {}) {
+  const response = await fetch(`${h.base}${request.path}`, {
+    method: "POST",
+    headers: { ...request.headers, ...extra },
+    body: request.body,
+  });
+  return {
+    status: response.status,
+    headers: response.headers,
+    body: (await response.json()) as Record<string, unknown>,
+  };
+}
+
+async function addOwner(
+  db: DbClient,
+  keys: ManagedKeyProvider,
+): Promise<{ ownerId: string; key: AccountDataKey }> {
+  const ownerId = uuidv7();
+  const { key, wrapped } = createAccountKey(keys, ownerId);
+  await db.batch([
+    sql(
+      `INSERT INTO users (id, email, created_at, updated_at, write_id) VALUES (:id, :email, '1', '1', :w)`,
+      { id: ownerId, email: `${ownerId}@example.com`, w: newWriteId() },
+    ),
+    sql(
+      `INSERT INTO account_keys (owner_id, kek_version, wrapped_key, created_at, updated_at, write_id)
+       VALUES (:id, :kek, :wrapped, '1', '1', :w)`,
+      { id: ownerId, kek: int(wrapped.kekVersion), wrapped: wrapped.wrapped, w: newWriteId() },
+    ),
+  ]);
+  return { ownerId, key };
+}
+
+function collect(h: Harness, ownerId: string) {
+  const frames: Record<string, unknown>[] = [];
+  const socket = h.hub.connect(
+    { send: (text) => frames.push(JSON.parse(text)), close: () => undefined, isOpen: () => true },
+    { userId: ownerId, sessionId: uuidv7(), access: admitted },
+  );
+  return { socket, frames };
+}
+
+/* ------------------------------------------------------------------------------------------------
+ * Internal events
+ * --------------------------------------------------------------------------------------------- */
+
+describe("POST /internal/v1/events (§6.2)", () => {
+  let h: Harness;
+  let handled: InternalEventHandler["handle"] & ReturnType<typeof vi.fn>;
+  const owner = "01996d2a-4c00-7000-8000-00000000c0de";
+
+  const event = (overrides: Record<string, unknown> = {}) => ({
+    id: uuidv7(),
+    type: "tasks.changed",
+    ownerId: owner,
+    occurredAt: 1_789_466_400_000,
+    payload: { taskIds: [uuidv7()], taskTreeVersion: 4 },
+    ...overrides,
+  });
+
+  beforeEach(async () => {
+    h = await start();
+    handled = vi.fn(async () => undefined) as never;
+    h.handlers.register({ type: "tasks.changed", handle: handled });
+  });
+
+  it("declares the signed route class for both internal routes and skips IP throttling", () => {
+    expect(internalRouteClasses).toEqual({
+      "POST /internal/v1/events": "signed",
+      "POST /internal/v1/runs/:runId/output": "signed",
+    });
+    for (const controller of [InternalEventsController, RunOutputController]) {
+      expect(Reflect.getMetadata("THROTTLER:SKIPdefault", controller)).toBe(true);
+    }
+  });
+
+  it("dispatches a valid signed event to its handler without the v1 prefix, cookies or CORS", async () => {
+    const body = event();
+    const request = signed(h, INTERNAL_EVENTS_PATH, body, { eventId: body.id });
+    const response = await send(h, request, {
+      cookie: "sym_session=abc",
+      origin: "http://localhost:3000",
+    });
+    expect(response.status).toBe(202);
+    expect(response.body).toEqual({ status: "accepted" });
+    expect(response.headers.get("access-control-allow-origin")).toBeNull();
+    expect(handled).toHaveBeenCalledWith(body);
+    expect((await fetch(`${h.base}/v1${INTERNAL_EVENTS_PATH}`, { method: "POST" })).status).toBe(
+      404,
+    );
+  });
+
+  it("rejects a forged signature, a tampered body and a secret that is not the internal secret", async () => {
+    const body = event();
+    const valid = signed(h, INTERNAL_EVENTS_PATH, body, { eventId: body.id });
+    const forgedKey = Buffer.alloc(32, 99);
+    const forged = {
+      ...valid,
+      headers: {
+        ...valid.headers,
+        "x-sym-signature": computeInternalSignature(forgedKey, {
+          timestamp: Number(valid.headers["x-sym-timestamp"]),
+          eventId: body.id,
+          method: "POST",
+          path: INTERNAL_EVENTS_PATH,
+          body: valid.body,
+        }),
+      },
+    };
+    const tampered = {
+      ...valid,
+      body: Buffer.from(JSON.stringify({ ...body, ownerId: uuidv7() })),
+    };
+    for (const request of [forged, tampered]) {
+      const response = await send(h, request);
+      expect(response.status).toBe(404);
+      expect((response.body.error as { code: string }).code).toBe("not_found");
+    }
+    expect(handled).not.toHaveBeenCalled();
+    expect(h.log.lines.filter((line) => line.includes("invalid_signature"))).toHaveLength(2);
+  });
+
+  it("rejects stale timestamps outside ±300 seconds", async () => {
+    const now = Math.floor(h.clock.now() / 1000);
+    for (const timestamp of [now - 301, now + 301]) {
+      const body = event();
+      expect(
+        (await send(h, signed(h, INTERNAL_EVENTS_PATH, body, { eventId: body.id, timestamp })))
+          .status,
+      ).toBe(404);
+    }
+    const body = event();
+    expect(
+      (
+        await send(
+          h,
+          signed(h, INTERNAL_EVENTS_PATH, body, { eventId: body.id, timestamp: now - 300 }),
+        )
+      ).status,
+    ).toBe(202);
+    expect(h.log.lines.filter((line) => line.includes('"reason":"stale"'))).toHaveLength(2);
+  });
+
+  it("rejects a replayed event id for 10 minutes, even with a fresh signature", async () => {
+    const body = event();
+    const request = signed(h, INTERNAL_EVENTS_PATH, body, { eventId: body.id });
+    expect((await send(h, request)).status).toBe(202);
+    expect((await send(h, request)).status).toBe(404);
+    await h.clock.advance(60_000);
+    expect(
+      (await send(h, signed(h, INTERNAL_EVENTS_PATH, body, { eventId: body.id }))).status,
+    ).toBe(404);
+    expect(handled).toHaveBeenCalledTimes(1);
+    expect(h.log.lines.filter((line) => line.includes('"reason":"replayed"'))).toHaveLength(2);
+  });
+
+  it("remembers an event id until its signature leaves the window, even when signed ahead of the api clock", async () => {
+    const now = Math.floor(h.clock.now() / 1000);
+    const body = event();
+    const request = signed(h, INTERNAL_EVENTS_PATH, body, {
+      eventId: body.id,
+      timestamp: now + 300,
+    });
+    expect((await send(h, request)).status).toBe(202);
+    // Ten minutes later the timestamp is exactly 300 seconds old, so the signature is still fresh.
+    await h.clock.advance(600_000);
+    expect((await send(h, request)).status).toBe(404);
+    await h.clock.advance(999);
+    expect((await send(h, request)).status).toBe(404);
+    await h.clock.advance(1);
+    expect((await send(h, request)).status).toBe(404);
+    expect(handled).toHaveBeenCalledTimes(1);
+    expect(h.log.lines.filter((line) => line.includes('"reason":"replayed"'))).toHaveLength(2);
+    expect(h.log.lines.filter((line) => line.includes('"reason":"stale"'))).toHaveLength(1);
+  });
+
+  it("rejects a key version that is not configured and accepts the previous configured version", async () => {
+    const body = event();
+    const request = signed(h, INTERNAL_EVENTS_PATH, body, { eventId: body.id });
+    const unknown = { ...request, headers: { ...request.headers, "x-sym-key": "3" } };
+    expect((await send(h, unknown)).status).toBe(404);
+    const v1 = {
+      ...request,
+      headers: {
+        ...request.headers,
+        "x-sym-key": "1",
+        "x-sym-signature": computeInternalSignature(Buffer.from(SECRET_V1, "base64url"), {
+          timestamp: Number(request.headers["x-sym-timestamp"]),
+          eventId: body.id,
+          method: "POST",
+          path: INTERNAL_EVENTS_PATH,
+          body: request.body,
+        }),
+      },
+    };
+    expect((await send(h, v1)).status).toBe(202);
+  });
+
+  it("validates media type, body shape, ids-only payloads, the event id binding and the handler type", async () => {
+    const body = event();
+    const wrongType = signed(h, INTERNAL_EVENTS_PATH, body, { eventId: body.id });
+    expect((await send(h, wrongType, { "content-type": "application/json" })).status).toBe(400);
+
+    const freeText = event({ payload: { note: `hello ${MARKER}` } });
+    expect(
+      (await send(h, signed(h, INTERNAL_EVENTS_PATH, freeText, { eventId: freeText.id }))).status,
+    ).toBe(400);
+
+    const mismatched = event();
+    expect(
+      (await send(h, signed(h, INTERNAL_EVENTS_PATH, mismatched, { eventId: uuidv7() }))).status,
+    ).toBe(400);
+
+    const unhandled = event({ type: "notifications.created" });
+    expect(
+      (await send(h, signed(h, INTERNAL_EVENTS_PATH, unhandled, { eventId: unhandled.id }))).status,
+    ).toBe(400);
+
+    const notJson = signed(h, INTERNAL_EVENTS_PATH, null, { bodyOverride: Buffer.from("{nope") });
+    expect((await send(h, notJson)).status).toBe(400);
+
+    const huge = signed(h, INTERNAL_EVENTS_PATH, null, { bodyOverride: Buffer.alloc(70_000, 97) });
+    expect((await send(h, huge)).status).toBe(413);
+    expect(handled).not.toHaveBeenCalled();
+    expect(h.log.lines.join("\n")).not.toContain(MARKER);
+  });
+
+  it("returns 500 when a handler fails and accepts a retry of the same signed request", async () => {
+    handled.mockRejectedValueOnce(
+      Object.assign(new Error(`db down ${MARKER}`), { code: "db.unavailable" }),
+    );
+    const body = event();
+    const request = signed(h, INTERNAL_EVENTS_PATH, body, { eventId: body.id });
+    const failed = await send(h, request);
+    expect(failed.status).toBe(500);
+    expect(JSON.stringify(failed.body)).not.toContain(MARKER);
+    expect((await send(h, request)).status).toBe(202);
+    expect(handled).toHaveBeenCalledTimes(2);
+    expect(h.log.lines.join("\n")).not.toContain(MARKER);
+  });
+});
+
+describe("event id replay memory", () => {
+  it("expires ids after 10 minutes and fails closed when full", async () => {
+    const clock = new FakeClock(0);
+    const memory = new EventIdMemory(clock, { capacity: 2 });
+    expect(memory.reserve("a")).toBe("reserved");
+    expect(memory.reserve("a")).toBe("replayed");
+    expect(memory.reserve("b")).toBe("reserved");
+    expect(memory.reserve("c")).toBe("full");
+    await clock.advance(600_000);
+    expect(memory.reserve("a")).toBe("reserved");
+    memory.release("a");
+    expect(memory.reserve("a")).toBe("reserved");
+  });
+
+  it("keeps an id until the end of its signature window when that is later than 10 minutes", async () => {
+    const clock = new FakeClock(0);
+    const memory = new EventIdMemory(clock);
+    expect(memory.reserve("early", 601_000)).toBe("reserved");
+    await clock.advance(600_000);
+    expect(memory.reserve("early", 601_000)).toBe("replayed");
+    await clock.advance(1_000);
+    expect(memory.reserve("early", 1_201_000)).toBe("reserved");
+  });
+});
+
+/* ------------------------------------------------------------------------------------------------
+ * Run output
+ * --------------------------------------------------------------------------------------------- */
+
+describe("POST /internal/v1/runs/:runId/output (§8.2)", () => {
+  let h: Harness;
+  let owner: { ownerId: string; key: AccountDataKey };
+  let runId: string;
+  let conversationId: ConversationId;
+
+  const chunks = (text: string) => [
+    { type: "text-start", id: "t1" },
+    { type: "text-delta", id: "t1", delta: text },
+  ];
+
+  function envelopeFor(
+    key: AccountDataKey,
+    ownerId: string,
+    run: string,
+    seq: number,
+    content: unknown,
+  ): string {
+    return encryptFieldText(key, runChunkContext(ownerId, run, seq), JSON.stringify(content));
+  }
+
+  function output(
+    seq: number,
+    content: unknown = chunks(`${MARKER}-${seq}`),
+    overrides: Record<string, unknown> = {},
+    path = runOutputPath(runId),
+  ) {
+    const body = {
+      runId,
+      attempt: 1,
+      seq,
+      envelope: envelopeFor(owner.key, owner.ownerId, runId, seq, content),
+      ...overrides,
+    };
+    return signed(h, path, body);
+  }
+
+  beforeEach(async () => {
+    h = await start();
+    owner = await addOwner(h.db, h.keys);
+    runId = uuidv7();
+    conversationId = uuidv7() as ConversationId;
+    h.runs.runs.set(runId, {
+      ownerId: owner.ownerId,
+      conversationId,
+      status: "running",
+      generation: 3,
+    });
+    h.app.get(TopicRegistry).registerAuthorizer({
+      kind: "conversation",
+      authorize: async (socket, topic) =>
+        socket.userId === h.runs.runs.get(runId)?.ownerId &&
+        topic.conversationId === conversationId,
+    });
+  });
+
+  it("decrypts, relays each chunk on the conversation topic to the owner and buffers it for replay", async () => {
+    const { socket, frames } = collect(h, owner.ownerId);
+    await h.hub.subscribeConversation(socket, conversationTopic(conversationId), null);
+    const intruder = collect(h, uuidv7());
+
+    const response = await send(h, output(0));
+    expect(response).toMatchObject({ status: 202, body: { status: "accepted", relayed: 2 } });
+    const events = frames.filter((frame) => frame.t === "ev");
+    expect(events.map((frame) => frame.type)).toEqual(["chunk", "chunk"]);
+    expect(events[1]).toMatchObject({
+      topic: conversationTopic(conversationId),
+      data: { runId, chunk: { type: "text-delta", delta: `${MARKER}-0` } },
+    });
+    expect(intruder.frames).toEqual([]);
+
+    const late = collect(h, owner.ownerId);
+    const cursor = (events[0]?.seq as number) - 1;
+    await h.hub.subscribeConversation(late.socket, conversationTopic(conversationId), cursor);
+    expect(late.frames.map((frame) => frame.seq)).toEqual(events.map((frame) => frame.seq));
+    expect(h.log.lines.join("\n")).not.toContain(MARKER);
+  });
+
+  it("deduplicates on (runId, seq) even when the retry carries a new event id and signature", async () => {
+    const { socket, frames } = collect(h, owner.ownerId);
+    await h.hub.subscribeConversation(socket, conversationTopic(conversationId), null);
+    expect((await send(h, output(5))).status).toBe(202);
+    const retry = await send(h, output(5));
+    expect(retry).toMatchObject({ status: 200, body: { status: "duplicate" } });
+    expect((await send(h, output(6))).status).toBe(202);
+    expect(frames.filter((frame) => frame.t === "ev")).toHaveLength(4);
+  });
+
+  it("caches ownership for the run's life and re-reads status and generation at most every 10 seconds", async () => {
+    for (const seq of [0, 1, 2]) expect((await send(h, output(seq))).status).toBe(202);
+    expect(h.runs.ownershipCalls).toBe(1);
+    expect(h.runs.stateCalls).toBe(1);
+    await h.clock.advance(10_000);
+    expect((await send(h, output(3))).status).toBe(202);
+    expect(h.runs.stateCalls).toBe(2);
+    expect(h.runs.ownershipCalls).toBe(1);
+
+    const run = h.runs.runs.get(runId);
+    if (run) run.status = "completed";
+    expect((await send(h, output(4))).status).toBe(202);
+    await h.clock.advance(10_000);
+    expect((await send(h, output(5))).status).toBe(404);
+  });
+
+  it("rejects output for a moved executor generation", async () => {
+    await h.db.run(sql("UPDATE executor_state SET generation = 4 WHERE id = 1"));
+    await h.clock.advance(10_000);
+    expect((await send(h, output(0))).status).toBe(404);
+    expect(h.log.lines.some((line) => line.includes("stale_generation"))).toBe(true);
+  });
+
+  it("rejects the wrong run: a path that differs from the body, an unknown run, or another run's envelope", async () => {
+    const other = uuidv7();
+    expect((await send(h, output(0, undefined, {}, runOutputPath(other)))).status).toBe(404);
+    expect(
+      (await send(h, output(0, undefined, { runId: other }, runOutputPath(other)))).status,
+    ).toBe(404);
+
+    // Another run of the same owner: the envelope's AAD binds the run id, so it cannot be moved.
+    h.runs.runs.set(other, {
+      ownerId: owner.ownerId,
+      conversationId,
+      status: "running",
+      generation: 3,
+    });
+    const moved = signed(h, runOutputPath(other), {
+      runId: other,
+      attempt: 1,
+      seq: 0,
+      envelope: envelopeFor(owner.key, owner.ownerId, runId, 0, chunks("x")),
+    });
+    expect((await send(h, moved)).status).toBe(400);
+  });
+
+  it("rejects envelopes that fail decryption: another seq, another owner's key, garbage plaintext", async () => {
+    const { socket, frames } = collect(h, owner.ownerId);
+    await h.hub.subscribeConversation(socket, conversationTopic(conversationId), null);
+    const swappedSeq = signed(h, runOutputPath(runId), {
+      runId,
+      attempt: 1,
+      seq: 2,
+      envelope: envelopeFor(owner.key, owner.ownerId, runId, 1, chunks(MARKER)),
+    });
+    expect((await send(h, swappedSeq)).status).toBe(400);
+
+    const stranger = await addOwner(h.db, h.keys);
+    const foreign = signed(h, runOutputPath(runId), {
+      runId,
+      attempt: 1,
+      seq: 3,
+      envelope: envelopeFor(stranger.key, stranger.ownerId, runId, 3, chunks(MARKER)),
+    });
+    expect((await send(h, foreign)).status).toBe(400);
+
+    expect((await send(h, output(4, { not: "an array" }))).status).toBe(400);
+    expect((await send(h, output(5, [{ delta: "missing type" }]))).status).toBe(400);
+    expect(frames.filter((frame) => frame.t === "ev")).toEqual([]);
+    // A rejected seq was not remembered: the genuine envelope for it is still relayed.
+    expect((await send(h, output(2))).status).toBe(202);
+    expect(h.log.lines.join("\n")).not.toContain(MARKER);
+  });
+
+  it("rejects forged, stale and replayed output requests and wrong key versions", async () => {
+    const request = output(0);
+    const forged = {
+      ...request,
+      headers: { ...request.headers, "x-sym-signature": `v1=${"0".repeat(64)}` },
+    };
+    expect((await send(h, forged)).status).toBe(404);
+    const wrongVersion = { ...request, headers: { ...request.headers, "x-sym-key": "9" } };
+    expect((await send(h, wrongVersion)).status).toBe(404);
+    const stale = signed(h, runOutputPath(runId), JSON.parse(request.body.toString()), {
+      timestamp: Math.floor(h.clock.now() / 1000) - 3_600,
+    });
+    expect((await send(h, stale)).status).toBe(404);
+    expect((await send(h, request)).status).toBe(202);
+    expect((await send(h, request)).status).toBe(404);
+  });
+
+  it("stops relaying when the api shuts down", async () => {
+    h.hub.beginShutdown();
+    expect((await send(h, output(0))).status).toBe(503);
+  });
+});
+
+/* ------------------------------------------------------------------------------------------------
+ * Webhook receipts
+ * --------------------------------------------------------------------------------------------- */
+
+describe("run output relay key cache (§8.2)", () => {
+  it("decrypts with a private copy of the cached key, so a concurrent eviction never zeroes it mid-request", async () => {
+    const clock = new FakeClock(Date.UTC(2026, 8, 15, 10));
+    const keys = createKeyProvider({
+      CONTENT_KEK: { current: 1, versions: new Map([[1, secret(31)]]) },
+    });
+    const ownerId = uuidv7();
+    const runId = uuidv7();
+    const conversationId = uuidv7();
+    const { key } = createAccountKey(keys, ownerId);
+    const log = new Log();
+    const relay = new RunOutputRelay({
+      source: {
+        ownership: async () => ({ runId, ownerId, conversationId }),
+        state: async () => ({ status: "running", executorGeneration: 1 }),
+      },
+      accountKeys: {
+        load: async () => ({ ...key, key: Uint8Array.from(key.key) }),
+      } as unknown as AccountKeyReader,
+      executorState: {
+        readCached: async () => ({ generation: 1 }),
+      } as unknown as ExecutorStateReader,
+      hub: new TopicHub({
+        registry: new TopicRegistry(),
+        access: { satisfies: () => true },
+        timers: clock,
+        log,
+      }),
+      timers: clock,
+      log,
+    });
+    const body = (seq: number) => ({
+      runId,
+      attempt: 1,
+      seq,
+      envelope: encryptFieldText(
+        key,
+        runChunkContext(ownerId, runId, seq),
+        JSON.stringify([{ type: "text-start", id: "t1" }]),
+      ),
+    });
+    expect(await relay.accept(runId, body(0))).toEqual({ status: "accepted", relayed: 1 });
+
+    // Zeroise every cached key right after the next lookup hands one out, before decryption runs.
+    const cache = (relay as unknown as { keys: Map<string, unknown> }).keys;
+    const get = cache.get.bind(cache);
+    cache.get = (ownerKey: string) => {
+      const value = get(ownerKey);
+      queueMicrotask(() => relay.clear());
+      return value;
+    };
+    expect(await relay.accept(runId, body(1))).toEqual({ status: "accepted", relayed: 1 });
+    expect(log.lines.join("\n")).not.toContain("undecryptable");
+  });
+});
+
+describe("webhook receipts (§6.2)", () => {
+  let db: LocalSqliteClient;
+  const userId = uuidv7();
+
+  beforeEach(async () => {
+    db = createLocalSqliteClient({ path: ":memory:", env: { NODE_ENV: "test" } });
+    await applyMigrations(db);
+    await db.run(
+      sql(
+        `INSERT INTO users (id, email, created_at, updated_at, write_id) VALUES (:id, 'w@example.com', '0', '0', :w)`,
+        {
+          id: userId,
+          w: newWriteId(),
+        },
+      ),
+    );
+  });
+  afterEach(() => db.close());
+
+  const delivery = (receiptId: string) => ({
+    provider: "resend" as const,
+    receiptId,
+    eventType: "email.bounced",
+    receivedAt: 5,
+    effects: (guard: { notReceived: string; params: Readonly<Record<string, string>> }) => [
+      sql(`UPDATE users SET updated_at = updated_at + 1 WHERE id = :id AND ${guard.notReceived}`, {
+        id: userId,
+        ...guard.params,
+      }),
+    ],
+  });
+
+  it("applies the effect and records the receipt in one batch, exactly once per provider and id", async () => {
+    const first = await recordWebhookDelivery(db, delivery("msg_1"));
+    const second = await recordWebhookDelivery(db, delivery("msg_1"));
+    const other = await recordWebhookDelivery(db, delivery("msg_2"));
+    expect([first.duplicate, second.duplicate, other.duplicate]).toEqual([false, true, false]);
+    expect(
+      await db.first(sql("SELECT updated_at FROM users WHERE id = :id", { id: userId })),
+    ).toEqual({ updated_at: 2 });
+    expect(
+      await db.all(
+        sql("SELECT provider, receipt_id, event_type FROM webhook_receipts ORDER BY receipt_id"),
+      ),
+    ).toEqual([
+      { provider: "resend", receipt_id: "msg_1", event_type: "email.bounced" },
+      { provider: "resend", receipt_id: "msg_2", event_type: "email.bounced" },
+    ]);
+    const composio = await recordWebhookDelivery(db, {
+      ...delivery("msg_1"),
+      provider: "composio",
+    });
+    expect(composio.duplicate).toBe(false);
+  });
+
+  it("refuses effects without the receipt guard and malformed receipt ids", () => {
+    expect(() =>
+      webhookReceiptBatch({
+        ...delivery("msg_3"),
+        effects: () => [sql("UPDATE users SET updated_at = 1 WHERE id = :id", { id: userId })],
+      }),
+    ).toThrow(/receipt guard/);
+    expect(() => webhookReceiptBatch(delivery(""))).toThrow();
+    expect(() => webhookReceiptBatch(delivery("bad id with spaces"))).toThrow();
+    expect(generateToken().length).toBeGreaterThan(0);
+  });
+});
