@@ -8,7 +8,9 @@
 //   api  the same without `next dev`.
 //   web  `next dev` only; the web app reads package sources directly, so nothing is built.
 //
-// DURABLE and PORT are read as the api will see them: the environment first, then apps/api/.env.
+// DURABLE, PORT and LOCAL_DATA_DIR are read as the api will see them: the environment first, then
+// apps/api/.env. In durable mode trigger dev gets the api's LOCAL_DATA_DIR (default
+// <repo>/.local-data), and an apps/worker env file naming a different directory stops the command.
 // Output is prefixed per process (colored in a terminal unless NO_COLOR is set). SIGINT and SIGTERM
 // stop every process; a second signal kills them. The exit code is non-zero when the build fails or
 // a process fails to start or stops on its own.
@@ -21,17 +23,29 @@ import {
   parseEnvFile,
   resolveApiPort,
   resolveDurable,
+  sharedLocalDataDir,
+  triggerDevEnvFiles,
 } from "./lib/dev-plan.mjs";
 import { runDev } from "./lib/dev-runner.mjs";
 import { repoRoot, StartupError } from "./lib/processes.mjs";
 
-function readApiEnvFile() {
+function readEnvFile(...segments) {
   try {
-    return readFileSync(join(repoRoot, "apps", "api", ".env"), "utf8");
+    return readFileSync(join(repoRoot, ...segments), "utf8");
   } catch (error) {
     if (error.code === "ENOENT") return undefined;
     throw error;
   }
+}
+
+/** The apps/worker env files `trigger dev` reads that exist, parsed. */
+function readWorkerEnvFiles() {
+  return Object.fromEntries(
+    triggerDevEnvFiles.flatMap((name) => {
+      const text = readEnvFile("apps", "worker", name);
+      return text === undefined ? [] : [[name, parseEnvFile(text)]];
+    }),
+  );
 }
 
 async function main() {
@@ -40,18 +54,22 @@ async function main() {
     throw new DevConfigError(`Usage: node scripts/dev.mjs [${devTargets.join("|")}]`);
   }
   const target = args[0] ?? "all";
-  const sources = { env: process.env, envFile: parseEnvFile(readApiEnvFile()) };
+  const sources = { env: process.env, envFile: parseEnvFile(readEnvFile("apps", "api", ".env")) };
   const needsApi = target !== "web";
   const durable = needsApi && resolveDurable(sources);
+  const localDataDir = durable
+    ? sharedLocalDataDir(sources, { root: repoRoot, workerEnvFiles: readWorkerEnvFiles() })
+    : undefined;
   const plan = devPlan({
     target,
     durable,
     ...(needsApi ? { apiPort: resolveApiPort(sources) } : {}),
+    ...(localDataDir === undefined ? {} : { localDataDir }),
   });
   if (needsApi) {
     process.stdout.write(
       durable
-        ? "dev: DURABLE=true, so trigger dev runs the worker tasks\n"
+        ? `dev: DURABLE=true, so trigger dev runs the worker tasks with LOCAL_DATA_DIR=${localDataDir}\n`
         : "dev: DURABLE is not true, so the api runs executors in process and trigger dev is not started\n",
     );
   }

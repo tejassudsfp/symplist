@@ -1,7 +1,9 @@
 // The process plan behind `pnpm dev`, `pnpm dev:api` and `pnpm dev:web` (architecture §2.2 (7),
 // §16.3). Pure: it decides which commands run from the target and the api's effective environment,
 // and never spawns anything, so the rules are unit-tested in dev-plan.test.mjs.
+import { join, resolve } from "node:path";
 import { parseEnv } from "node:util";
+import { isValidLocalDataDir, localDataDirName } from "../../packages/config/src/local-data.ts";
 
 /** What each command starts: everything, the api side only, or the web app only. */
 export const devTargets = Object.freeze(["all", "api", "web"]);
@@ -64,6 +66,59 @@ export function resolveApiPort(sources) {
 }
 
 /**
+ * The env files `trigger dev` reads from apps/worker, in its order. For task processes it lays their
+ * values over its own environment; the first file that sets a variable wins, and an empty value is
+ * dropped rather than clearing the variable (trigger.dev 4.6.0 `resolveLocalEnvVars`).
+ */
+export const triggerDevEnvFiles = Object.freeze([
+  ".env",
+  ".env.development",
+  ".env.local",
+  ".env.development.local",
+  "dev.vars",
+]);
+
+/**
+ * The local data directory the api will use (decision CZ.12): its effective `LOCAL_DATA_DIR`, which
+ * must be absolute as the api's configuration requires, or the default the api resolves from
+ * apps/api, `<repo>/.local-data`.
+ */
+export function resolveLocalDataDir(sources, { root }) {
+  const resolved = effectiveApiVariable("LOCAL_DATA_DIR", sources);
+  if (resolved === undefined) return join(root, localDataDirName);
+  if (!isValidLocalDataDir(resolved.value)) {
+    throw new DevConfigError(
+      `LOCAL_DATA_DIR from ${resolved.source} must be an absolute directory path`,
+    );
+  }
+  return resolved.value;
+}
+
+/**
+ * The directory `trigger dev` task processes share with the api. The plan hands them the api's
+ * directory through the environment, which an apps/worker env file would override, so a file that
+ * names a different directory is refused: the worker would otherwise open another database and
+ * object store. `workerEnvFiles` maps each file name in `triggerDevEnvFiles` that exists to its
+ * parsed values.
+ */
+export function sharedLocalDataDir(sources, { root, workerEnvFiles }) {
+  const localDataDir = resolveLocalDataDir(sources, { root });
+  const file = triggerDevEnvFiles.find(
+    (name) =>
+      Object.hasOwn(workerEnvFiles, name) && Object.hasOwn(workerEnvFiles[name], "LOCAL_DATA_DIR"),
+  );
+  const workerValue = file === undefined ? "" : workerEnvFiles[file].LOCAL_DATA_DIR.trim();
+  if (workerValue === "") return localDataDir;
+  if (!isValidLocalDataDir(workerValue) || resolve(workerValue) !== resolve(localDataDir)) {
+    throw new DevConfigError(
+      `LOCAL_DATA_DIR in apps/worker/${file} (${workerValue}) differs from the api's (${localDataDir}); ` +
+        "trigger dev and the api must share one local data directory",
+    );
+  }
+  return localDataDir;
+}
+
+/**
  * The plan for a target. `build` runs once and must succeed before anything else starts; each
  * `processes` entry is a long-running command with:
  * - `tool`: `node` (the current Node binary) or `{ package, bin, from }`, a package binary resolved
@@ -72,9 +127,12 @@ export function resolveApiPort(sources) {
  * - `ready`: how startup completes (an output line pattern, or an HTTP URL answering 2xx);
  * - `failedStartup`: output that means the command failed while starting even though it keeps
  *   running (node --watch waits for file changes after the api exits);
- * - `shutdown`: an optional shorter grace period, and whether a SIGKILL after it is expected.
+ * - `shutdown`: an optional shorter grace period, and whether a SIGKILL after it is expected;
+ * - `env`: optional variables laid over the supervisor's environment for that command.
+ * `localDataDir` (from `sharedLocalDataDir`) reaches `trigger dev` as `LOCAL_DATA_DIR`, so its task
+ * processes open the api's database and object store.
  */
-export function devPlan({ target, durable, apiPort = DEFAULT_API_PORT }) {
+export function devPlan({ target, durable, apiPort = DEFAULT_API_PORT, localDataDir }) {
   if (!devTargets.includes(target)) {
     throw new DevConfigError(`Unknown dev target "${target}"; use one of ${devTargets.join(", ")}`);
   }
@@ -125,6 +183,7 @@ export function devPlan({ target, durable, apiPort = DEFAULT_API_PORT }) {
       args: ["dev"],
       cwd: "apps/worker",
       ready: { output: /Local worker ready/ },
+      ...(localDataDir === undefined ? {} : { env: { LOCAL_DATA_DIR: localDataDir } }),
     });
   }
   return { build, processes };

@@ -8,6 +8,9 @@ import {
   parseEnvFile,
   resolveApiPort,
   resolveDurable,
+  resolveLocalDataDir,
+  sharedLocalDataDir,
+  triggerDevEnvFiles,
   WEB_PORT,
 } from "./lib/dev-plan.mjs";
 
@@ -84,8 +87,107 @@ describe("dev process plan (§2.2 (7), §16.3)", () => {
     );
   });
 
+  it("gives trigger dev the api's LOCAL_DATA_DIR and leaves every other command's environment alone", () => {
+    const plan = devPlan({ target: "all", durable: true, localDataDir: "/repo/.local-data" });
+    const byName = Object.fromEntries(plan.processes.map((spec) => [spec.name, spec]));
+    assert.deepEqual(byName.trigger.env, { LOCAL_DATA_DIR: "/repo/.local-data" });
+    for (const name of ["tsc", "api", "web"]) assert.equal(byName[name].env, undefined);
+    assert.equal(
+      devPlan({ target: "all", durable: true }).processes.find((spec) => spec.name === "trigger")
+        .env,
+      undefined,
+    );
+  });
+
   it("refuses unknown targets", () => {
     assert.throws(() => devPlan({ target: "worker", durable: false }), DevConfigError);
+  });
+});
+
+describe("the local data directory the api and trigger dev share (decision CZ.12)", () => {
+  const root = "/repo";
+  const none = { env: {}, envFile: {} };
+
+  it("is the api's effective LOCAL_DATA_DIR, or <repo>/.local-data as the api resolves it from apps/api", () => {
+    assert.equal(resolveLocalDataDir(none, { root }), "/repo/.local-data");
+    assert.equal(
+      resolveLocalDataDir({ env: {}, envFile: { LOCAL_DATA_DIR: "" } }, { root }),
+      "/repo/.local-data",
+    );
+    assert.equal(
+      resolveLocalDataDir({ env: {}, envFile: { LOCAL_DATA_DIR: "/data/file" } }, { root }),
+      "/data/file",
+    );
+    assert.equal(
+      resolveLocalDataDir(
+        { env: { LOCAL_DATA_DIR: "/data/env" }, envFile: { LOCAL_DATA_DIR: "/data/file" } },
+        { root },
+      ),
+      "/data/env",
+    );
+  });
+
+  it("refuses a relative LOCAL_DATA_DIR, as the api's configuration would", () => {
+    assert.throws(
+      () => resolveLocalDataDir({ env: {}, envFile: { LOCAL_DATA_DIR: "data" } }, { root }),
+      (error) => error instanceof DevConfigError && error.message.includes("apps/api/.env"),
+    );
+  });
+
+  it("reads the apps/worker env files in trigger dev's order", () => {
+    assert.deepEqual(triggerDevEnvFiles, [
+      ".env",
+      ".env.development",
+      ".env.local",
+      ".env.development.local",
+      "dev.vars",
+    ]);
+  });
+
+  it("accepts worker env files that leave LOCAL_DATA_DIR empty or name the same directory", () => {
+    assert.equal(sharedLocalDataDir(none, { root, workerEnvFiles: {} }), "/repo/.local-data");
+    assert.equal(
+      sharedLocalDataDir(none, {
+        root,
+        workerEnvFiles: {
+          ".env": { LOCAL_DATA_DIR: "" },
+          ".env.local": { LOCAL_DATA_DIR: "/elsewhere" },
+        },
+      }),
+      "/repo/.local-data",
+    );
+    assert.equal(
+      sharedLocalDataDir(
+        { env: { LOCAL_DATA_DIR: "/data" }, envFile: {} },
+        { root, workerEnvFiles: { ".env.local": { LOCAL_DATA_DIR: "/data/" } } },
+      ),
+      "/data",
+    );
+  });
+
+  it("refuses a worker env file that names another directory, naming the file that wins", () => {
+    assert.throws(
+      () =>
+        sharedLocalDataDir(
+          { env: {}, envFile: { LOCAL_DATA_DIR: "/data" } },
+          {
+            root,
+            workerEnvFiles: {
+              ".env.development": { LOCAL_DATA_DIR: "/other" },
+              ".env.local": { LOCAL_DATA_DIR: "/data" },
+            },
+          },
+        ),
+      (error) =>
+        error instanceof DevConfigError &&
+        error.message.includes("apps/worker/.env.development") &&
+        error.message.includes("/other"),
+    );
+    assert.throws(
+      () =>
+        sharedLocalDataDir(none, { root, workerEnvFiles: { ".env": { LOCAL_DATA_DIR: "data" } } }),
+      DevConfigError,
+    );
   });
 });
 

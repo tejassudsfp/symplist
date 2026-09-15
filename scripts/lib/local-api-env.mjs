@@ -12,8 +12,9 @@ import {
  * The api environment for `DATA_DRIVER=local`, `EMAIL_DRIVER=log` and `DURABLE=false` (§16.1), with a
  * fresh value for every generated secret family the api holds (§4.5). Only `PATH` is inherited, so
  * nothing from the caller's shell (credentials, a developer's .env values) reaches the process.
- * `LOCAL_DATA_DIR` is the directory for the SQLite file and objects; the api also resolves its default
- * `.local-data` against its working directory, so callers run it with `cwd` at the same place.
+ * `LOCAL_DATA_DIR` is the absolute directory for the SQLite file and object store (decision CZ.12);
+ * callers run the api with its working directory outside the repository, where its default would
+ * also be `<cwd>/.local-data`, so nothing lands in the workspace's own `.local-data`.
  */
 export function localApiEnv({ apiPort, webPort, localDataDir, nodeEnv = "development" }) {
   const families = Object.fromEntries(

@@ -109,7 +109,7 @@ async function checkBoot(deployDir, migrations) {
     name: "api",
     file: process.execPath,
     args: ["dist/main.js"],
-    // The api's default local data directory is .local-data under its working directory.
+    // Runs from the deploy, as the image does; LOCAL_DATA_DIR keeps local data inside it.
     cwd: deployDir,
     env: localApiEnv({ apiPort, webPort, localDataDir }),
   });

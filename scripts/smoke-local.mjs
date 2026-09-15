@@ -55,7 +55,7 @@ async function main() {
       name: "api",
       file: process.execPath,
       args: ["--enable-source-maps", apiEntry],
-      // The api keeps local data under .local-data in its working directory: the temporary directory.
+      // LOCAL_DATA_DIR puts the SQLite file and objects in the temporary working directory.
       cwd: workDir,
       env: localApiEnv({ apiPort, webPort, localDataDir: join(workDir, ".local-data") }),
     });

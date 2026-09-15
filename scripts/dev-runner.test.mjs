@@ -29,6 +29,11 @@ const fixtures = {
       }
     }, Number(readyDelay));
   `,
+  "env.mjs": `
+    process.on("SIGTERM", () => process.exit(0));
+    setInterval(() => {}, 1000);
+    console.log("env READY " + process.env.SYMPLIST_DEV_RUNNER_TEST + " " + (process.env.PATH !== undefined));
+  `,
   "stubborn.mjs": `
     process.on("SIGTERM", () => console.log("stubborn ignores SIGTERM"));
     process.on("SIGINT", () => console.log("stubborn ignores SIGINT"));
@@ -153,6 +158,17 @@ describe("dev runner", () => {
     assert.match(output.text, /^web {3}\| web got SIGINT$/m);
     assert.match(output.text, /^dev {3}\| SIGINT received: stopping$/m);
     assert.equal(signals.listenerCount("SIGINT"), 0);
+  });
+
+  it("lays a command's env over the supervisor's environment", async () => {
+    const { output, signals, exit } = run({
+      build: null,
+      processes: [node("env", "env.mjs", [], { env: { SYMPLIST_DEV_RUNNER_TEST: "overlay" } })],
+    });
+    await output.waitFor(/dev +\| ready/);
+    signals.emit("SIGTERM");
+    assert.equal(await exit, 0);
+    assert.match(output.text, /^env +\| env READY overlay true$/m);
   });
 
   it("forwards SIGTERM the same way", async () => {

@@ -114,7 +114,7 @@ async function smokeContainer({ migrations: migrationCount, uid, gid }) {
       "run",
       "--detach",
       ...envArgs,
-      // The api keeps local data under its working directory, which the service user cannot write.
+      // LOCAL_DATA_DIR lies under /app, which the service user cannot write.
       "--tmpfs",
       `${DATA_DIR}:uid=${uid},gid=${gid},mode=0700`,
       "--publish",

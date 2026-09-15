@@ -98,6 +98,7 @@ export async function runDev({
         name: spec.name,
         ...commands[index],
         cwd: join(root, spec.cwd),
+        ...(spec.env === undefined ? {} : { env: { ...process.env, ...spec.env } }),
         ...(spec.shutdown === undefined ? {} : { shutdown: spec.shutdown }),
       }),
     }));
