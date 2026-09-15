@@ -22,7 +22,7 @@ screens = [p for p in folder.glob("*.md") if p.name not in {"overall.md", "theme
 for screen in screens:
     if f"]({screen.name})" not in master:
         errors.append(f"Screen missing from master: {screen.name}")
-for file in [root / "README.md", folder / "overall.md", root / "docs/prompts/build prompt.md"]:
+for file in [root / "README.md", folder / "overall.md"]:
     for count in re.findall(r"(?:all )?(\d+) (?:individual )?screen briefs", file.read_text()):
         if int(count) != len(screens):
             errors.append(f"{file.relative_to(root)}: stale screen count {count}")

@@ -141,3 +141,9 @@ Implement the [artifact sharing contract](16_simon_handoffs_and_artifact_sharing
 ## Product analytics
 
 Use optional PostHog analytics following [note 17](17_analytics.md). Default off until configured with user opt-in; no private contents, automatic URL capture, replay, or billing dependency. No PostHog account is needed for analytics-disabled self-hosting. SDK integration remains to be built.
+
+## Confirmed hosting and version policy
+
+Host the Next.js frontend on Vercel and NestJS backend on Render; preserve later AWS backend portability and independent self-hosting. Nest retains WebSocket ownership and API authorization. Specify HTTPS API/WS origins, explicit cross-origin authentication/CORS/CSRF handling, isolated preview environments, and server-only credentials. Do not move agent loops or reminder workers into frontend functions.
+
+At implementation time verify the latest stable, mutually compatible releases against official documentation and registries, including supported Node.js LTS, Next.js/React, NestJS, TypeScript, AI SDK, Trigger.dev, Composio, and PostHog. Pin runtime/dependency versions and lockfiles; avoid prereleases and floating production tags. Record verification dates and justify compatibility constraints instead of blindly upgrading to incompatible releases.

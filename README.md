@@ -8,7 +8,7 @@ A calm task workspace for keeping track of what matters, making progress, and ha
 
 ## Project status
 
-**Pre-implementation.** This repository contains the product and architecture specifications, 44 screen design briefs, an interactive workspace design reference, and an end-to-end build handoff. It does not yet contain a runnable application, hosted service, or installable release.
+**Pre-implementation.** This repository contains the product and architecture specifications, 44 screen design briefs, an interactive workspace design reference. It does not yet contain a runnable application, hosted service, or installable release.
 
 The planned hosted launch is a **free closed beta**. Email verification creates an identity; a manually shared invite or administrator unlock grants access. Invites are not automatically sent to people who sign up. Payments, paywalls, and subscription quotas are outside the beta scope.
 
@@ -44,11 +44,16 @@ These are specified capabilities, not a claim that they are implemented.
 | Durable execution | Trigger.dev when enabled; Nest-local execution otherwise |
 | Transactional email | Resend |
 | Product analytics | PostHog; explicit events with private content excluded |
+| Frontend hosting | Vercel |
 | Initial backend hosting | Render, with later AWS portability |
 
 `DURABLE=false` runs agent work and scheduled jobs inside Nest without Trigger credentials. `DURABLE=true` delegates that work to Trigger; Nest remains the browser delivery boundary. No agent sandboxes are planned.
 
 See [architecture](docs/notes/files/07_architecture.md), [document versioning](docs/notes/files/11_document_versioning.md), and [analytics](docs/notes/files/17_analytics.md) for the full contracts.
+
+Use the latest stable, mutually compatible stack at implementation time, verified
+against official sources. Pin the supported Node.js LTS runtime and dependencies
+in lockfiles; document any compatibility-driven version constraint.
 
 ## Explore the repository
 
@@ -57,7 +62,6 @@ See [architecture](docs/notes/files/07_architecture.md), [document versioning](d
 | [`docs/notes/files/`](docs/notes/files/00_index.md) | Numbered product decisions and technical specifications |
 | [`design/UI sample/`](<design/UI sample/README.md>) | Supplied workspace reference and its companion runtime |
 | [`design/mockups/`](design/mockups/overall.md) | Master design brief, theme system, and 44 individual screen briefs |
-| [`docs/prompts/`](<docs/prompts/build prompt.md>) | Complete build handoff, required flows, and verification criteria |
 | [Self-hosting preparation](docs/notes/files/08_self_hosting.md) | Infrastructure requirements for the eventual application |
 | [Roadmap](ROADMAP.md) | Implementation sequence and release gates |
 
@@ -80,7 +84,7 @@ and the relevant security, access, analytics, and execution specifications.
 Inspect the actual source and release status before proposing commands.
 
 If the application is not implemented yet, state that clearly. Use
-“docs/prompts/build prompt.md” for the implementation scope; do not pretend
+the numbered product notes and screen briefs for scope; do not pretend
 the UI reference is a deployable app or invent installation commands.
 
 For a runnable version, prepare and verify a reproducible deployment using
@@ -98,8 +102,8 @@ Provide a complete environment checklist without printing secrets, database
 migrations, Git runtime setup, encryption/recovery-key generation and backup,
 HTTPS/origin/callback configuration, startup commands, and health checks.
 Include persistent reminder recovery, artifact-link protections, backups,
-restore, upgrades, and troubleshooting. Use Render initially unless I choose
-another host, and keep the setup portable. No central hosted license or
+restore, upgrades, and troubleshooting. Host the frontend on Vercel and backend on Render unless I choose
+other hosts, and keep the setup portable. No central hosted license or
 analytics service may be mandatory.
 
 Run available build/tests and a clean-install smoke test. Distinguish local
