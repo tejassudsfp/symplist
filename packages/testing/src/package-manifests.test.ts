@@ -151,7 +151,11 @@ describe("package manifests (§2.2)", () => {
     const names = workspacePackages().map((pkg) => pkg.manifest.name);
     expect(names).toContain("@symplist/db");
     expect(names).toContain("@symplist/testing");
-    expect(names).toHaveLength(readdirSync(join(repoRoot, "packages")).length);
+    // Every directory is a package; stray files such as Finder's .DS_Store are not.
+    const directories = readdirSync(join(repoRoot, "packages"), { withFileTypes: true }).filter(
+      (entry) => entry.isDirectory(),
+    );
+    expect(names).toHaveLength(directories.length);
     expect(new Set(names).size).toBe(names.length);
   });
 
