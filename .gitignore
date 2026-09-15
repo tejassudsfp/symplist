@@ -1,0 +1,24 @@
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+# Dependencies and generated application output
+node_modules/
+.next/
+dist/
+build/
+coverage/
+*.log
+# Local system/editor state
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+# Local deployment state
+.wrangler/
+.vercel/
+# Test output
+playwright-report/
+test-results/
