@@ -61,6 +61,7 @@ describe("app route class (§5.3)", () => {
       cookies: ["sym_session", "sym_vault"],
       rawCookieHeader: null,
       authorization: null,
+      rawHeaderNames: [],
     });
   });
 
@@ -93,7 +94,12 @@ describe("pre_session route class (§5.3)", () => {
     }
     const ok = await app.post("/v1/auth/probe", { csrf: "1", session });
     expect(ok.status).toBe(201);
-    expect(ok.json()).toEqual({ cookies: [], rawCookieHeader: null, authorization: null });
+    expect(ok.json()).toEqual({
+      cookies: [],
+      rawCookieHeader: null,
+      authorization: null,
+      rawHeaderNames: [],
+    });
   });
 });
 
@@ -112,6 +118,7 @@ describe("connection_callback and oauth_authorize route classes (§5.3)", () => 
       cookies: ["sym_session"],
       rawCookieHeader: null,
       authorization: null,
+      rawHeaderNames: [],
     });
   });
 });
@@ -137,6 +144,7 @@ describe("share route classes and host routing (§5.3, §6, §13.2)", () => {
       cookies: ["sym_share_0190aaaa"],
       rawCookieHeader: null,
       authorization: null,
+      rawHeaderNames: [],
     });
   });
 
@@ -177,6 +185,7 @@ describe("credential-free route classes (§5.2, §5.3)", () => {
         cookies: [],
         rawCookieHeader: null,
         authorization: null,
+        rawHeaderNames: [],
       });
     }
   });
@@ -188,6 +197,7 @@ describe("credential-free route classes (§5.2, §5.3)", () => {
       cookies: [],
       rawCookieHeader: null,
       authorization: "Bearer sym_grant_secret",
+      rawHeaderNames: ["authorization"],
     });
     expect(
       (await app.request("POST", "/mcp", { headers, origin: app.config.WEB_ORIGIN })).status,

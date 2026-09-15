@@ -22,7 +22,11 @@ export interface AccountDeletionInput {
   readonly authorizationId: string;
   /** The auth session of the request; the authorization must be bound to it. */
   readonly authSessionId: string;
-  /** The account's email from the fresh read; normalized before it is digested. */
+  /**
+   * The account's email exactly as stored, from the fresh read. Statement 1 only applies while the
+   * row still holds this address, so the tombstone digest always matches the deleted account; the
+   * address is normalized before it is digested.
+   */
   readonly email: string;
   readonly now: number;
   /** The write id of statement 1; defaults to a fresh UUIDv7. */
@@ -76,13 +80,19 @@ export function buildAccountDeletionBatch(
     sql(
       `UPDATE users SET deletion_state = 'deleting', deletion_requested_at = :now,
          access_generation = access_generation + 1, updated_at = :now, write_id = :restrict_write_id
-       WHERE id = :restrict_user AND deletion_state = 'none'
+       WHERE id = :restrict_user AND deletion_state = 'none' AND email = :email
          AND EXISTS (
            SELECT 1 FROM account_delete_authorizations
            WHERE id = :auth AND user_id = :restrict_user AND auth_session_id = :session
              AND consumed_at IS NULL AND expires_at > :now
          )`,
-      { ...guard.params, now, auth: input.authorizationId, session: input.authSessionId },
+      {
+        ...guard.params,
+        now,
+        email: input.email,
+        auth: input.authorizationId,
+        session: input.authSessionId,
+      },
     ),
     sql(
       `UPDATE account_delete_authorizations SET consumed_at = :now, write_id = :restrict_write_id

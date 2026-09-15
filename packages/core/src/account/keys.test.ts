@@ -90,6 +90,26 @@ describe("account key provisioning (§4.1)", () => {
     });
   });
 
+  it("never provisions a new key for an account being deleted, so the crypto-shred stays final", async () => {
+    const store = new AccountKeyStore({ db, keys });
+    const userId = uuidv7(now);
+    await db.batch([insertUser(userId), store.provisionStatement({ userId, now })]);
+    // The deletion batch moves the account to deleting and shreds the key row (§5.6).
+    await db.batch([
+      sql(
+        `UPDATE users SET deletion_state = 'deleting', deletion_requested_at = :now WHERE id = :id`,
+        { id: userId, now: int(now) },
+      ),
+      sql(`DELETE FROM account_keys WHERE owner_id = :id`, { id: userId }),
+    ]);
+    await db.run(store.provisionStatement({ userId, now: now + 1 }));
+    await expect(store.ensure({ userId, now: now + 2 })).rejects.toMatchObject({
+      code: "account.key_unavailable",
+    });
+    expect(await store.load(userId)).toBeNull();
+    expect(await db.first(sql(`SELECT COUNT(*) AS n FROM account_keys`))).toEqual({ n: 0 });
+  });
+
   it("gives every account its own key", async () => {
     const store = new AccountKeyStore({ db, keys });
     const a = uuidv7(now);

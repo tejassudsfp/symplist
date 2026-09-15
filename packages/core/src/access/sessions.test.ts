@@ -109,10 +109,18 @@ describe("SessionStore (§5.1)", () => {
     expect(await store.resolve(randomBytes(32).toString("base64url"), now)).toBeNull();
     expect(await store.resolve(created?.token, now + SESSION_LIFETIME_MS)).toBeNull();
 
-    if (!created) return;
+    if (!created) throw new Error("expected a session");
+    expect(await store.lookup(created.token, now)).toMatchObject({ status: "live" });
+    expect(await store.lookup(created.token, now + SESSION_LIFETIME_MS)).toEqual({
+      status: "ended",
+    });
+    expect(await store.lookup(randomBytes(32).toString("base64url"), now)).toEqual({
+      status: "unknown",
+    });
     expect(await store.revoke({ sessionId: created.sessionId, userId, now })).toBe(true);
     expect(await store.revoke({ sessionId: created.sessionId, userId, now })).toBe(false);
     expect(await store.resolve(created.token, now)).toBeNull();
+    expect(await store.lookup(created.token, now)).toEqual({ status: "ended" });
   });
 
   it("refuses to create a session for a missing user or an account being deleted", async () => {
@@ -189,6 +197,47 @@ describe("SessionStore (§5.1)", () => {
     await expect(store.revokeAll({ userId, now })).rejects.toThrow(
       /must write only its own tables/,
     );
+  });
+
+  it("requires contributors to carry the deciding guard when revocation is folded into another batch", async () => {
+    await db.executeScript(`CREATE TABLE probe_vault_sessions (user_id TEXT) STRICT;`);
+    const userId = await createUser(db);
+    const guard = {
+      exists: "EXISTS (SELECT 1 FROM users WHERE id = :g_user AND write_id = :g_write)",
+      params: { g_user: userId, g_write: "decided-write" },
+    };
+    const unguarded: SessionRevokeContributor = {
+      domain: "vault",
+      statements: ({ userId: user }) => [
+        sql(`INSERT INTO probe_vault_sessions (user_id) VALUES (:user)`, { user }),
+      ],
+    };
+    expect(() =>
+      new SessionStore({ db, keys, revokeContributors: [unguarded] }).revokeAllStatements({
+        userId,
+        now,
+        guard,
+      }),
+    ).toThrow(/must carry the batch's guard/);
+
+    const guarded: SessionRevokeContributor = {
+      domain: "vault",
+      statements: (input) => {
+        if (!input.guard) throw new Error("expected the folded guard");
+        return [
+          sql(
+            `INSERT INTO probe_vault_sessions (user_id) SELECT :user WHERE ${input.guard.exists}`,
+            { ...input.guard.params, user: input.userId },
+          ),
+        ];
+      },
+    };
+    const store = new SessionStore({ db, keys, revokeContributors: [guarded] });
+    const session = await store.create({ userId, now });
+    // The deciding statement did not set the write id, so neither sessions nor contributions change.
+    await db.batch([...store.revokeAllStatements({ userId, now: now + 1, guard })]);
+    expect(await store.resolve(session?.token, now + 2)).not.toBeNull();
+    expect(await db.all(sql(`SELECT user_id FROM probe_vault_sessions`))).toEqual([]);
   });
 
   it("keeps sessions created under a rotated-out secret version valid while it stays configured", async () => {

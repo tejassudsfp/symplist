@@ -237,7 +237,8 @@ export class TestApp {
 
   /**
    * Creates a user in a given access state, with an account data key, in one batch. `admitted` is
-   * verified and unlocked; `admin` adds the role.
+   * verified and unlocked; `admin` adds the role. A `deleting` account has no key, as after the
+   * deletion batch's crypto-shred (§5.6).
    */
   async createUser(
     options: { readonly state?: TestUserState; readonly email?: string } = {},

@@ -1,8 +1,8 @@
-import { Body, Controller, Inject, Module, Param, Post, Req } from "@nestjs/common";
+import { Body, Controller, Inject, Module, Param, Post, Req, Res } from "@nestjs/common";
 import type { SessionContext } from "@symplist/core/access";
 import type { AccountKeyStore } from "@symplist/core/account";
 import { type DbClient, sql, uuidv7 } from "@symplist/db";
-import type { Request } from "express";
+import type { Request, Response } from "express";
 import { z } from "zod";
 import { ACCOUNT_KEYS } from "../../src/common/access/access.providers.ts";
 import { Access, CurrentSession } from "../../src/common/access.decorator.ts";
@@ -46,6 +46,24 @@ export class IdempotencyProbeController {
   ) {
     idempotencyProbe.effects.push(`create:${list}:${body.title}`);
     return { id: uuidv7(Date.now()), title: body.title, list };
+  }
+
+  @Post("raw")
+  @Access("admitted")
+  @Idempotent()
+  raw(@Req() req: Request) {
+    const { amount } = req.body as { amount: number };
+    idempotencyProbe.effects.push(`raw:${amount}`);
+    return { amount };
+  }
+
+  @Post("accepted")
+  @Access("admitted")
+  @Idempotent()
+  accepted(@Res({ passthrough: true }) res: Response) {
+    idempotencyProbe.effects.push("accepted");
+    res.status(202);
+    return { queued: true };
   }
 
   @Post("conflict")

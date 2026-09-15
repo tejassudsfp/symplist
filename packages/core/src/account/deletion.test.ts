@@ -300,6 +300,30 @@ describe("account deletion batch (§5.6)", () => {
     expect(state.effects.deletion).not.toHaveBeenCalled();
   });
 
+  it("refuses when the stored address changed after the read, so the tombstone never names another address", async () => {
+    const state = await setup([]);
+    const access = new D1AccessService({
+      db,
+      policy: { betaAccessRequired: true },
+      contributors: [],
+    });
+    const batch = buildAccountDeletionBatch(
+      { keys, access, sessions: state.sessions },
+      {
+        userId: state.userId,
+        authorizationId: state.authorizationId,
+        authSessionId: state.session.sessionId,
+        email: "stale.address@example.test",
+        now: now + 1000,
+      },
+    );
+    const results = await db.batch(batch.statements);
+    expect(results[batch.verifyIndex]?.results).toEqual([]);
+    expect(await state.accountKeys.load(state.userId)).not.toBeNull();
+    expect(await db.first(sql(`SELECT COUNT(*) AS n FROM account_deletions`))).toEqual({ n: 0 });
+    expect(await state.sessions.resolve(state.session.token, now + 1000)).not.toBeNull();
+  });
+
   it("uses an authorization once: a replay after deletion finds no account to delete", async () => {
     const state = await setup([]);
     const request = {

@@ -4,7 +4,9 @@ import type { PurgeContributor } from "./types.ts";
 /**
  * Account purge statements (§5.6). Auth sessions, OTP challenges and account deletion authorizations,
  * children first: authorizations reference challenges and sessions, and challenges reference
- * sessions. Also removes abuse counters keyed by the user id.
+ * sessions. Also removes abuse counters keyed by the user id and, defensively, any `account_keys` row:
+ * the deletion batch already shredded it and provisioning refuses accounts being deleted, but a
+ * leftover row would block the `users` delete through its foreign key.
  */
 export const accountPurgeContributor: PurgeContributor = {
   domain: "account",
@@ -30,6 +32,7 @@ export const accountPurgeContributor: PurgeContributor = {
            LIMIT CAST(:limit AS INTEGER))`,
         params,
       ),
+      sql(`DELETE FROM account_keys WHERE owner_id = :user`, { user: userId }),
       sql(
         `DELETE FROM abuse_counters WHERE rowid IN (
            SELECT rowid FROM abuse_counters WHERE subject = :user LIMIT CAST(:limit AS INTEGER))`,
@@ -43,6 +46,7 @@ export const accountPurgeContributor: PurgeContributor = {
          EXISTS (SELECT 1 FROM account_delete_authorizations WHERE user_id = :user)
          OR EXISTS (SELECT 1 FROM otp_challenges WHERE user_id = :user)
          OR EXISTS (SELECT 1 FROM auth_sessions WHERE user_id = :user)
+         OR EXISTS (SELECT 1 FROM account_keys WHERE owner_id = :user)
          OR EXISTS (SELECT 1 FROM abuse_counters WHERE subject = :user)
        ) AS remaining`,
       { user: userId },

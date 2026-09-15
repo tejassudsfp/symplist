@@ -76,6 +76,22 @@ describe("TTL caches (§3.3)", () => {
     cache.set("d3", resolved("u2", "s3", 4, clock.now() + 60_000));
     expect(cache.evictUser("u2")).toBe(1);
 
+    // After a local restriction to generation 3, a read of generation 2 still in flight is not cached.
+    cache.set("d5", resolved("u5", "s5", 2, clock.now() + 60_000));
+    expect(cache.evictUser("u5", 3)).toBe(1);
+    expect(cache.set("d5", resolved("u5", "s5", 2, clock.now() + 60_000))).toBe(false);
+    expect(cache.get("d5")).toBeUndefined();
+    expect(cache.set("d5", resolved("u5", "s5", 3, clock.now() + 60_000))).toBe(true);
+    expect(cache.get("d5")?.access.accessGeneration).toBe(3);
+    cache.evictUser("u5", 1);
+    expect(cache.set("d6", resolved("u5", "s6", 2, clock.now() + 60_000))).toBe(false);
+
+    // A revoked session is not cached again from a read that was already in flight.
+    cache.set("d7", resolved("u7", "s7", 0, clock.now() + 60_000));
+    expect(cache.evictSession("s7", { revoked: true })).toBe(1);
+    expect(cache.set("d7", resolved("u7", "s7", 0, clock.now() + 60_000))).toBe(false);
+    expect(cache.set("d8", resolved("u7", "s8", 0, clock.now() + 60_000))).toBe(true);
+
     cache.rememberMissing("d4");
     expect(cache.isKnownMissing("d4")).toBe(true);
     cache.set("d4", resolved("u3", "s4", 0, clock.now() + 60_000));

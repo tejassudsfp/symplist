@@ -48,8 +48,10 @@ export class AccountKeyStore {
 
   /**
    * The statement that provisions the account's key. Fold it into the batch that creates the users
-   * row, after the insert: it only writes while the user exists and no key row exists yet. The raw
-   * key is zeroized before this returns; only the wrap is bound as a parameter.
+   * row, after the insert: it only writes while the user exists, is not being deleted, and has no key
+   * row yet. An account in `deletion_state = 'deleting'` never gets a new key, so nothing can be
+   * encrypted for it after the crypto-shred (§5.6). The raw key is zeroized before this returns; only
+   * the wrap is bound as a parameter.
    */
   provisionStatement(input: { readonly userId: string; readonly now: number }): Statement {
     const created = createAccountKey(this.keys, input.userId, this.random);
@@ -57,7 +59,7 @@ export class AccountKeyStore {
       return sql(
         `INSERT INTO account_keys (owner_id, kek_version, wrapped_key, created_at, updated_at, write_id)
          SELECT :owner, :kek, :wrapped, :now, :now, :w
-         WHERE EXISTS (SELECT 1 FROM users WHERE id = :owner)
+         WHERE EXISTS (SELECT 1 FROM users WHERE id = :owner AND deletion_state = 'none')
          ON CONFLICT (owner_id) DO NOTHING`,
         {
           owner: input.userId,
@@ -87,7 +89,7 @@ export class AccountKeyStore {
 
   /**
    * Provisions the key if the account has none and returns it, in one batch. Throws
-   * {@link AccountKeyUnavailableError} when the user does not exist.
+   * {@link AccountKeyUnavailableError} when the user does not exist or the key was shredded.
    */
   async ensure(input: { readonly userId: string; readonly now: number }): Promise<AccountDataKey> {
     const results = await this.db.batch([

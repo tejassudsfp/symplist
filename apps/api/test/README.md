@@ -57,7 +57,8 @@ expect(response.status).toBe(201);
 ```
 
 - `createUser({ state, email })` inserts a user with an account data key. States: `unverified`,
-  `locked`, `admitted`, `relocked`, `suspended`, `admin`, `deleting`.
+  `locked`, `admitted`, `relocked`, `suspended`, `admin`, `deleting` (no key: it was shredded, and
+  provisioning never creates one for an account being deleted).
 - `signIn(userId)` creates a real session and returns `{ userId, sessionId, token, cookie, csrf }`.
 - `createSignedInUser(state)` does both.
 - `request(method, path, options)` and the `get`/`post` shortcuts send the session cookie; on unsafe
@@ -82,4 +83,8 @@ expect(response.status).toBe(201);
   cookies or data directories.
 - Advance time with `app.clock`, never real timers, when behavior depends on time.
 - Spy on `app.db.batch` to prove that a check happens before any D1 access.
+- Per-IP buckets live in each app's memory and every test request comes from one address: more than
+  60 lookups of session cookies that name no session at all (random tokens, not revoked or expired
+  sessions) within 10 minutes hit the `session_unknown` bucket (503 `rate.limited`). Advance
+  `app.clock` or boot a fresh app.
 - Tests that need live providers are gated by `LIVE_*` flags and skipped with a visible reason.

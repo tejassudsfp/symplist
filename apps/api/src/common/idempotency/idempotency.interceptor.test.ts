@@ -172,6 +172,40 @@ describe("Idempotency-Key interceptor (§6.1)", () => {
     expect(JSON.parse(plaintext)).toEqual({ status: 201, body: response.json() });
   });
 
+  it("fingerprints the raw body of a handler that declares no @Body, so another body mismatches", async () => {
+    const key = freshKey();
+    const first = await app.post("/v1/idem/raw", {
+      session,
+      body: { amount: 1 },
+      idempotencyKey: key,
+    });
+    expect(first.status).toBe(201);
+    const replay = await app.post("/v1/idem/raw", {
+      session,
+      body: { amount: 1 },
+      idempotencyKey: key,
+    });
+    expect(replay.headers.get(IDEMPOTENCY_REPLAYED_HEADER.toLowerCase())).toBe("true");
+    const other = await app.post("/v1/idem/raw", {
+      session,
+      body: { amount: 2 },
+      idempotencyKey: key,
+    });
+    expect(other.status).toBe(422);
+    expect(codeOf(other)).toBe("idempotency.mismatch");
+    expect(effects()).toEqual(["raw:1"]);
+  });
+
+  it("replays the status the handler chose, not the method default", async () => {
+    const key = freshKey();
+    const first = await app.post("/v1/idem/accepted", { session, body: {}, idempotencyKey: key });
+    expect(first.status).toBe(202);
+    const retry = await app.post("/v1/idem/accepted", { session, body: {}, idempotencyKey: key });
+    expect(retry.status).toBe(202);
+    expect(retry.json()).toEqual(first.json());
+    expect(effects()).toEqual(["accepted"]);
+  });
+
   it("lets a handler fold the completion into its own batch", async () => {
     const key = freshKey();
     const first = await app.post("/v1/idem/folded", { session, body: {}, idempotencyKey: key });
@@ -199,7 +233,7 @@ describe("one-time secrets are never replayable (§6.1, decision R11)", () => {
     expect(idempotencyProbe.mintedSecrets).toEqual([minted.apiKey]);
 
     const retry = await app.post("/v1/idem/keys", request);
-    expect(retry.status).toBe(201);
+    expect(retry.status).toBe(200);
     expect(retry.json()).toEqual({
       grantId: minted.grantId,
       hint: minted.hint,

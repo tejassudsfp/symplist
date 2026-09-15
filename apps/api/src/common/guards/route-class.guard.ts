@@ -28,6 +28,22 @@ function header(req: Request, name: string): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
 
+/**
+ * Removes a request header from both `req.headers` and `req.rawHeaders`, so code that rebuilds the
+ * request from raw headers (for example a Web `Request` adapter) cannot see a credential either.
+ */
+function dropHeader(req: Request, name: "cookie" | "authorization"): void {
+  delete req.headers[name];
+  const raw = req.rawHeaders;
+  if (!Array.isArray(raw)) return;
+  const kept: string[] = [];
+  for (let index = 0; index + 1 < raw.length; index += 2) {
+    const header = raw[index] ?? "";
+    if (header.toLowerCase() !== name) kept.push(header, raw[index + 1] ?? "");
+  }
+  raw.splice(0, raw.length, ...kept);
+}
+
 /** Keeps only the cookies a class may read and drops the raw header, so nothing re-parses it. */
 function scopeCookies(req: Request, access: CookieAccess, config: ApiConfig): void {
   const names = cookieNames(config);
@@ -42,7 +58,7 @@ function scopeCookies(req: Request, access: CookieAccess, config: ApiConfig): vo
   }
   req.cookies = kept;
   req.signedCookies = {};
-  delete req.headers.cookie;
+  dropHeader(req, "cookie");
 }
 
 /**
@@ -80,7 +96,7 @@ export class RouteClassGuard implements CanActivate {
     if ((rule.surface === "share") !== onShareHost) throw ApiError.notFound();
 
     scopeCookies(req, rule.cookies, this.config);
-    if (!rule.bearer) delete req.headers.authorization;
+    if (!rule.bearer) dropHeader(req, "authorization");
 
     this.checkOrigin(declared, req);
     if (

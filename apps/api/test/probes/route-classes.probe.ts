@@ -9,6 +9,11 @@ function seen(req: Request) {
     cookies: Object.keys(req.cookies ?? {}).sort(),
     rawCookieHeader: req.headers.cookie ?? null,
     authorization: req.headers.authorization ?? null,
+    rawHeaderNames: req.rawHeaders
+      .filter((_, index) => index % 2 === 0)
+      .map((name) => name.toLowerCase())
+      .filter((name) => name === "cookie" || name === "authorization")
+      .sort(),
   };
 }
 

@@ -8,7 +8,7 @@ import {
   sql,
   uuidv7,
 } from "@symplist/db";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountKeyStore } from "../account/keys.ts";
 import {
   IDEMPOTENCY_PENDING_LEASE_MS,
@@ -73,6 +73,17 @@ describe("idempotency records (§6.1)", () => {
       kind: "replay",
       response: { status: 201, body: { id: "t1" } },
     });
+  });
+
+  it("records a response in one D1 request, reusing the key row the claiming batch read (§3.1)", async () => {
+    const claim = await started({ title: "Budget" });
+    const batch = vi.spyOn(db, "batch");
+    await store.complete({ claim, response: { status: 201, body: { id: "t2" } }, now: now + 5 });
+    expect(batch).toHaveBeenCalledTimes(1);
+    batch.mockRestore();
+    expect(
+      await store.begin({ scope, userId, key, input: { title: "Budget" }, now: now + 10 }),
+    ).toMatchObject({ kind: "replay", response: { status: 201, body: { id: "t2" } } });
   });
 
   it("stores only the fingerprint of the input and an encrypted response", async () => {

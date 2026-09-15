@@ -91,6 +91,12 @@ function checkRequest(request: Pick<IdempotencyRequest, "scope" | "userId" | "ke
   }
 }
 
+/**
+ * The wrapped account key row read by the claiming batch, kept per claim so recording the response
+ * needs no second read of `account_keys` (§3.1). It holds only the KEK-wrapped key.
+ */
+const wrappedKeyRows = new WeakMap<IdempotencyClaim, DbRow>();
+
 function claimGuard(claim: Omit<IdempotencyClaim, "guard">): IdempotencyClaim["guard"] {
   return Object.freeze({
     exists:
@@ -190,8 +196,11 @@ export class IdempotencyStore {
     if (!row) throw new IdempotencyStateError("The user of this idempotency record does not exist");
 
     if (row.write_id === writeId) {
-      const claim = { scope: request.scope, userId: request.userId, key: request.key, writeId };
-      return { kind: "started", claim: Object.freeze({ ...claim, guard: claimGuard(claim) }) };
+      const fields = { scope: request.scope, userId: request.userId, key: request.key, writeId };
+      const claim: IdempotencyClaim = Object.freeze({ ...fields, guard: claimGuard(fields) });
+      const keyRow = results[2]?.results[0];
+      if (keyRow) wrappedKeyRows.set(claim, keyRow);
+      return { kind: "started", claim };
     }
     const matches = verifyDigest(
       this.keys,
@@ -248,13 +257,19 @@ export class IdempotencyStore {
     );
   }
 
-  /** Records the response of a claim in its own batch. */
+  /**
+   * Records the response of a claim in its own batch: one D1 request, reusing the account key row the
+   * claiming batch already read.
+   */
   async complete(input: {
     readonly claim: IdempotencyClaim;
     readonly response: StoredIdempotentResponse;
     readonly now: number;
   }): Promise<void> {
-    const accountKey = await this.accountKeys.require(input.claim.userId);
+    const keyRow = wrappedKeyRows.get(input.claim);
+    const accountKey = keyRow
+      ? this.accountKeys.unwrapRow(keyRow)
+      : await this.accountKeys.require(input.claim.userId);
     try {
       await this.db.run(this.completeStatement({ ...input, accountKey }));
     } finally {

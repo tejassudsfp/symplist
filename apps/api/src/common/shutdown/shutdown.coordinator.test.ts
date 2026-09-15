@@ -38,7 +38,9 @@ describe("graceful shutdown ordering (§5.5, §7)", () => {
       }),
       closeAllSockets: vi.fn(async (code: number, timeoutMs: number) => {
         order.push(`sockets_closed:${code}:${timeoutMs}`);
-        releaseRequest?.();
+        // The in-flight request finishes only later, while Nest is draining HTTP, so the database
+        // must stay open until the drain completes.
+        setTimeout(() => releaseRequest?.(), 100);
       }),
     };
     const app = await bootTestApp({
@@ -58,7 +60,9 @@ describe("graceful shutdown ordering (§5.5, §7)", () => {
     });
     const inFlight = fetch(`${app.baseUrl}/.well-known/slow`);
     await entered;
+    const closing = performance.now();
     await app.close();
+    const closeMs = performance.now() - closing;
     const response = await inFlight;
 
     expect(response.status).toBe(200);
@@ -69,6 +73,9 @@ describe("graceful shutdown ordering (§5.5, §7)", () => {
       "database_closed",
     ]);
     expect(close).toHaveBeenCalledTimes(1);
+    // The finished request's keep-alive connection is closed at once instead of lingering until
+    // the keep-alive timeout (5 seconds), which would delay the drain.
+    expect(closeMs).toBeLessThan(2_000);
     // The key provider zeroized its keys last.
     expect(() => keys.families()).toThrow(/destroyed/);
     await expect(app.db.batch([sql("SELECT 1")])).rejects.toMatchObject({ code: "db.unavailable" });

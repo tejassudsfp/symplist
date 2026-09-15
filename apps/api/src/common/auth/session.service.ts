@@ -21,6 +21,7 @@ import { TtlCache } from "../../infra/cache/ttl-cache.ts";
 import { API_CONFIG, type ApiConfig } from "../../infra/config/api-config.ts";
 import { KEY_PROVIDER } from "../../infra/crypto/crypto.providers.ts";
 import { DB_CLIENT } from "../../infra/db/db.providers.ts";
+import { IpFailureLimiter } from "../../infra/limits/ip-failures.ts";
 import { CLOCK, type Clock } from "../clock.ts";
 import { AppLogger } from "../logging/logger.ts";
 import { REALTIME_ACCESS_NOTIFIER, type RealtimeAccessNotifier } from "../seams.ts";
@@ -45,6 +46,7 @@ export class SessionService {
     @Inject(API_CONFIG) private readonly config: ApiConfig,
     @Inject(CLOCK) private readonly clock: Clock,
     private readonly logger: AppLogger,
+    private readonly failures: IpFailureLimiter,
     @Optional()
     @Inject(REALTIME_ACCESS_NOTIFIER)
     private readonly realtime?: RealtimeAccessNotifier,
@@ -81,19 +83,33 @@ export class SessionService {
 
   /**
    * Resolves the request's session. Cached entries are served for at most 10 seconds; `fresh` always
-   * reads D1 and refreshes the cache (§3.3). Unknown tokens are remembered for 60 seconds.
+   * reads D1 and refreshes the cache (§3.3). Tokens without a live session are remembered for 60
+   * seconds, and a client network whose cookies keep naming no session at all is refused with
+   * `rate.limited` before its next D1 lookup (the `session_unknown` failure bucket), so invented
+   * tokens cannot spend the api lane's D1 budget (§3.1, §5.8).
    */
   async resolve(
     req: Request,
     options: { readonly fresh: boolean },
   ): Promise<ResolvedSession | null> {
-    return this.resolveToken(this.tokenFrom(req), options);
+    return this.lookup(this.tokenFrom(req), options, req);
   }
 
-  /** Resolves a session token taken from a cookie, with the same caching as {@link resolve}. */
+  /**
+   * Resolves a session token taken from a cookie, with the same caching as {@link resolve}. Callers
+   * without an Express request (the WebSocket upgrade) apply their own per-client limit.
+   */
   async resolveToken(
     token: string | null,
     options: { readonly fresh: boolean },
+  ): Promise<ResolvedSession | null> {
+    return this.lookup(token, options, null);
+  }
+
+  private async lookup(
+    token: string | null,
+    options: { readonly fresh: boolean },
+    req: Request | null,
   ): Promise<ResolvedSession | null> {
     if (!token || !isWellFormedSessionToken(token)) return null;
     const key = computeDigest(this.keys, "SESSION_DIGEST_SECRET", "session", token).digest;
@@ -102,12 +118,17 @@ export class SessionService {
       const cached = this.cache.get(key);
       if (cached) return cached;
     }
+    if (req) this.failures.assertAllowed("session_unknown", req);
     const now = this.clock.now();
-    const resolved = await this.store.resolve(token, now);
-    if (!resolved) {
+    const found = await this.store.lookup(token, now);
+    if (found.status !== "live") {
       this.cache.rememberMissing(key);
+      // Only tokens that name no session count: a stale cookie of a revoked or expired session is
+      // an ordinary browser, while an invented token is not.
+      if (req && found.status === "unknown") this.failures.recordFailure("session_unknown", req);
       return null;
     }
+    const resolved = found.resolved;
     this.cache.evictStaleGeneration(resolved.session.userId, resolved.access.accessGeneration);
     this.cache.set(key, resolved);
     this.touchLater(resolved, now);
@@ -171,7 +192,7 @@ export class SessionService {
       userId: context.userId,
       now: this.clock.now(),
     });
-    this.cache.evictSession(context.sessionId);
+    this.cache.evictSession(context.sessionId, { revoked });
     if (revoked) await this.notifySessionsEnded(context.userId, [context.sessionId]);
     return revoked;
   }
@@ -179,14 +200,18 @@ export class SessionService {
   /** Revokes every session of a user: evicts the user's cache entries and closes their sockets. */
   async revokeAll(userId: string): Promise<readonly string[]> {
     const ids = await this.store.revokeAll({ userId, now: this.clock.now() });
+    for (const id of ids) this.cache.evictSession(id, { revoked: true });
     this.cache.evictUser(userId);
     if (ids.length > 0) await this.notifySessionsEnded(userId, ids);
     return ids;
   }
 
-  /** Evicts every cached session of a user (after restrictions, restores and access changes). */
-  evictUser(userId: string): void {
-    this.cache.evictUser(userId);
+  /**
+   * Evicts every cached session of a user (after restrictions, restores and access changes). Pass the
+   * generation the change committed so an older read still in flight is never cached afterwards.
+   */
+  evictUser(userId: string, accessGeneration?: number): void {
+    this.cache.evictUser(userId, accessGeneration);
   }
 
   private async notifySessionsEnded(

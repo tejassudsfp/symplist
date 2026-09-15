@@ -1,11 +1,19 @@
 import type { Statement } from "@symplist/db";
 import type { CoreDomain } from "../../domains.ts";
+import type { StatementGuard } from "../sessions.ts";
 
 export interface SessionRevokeInput {
   readonly userId: string;
   /** The revoked auth session, or null when every session of the user is revoked. */
   readonly sessionId: string | null;
   readonly now: number;
+  /**
+   * The deciding statement's guard when the revocation is folded into another batch (account
+   * deletion step 5, §5.6); null for logout and revoke-all. When set, every contributed statement
+   * must append `guard.exists` to its `WHERE` clause with `guard.params`, so nothing is revoked when
+   * the deciding statement did not apply.
+   */
+  readonly guard: StatementGuard | null;
 }
 
 /**

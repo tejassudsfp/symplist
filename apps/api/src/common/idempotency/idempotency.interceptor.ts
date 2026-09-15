@@ -89,7 +89,10 @@ function argumentSource(req: Request, type: number, data: unknown): unknown {
 /**
  * The validated input of a route, computed exactly as the Standard Schema pipe will: every `@Body`,
  * `@Query` and `@Param` argument with its schema applied. Arguments without a schema contribute their
- * raw value. Invalid input fails here with the same `validation` error the pipe would return.
+ * raw value. A source the handler declares no argument for (for example a handler that reads
+ * `req.body` through `@Req()`) contributes its raw value, so a retry with another body can never
+ * replay the first response. Invalid input fails here with the same `validation` error the pipe
+ * would return.
  */
 export async function validatedRouteInput(
   context: ExecutionContext,
@@ -101,6 +104,7 @@ export async function validatedRouteInput(
     context.getHandler().name,
   ) ?? {}) as Record<string, RouteArgument>;
   const input: Record<string, unknown> = {};
+  const declared = new Set<number>();
   for (const [key, argument] of Object.entries(args)) {
     const type = Number(key.split(":")[0]);
     if (
@@ -117,6 +121,14 @@ export async function validatedRouteInput(
     }
     const name = `${RouteParamtypes[type]}:${typeof argument.data === "string" ? argument.data : ""}`;
     input[name] = plainJson(value);
+    declared.add(type);
+  }
+  for (const type of [RouteParamtypes.BODY, RouteParamtypes.QUERY, RouteParamtypes.PARAM]) {
+    if (!declared.has(type)) {
+      input[`${RouteParamtypes[type]}:*raw`] = plainJson(
+        argumentSource(req, type, undefined) ?? null,
+      );
+    }
   }
   return input;
 }
@@ -188,8 +200,12 @@ export class IdempotencyInterceptor implements NestInterceptor {
     res: Response,
     next: CallHandler,
   ): Observable<unknown> {
-    const recorded = (body: unknown): unknown =>
-      requirement.secretFields ? redactOneTimeSecretResponse(body, requirement.secretFields) : body;
+    // A one-time secret endpoint records only its redacted outcome, which an exact retry receives
+    // with status 200 (§6.1); other endpoints record the status and body they sent.
+    const recorded = (status: number, body: unknown): StoredIdempotentResponse =>
+      requirement.secretFields
+        ? { status: 200, body: redactOneTimeSecretResponse(body, requirement.secretFields) }
+        : { status, body };
     const idempotency: IdempotencyContext & { folded: boolean } = {
       claim,
       folded: false,
@@ -197,7 +213,7 @@ export class IdempotencyInterceptor implements NestInterceptor {
         idempotency.folded = true;
         return this.store.completeStatement({
           claim,
-          response: { status: response.status, body: recorded(response.body) },
+          response: recorded(response.status, response.body),
           accountKey,
           now: this.clock.now(),
         });
@@ -212,7 +228,7 @@ export class IdempotencyInterceptor implements NestInterceptor {
             if (!idempotency.folded) {
               await this.store.complete({
                 claim,
-                response: { status: res.statusCode, body: recorded(body) },
+                response: recorded(res.statusCode, body),
                 now: this.clock.now(),
               });
             }

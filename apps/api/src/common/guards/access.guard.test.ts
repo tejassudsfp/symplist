@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import type { D1AccessService } from "@symplist/core/access";
 import { int, sql, uuidv7 } from "@symplist/db";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -10,6 +11,7 @@ import {
 } from "../../../test/harness.ts";
 import { AccessLevelsProbeModule } from "../../../test/probes/access.probe.ts";
 import { ACCESS_CACHE_TTL_MS } from "../../infra/cache/session-cache.ts";
+import { ipFailureBuckets } from "../../infra/limits/ip-limits.ts";
 import { ACCESS_SERVICE } from "../access/access.providers.ts";
 import {
   REALTIME_ACCESS_NOTIFIER,
@@ -87,8 +89,16 @@ describe("@Access levels (§5.4)", () => {
         },
       ),
     );
-    await app.clock.advance(30 * 24 * 60 * 60 * 1000);
     const bodies = new Set<string>();
+    const send = async (cookie: string | undefined) => {
+      const response = await app.get("/v1/levels/identity", { headers: cookie ? { cookie } : {} });
+      expect(response.status).toBe(401);
+      const body = response.json<{ error: { code: string; message: string } }>();
+      bodies.add(JSON.stringify({ code: body.error.code, message: body.error.message }));
+    };
+    // The account being deleted is refused while its session row is still live.
+    await send(deleting.session.cookie);
+    await app.clock.advance(30 * 24 * 60 * 60 * 1000);
     const cookies = [
       undefined,
       `${app.sessionCookieName}=not-a-token`,
@@ -96,12 +106,7 @@ describe("@Access levels (§5.4)", () => {
       expired.session.cookie,
       revoked.session.cookie,
     ];
-    for (const cookie of cookies) {
-      const response = await app.get("/v1/levels/identity", { headers: cookie ? { cookie } : {} });
-      expect(response.status).toBe(401);
-      const body = response.json<{ error: { code: string; message: string } }>();
-      bodies.add(JSON.stringify({ code: body.error.code, message: body.error.message }));
-    }
+    for (const cookie of cookies) await send(cookie);
     expect([...bodies]).toEqual([
       JSON.stringify({ code: "auth.session_required", message: "Sign in to continue" }),
     ]);
@@ -132,6 +137,38 @@ describe("@Access levels (§5.4)", () => {
     await app.get("/v1/levels/identity", { headers: { cookie: forged } });
     expect(batch).toHaveBeenCalledTimes(1);
     batch.mockRestore();
+  });
+
+  it("refuses a client inventing session tokens before D1, while cached sessions keep working", async () => {
+    const app = await boot();
+    const user = await app.createSignedInUser();
+    expect((await app.get("/v1/levels/identity", { session: user.session })).status).toBe(200);
+    const { limit, windowMs } = ipFailureBuckets.session_unknown;
+    for (let index = 0; index < limit; index += 1) {
+      const forged = `${app.sessionCookieName}=${randomBytes(32).toString("base64url")}`;
+      const response = await app.get("/v1/levels/identity", { headers: { cookie: forged } });
+      expect(response.status).toBe(401);
+    }
+    const batch = vi.spyOn(app.db, "batch");
+    const forged = `${app.sessionCookieName}=${randomBytes(32).toString("base64url")}`;
+    const refused = await app.get("/v1/levels/identity", { headers: { cookie: forged } });
+    expect(refused.status).toBe(503);
+    expect(errorCode(refused)).toBe("rate.limited");
+    expect(batch).not.toHaveBeenCalled();
+    // A session already in the 10-second cache needs no lookup, so it is not refused.
+    expect((await app.get("/v1/levels/identity", { session: user.session })).status).toBe(200);
+    batch.mockRestore();
+
+    // Cookies of sessions that ended are ordinary stale browsers and never fill the bucket.
+    await app.clock.advance(windowMs);
+    for (let index = 0; index < limit + 5; index += 1) {
+      const ended = await app.createSignedInUser();
+      await app.sessions.revoke({ userId: ended.id, sessionId: ended.session.sessionId });
+      expect((await app.get("/v1/levels/identity", { session: ended.session })).status).toBe(401);
+    }
+
+    await app.clock.advance(windowMs);
+    expect((await app.get("/v1/levels/identity", { session: user.session })).status).toBe(200);
   });
 
   it("identifies each user by their own session only", async () => {
@@ -224,6 +261,43 @@ describe("access caches and relock propagation (§3.3, §5.5)", () => {
       userId: user.id,
       accessGeneration: 1,
     });
+  });
+
+  it("never caches a session read that was in flight while a local restriction committed", async () => {
+    const app = await boot();
+    const user = await app.createSignedInUser();
+    const store = app.sessions.store;
+    const original = store.lookup.bind(store);
+    let release: (() => void) | undefined;
+    let readDone: (() => void) | undefined;
+    const readFinished = new Promise<void>((resolve) => {
+      readDone = resolve;
+    });
+    const lookupSpy = vi.spyOn(store, "lookup").mockImplementationOnce(async (token, now) => {
+      const stale = await original(token, now);
+      readDone?.();
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return stale;
+    });
+
+    const inFlight = app.get("/v1/levels/admitted", { session: user.session });
+    await readFinished;
+    const outcome = await app.inject<D1AccessService>(ACCESS_SERVICE).restrict({
+      userId: user.id,
+      reason: "relocked",
+      writeId: uuidv7(app.clock.now()),
+      now: app.clock.now(),
+    });
+    expect(outcome.accessGeneration).toBe(1);
+    release?.();
+    // The overlapping request read before the commit; the next one must not be served that read.
+    expect((await inFlight).status).toBe(200);
+    expect(errorCode(await app.get("/v1/levels/admitted", { session: user.session }))).toBe(
+      "access.relocked",
+    );
+    lookupSpy.mockRestore();
   });
 
   it("propagates a relock to a second instance within the cache TTL (deploy overlap)", async () => {

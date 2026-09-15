@@ -59,7 +59,7 @@ export class RestrictionEffects {
       {
         name: "access_cache_eviction",
         afterCommit: async (event: RestrictionCommitted) => {
-          this.sessions.evictUser(event.userId);
+          this.sessions.evictUser(event.userId, event.accessGeneration);
         },
       },
     ];

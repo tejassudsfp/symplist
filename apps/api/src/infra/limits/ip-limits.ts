@@ -39,6 +39,12 @@ export const ipFailureBuckets = Object.freeze({
   share_password_failure: { limit: 20, windowMs: 15 * minute },
   /** Invalid `/mcp` credentials: 20 per minute. */
   mcp_invalid_credentials: { limit: 20, windowMs: minute },
+  /**
+   * Session cookies that name no session at all: 60 D1 lookups per client network per 10 minutes
+   * (decision C6.11). Cookies of revoked or expired sessions never count, so only a client inventing
+   * tokens (or holding cookies of purged accounts) is refused before D1 (§3.1, §5.8).
+   */
+  session_unknown: { limit: 60, windowMs: 10 * minute },
 } as const);
 
 export type IpFailureBucket = keyof typeof ipFailureBuckets;

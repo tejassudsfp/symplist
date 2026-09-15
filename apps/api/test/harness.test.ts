@@ -62,7 +62,9 @@ describe("api test harness", () => {
     for (const [state, expected] of Object.entries(expectations)) {
       const user = await app.createUser({ state: state as keyof typeof expectations });
       expect(await app.accessState(user.id), state).toMatchObject(expected);
-      expect(await app.accountKeys.load(user.id), state).not.toBeNull();
+      // An account being deleted has had its key shredded (§5.6), so it never gets one.
+      if (state === "deleting") expect(await app.accountKeys.load(user.id), state).toBeNull();
+      else expect(await app.accountKeys.load(user.id), state).not.toBeNull();
     }
     const { session } = await app.createSignedInUser();
     expect(session.cookie).toBe(`sym_session=${session.token}`);

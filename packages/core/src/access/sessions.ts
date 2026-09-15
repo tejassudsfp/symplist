@@ -11,7 +11,10 @@ import {
 import type { DbClient, DbRow, Statement, StatementResult } from "@symplist/db";
 import { analyzeStatement, int, sql, uuidv7, verifiedRow } from "@symplist/db";
 import { sessionRevokeContributors as defaultRevokeContributors } from "./session-revoke-contributors/index.ts";
-import type { SessionRevokeContributor } from "./session-revoke-contributors/types.ts";
+import type {
+  SessionRevokeContributor,
+  SessionRevokeInput,
+} from "./session-revoke-contributors/types.ts";
 import { accessStateFromRow, accessStateSelectList } from "./sql.ts";
 import type { AccessState } from "./types.ts";
 
@@ -38,6 +41,15 @@ export interface ResolvedSession {
   readonly session: AuthSession;
   readonly access: AccessState;
 }
+
+/** The outcome of looking a token up: a live session, a session that ended, or no session at all. */
+export type SessionLookup =
+  | { readonly status: "live"; readonly resolved: ResolvedSession }
+  | { readonly status: "ended" }
+  | { readonly status: "unknown" };
+
+const UNKNOWN_SESSION: SessionLookup = Object.freeze({ status: "unknown" });
+const ENDED_SESSION: SessionLookup = Object.freeze({ status: "ended" });
 
 /** A created session; the raw token exists only here and in the `Set-Cookie` response header. */
 export interface CreatedSession {
@@ -120,13 +132,26 @@ function text(row: DbRow, column: string): string {
   return value;
 }
 
-function checkRevokeStatement(domain: string, statement: Statement): void {
+function checkRevokeStatement(
+  domain: string,
+  statement: Statement,
+  guard: StatementGuard | null,
+): void {
   const targets = analyzeStatement(statement.sql).writeTargets;
   if (
     targets.length === 0 ||
     targets.some((target) => ["users", "auth_sessions"].includes(target.name))
   ) {
     throw new Error(`Session revoke contributor ${domain} must write only its own tables`);
+  }
+  if (guard) {
+    const compiled = sql(guard.exists, guard.params);
+    if (
+      !statement.sql.includes(compiled.sql) ||
+      compiled.params.some((value) => !statement.params.includes(value))
+    ) {
+      throw new Error(`Session revoke contributor ${domain} must carry the batch's guard`);
+    }
   }
 }
 
@@ -215,7 +240,17 @@ export class SessionStore {
    * constant time under the version it records.
    */
   async resolve(token: unknown, now: number): Promise<ResolvedSession | null> {
-    if (!isWellFormedSessionToken(token)) return null;
+    const found = await this.lookup(token, now);
+    return found.status === "live" ? found.resolved : null;
+  }
+
+  /**
+   * Like {@link resolve}, but tells a session that ended (revoked or expired) apart from a token that
+   * names no session at all, so callers can limit clients that invent tokens (§5.8) without counting
+   * browsers that still hold a stale cookie. Malformed tokens are `unknown` without a D1 request.
+   */
+  async lookup(token: unknown, now: number): Promise<SessionLookup> {
+    if (!isWellFormedSessionToken(token)) return UNKNOWN_SESSION;
     const candidates = computeDigestCandidates(
       this.keys,
       "SESSION_DIGEST_SECRET",
@@ -225,24 +260,31 @@ export class SessionStore {
     const row = await this.db.first(
       sql(
         `SELECT s.id AS session_id, s.user_id, s.token_digest, s.digest_version, s.created_at,
-                s.last_seen_at, s.expires_at, ${accessStateSelectList("u", "u_")}
+                s.last_seen_at, s.expires_at, s.revoked_at, ${accessStateSelectList("u", "u_")}
          FROM auth_sessions s JOIN users u ON u.id = s.user_id
-         WHERE s.token_digest IN (:digests) AND s.revoked_at IS NULL AND s.expires_at > :now`,
-        { digests: candidates.map((candidate) => candidate.digest), now: int(now) },
+         WHERE s.token_digest IN (:digests)`,
+        { digests: candidates.map((candidate) => candidate.digest) },
       ),
     );
-    if (!row) return null;
+    if (!row) return UNKNOWN_SESSION;
     const stored = { version: integer(row, "digest_version"), digest: text(row, "token_digest") };
-    if (!verifyDigest(this.keys, "SESSION_DIGEST_SECRET", "session", token, stored)) return null;
+    if (!verifyDigest(this.keys, "SESSION_DIGEST_SECRET", "session", token, stored)) {
+      return UNKNOWN_SESSION;
+    }
+    const expiresAt = integer(row, "expires_at");
+    if (row.revoked_at !== null || expiresAt <= now) return ENDED_SESSION;
     return Object.freeze({
-      session: Object.freeze({
-        id: text(row, "session_id"),
-        userId: text(row, "user_id"),
-        createdAt: integer(row, "created_at"),
-        lastSeenAt: integer(row, "last_seen_at"),
-        expiresAt: integer(row, "expires_at"),
+      status: "live",
+      resolved: Object.freeze({
+        session: Object.freeze({
+          id: text(row, "session_id"),
+          userId: text(row, "user_id"),
+          createdAt: integer(row, "created_at"),
+          lastSeenAt: integer(row, "last_seen_at"),
+          expiresAt,
+        }),
+        access: accessStateFromRow(row, "u_"),
       }),
-      access: accessStateFromRow(row, "u_"),
     });
   }
 
@@ -278,7 +320,12 @@ export class SessionStore {
          WHERE id = :session AND user_id = :user AND revoked_at IS NULL`,
         { now: int(input.now), w: writeId, session: input.sessionId, user: input.userId },
       ),
-      ...this.contributed({ userId: input.userId, sessionId: input.sessionId, now: input.now }),
+      ...this.contributed({
+        userId: input.userId,
+        sessionId: input.sessionId,
+        now: input.now,
+        guard: null,
+      }),
       sql(`SELECT id FROM auth_sessions WHERE id = :session AND write_id = :w`, {
         session: input.sessionId,
         w: writeId,
@@ -289,7 +336,8 @@ export class SessionStore {
 
   /**
    * Statements that revoke every live session of a user, for folding into another batch (account
-   * deletion step 5, §5.6). `guard` makes the revocation depend on that batch's deciding statement.
+   * deletion step 5, §5.6). `guard` makes the revocation, and every contributed session-bound
+   * revocation, depend on that batch's deciding statement.
    */
   revokeAllStatements(input: {
     readonly userId: string;
@@ -303,7 +351,12 @@ export class SessionStore {
          WHERE user_id = :user AND revoked_at IS NULL${extra}`,
         { ...input.guard?.params, now: int(input.now), user: input.userId },
       ),
-      ...this.contributed({ userId: input.userId, sessionId: null, now: input.now }),
+      ...this.contributed({
+        userId: input.userId,
+        sessionId: null,
+        now: input.now,
+        guard: input.guard ?? null,
+      }),
     ];
   }
 
@@ -321,15 +374,11 @@ export class SessionStore {
     return (results[0]?.results ?? []).map((row) => text(row, "id"));
   }
 
-  private contributed(input: {
-    readonly userId: string;
-    readonly sessionId: string | null;
-    readonly now: number;
-  }): Statement[] {
+  private contributed(input: SessionRevokeInput): Statement[] {
     const statements: Statement[] = [];
     for (const contributor of this.revokeContributors) {
       for (const statement of contributor.statements(input)) {
-        checkRevokeStatement(contributor.domain, statement);
+        checkRevokeStatement(contributor.domain, statement, input.guard);
         statements.push(statement);
       }
     }
