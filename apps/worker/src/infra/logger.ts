@@ -2,7 +2,8 @@ import { logger as triggerLogger } from "@trigger.dev/sdk";
 
 /**
  * The only way worker code logs (§8.3). Events are stable dotted codes and fields must match the
- * allowlisted schema: ids (`id`, `*Id`), stable codes (`code`, `*Code`, `status`, `reason`, `kind`),
+ * allowlisted schema: ids (`id`, `*Id`), stable codes (`code`, `*Code`, `status`, `reason`, `kind`,
+ * `state`, `mode`, `executor`, `runtime`, `lane`, `task`),
  * durations (`*Ms`) and counts (`count`, `*Count`, `attempt`, `seq`, `*Bytes`, `generation`,
  * `httpStatus`), plus `is*`/`has*` flags. Anything
  * else is dropped before it reaches Trigger's logger and counted in `redactedFields`.
@@ -35,7 +36,9 @@ function kindOf(name: string): FieldKind | null {
   if (
     name === "code" ||
     name.endsWith("Code") ||
-    ["status", "reason", "kind", "state", "mode", "executor"].includes(name)
+    ["status", "reason", "kind", "state", "mode", "executor", "runtime", "lane", "task"].includes(
+      name,
+    )
   ) {
     return "code";
   }

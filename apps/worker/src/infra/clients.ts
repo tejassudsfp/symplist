@@ -6,6 +6,8 @@ import {
   createD1RestClient,
   createLocalSqliteClient,
   createWorkerLane,
+  type D1CircuitBreaker,
+  type D1Counters,
   type DbClient,
   type FetchLike,
   processLane,
@@ -26,12 +28,19 @@ export function workerProcessLane(options: { readonly clock?: Clock } = {}): Rat
 }
 
 /**
- * The worker D1 client on its own token and lane (§3.1). Only tasks that declare a D1 family queue may
- * import this module; `queues.test.ts` enforces it.
+ * The worker D1 client on its own token and lane (§3.1), counting its requests in `counters` (the
+ * process's `d1.requests` counters) when given. Only tasks that declare a D1 family queue may import
+ * this module; `queues.test.ts` enforces it.
  */
 export function createWorkerDb(
   config: WorkerConfig,
-  options: { readonly fetch?: FetchLike; readonly lane?: RateLane } = {},
+  options: {
+    readonly fetch?: FetchLike;
+    readonly lane?: RateLane;
+    readonly counters?: D1Counters;
+    readonly circuit?: D1CircuitBreaker;
+    readonly clock?: Clock;
+  } = {},
 ): DbClient {
   if (config.DATA_DRIVER === "local") {
     // The same file the api uses under LOCAL_DATA_DIR, so `trigger dev` and the api share state.
@@ -51,6 +60,9 @@ export function createWorkerDb(
     lane: options.lane ?? workerProcessLane(),
     runtime: "worker",
     ...(options.fetch ? { fetch: options.fetch } : {}),
+    ...(options.counters ? { counters: options.counters } : {}),
+    ...(options.circuit ? { circuit: options.circuit } : {}),
+    ...(options.clock ? { clock: options.clock } : {}),
   });
 }
 

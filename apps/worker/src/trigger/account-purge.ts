@@ -1,5 +1,6 @@
 import { AbortTaskRunError, runs, task } from "@trigger.dev/sdk";
 import { accountPurgePayloadSchema, runAccountPurgeTask } from "../infra/account-purge.ts";
+import { reportingD1Counters } from "../infra/d1-counters.ts";
 import { toWorkerError, WorkerError } from "../infra/errors.ts";
 import { workerRuntime } from "../infra/runtime.ts";
 import { d1 } from "../queues.ts";
@@ -17,16 +18,21 @@ export const accountPurge = task({
   machine: "micro",
   maxDuration: 900,
   retry: { maxAttempts: 5, outOfMemory: { machine: "small-1x" } },
-  run: async (payload: unknown, { signal }) => {
+  run: async (payload: unknown, { ctx, signal }) => {
     try {
       if (!accountPurgePayloadSchema.safeParse(payload).success) {
         throw new WorkerError("account_purge.payload_invalid");
       }
       const runtime = workerRuntime();
-      return await runAccountPurgeTask(
-        payload,
-        { db: runtime.db, objects: runtime.objects, runs, logger: runtime.logger },
-        signal,
+      return await reportingD1Counters(
+        runtime.d1Counters,
+        { task: "account-purge", runId: ctx.run.id },
+        () =>
+          runAccountPurgeTask(
+            payload,
+            { db: runtime.db, objects: runtime.objects, runs, logger: runtime.logger },
+            signal,
+          ),
       );
     } catch (error) {
       const mapped = toWorkerError(error);

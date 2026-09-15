@@ -124,6 +124,16 @@ describe("D1 queue family (§3.1)", () => {
     expect(violations).toEqual([]);
   });
 
+  it("reports the D1 counters at the end of every task run that reaches the worker D1 client", () => {
+    const sources = workerSources();
+    const missing = listSources(triggerDir)
+      .filter((file) => reachesD1Client(file, sources))
+      .filter((file) => !/\breportingD1Counters\s*\(/.test(sources.get(file) ?? ""))
+      .map((file) => relative(srcDir, file));
+    expect(listSources(triggerDir).some((file) => reachesD1Client(file, sources))).toBe(true);
+    expect(missing).toEqual([]);
+  });
+
   it("constructs D1 clients only in infra/clients.ts, so no task can bypass the family rule", () => {
     const constructors =
       /\b(?:createD1RestClient|createLocalSqliteClient|createWorkerLane|processLane)\b/;
