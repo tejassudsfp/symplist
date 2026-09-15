@@ -6,7 +6,7 @@ Files are named `NNNN_name.sql`. Each owner writes only inside its range:
 
 | Range | Owner | Tables |
 | --- | --- | --- |
-| `0001`–`0019` | Foundation | `users`, `auth_sessions`, `account_keys`, `otp_challenges`, `otp_limits`, `idempotency_records`, `dispatch_intents`, `executor_state`, `webhook_receipts`, `beta_admin_events`, `tasks`, `user_preferences`, `search_intents`, `account_delete_authorizations`, `account_deletions`, `account_tombstones` |
+| `0001`–`0019` | Foundation | `users`, `auth_sessions`, `account_keys`, `otp_challenges`, `otp_limits`, `idempotency_records`, `dispatch_intents`, `executor_state`, `webhook_receipts`, `beta_admin_events`, `tasks`, `user_preferences`, `search_intents`, `account_delete_authorizations`, `account_deletions`, `account_tombstones`, `abuse_counters` |
 | `0100`–`0199` | Access | `beta_invites`, `beta_redemptions`, `beta_access_grants` |
 | `0200`–`0299` | Workspace | Workspace-owned additions to the foundation tables |
 | `0300`–`0399` | Documents | `doc_repos`, `doc_commits`, `doc_publish_requests`, `doc_drafts`, `read_receipts` |
