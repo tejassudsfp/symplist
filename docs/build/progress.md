@@ -63,3 +63,4 @@ Checkpoint file for the end-to-end build. Read this first when resuming; update 
     - Per-endpoint one-time secret scans (§6.1) and the Simon Trigger marker-string test (§8.3): D2.
     - Deploy configuration and CI `migrate`/`deploy-trigger` jobs: G.
     - Live suites (D1, R2, Trigger, OpenAI, Composio, PostHog): after credentials are provided.
+- 2026-09-16: D1 incident: a mid-run reply to the workspace web-stage agent resumed it outside the workflow; it stopped with four untested web files (tree.ts, api.ts, errors.ts, task-store.ts) and no committed web stage. The workspace backend (5d14507) is intact. A dedicated workspace web and review pass runs on the existing worktree before the D1 merge. Access, documents and search pipelines are unaffected.
