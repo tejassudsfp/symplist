@@ -26,6 +26,7 @@ describe("r2ClientConfig (§1 R2 rules)", () => {
       endpoint: `https://${ACCOUNT_ID}.r2.cloudflarestorage.com`,
       requestChecksumCalculation: "WHEN_REQUIRED",
       responseChecksumValidation: "WHEN_REQUIRED",
+      requestHandler: { connectionTimeout: 10_000, socketTimeout: 60_000 },
     });
     expect(
       r2ClientConfig({
@@ -229,6 +230,17 @@ describe("R2ObjectStore requests", () => {
       expect(serialized).not.toContain(SECRET_ACCESS_KEY);
       expect(serialized).not.toContain(ACCESS_KEY_ID);
     }
+  });
+
+  it("applies connection and socket timeouts to the SDK's HTTP handler", async () => {
+    await store.head("u/owner/timeouts");
+    const handler = store.client.config.requestHandler as unknown as {
+      httpHandlerConfigs(): Record<string, unknown>;
+    };
+    expect(handler.httpHandlerConfigs()).toMatchObject({
+      connectionTimeout: 10_000,
+      socketTimeout: 60_000,
+    });
   });
 
   it("reports an unreachable endpoint as unavailable", async () => {

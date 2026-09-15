@@ -41,6 +41,7 @@ export const RETRYABLE_D1_MESSAGES: readonly string[] = Object.freeze([
   "D1 DB reset because its code was updated.",
   "Internal error while starting up D1 DB storage caused object to be reset.",
   "Network connection lost.",
+  "Replica disconnected from primary.",
   "Internal error in D1 DB storage caused object to be reset.",
   "Cannot resolve D1 DB due to transient issue on remote node.",
 ]);
@@ -147,13 +148,26 @@ function parseEnvelope(
   expected: number | undefined,
   raw: boolean,
 ): Parsed {
-  let body: Json;
+  let body: Json | undefined;
   try {
     body = JSON.parse(text) as Json;
   } catch {
+    body = undefined;
+  }
+  if (!isRecord(body)) {
+    // HTTP 400 is a failed batch whatever its body (§3.2): nothing committed, nothing to retry.
+    if (status === 400) {
+      return {
+        kind: "failed",
+        retryable: false,
+        error: new DbStatementError({
+          providerMessage: "D1 rejected the batch (HTTP 400)",
+          httpStatus: status,
+        }),
+      };
+    }
     return { kind: "bad_response" };
   }
-  if (!isRecord(body)) return { kind: "bad_response" };
   const errors = Array.isArray(body.errors) ? body.errors : [];
   const resultList = Array.isArray(body.result) ? body.result : undefined;
   const failedIndex = resultList?.findIndex((entry) => isRecord(entry) && entry.success === false);
@@ -199,7 +213,11 @@ export class D1RestClient implements MigrationTarget {
   readonly lane: RateLane;
   private readonly url: string;
   private readonly rawUrl: string;
-  private readonly authorization: string;
+  /**
+   * An ECMAScript private field, so the bearer token never appears in `JSON.stringify(client)`,
+   * `util.inspect` output or a logger that serializes the client (§6.3).
+   */
+  readonly #authorization: string;
   private readonly fetchImpl: FetchLike;
   private readonly circuit: D1CircuitBreaker;
   private readonly clock: Clock;
@@ -232,7 +250,7 @@ export class D1RestClient implements MigrationTarget {
     const databasePath = `${baseUrl}/accounts/${options.accountId}/d1/database/${options.databaseId}`;
     this.url = `${databasePath}/query`;
     this.rawUrl = `${databasePath}/raw`;
-    this.authorization = `Bearer ${options.apiToken}`;
+    this.#authorization = `Bearer ${options.apiToken}`;
     this.lane = typeof options.lane === "string" ? processLane(options.lane) : options.lane;
     this.fetchImpl = options.fetch ?? ((url, init) => fetch(url, init));
     this.circuit = options.circuit ?? processCircuitBreaker;
@@ -343,6 +361,12 @@ export class D1RestClient implements MigrationTarget {
         else if (isDbError(error, "db.aborted")) outcome("aborted");
         throw error;
       }
+      // Aborted while the lane granted the token: nothing was sent, so even a write has a known
+      // outcome (it did not happen) and must not be reported as unknown.
+      if (options.signal?.aborted) {
+        outcome("aborted");
+        throw abortedError();
+      }
 
       let response: Response;
       let text: string;
@@ -441,7 +465,6 @@ export class D1RestClient implements MigrationTarget {
     payload: string,
     signal: AbortSignal | undefined,
   ): Promise<{ response: Response; text: string }> {
-    if (signal?.aborted) throw new TransportFailure("aborted");
     const controller = new AbortController();
     let timedOut = false;
     const timer = setTimeout(() => {
@@ -455,7 +478,7 @@ export class D1RestClient implements MigrationTarget {
       const response = await this.fetchImpl(url, {
         method: "POST",
         headers: {
-          Authorization: this.authorization,
+          Authorization: this.#authorization,
           "Content-Type": "application/json",
           Accept: "application/json",
         },

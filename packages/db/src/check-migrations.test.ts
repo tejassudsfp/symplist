@@ -45,9 +45,13 @@ function repo(): {
 }
 
 function check(dir: string, ...args: string[]) {
+  return checkWithEnv(dir, {}, ...args);
+}
+
+function checkWithEnv(dir: string, env: Record<string, string>, ...args: string[]) {
   return spawnSync(process.execPath, [script, ...args], {
     cwd: dir,
-    env: gitEnv,
+    env: { ...gitEnv, ...env },
     encoding: "utf8",
   });
 }
@@ -102,6 +106,24 @@ describe("scripts/check-migrations.mjs", () => {
     expect(result.stdout).toContain("branch is behind");
     unlinkSync(join(dir, "packages/db/migrations/0001_users.sql"));
     expect(check(dir).status).toBe(1);
+  });
+
+  it("catches a merged file edited directly on main through the previous main commit", () => {
+    const { dir, git, write } = repo();
+    git("checkout", "--quiet", "main");
+    const before = git("rev-parse", "HEAD").trim();
+    write("0001_users.sql", "CREATE TABLE users (id TEXT PRIMARY KEY, role TEXT) STRICT;\n");
+    git("commit", "--quiet", "-am", "edit merged migration on main");
+    // After a push to main, the fetched origin/main is the pushed commit itself.
+    git("update-ref", "refs/remotes/origin/main", "HEAD");
+    expect(check(dir).status).toBe(0);
+
+    const result = checkWithEnv(dir, { MIGRATIONS_BASE_REF: before });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("modified: packages/db/migrations/0001_users.sql");
+    // GitHub's all-zero `before` and an empty value fall back to origin/main.
+    expect(checkWithEnv(dir, { MIGRATIONS_BASE_REF: "0".repeat(40) }).status).toBe(0);
+    expect(checkWithEnv(dir, { MIGRATIONS_BASE_REF: "" }).stdout).toContain("against origin/main");
   });
 
   it("fails clearly when the base ref is missing and honors --base", () => {

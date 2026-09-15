@@ -2,7 +2,9 @@
 // a merged migration never changes. New files are allowed.
 //
 // Usage: node scripts/check-migrations.mjs [--base <ref>] [--fetch]
-//   --base   the merged ref to compare against (default: origin/main, or MIGRATIONS_BASE_REF)
+//   --base   the merged ref to compare against (default: MIGRATIONS_BASE_REF, else origin/main).
+//            On a push to main, CI passes the previous main commit, because origin/main is then
+//            HEAD itself and a direct edit of a merged file would otherwise compare equal.
 //   --fetch  fetch main from origin first, unshallowing when needed so the merge base resolves;
 //            GITHUB_TOKEN, when set, authenticates the fetch through git's environment config.
 import { execFileSync } from "node:child_process";
@@ -45,7 +47,13 @@ function fail(message) {
 const root = tryGit(["rev-parse", "--show-toplevel"]);
 if (!root) fail("not inside a git repository");
 
-const base = values.base ?? process.env.MIGRATIONS_BASE_REF ?? "origin/main";
+/** An unset, empty or all-zero ref (GitHub's `before` for a newly created branch) means "no base". */
+function usableRef(value) {
+  const trimmed = value?.trim();
+  return trimmed && !/^0+$/.test(trimmed) ? trimmed : undefined;
+}
+
+const base = usableRef(values.base) ?? usableRef(process.env.MIGRATIONS_BASE_REF) ?? "origin/main";
 
 if (values.fetch) {
   const env = { ...process.env };

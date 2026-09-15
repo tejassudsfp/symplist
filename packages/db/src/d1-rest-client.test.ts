@@ -1,3 +1,4 @@
+import { inspect } from "node:util";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import {
   describeDbClientContract,
@@ -257,6 +258,22 @@ describe("D1RestClient envelope parsing (§3.2)", () => {
     await expect(client.run(write)).rejects.toBeInstanceOf(DbStatementError);
   });
 
+  it("treats HTTP 400 with an unparseable body as a failed batch, never retried or unknown", async () => {
+    const { client, replies, calls } = setup();
+    replies.push(new Response("<html>Bad Request</html>", { status: 400 }));
+    await expect(client.run(write)).rejects.toMatchObject({
+      code: "db.statement_failed",
+      httpStatus: 400,
+    });
+    replies.push(new Response("", { status: 400 }));
+    await expect(client.first(read)).rejects.toBeInstanceOf(DbStatementError);
+    expect(calls).toHaveLength(2);
+    expect(client.counters.snapshot()).toMatchObject({
+      readRetries: 0,
+      outcomes: { statement_failed: 2, unknown_outcome: 0 },
+    });
+  });
+
   it("reports a malformed success response as an unknown write outcome", async () => {
     const { client, replies, calls } = setup();
     replies.push(envelope([rows()]));
@@ -312,6 +329,17 @@ describe("D1RestClient retries (§3.1)", () => {
       readRetries: 3,
       outcomes: { ok: 1 },
     });
+  });
+
+  it("retries every message D1 documents as retryable, including replica disconnects", async () => {
+    expect(RETRYABLE_D1_MESSAGES).toContain("Replica disconnected from primary.");
+    const { client, clock, replies, calls } = setup();
+    replies.push(
+      failure(400, "Replica disconnected from primary."),
+      envelope([rows({ id: "task-1" })]),
+    );
+    await expect(settle(client.first(read), clock)).resolves.toEqual({ id: "task-1" });
+    expect(calls).toHaveLength(2);
   });
 
   it("gives up on reads after the attempt limit with db.unavailable", async () => {
@@ -388,6 +416,27 @@ describe("D1RestClient retries (§3.1)", () => {
     await expect(client.run(write, { signal: aborted.signal })).rejects.toMatchObject({
       code: "db.aborted",
     });
+  });
+
+  it("reports a write aborted after its lane grant but before sending as aborted, not unknown", async () => {
+    const controller = new AbortController();
+    class AbortingLane extends RateLane {
+      override async acquire(): Promise<{ waitedMs: number }> {
+        // The caller gives up in the same turn the token is granted.
+        controller.abort();
+        return { waitedMs: 0 };
+      }
+    }
+    const { client, calls } = setup({
+      lane: new AbortingLane({ name: "api", ratePerSecond: 1, burst: 1, maxWaitMs: 1_000 }),
+    });
+    const error = await client
+      .run(write, { signal: controller.signal })
+      .catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ code: "db.aborted" });
+    expect(error).not.toBeInstanceOf(DbUnknownOutcomeError);
+    expect(calls).toHaveLength(0);
+    expect(client.counters.snapshot().outcomes).toMatchObject({ aborted: 1, unknown_outcome: 0 });
   });
 });
 
@@ -547,6 +596,15 @@ describe("D1RestClient counters (§3.1)", () => {
     const error = (await client.first(read).catch((caught: unknown) => caught)) as DbError;
     expect(JSON.stringify([error.message, error.stack, { ...error }])).not.toContain(
       FAKE_D1_API_TOKEN,
+    );
+  });
+
+  it("never exposes the token when the client itself is serialized or inspected", () => {
+    const { client } = setup();
+    expect(JSON.stringify(client)).not.toContain(FAKE_D1_API_TOKEN);
+    expect(inspect(client, { depth: 10, showHidden: true })).not.toContain(FAKE_D1_API_TOKEN);
+    expect(Object.values(client).some((value) => String(value).includes(FAKE_D1_API_TOKEN))).toBe(
+      false,
     );
   });
 });

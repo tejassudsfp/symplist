@@ -118,7 +118,9 @@ export function tokenizeSql(sql: string): SqlToken[] {
       index = end;
       continue;
     }
-    if ((char === ":" || char === "@" || char === "$") && identifierStart.test(next)) {
+    // SQLite reads `:`, `@` or `$` followed by any identifier character (digits included, so `:1`
+    // is a named variable) as a parameter; missing one here would let SQLite bind NULL to it.
+    if ((char === ":" || char === "@" || char === "$") && identifierPart.test(next)) {
       let end = index + 2;
       while (end < length && identifierPart.test(sql.charAt(end))) end += 1;
       push("parameter", index, end);

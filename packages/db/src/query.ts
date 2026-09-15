@@ -5,14 +5,18 @@ import { tokenizeSql } from "./sql-lexer.ts";
 /**
  * A named parameter value. Strings are bound as-is. `null` and `undefined` become SQL `NULL`
  * literals in the compiled text, never bound nulls (§3.2). A string array expands to a
- * comma-separated placeholder list for `IN (:ids)`; an empty array becomes `NULL`, so `IN (NULL)`
- * matches nothing.
+ * comma-separated placeholder list for `IN (:ids)` and must be the only item inside the
+ * parentheses. An empty array becomes the empty subquery `SELECT NULL WHERE 0`, so `IN (:ids)`
+ * matches no row and `NOT IN (:ids)` matches every row, as for an empty set.
  */
 export type SqlParam = string | null | undefined | readonly string[];
 
 export type SqlParams = Readonly<Record<string, SqlParam>>;
 
 const parameterName = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/** What an empty string array compiles to inside `IN (…)`: a subquery that returns no rows. */
+const EMPTY_LIST = "SELECT NULL WHERE 0";
 
 function invalid(detail: string): DbInvalidStatementError {
   return new DbInvalidStatementError("db.invalid_statement", detail);
@@ -57,7 +61,8 @@ export function sql(text: string, params: SqlParams = {}): Statement {
       replacement = "?";
     } else if (Array.isArray(value)) {
       if (value.length === 0) {
-        replacement = "NULL";
+        // Not `NULL`: `x NOT IN (NULL)` is never true, while NOT IN over an empty set always is.
+        replacement = EMPTY_LIST;
       } else {
         for (const item of value) {
           if (typeof item !== "string") throw invalid(`Parameter :${name} must contain strings`);

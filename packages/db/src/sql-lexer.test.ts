@@ -79,6 +79,8 @@ describe("analyzeStatement", () => {
       "@b",
       "$c",
     ]);
+    // SQLite treats these as named variables too (and would bind NULL to them).
+    expect(analyzeStatement("SELECT :1, @2x, $_").otherParameters).toEqual([":1", "@2x", "$_"]);
   });
 
   it("flags transaction control and ATTACH", () => {

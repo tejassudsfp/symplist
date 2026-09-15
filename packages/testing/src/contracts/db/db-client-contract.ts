@@ -293,7 +293,16 @@ export function describeDbClientContract(
       }
       if (target.responses) {
         // D1 answers invalid SQL with HTTP 400; a 200 with success: false is also a failed batch.
+        // The observed shape is recorded for the live D1 findings (§3.2).
         expect([200, 400]).toContain(failure.httpStatus);
+        console.info(
+          JSON.stringify({
+            check: "d1.batch_error_shape",
+            target: name,
+            httpStatus: failure.httpStatus,
+            statementIndex: failure.statementIndex ?? null,
+          }),
+        );
       }
     });
 
@@ -354,6 +363,15 @@ export function describeDbClientContract(
       await expect(
         client.first(sql(`SELECT id FROM ${table} WHERE id IN (:ids)`, { ids: [] })),
       ).resolves.toBeNull();
+      // An empty exclusion list excludes nothing.
+      await expect(
+        client.all(
+          sql(
+            `SELECT id FROM ${table} WHERE id LIKE 'helpers-%' AND id NOT IN (:ids) ORDER BY id`,
+            { ids: [] },
+          ),
+        ),
+      ).resolves.toEqual([{ id: "helpers-1" }, { id: "helpers-2" }]);
       const result = await client.run(
         sql(`UPDATE ${table} SET n = n + 1 WHERE id = :id`, { id: "helpers-1" }),
       );

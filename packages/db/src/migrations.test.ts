@@ -7,7 +7,7 @@ import { FakeD1Api } from "../../testing/src/contracts/db/fake-d1-api.ts";
 import { D1CircuitBreaker } from "./circuit-breaker.ts";
 import type { MigrationTarget } from "./client.ts";
 import { D1RestClient } from "./d1-rest-client.ts";
-import { DbStatementError } from "./errors.ts";
+import { DbStatementError, DbUnknownOutcomeError } from "./errors.ts";
 import { createLocalSqliteClient, type LocalSqliteClient } from "./local-sqlite-client.ts";
 import {
   applyMigrations,
@@ -240,6 +240,48 @@ describe("applyMigrations", () => {
     await expect(runnerA.all(sql(`SELECT name FROM "d1_migrations" ORDER BY id`))).resolves.toEqual(
       [{ name: "0001_a.sql" }, { name: "0002_b.sql" }],
     );
+  });
+
+  it("counts a file whose response was lost as applied once its record is found, and fails when it is not", async () => {
+    const db = local();
+    const migrations = [
+      file("0001_a.sql", "CREATE TABLE a (x TEXT) STRICT;"),
+      file("0002_b.sql", "CREATE TABLE b (x TEXT) STRICT;"),
+    ];
+    let mode: "commit_then_lose" | "lose_before_commit" = "commit_then_lose";
+    const lossy: MigrationTarget = {
+      batch: (statements, options) => db.batch(statements, options),
+      all: (statement, options) => db.all(statement, options),
+      first: (statement, options) => db.first(statement, options),
+      run: (statement, options) => db.run(statement, options),
+      executeScript: async (text, options) => {
+        if (!text.includes("0001_a.sql")) return db.executeScript(text, options);
+        if (mode === "commit_then_lose") await db.executeScript(text, options);
+        throw new DbUnknownOutcomeError("timeout");
+      },
+    };
+
+    mode = "lose_before_commit";
+    const { events, logger } = recordingLogger();
+    await expect(applyMigrations(lossy, { migrations, logger })).rejects.toMatchObject({
+      code: "db.unknown_outcome",
+    });
+    expect(events).toContainEqual({
+      level: "error",
+      event: "migration.failed",
+      name: "0001_a.sql",
+      code: "db.unknown_outcome",
+    });
+    // The runner stopped: nothing after the unresolved file was applied.
+    await expect(db.all(sql(`SELECT name FROM "d1_migrations"`))).resolves.toEqual([]);
+
+    mode = "commit_then_lose";
+    const report = await applyMigrations(lossy, { migrations });
+    expect(report.applied).toEqual(["0001_a.sql", "0002_b.sql"]);
+    await expect(db.all(sql(`SELECT name FROM "d1_migrations" ORDER BY id`))).resolves.toEqual([
+      { name: "0001_a.sql" },
+      { name: "0002_b.sql" },
+    ]);
   });
 
   it("rejects duplicate names", async () => {

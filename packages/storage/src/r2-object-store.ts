@@ -46,6 +46,13 @@ export interface R2ObjectStoreOptions {
 }
 
 const accountIdPattern = /^[0-9a-f]{32}$/i;
+
+/**
+ * The SDK sets no connection or socket timeouts by default, so a stalled connection would hang a
+ * purge or index task forever. The socket timeout is an inactivity limit, so large bodies that keep
+ * moving are unaffected.
+ */
+export const R2_HTTP_TIMEOUTS = Object.freeze({ connectionTimeout: 10_000, socketTimeout: 60_000 });
 const bucketPattern = /^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/;
 
 /** The S3 client settings R2 requires (§1): region `auto` and checksums only when required. */
@@ -75,6 +82,7 @@ export function r2ClientConfig(options: R2ObjectStoreOptions): S3ClientConfig {
     requestChecksumCalculation: "WHEN_REQUIRED",
     responseChecksumValidation: "WHEN_REQUIRED",
     maxAttempts: options.maxAttempts,
+    requestHandler: { ...R2_HTTP_TIMEOUTS },
   };
 }
 

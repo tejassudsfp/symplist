@@ -27,10 +27,12 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
       # A migration file merged to main never changes (architecture §3.4). Fetches main (with
-      # history, for the merge base) because the checkout above is shallow.
+      # history, for the merge base) because the checkout above is shallow. On a push to main,
+      # origin/main is HEAD itself, so the previous main commit is the base instead.
       - name: Merged migrations unchanged
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          MIGRATIONS_BASE_REF: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before || '' }}
         run: node scripts/check-migrations.mjs --fetch
       - name: Lint and format (Biome)
         run: pnpm exec biome ci --reporter=github .

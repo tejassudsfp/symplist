@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DbError } from "./errors.ts";
+import { createLocalSqliteClient } from "./local-sqlite-client.ts";
 import { assertIdentifier, bool, int, json, sql } from "./query.ts";
 
 describe("sql", () => {
@@ -28,15 +29,41 @@ describe("sql", () => {
     });
   });
 
-  it("expands string arrays into placeholder lists and empty arrays into NULL", () => {
+  it("expands string arrays into placeholder lists and empty arrays into an empty subquery", () => {
     expect(sql("SELECT 1 FROM t WHERE id IN (:ids)", { ids: ["a", "b", "c"] })).toEqual({
       sql: "SELECT 1 FROM t WHERE id IN (?, ?, ?)",
       params: ["a", "b", "c"],
     });
-    expect(sql("SELECT 1 FROM t WHERE id IN (:ids)", { ids: [] })).toEqual({
-      sql: "SELECT 1 FROM t WHERE id IN (NULL)",
+    expect(sql("SELECT 1 FROM t WHERE id NOT IN (:ids)", { ids: [] })).toEqual({
+      sql: "SELECT 1 FROM t WHERE id NOT IN (SELECT NULL WHERE 0)",
       params: [],
     });
+  });
+
+  it("keeps empty-list semantics for IN and NOT IN against SQLite", async () => {
+    const db = createLocalSqliteClient({ path: ":memory:", env: {} });
+    try {
+      await db.batch([
+        sql("CREATE TABLE t (id TEXT PRIMARY KEY) STRICT"),
+        sql("INSERT INTO t VALUES ('a'), ('b')"),
+      ]);
+      const ids = async (text: string, list: readonly string[]) =>
+        (await db.all<{ id: string }>(sql(text, { ids: list }))).map((row) => row.id);
+      await expect(ids("SELECT id FROM t WHERE id IN (:ids) ORDER BY id", [])).resolves.toEqual([]);
+      // `NOT IN (NULL)` would match nothing; an empty exclusion list must exclude nothing.
+      await expect(ids("SELECT id FROM t WHERE id NOT IN (:ids) ORDER BY id", [])).resolves.toEqual(
+        ["a", "b"],
+      );
+      await expect(
+        ids("SELECT id FROM t WHERE id NOT IN (:ids) ORDER BY id", ["a"]),
+      ).resolves.toEqual(["b"]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("treats :1-style names as parameters, as SQLite does, and rejects them", () => {
+    expect(() => sql("SELECT :1", {})).toThrow(/Missing value for parameter :1/);
   });
 
   it("ignores names inside strings, quoted identifiers and comments", () => {
