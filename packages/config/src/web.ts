@@ -1,4 +1,4 @@
-import { z } from "zod";
+import * as z from "zod";
 import { type ConfigIssue, type ConfigResult, normalizeIssues, unwrapConfig } from "./errors.ts";
 import {
   type EnvRecord,

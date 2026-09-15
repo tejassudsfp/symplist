@@ -1,6 +1,6 @@
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
-import { z } from "zod";
+import * as z from "zod";
 import { type ConfigIssue, type ConfigResult, normalizeIssues } from "./errors.ts";
 import {
   booleanVariable,
