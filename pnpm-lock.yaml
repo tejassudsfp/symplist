@@ -431,6 +431,12 @@ importers:
       react-resizable-panels:
         specifier: 4.12.4
         version: 4.12.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      remark-gfm:
+        specifier: 4.0.1
+        version: 4.0.1(supports-color@10.2.2)
+      remark-parse:
+        specifier: 11.0.0
+        version: 11.0.0(supports-color@10.2.2)
       shadcn:
         specifier: 4.21.0
         version: 4.21.0(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(typescript@7.0.2)
@@ -440,6 +446,9 @@ importers:
       tw-animate-css:
         specifier: 1.4.0
         version: 1.4.0
+      unified:
+        specifier: 11.0.5
+        version: 11.0.5
       zod:
         specifier: 4.6.5
         version: 4.6.5
@@ -462,6 +471,9 @@ importers:
       '@types/culori':
         specifier: 4.0.1
         version: 4.0.1
+      '@types/mdast':
+        specifier: 4.0.4
+        version: 4.0.4
       '@types/node':
         specifier: 24.13.4
         version: 24.13.4

@@ -1,3 +1,5 @@
+import { CollectionHome } from "@/components/shell/placeholders";
+
 export default function LaterPage() {
-  return <h1>Later</h1>;
+  return <CollectionHome collection="later" />;
 }

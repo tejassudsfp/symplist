@@ -1,4 +1,9 @@
 import type { NextConfig } from "next";
+import {
+  OAUTH_CONSENT_PATH,
+  oauthConsentHeaders,
+  staticSecurityHeaders,
+} from "./src/lib/security/headers.ts";
 
 /**
  * The only workspace entry points the web app may import (§2), aliased to their TypeScript sources so
@@ -14,8 +19,17 @@ const browserSafeWorkspaceEntries = {
 const nextConfig: NextConfig = {
   // Stop `next dev` from writing AGENTS.md and CLAUDE.md into apps/web (§1).
   agentRules: false,
+  poweredByHeader: false,
   turbopack: {
     resolveAlias: browserSafeWorkspaceEntries,
+  },
+  // Static security headers on every route (§10.4). The nonce-based Content Security Policy is set
+  // per request by `src/proxy.ts`.
+  async headers() {
+    return [
+      { source: "/:path*", headers: [...staticSecurityHeaders] },
+      { source: OAUTH_CONSENT_PATH, headers: [...oauthConsentHeaders] },
+    ];
   },
 };
 

@@ -1,3 +1,5 @@
+import { CollectionHome } from "@/components/shell/placeholders";
+
 export default function NowPage() {
-  return <h1>Now</h1>;
+  return <CollectionHome collection="now" />;
 }

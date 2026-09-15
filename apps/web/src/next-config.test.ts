@@ -28,4 +28,25 @@ describe("next.config.ts", () => {
       expect(aliased).toBe(resolveWorkspaceSource(specifier));
     }
   });
+
+  it("sends the static security headers on every route and no referrer on OAuth consent (§10.4)", async () => {
+    const rules = (await nextConfig.headers?.()) ?? [];
+    const all = rules.find((rule) => rule.source === "/:path*");
+    expect(all?.headers).toEqual(
+      expect.arrayContaining([
+        { key: "X-Frame-Options", value: "DENY" },
+        { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains" },
+        { key: "X-Content-Type-Options", value: "nosniff" },
+      ]),
+    );
+    const consent = rules.find((rule) => rule.source === "/oauth/consent");
+    expect(consent?.headers).toEqual([{ key: "Referrer-Policy", value: "no-referrer" }]);
+    // The nonce-based CSP comes only from the proxy, so browsers never intersect two policies.
+    for (const rule of rules) {
+      expect(rule.headers.map((header) => header.key.toLowerCase())).not.toContain(
+        "content-security-policy",
+      );
+    }
+    expect(nextConfig.poweredByHeader).toBe(false);
+  });
 });

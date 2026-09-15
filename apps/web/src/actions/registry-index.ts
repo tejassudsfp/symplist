@@ -9,6 +9,7 @@ import { sharingActions } from "@/features/sharing/actions";
 import { simonActions } from "@/features/simon/actions";
 import { vaultActions } from "@/features/vault/actions";
 import { workspaceActions } from "@/features/workspace/actions";
+import { shellActions } from "./shell-actions.ts";
 import type { AppAction } from "./types";
 
 /** Each feature's actions, collected from `features/<feature>/actions.ts`. */
@@ -26,4 +27,7 @@ export const actionsByFeature: Readonly<Record<FeatureId, readonly AppAction[]>>
 };
 
 /** The single action registry used by buttons, menus, the palette and shortcuts (§10.2). */
-export const actionRegistry: readonly AppAction[] = Object.values(actionsByFeature).flat();
+export const actionRegistry: readonly AppAction[] = [
+  ...shellActions,
+  ...Object.values(actionsByFeature).flat(),
+];

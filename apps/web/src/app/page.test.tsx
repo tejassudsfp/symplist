@@ -1,10 +1,15 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
-import HomePage from "./page";
+import { describe, expect, it, vi } from "vitest";
+
+const redirect = vi.fn((href: string) => {
+  throw new Error(`NEXT_REDIRECT ${href}`);
+});
+
+vi.mock("next/navigation", () => ({ redirect }));
 
 describe("HomePage", () => {
-  it("renders the placeholder heading", () => {
-    render(<HomePage />);
-    expect(screen.getByRole("heading", { level: 1, name: "Symplist" })).toBeInTheDocument();
+  it("opens the task workspace", async () => {
+    const { default: HomePage } = await import("./page");
+    expect(() => HomePage()).toThrow("NEXT_REDIRECT /now");
+    expect(redirect).toHaveBeenCalledWith("/now");
   });
 });

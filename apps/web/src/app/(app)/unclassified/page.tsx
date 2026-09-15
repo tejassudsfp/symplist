@@ -1,3 +1,5 @@
+import { CollectionHome } from "@/components/shell/placeholders";
+
 export default function UnclassifiedPage() {
-  return <h1>Unclassified</h1>;
+  return <CollectionHome collection="unclassified" />;
 }

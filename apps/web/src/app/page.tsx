@@ -1,7 +1,6 @@
-export default function HomePage() {
-  return (
-    <main>
-      <h1>Symplist</h1>
-    </main>
-  );
+import { redirect } from "next/navigation";
+
+/** The application opens in the task workspace, never a dashboard (overall.md). */
+export default function HomePage(): never {
+  redirect("/now");
 }

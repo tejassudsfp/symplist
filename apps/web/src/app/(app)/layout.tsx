@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
+import { AppShell } from "@/components/shell/app-shell";
 
-/** The signed-in workspace, settings and administration. */
+/** The signed-in workspace, settings and administration, inside the app shell. */
 export default function AppLayout({ children }: { children: ReactNode }) {
-  return children;
+  return <AppShell>{children}</AppShell>;
 }
