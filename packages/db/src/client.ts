@@ -30,15 +30,52 @@ export interface StatementResult<Row extends DbRow = DbRow> {
 }
 
 /**
+ * Who a request serves. On the api lane, `unauthenticated` work (lookup, signup, OTP, invite
+ * redeem, share reads, `/mcp` credential checks, `/oauth/*`) may use at most 30% of the bucket and
+ * is shed first with `rate.limited` (§3.1).
+ */
+export type RequestPriority = "authenticated" | "unauthenticated";
+
+export interface BatchOptions {
+  /** Defaults to `authenticated`. */
+  readonly priority?: RequestPriority;
+  /** Aborts waiting for the lane or the request itself. */
+  readonly signal?: AbortSignal;
+  /**
+   * Read-only batches only: use D1's `/raw` endpoint, which returns rows as arrays and is cheaper
+   * for large results. Rows are still returned keyed by column name.
+   */
+  readonly raw?: boolean;
+}
+
+/**
  * Data access for D1 (REST) and the local `node:sqlite` stand-in. `batch` is one request executed in
  * order; every multi-statement logical write is one `batch` call (§3.2).
  */
 export interface DbClient {
-  batch(statements: readonly Statement[]): Promise<readonly StatementResult[]>;
+  batch(
+    statements: readonly Statement[],
+    options?: BatchOptions,
+  ): Promise<readonly StatementResult[]>;
   /** Runs one statement and returns its rows. */
-  all<Row extends DbRow = DbRow>(statement: Statement): Promise<readonly Row[]>;
+  all<Row extends DbRow = DbRow>(
+    statement: Statement,
+    options?: BatchOptions,
+  ): Promise<readonly Row[]>;
   /** Runs one statement and returns its first row, or null. */
-  first<Row extends DbRow = DbRow>(statement: Statement): Promise<Row | null>;
+  first<Row extends DbRow = DbRow>(
+    statement: Statement,
+    options?: BatchOptions,
+  ): Promise<Row | null>;
   /** Runs one statement and returns its result. */
-  run(statement: Statement): Promise<StatementResult>;
+  run(statement: Statement, options?: BatchOptions): Promise<StatementResult>;
+}
+
+/**
+ * A client that can also run a multi-statement SQL script as one request. Reserved for migrations
+ * (§3.2, §3.4): the REST client sends `{ sql }` and the local client runs the script inside one
+ * `BEGIN IMMEDIATE` transaction.
+ */
+export interface MigrationTarget extends DbClient {
+  executeScript(sql: string, options?: Pick<BatchOptions, "signal">): Promise<void>;
 }

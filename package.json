@@ -15,7 +15,7 @@
     "build": "pnpm --filter @symplist/web build && tsc -b tsconfig.build.json",
     "build:web:clean": "node scripts/clean-dist.mjs && pnpm --filter @symplist/web build",
     "e2e": "pnpm --filter @symplist/e2e e2e",
-    "db:migrate": "node -e \"console.log('db:migrate is implemented in Phase C3')\"",
+    "db:migrate": "node --env-file-if-exists=.env packages/db/src/cli/migrate.ts",
     "secrets:generate": "node -e \"console.log('secrets:generate is implemented in Phase C1')\"",
     "trigger:dev": "pnpm --filter @symplist/worker dev"
   },

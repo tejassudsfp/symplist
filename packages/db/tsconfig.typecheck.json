@@ -3,7 +3,8 @@
   "compilerOptions": {
     "noEmit": true,
     "customConditions": ["source"],
-    "types": ["node"]
+    "types": ["node"],
+    "erasableSyntaxOnly": true
   },
   "include": ["src", "vitest.config.ts"]
 }
