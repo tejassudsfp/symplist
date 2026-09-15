@@ -25,4 +25,10 @@ Rules:
 - A migration depends only on files already merged to `main`, and a merged file never changes (CI fails if it does). The runner logs any file applied out of order.
 - The CI `migrate` job applies migrations before the Trigger deploy; Render's pre-deploy step runs the same idempotent runner; local development applies them on api startup; tests apply them to `node:sqlite`.
 
-No SQL files exist yet: the foundation migrations are written in Phase C3.
+Running and checking migrations:
+
+- `pnpm db:migrate` applies pending files (`--driver d1|local` or `DATA_DRIVER`; `--database <path>` for the local SQLite file, default `.local-data/d1.sqlite`; `--dir <path>` for another directory). The D1 driver reads `CLOUDFLARE_ACCOUNT_ID`, `D1_DATABASE_ID` and `CLOUDFLARE_D1_MIGRATE_API_TOKEN` (CI) or `CLOUDFLARE_D1_API_TOKEN` (Render pre-deploy). After a build, `node packages/db/dist/cli/migrate.js` runs the same CLI.
+- `node scripts/check-migrations.mjs` fails when a file already on `origin/main` was modified or deleted; CI runs it with `--fetch`.
+- The `d1_migrations` table is wrangler's own definition (not `STRICT`), so `wrangler d1 migrations list --remote` reads it.
+- A migration never contains `BEGIN`/`COMMIT`: each file already runs as one request (one transaction locally). Keep every statement under 100 KB.
+- `"group"` in `user_preferences` is an SQL keyword and must be quoted.

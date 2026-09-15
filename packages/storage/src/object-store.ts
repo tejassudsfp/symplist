@@ -11,7 +11,11 @@ export interface PutObjectInput {
   readonly metadata?: ObjectMetadata;
 }
 
-/** `exists` means a conditional put found an object already stored at the key (HTTP 412). */
+/**
+ * `exists` means a conditional put found an object already stored at the key (HTTP 412) whose
+ * `write-id` metadata differs from this put's. A conditional put that finds its own `write-id`
+ * (an earlier attempt of the same write succeeded) reports `created`.
+ */
 export type PutObjectResult =
   | { readonly status: "created"; readonly etag?: string }
   | { readonly status: "exists" };
@@ -21,7 +25,9 @@ export interface ObjectHead {
   readonly size: number;
   readonly etag?: string;
   readonly uploadedAt?: number;
+  /** User metadata. Always empty in `list` results, which never carry metadata; use `head`. */
   readonly metadata: ObjectMetadata;
+  readonly contentType?: string;
 }
 
 export interface StoredObject extends ObjectHead {
@@ -31,10 +37,12 @@ export interface StoredObject extends ObjectHead {
 export interface ListObjectsInput {
   readonly prefix: string;
   readonly cursor?: string;
+  /** Page size from 1 to 1000; defaults to 1000. */
   readonly limit?: number;
 }
 
 export interface ListObjectsResult {
+  /** Objects in lexicographic key order. */
   readonly objects: readonly ObjectHead[];
   /** Present when more objects remain under the prefix. */
   readonly cursor?: string;
