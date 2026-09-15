@@ -29,6 +29,7 @@ import {
 } from "../../infra/scheduler/runtime.ts";
 import { RingBuffer } from "./ring-buffer.ts";
 import type { TopicRegistry } from "./topic-registry.ts";
+import type { UpgradeSession } from "./upgrade-gate.ts";
 
 /** How the gateway decides guard levels: the core access service's `satisfies` (§5.4). */
 export type AccessLevelPolicy = Pick<AccessService, "satisfies">;
@@ -179,21 +180,29 @@ export class TopicHub implements RealtimePublisher {
   /**
    * Refuses a socket whose session ended, or whose user's access changed, after its upgrade was
    * verified: the post-commit hook can run between `verifyClient` and the connection, and the socket
-   * would otherwise live on stale state until the next sweep. Returns the close code, or null.
+   * would otherwise live on stale state until the next sweep. When every session of the user ended
+   * (sign out everywhere), only sessions created at or before that moment are refused: a session the
+   * user signed in with afterwards connects. Returns the close code, or null.
    */
-  staleUpgrade(identity: SessionContext, verifiedAt: number): number | null {
+  staleUpgrade(identity: UpgradeSession, verifiedAt: number): number | null {
     const now = this.options.timers.now();
     this.purgeRecentChanges(now);
     const ended = this.endedSessions.get(identity.sessionId);
     const userEnded = this.endedUsers.get(identity.userId);
-    if ((ended && ended.at >= verifiedAt) || (userEnded && userEnded.at >= verifiedAt)) {
+    if (
+      (ended && ended.at >= verifiedAt) ||
+      (userEnded && userEnded.at >= verifiedAt && identity.sessionCreatedAt <= userEnded.at)
+    ) {
       return wsCloseCodes.sessionEnded;
     }
     const changed = this.accessChanges.get(identity.userId);
     return changed && changed.at >= verifiedAt ? wsCloseCodes.accessLost : null;
   }
 
-  /** Remembers ended sessions for a minute, for `staleUpgrade`. */
+  /**
+   * Remembers ended sessions for a minute, for `staleUpgrade`. `"all"` ends every session of the user
+   * that exists now, for callers that revoke them without listing their ids.
+   */
   noteSessionsEnded(userId: string, sessionIds: readonly string[] | "all"): void {
     const now = this.options.timers.now();
     this.purgeRecentChanges(now);

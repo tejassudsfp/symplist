@@ -23,6 +23,7 @@ import { RealtimeSessionControl } from "./session-control.ts";
 import { RealtimeShutdownControl } from "./shutdown-control.ts";
 import { type AccessLevelPolicy, RealtimePublishError, TopicHub } from "./topic-hub.ts";
 import { TopicRegistry } from "./topic-registry.ts";
+import type { UpgradeSession } from "./upgrade-gate.ts";
 
 /* ------------------------------------------------------------------------------------------------
  * Fixtures
@@ -858,6 +859,24 @@ describe("upgrades racing a post-commit hook", () => {
     expect(h.hub.socketsOfUser(user.id)).toHaveLength(1);
   });
 
+  it("after every session of a user ended, refuses only sockets of sessions created before that", async () => {
+    const h = await start();
+    const user = await h.user();
+    // Sign out everywhere noted on this instance; the cached lookup of the old session is still live.
+    await h.app.clock.advance(1_000);
+    h.hub.noteSessionsEnded(user.id, "all");
+    const old = await h.connect(user.session);
+    expect((await old.closed).code).toBe(4401);
+
+    // The user signs in again at once: the new session is younger than the sign-out, so it connects.
+    await h.app.clock.advance(1);
+    const fresh = await h.app.signIn(user.id);
+    const client = await h.connect(fresh);
+    await client.settle();
+    expect(h.hub.socketsOfUser(user.id)).toHaveLength(1);
+    expect(h.hub.socketsOfUser(user.id)[0]?.sessionId).toBe(fresh.sessionId);
+  });
+
   it("refuses a connection verified before its session ended or its access changed", async () => {
     const clock = new FakeClock(1_000_000);
     const hub = new TopicHub({
@@ -866,9 +885,14 @@ describe("upgrades racing a post-commit hook", () => {
       timers: clock,
       log: new Log(),
     });
-    const identity = (userId: string, sessionId: string): SessionContext => ({
+    const identity = (
+      userId: string,
+      sessionId: string,
+      sessionCreatedAt = clock.now() - 60_000,
+    ): UpgradeSession => ({
       userId,
       sessionId,
+      sessionCreatedAt,
       access: {
         emailVerifiedAt: 1,
         betaState: "unlocked",
@@ -888,6 +912,9 @@ describe("upgrades racing a post-commit hook", () => {
     expect(hub.staleUpgrade(identity("u1", "s1"), verifiedAt)).toBe(4401);
     expect(hub.staleUpgrade(identity("u1", "s9"), verifiedAt)).toBeNull();
     expect(hub.staleUpgrade(identity("u2", "s2"), verifiedAt)).toBe(4401);
+    // A session created after every session of u2 ended is not one of them.
+    expect(hub.staleUpgrade(identity("u2", "s3", clock.now()), verifiedAt)).toBe(4401);
+    expect(hub.staleUpgrade(identity("u2", "s4", clock.now() + 1), verifiedAt)).toBeNull();
     expect(hub.staleUpgrade(identity("u3", "s3"), verifiedAt)).toBe(4403);
     expect(hub.staleUpgrade(identity("u3", "s3"), clock.now() + 1)).toBeNull();
     await clock.advance(60_001);

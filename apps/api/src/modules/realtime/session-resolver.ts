@@ -1,8 +1,7 @@
 import type { IncomingMessage } from "node:http";
-import type { SessionContext } from "@symplist/core/access";
 import type { SessionService } from "../../common/auth/session.service.ts";
 import { upgradeClientIp } from "../../infra/limits/client-ip.ts";
-import type { WsSessionResolver } from "./upgrade-gate.ts";
+import type { UpgradeSession, WsSessionResolver } from "./upgrade-gate.ts";
 
 /**
  * Resolves the session cookie of a WebSocket upgrade through the api's `SessionService` (§5.1, §7):
@@ -19,11 +18,15 @@ export class SessionUpgradeResolver implements WsSessionResolver {
     },
   ) {}
 
-  async fromUpgradeRequest(request: IncomingMessage): Promise<SessionContext | null> {
+  async fromUpgradeRequest(request: IncomingMessage): Promise<UpgradeSession | null> {
     const { sessions, trustProxyHops } = this.options;
     const token = sessions.tokenFromCookieHeader(request.headers.cookie);
     if (token === null) return null;
     const resolved = await sessions.resolveUpgrade(token, upgradeClientIp(request, trustProxyHops));
-    return resolved ? sessions.contextOf(resolved) : null;
+    if (!resolved) return null;
+    return Object.freeze({
+      ...sessions.contextOf(resolved),
+      sessionCreatedAt: resolved.session.createdAt,
+    });
   }
 }

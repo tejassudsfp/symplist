@@ -3,13 +3,19 @@ import type { SessionContext } from "@symplist/core/access";
 import { errorCode, type OperationalLog } from "../../infra/scheduler/runtime.ts";
 import type { AccessLevelPolicy } from "./topic-hub.ts";
 
+/** The identity of an upgrade's session, with when that session was created (sign-in time). */
+export interface UpgradeSession extends SessionContext {
+  /** `auth_sessions.created_at`, UTC epoch milliseconds. */
+  readonly sessionCreatedAt: number;
+}
+
 /**
  * Resolves the session cookie of a WebSocket upgrade through the core access session service (§5.1,
  * §7). Bearer tokens are ignored; only the session cookie counts (§5.2).
  */
 export interface WsSessionResolver {
   /** The session behind the upgrade's cookie, or null when absent, invalid, expired or revoked. */
-  fromUpgradeRequest(request: IncomingMessage): Promise<SessionContext | null>;
+  fromUpgradeRequest(request: IncomingMessage): Promise<UpgradeSession | null>;
 }
 
 /** The whole seconds to wait when a lookup was refused with `rate.limited`, or null. */
@@ -24,7 +30,7 @@ function rateLimitRetryAfter(error: unknown): number | null {
 
 /** A session resolved for an upgrade, with the earliest instant its state may date from. */
 export interface VerifiedUpgrade {
-  readonly session: SessionContext;
+  readonly session: UpgradeSession;
   /**
    * When verification started, less the session cache TTL: the resolver may answer from a cache entry
    * up to that old (§3.3), so any logout or restriction after this instant may be missing from it.
