@@ -1,11 +1,7 @@
 import { Test } from "@nestjs/testing";
 import type {
-  ActiveExecution,
   EventsContributor,
   ExecutionKindDefinition,
-  ExecutionOutcomeCode,
-  ExecutionTracker,
-  ExecutorKind,
   LocalExecutionHandler,
 } from "@symplist/core/events";
 import {
@@ -20,6 +16,7 @@ import {
 } from "@symplist/db";
 import { FakeClock, FakeTriggerApiError, FakeTriggerClient } from "@symplist/testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { FakeTracker } from "../../../test/executors/memory-tracker.ts";
 import type { OperationalLog, OperationalLogFields } from "../scheduler/runtime.ts";
 import { DispatchIntentRepository, insertDispatchIntentStatement } from "./dispatch-intents.ts";
 import { ExecutionDispatcher } from "./dispatcher.ts";
@@ -28,130 +25,15 @@ import { ExecutorError, observeTriggerStatus } from "./executor.ts";
 import { ExecutorStateRepository, ExecutorStateService } from "./executor-state.ts";
 import { ExecutorSwitch } from "./executor-switch.ts";
 import { parseExecutorSwitchArgs, runExecutorSwitchCli } from "./executor-switch-cli.ts";
-import {
-  EXECUTION_POST_COMMIT_HOOK,
-  ExecutorsModule,
-  LOCAL_EXECUTOR,
-  TRIGGER_EXECUTOR,
-} from "./executors.module.ts";
+import { ExecutorsModule, LOCAL_EXECUTOR, TRIGGER_EXECUTOR } from "./executors.module.ts";
 import { LocalExecutionAborted, LocalExecutor } from "./local-executor.ts";
-import { ExecutionPostCommitHook } from "./post-commit-hook.ts";
 import { ExecutionReconciler } from "./reconciler.ts";
+import { RestrictedRunCanceller } from "./restricted-run-canceller.ts";
 import { assertIdsOnlyPayload, TriggerExecutor } from "./trigger-executor.ts";
 
 /* ------------------------------------------------------------------------------------------------
  * Fixtures
  * --------------------------------------------------------------------------------------------- */
-
-interface FakeRun {
-  ownerId: string;
-  status: "queued" | "running" | "completed" | "stopped" | "interrupted";
-  executor: ExecutorKind;
-  generation: number;
-  triggerRunId: string | null;
-  heartbeatAt: number | null;
-  startedAt: number | null;
-  createdAt: number;
-  cancelRequestedAt: number | null;
-  outcomeCode: ExecutionOutcomeCode | null;
-}
-
-/** An in-memory `runs` tracker with the conditional semantics a D1 tracker must have. */
-class FakeTracker implements ExecutionTracker {
-  readonly runs = new Map<string, FakeRun>();
-  readonly heartbeats: { ids: readonly string[]; now: number }[] = [];
-  readonly dispatches: {
-    subjectId: string;
-    executor: ExecutorKind;
-    triggerRunId: string | null;
-  }[] = [];
-
-  add(
-    subjectId: string,
-    run: Partial<FakeRun> & { ownerId: string; executor: ExecutorKind },
-  ): void {
-    this.runs.set(subjectId, {
-      status: "running",
-      generation: 1,
-      triggerRunId: null,
-      heartbeatAt: null,
-      startedAt: null,
-      createdAt: 0,
-      cancelRequestedAt: null,
-      outcomeCode: null,
-      ...run,
-    });
-  }
-
-  async listActive(query: {
-    executor: ExecutorKind;
-    limit: number;
-    after?: string;
-  }): Promise<readonly ActiveExecution[]> {
-    return [...this.runs.entries()]
-      .filter(
-        ([, run]) =>
-          (run.status === "queued" || run.status === "running") && run.executor === query.executor,
-      )
-      .filter(([id]) => query.after === undefined || id > query.after)
-      .sort(([a], [b]) => (a < b ? -1 : 1))
-      .slice(0, query.limit)
-      .map(([subjectId, run]) => ({
-        subjectId,
-        ownerId: run.ownerId,
-        executor: run.executor,
-        executorGeneration: run.generation,
-        triggerRunId: run.triggerRunId,
-        heartbeatAt: run.heartbeatAt,
-        startedAt: run.startedAt,
-        createdAt: run.createdAt,
-        cancelRequestedAt: run.cancelRequestedAt,
-      }));
-  }
-
-  async recordDispatch(
-    subjectId: string,
-    dispatch: { executor: ExecutorKind; triggerRunId: string | null; generation: number },
-  ): Promise<void> {
-    this.dispatches.push({
-      subjectId,
-      executor: dispatch.executor,
-      triggerRunId: dispatch.triggerRunId,
-    });
-    const run = this.runs.get(subjectId);
-    if (run) {
-      run.executor = dispatch.executor;
-      run.triggerRunId = dispatch.triggerRunId;
-      run.generation = dispatch.generation;
-    }
-  }
-
-  async recordHeartbeat(subjectIds: readonly string[], now: number): Promise<void> {
-    this.heartbeats.push({ ids: [...subjectIds], now });
-    for (const id of subjectIds) {
-      const run = this.runs.get(id);
-      if (run) run.heartbeatAt = now;
-    }
-  }
-
-  async markInterrupted(
-    subjectId: string,
-    outcome: { outcomeCode: ExecutionOutcomeCode },
-  ): Promise<boolean> {
-    const run = this.runs.get(subjectId);
-    if (!run || (run.status !== "queued" && run.status !== "running")) return false;
-    run.status = "interrupted";
-    run.outcomeCode = outcome.outcomeCode;
-    return true;
-  }
-
-  async markStopped(subjectId: string): Promise<boolean> {
-    const run = this.runs.get(subjectId);
-    if (!run || (run.status !== "queued" && run.status !== "running")) return false;
-    run.status = "stopped";
-    return true;
-  }
-}
 
 class RecordingLog implements OperationalLog {
   readonly entries: { level: string; event: string; fields: OperationalLogFields | undefined }[] =
@@ -1460,41 +1342,87 @@ describe("executor:switch command", () => {
 });
 
 /* ------------------------------------------------------------------------------------------------
- * Post-commit hook and module wiring
+ * Restriction cancellation and module wiring
  * --------------------------------------------------------------------------------------------- */
 
-describe("execution post-commit hook (§5.5)", () => {
-  it("cancels the restricted user's durable runs only", async () => {
+describe("restricted run canceller (§5.5)", () => {
+  it("cancels the stored Trigger runs of the restricted user's stop-requested runs only", async () => {
     const h = await track(harness("durable"));
-    const mine = await addIntent(h.db, { ownerId: OWNER });
-    const theirs = await addIntent(h.db, { ownerId: OTHER_OWNER });
-    for (const [intent, run] of [
-      [mine, "run_mine"],
-      [theirs, "run_theirs"],
-    ] as const) {
-      await h.db.run(
-        sql(
-          "UPDATE dispatch_intents SET status = 'dispatched', executor = 'trigger', trigger_run_id = :run, dispatched_at = 1 WHERE id = :id",
-          { run, id: intent.id },
-        ),
-      );
-    }
+    const mine = "01996d2a-4c00-7000-8000-000000000081";
+    const recovered = "01996d2a-4c00-7000-8000-000000000082";
+    const notRequested = "01996d2a-4c00-7000-8000-000000000083";
+    const theirs = "01996d2a-4c00-7000-8000-000000000084";
+    h.tracker.add(mine, {
+      ownerId: OWNER,
+      executor: "trigger",
+      triggerRunId: "run_mine",
+      cancelRequestedAt: 5,
+    });
+    // The run record missed its Trigger run id; the dispatched intent still holds it.
+    h.tracker.add(recovered, { ownerId: OWNER, executor: "trigger", cancelRequestedAt: 5 });
+    const intent = await addIntent(h.db, { ownerId: OWNER, subjectId: recovered });
+    await h.db.run(
+      sql(
+        "UPDATE dispatch_intents SET status = 'dispatched', executor = 'trigger', trigger_run_id = 'run_recovered', dispatched_at = 1 WHERE id = :id",
+        { id: intent.id },
+      ),
+    );
+    h.tracker.add(notRequested, {
+      ownerId: OWNER,
+      executor: "trigger",
+      triggerRunId: "run_unrequested",
+    });
+    h.tracker.add(theirs, {
+      ownerId: OTHER_OWNER,
+      executor: "trigger",
+      triggerRunId: "run_theirs",
+      cancelRequestedAt: 5,
+    });
     const cancel = vi.spyOn(h.trigger.runs, "cancel").mockResolvedValue({ id: "x" });
-    const hook = new ExecutionPostCommitHook({
+    const canceller = new RestrictedRunCanceller({
+      registry: h.registry,
       repository: h.repository,
       local: null,
       trigger: new TriggerExecutor(h.trigger),
       log: h.log,
     });
-    await hook.onAccessRestricted({
-      userId: OWNER,
-      reason: "relocked",
-      cancelledRunIds: [mine.subjectId, theirs.subjectId],
-    });
-    expect(cancel.mock.calls).toEqual([["run_mine"]]);
+    await canceller.cancelRestrictedRuns({ userId: OWNER, accessGeneration: 2 });
+    expect(cancel.mock.calls.map(([runId]) => runId).sort()).toEqual(["run_mine", "run_recovered"]);
+    expect(h.log.events()).toContain("executor.restriction_cancelled");
   });
 
-  it("aborts only the restricted user's local controllers in local mode", async () => {
+  it("logs and continues when Trigger refuses a cancel, never throwing to the restriction", async () => {
+    const h = await track(harness("durable"));
+    for (const [subjectId, run] of [
+      ["01996d2a-4c00-7000-8000-000000000091", "run_a"],
+      ["01996d2a-4c00-7000-8000-000000000092", "run_b"],
+    ] as const) {
+      h.tracker.add(subjectId, {
+        ownerId: OWNER,
+        executor: "trigger",
+        triggerRunId: run,
+        cancelRequestedAt: 5,
+      });
+    }
+    const cancel = vi
+      .spyOn(h.trigger.runs, "cancel")
+      .mockRejectedValueOnce(new FakeTriggerApiError(500, "boom"))
+      .mockResolvedValue({ id: "x" });
+    const canceller = new RestrictedRunCanceller({
+      registry: h.registry,
+      repository: h.repository,
+      local: null,
+      trigger: new TriggerExecutor(h.trigger),
+      log: h.log,
+    });
+    await expect(
+      canceller.cancelRestrictedRuns({ userId: OWNER, accessGeneration: 2 }),
+    ).resolves.toBeUndefined();
+    expect(cancel).toHaveBeenCalledTimes(2);
+    expect(h.log.events()).toContain("executor.restriction_cancel_failed");
+  });
+
+  it("aborts only the restricted user's local controllers in local mode and never calls Trigger", async () => {
     const h = await track(harness("local"));
     h.registry.registerLocalHandler(
       "simon_run",
@@ -1506,8 +1434,8 @@ describe("execution post-commit hook (§5.5)", () => {
     const local = new LocalExecutor({ registry: h.registry, timers: h.clock, log: h.log });
     const mine = "01996d2a-4c00-7000-8000-000000000071";
     const theirs = "01996d2a-4c00-7000-8000-000000000072";
-    h.tracker.add(mine, { ownerId: OWNER, executor: "local" });
-    h.tracker.add(theirs, { ownerId: OTHER_OWNER, executor: "local" });
+    h.tracker.add(mine, { ownerId: OWNER, executor: "local", cancelRequestedAt: 5 });
+    h.tracker.add(theirs, { ownerId: OTHER_OWNER, executor: "local", cancelRequestedAt: 5 });
     for (const [subjectId, ownerId] of [
       [mine, OWNER],
       [theirs, OTHER_OWNER],
@@ -1518,23 +1446,21 @@ describe("execution post-commit hook (§5.5)", () => {
       );
     }
     await h.clock.advance(0);
-    const hook = new ExecutionPostCommitHook({
+    const trigger = vi.spyOn(h.trigger.runs, "cancel");
+    const canceller = new RestrictedRunCanceller({
+      registry: h.registry,
       repository: h.repository,
       local,
       trigger: null,
       log: h.log,
     });
-    // A buggy caller names another user's run: it must not be touched.
-    await hook.onAccessRestricted({
-      userId: OWNER,
-      reason: "suspended",
-      cancelledRunIds: [mine, theirs],
-    });
+    await canceller.cancelRestrictedRuns({ userId: OWNER, accessGeneration: 3 });
     await h.clock.advance(0);
     expect(local.isRunning("simon_run", mine)).toBe(false);
     expect(h.tracker.runs.get(mine)?.status).toBe("stopped");
     expect(local.isRunning("simon_run", theirs)).toBe(true);
     expect(h.tracker.runs.get(theirs)?.status).toBe("running");
+    expect(trigger).not.toHaveBeenCalled();
   });
 });
 
@@ -1560,7 +1486,7 @@ describe("ExecutorsModule", () => {
     await app.init();
     expect(moduleRef.get(LOCAL_EXECUTOR)).toBeInstanceOf(LocalExecutor);
     expect(moduleRef.get(TRIGGER_EXECUTOR)).toBeNull();
-    expect(moduleRef.get(EXECUTION_POST_COMMIT_HOOK)).toBeInstanceOf(ExecutionPostCommitHook);
+    expect(moduleRef.get(RestrictedRunCanceller)).toBeInstanceOf(RestrictedRunCanceller);
     expect(moduleRef.get(ExecutionRegistry).kinds()).toEqual(["simon_run"]);
     expect(await new ExecutorStateRepository(db).read()).toMatchObject({ mode: "local" });
     await app.close();

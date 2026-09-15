@@ -3,5 +3,6 @@
  * suites under `src/contracts/` that run against every implementation of an interface. The shared
  * Vitest config is exported separately as `@symplist/testing/vitest`.
  */
+export * from "./contracts/executor/index.ts";
 export * from "./fakes/index.ts";
 export * from "./fixtures/index.ts";

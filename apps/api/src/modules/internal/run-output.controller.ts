@@ -7,8 +7,10 @@ import {
   type RunOutputBody,
   runOutputBodySchema,
 } from "@symplist/core/events";
+import { ApiError } from "../../common/errors/api-error.ts";
+import { malformedRequestError } from "../../common/errors/validation.ts";
+import { RouteClass } from "../../common/route-classes.ts";
 import type { OperationalLog } from "../../infra/scheduler/runtime.ts";
-import { internalError } from "./internal-errors.ts";
 import { INTERNAL_LOG } from "./internal-log.ts";
 import { InternalRequestVerifier } from "./internal-request.verifier.ts";
 import { mediaType, readRawBody } from "./raw-body.ts";
@@ -25,6 +27,7 @@ interface StatusResponse {
  * because each run pushes up to ten batches a second from shared Trigger egress addresses.
  */
 @SkipThrottle()
+@RouteClass("signed")
 @Controller()
 export class RunOutputController {
   constructor(
@@ -40,18 +43,16 @@ export class RunOutputController {
     @Param("runId") runId: string,
     @Res({ passthrough: true }) response: StatusResponse,
   ): Promise<{ readonly status: "accepted" | "duplicate"; readonly relayed?: number }> {
-    if (mediaType(request) !== INTERNAL_CONTENT_TYPE) throw internalError(400, "validation");
+    if (mediaType(request) !== INTERNAL_CONTENT_TYPE) throw malformedRequestError();
     const raw = await readRawBody(request, INTERNAL_BODY_LIMITS.runOutput);
     if (!raw.ok) {
       throw raw.reason === "too_large"
-        ? internalError(413, "validation")
-        : internalError(400, "validation");
+        ? new ApiError("request.too_large")
+        : malformedRequestError();
     }
     const verification = this.verifier.verify(request, raw.body, "internal.run_output");
     if (!verification.ok) {
-      throw verification.reason === "memory_full"
-        ? internalError(503, "rate.limited", 5)
-        : internalError(404, "not_found");
+      throw verification.reason === "memory_full" ? ApiError.rateLimited(5) : ApiError.notFound();
     }
     const verified = verification.request;
 
@@ -62,7 +63,7 @@ export class RunOutputController {
       body = parsed.data;
     } catch {
       this.log.warn("internal.run_output_invalid", { eventId: verified.eventId });
-      throw internalError(400, "validation");
+      throw malformedRequestError();
     }
 
     const result = await this.relay.accept(runId, body);
@@ -76,15 +77,15 @@ export class RunOutputController {
         switch (result.reason) {
           case "undecryptable":
           case "invalid_plaintext":
-            throw internalError(400, "validation");
+            throw malformedRequestError();
           case "unavailable":
             verified.release();
-            throw internalError(503, "rate.limited", 1);
+            throw ApiError.rateLimited(1);
           case "shutting_down":
             verified.release();
-            throw internalError(503, "rate.limited", 5);
+            throw ApiError.rateLimited(5);
           default:
-            throw internalError(404, "not_found");
+            throw ApiError.notFound();
         }
     }
   }

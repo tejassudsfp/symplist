@@ -4,13 +4,7 @@ import type { EmailTransport } from "@symplist/email";
 import { analyticsProviders, SERVER_ANALYTICS } from "../infra/analytics/analytics.providers.ts";
 import { API_CONFIG, type ApiConfig } from "../infra/config/api-config.ts";
 import { cryptoProviders, KEY_PROVIDER } from "../infra/crypto/crypto.providers.ts";
-import {
-  D1_COUNTERS,
-  DB_CLIENT,
-  DEFAULT_LOCAL_DATA_DIR,
-  dbProviders,
-  LOCAL_DATA_DIR,
-} from "../infra/db/db.providers.ts";
+import { D1_COUNTERS, DB_CLIENT, dbProviders, LOCAL_DATA_DIR } from "../infra/db/db.providers.ts";
 import {
   EMAIL_TRANSPORT,
   EMAIL_TRANSPORT_OVERRIDE,
@@ -19,6 +13,12 @@ import {
 import { DurableCounterService } from "../infra/limits/durable-counter.ts";
 import { IpFailureLimiter } from "../infra/limits/ip-failures.ts";
 import { IpThrottlerGuard, ipThrottlerProviders } from "../infra/limits/ip-throttler.ts";
+import {
+  isRuntimeTimers,
+  RUNTIME_TIMERS,
+  type RuntimeTimers,
+  systemTimers,
+} from "../infra/scheduler/runtime.ts";
 import { OBJECT_STORE, storageProviders } from "../infra/storage/storage.providers.ts";
 import {
   ACCESS_SERVICE,
@@ -51,7 +51,12 @@ export interface PlatformOptions {
   readonly config: ApiConfig;
   /** Defaults to the system clock; tests inject a fake clock. */
   readonly clock?: Clock;
-  /** Where `DATA_DRIVER=local` keeps its SQLite file and objects; defaults to `.local-data`. */
+  /**
+   * Timers of the realtime gateway, internal endpoints, executors and scheduler. Defaults to `clock`
+   * when it schedules timers itself (a `FakeClock`), otherwise to real timers.
+   */
+  readonly timers?: RuntimeTimers;
+  /** Where `DATA_DRIVER=local` keeps its SQLite file and objects; defaults to `LOCAL_DATA_DIR`. */
   readonly localDataDir?: string;
   /** Defaults to standard output. */
   readonly logSink?: LogSink;
@@ -66,6 +71,7 @@ export interface PlatformOptions {
 const exported = [
   API_CONFIG,
   CLOCK,
+  RUNTIME_TIMERS,
   LOG_SINK,
   DB_CLIENT,
   OBJECT_STORE,
@@ -99,9 +105,16 @@ export class PlatformModule {
     const providers: Provider[] = [
       { provide: API_CONFIG, useValue: options.config },
       { provide: CLOCK, useValue: options.clock ?? systemClock },
+      {
+        provide: RUNTIME_TIMERS,
+        useValue: options.timers ?? (isRuntimeTimers(options.clock) ? options.clock : systemTimers),
+      },
       { provide: LOG_SINK, useValue: options.logSink ?? stdoutLogSink },
       { provide: LOG_LEVEL, useValue: options.logLevel ?? "info" },
-      { provide: LOCAL_DATA_DIR, useValue: options.localDataDir ?? DEFAULT_LOCAL_DATA_DIR },
+      {
+        provide: LOCAL_DATA_DIR,
+        useValue: options.localDataDir ?? options.config.LOCAL_DATA_DIR,
+      },
       ...(options.emailTransport
         ? [{ provide: EMAIL_TRANSPORT_OVERRIDE, useValue: options.emailTransport }]
         : []),

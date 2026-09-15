@@ -26,10 +26,10 @@ import { SessionService } from "../src/common/auth/session.service.ts";
 import { cookieNames } from "../src/common/auth/session-cookies.ts";
 import { CLOCK } from "../src/common/clock.ts";
 import type { LogLevel, LogSink } from "../src/common/logging/logger.ts";
-import { TRIGGER_CLIENT } from "../src/common/seams.ts";
 import { KEY_PROVIDER } from "../src/infra/crypto/crypto.providers.ts";
 import { DB_CLIENT } from "../src/infra/db/db.providers.ts";
 import { EMAIL_TRANSPORT } from "../src/infra/email/email.providers.ts";
+import type { RuntimeOptions } from "../src/infra/runtime/runtime.modules.ts";
 import { OBJECT_STORE } from "../src/infra/storage/storage.providers.ts";
 
 /** A fresh generated secret: 32 random bytes as base64url (§4.5). */
@@ -103,8 +103,13 @@ export interface TestAppOptions {
   readonly clock?: FakeClock;
   /** Defaults to a fresh `FakeTriggerClient` on the same clock, bound to `TRIGGER_CLIENT`. */
   readonly trigger?: FakeTriggerClient;
-  /** Extra global providers (realtime seams, feature fakes). */
+  /** Extra global providers (feature fakes). The platform's own services see these first. */
   readonly providers?: readonly Provider[];
+  /**
+   * Runtime module overrides: tuning, probe execution kinds and realtime event schemas. Background
+   * loops (reconciler, heartbeat, access sweep, local scheduler) are off unless `backgroundLoops: true`.
+   */
+  readonly runtime?: RuntimeOptions;
   /** Extra modules, such as probe controllers. */
   readonly imports?: NonNullable<ModuleMetadata["imports"]>;
   /** Replaces providers by token after the module graph is built. */
@@ -178,6 +183,8 @@ export class TestApp {
   readonly baseUrl: string;
   /** `http://127.0.0.1:<port>`: the share host. */
   readonly shareBaseUrl: string;
+  /** `ws://localhost:<port>/v1/ws`: the WebSocket gateway (§7). */
+  readonly wsUrl: string;
   private readonly ownsDataDir: boolean;
   private closed = false;
   private userSequence = 0;
@@ -203,6 +210,7 @@ export class TestApp {
     this.ownsDataDir = init.ownsDataDir;
     this.baseUrl = `http://localhost:${init.port}`;
     this.shareBaseUrl = `http://127.0.0.1:${init.port}`;
+    this.wsUrl = `ws://localhost:${init.port}/v1/ws`;
   }
 
   /** Resolves a provider of the app by token or class. */
@@ -409,8 +417,10 @@ export class TestApp {
 
 /**
  * Boots the api for a test: validated test configuration, local SQLite in a temporary directory with
- * migrations applied, the local object store, a capture email transport, a fake clock and a fake
- * Trigger client, listening on an ephemeral port. Close it in `afterEach`/`afterAll`.
+ * migrations applied, the local object store, a capture email transport, a fake clock (which also
+ * drives the realtime, executor and scheduler timers) and a fake Trigger client, with every runtime
+ * module wired and the WebSocket gateway listening on the same ephemeral port. Close it in
+ * `afterEach`/`afterAll`.
  */
 export async function bootTestApp(options: TestAppOptions = {}): Promise<TestApp> {
   const config = loadApiConfig(testApiEnv(options.env));
@@ -426,12 +436,15 @@ export async function bootTestApp(options: TestAppOptions = {}): Promise<TestApp
       AppModule.forRoot({
         config,
         clock,
+        timers: clock,
         localDataDir: dataDir,
         logSink: logs,
         logLevel: options.logLevel ?? "debug",
         emailTransport: email,
-        providers: [{ provide: TRIGGER_CLIENT, useValue: trigger }, ...(options.providers ?? [])],
+        triggerClient: trigger,
+        providers: [...(options.providers ?? [])],
         imports: options.imports ?? [],
+        runtime: { backgroundLoops: false, ...options.runtime },
       }),
     ],
   });
@@ -442,7 +455,7 @@ export async function bootTestApp(options: TestAppOptions = {}): Promise<TestApp
   try {
     const moduleRef = await builder.compile();
     app = moduleRef.createNestApplication<NestExpressApplication>({
-      rawBody: true,
+      bodyParser: false,
       bufferLogs: true,
     });
     configureApp(app);

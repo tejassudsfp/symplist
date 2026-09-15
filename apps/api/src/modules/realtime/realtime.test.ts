@@ -1,60 +1,36 @@
-import { request as httpRequest, type IncomingMessage } from "node:http";
-import type { Socket } from "node:net";
-import { Module } from "@nestjs/common";
-import type { NestExpressApplication } from "@nestjs/platform-express";
-import { type AccessState, type ConversationId, conversationTopic } from "@symplist/contracts";
+import { type ConversationId, conversationTopic } from "@symplist/contracts";
 import type { SessionContext } from "@symplist/core/access";
-import type { AccessPostCommitHook, BufferedTopicEvent } from "@symplist/core/events";
-import {
-  applyMigrations,
-  createLocalSqliteClient,
-  type DbClient,
-  int,
-  type LocalSqliteClient,
-  newWriteId,
-  sql,
-  uuidv7,
-} from "@symplist/db";
+import type { BufferedTopicEvent } from "@symplist/core/events";
+import { int, sql, uuidv7 } from "@symplist/db";
 import { FakeClock } from "@symplist/testing";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { createApp } from "../../app.ts";
+import {
+  bootTestApp,
+  type TestApp,
+  type TestAppOptions,
+  type TestSession,
+  type TestUserState,
+} from "../../../test/harness.ts";
+import { rawUpgrade, WsTestClient } from "../../../test/ws-client.ts";
+import { ACCESS_SERVICE } from "../../common/access/access.providers.ts";
+import { REALTIME_ACCESS_NOTIFIER, REALTIME_SHUTDOWN } from "../../common/seams.ts";
 import type { OperationalLog, OperationalLogFields } from "../../infra/scheduler/runtime.ts";
 import { AccessSweep } from "./access-sweep.ts";
-import { AuthWsAdapter } from "./auth-ws.adapter.ts";
-import { RealtimeModule } from "./realtime.module.ts";
-import {
-  REALTIME_POST_COMMIT_HOOK,
-  REALTIME_PUBLISHER,
-  type RealtimeDependencies,
-} from "./realtime.tokens.ts";
+import { REALTIME_PUBLISHER, type RealtimeDependencies } from "./realtime.tokens.ts";
 import { RingBuffer } from "./ring-buffer.ts";
+import { RealtimeSessionControl } from "./session-control.ts";
+import { RealtimeShutdownControl } from "./shutdown-control.ts";
 import { type AccessLevelPolicy, RealtimePublishError, TopicHub } from "./topic-hub.ts";
 import { TopicRegistry } from "./topic-registry.ts";
-import type { WsSessionResolver } from "./upgrade-gate.ts";
 
 /* ------------------------------------------------------------------------------------------------
  * Fixtures
  * --------------------------------------------------------------------------------------------- */
 
-const WEB_ORIGIN = "http://localhost:3000";
 const MARKER = "MARKER-7f3a-plaintext-never-logged";
 
-/** The §5.4 guard levels with `BETA_ACCESS_REQUIRED=true`. */
-const accessPolicy: AccessLevelPolicy = {
-  satisfies(state, level) {
-    const identity = state.deletionState === "none";
-    if (level === "identity") return identity;
-    const admitted =
-      identity &&
-      state.emailVerifiedAt !== null &&
-      state.betaState === "unlocked" &&
-      state.suspendedAt === null;
-    return level === "admitted" ? admitted : admitted && state.role === "admin";
-  },
-};
-
-/** Test events: the real composed map is still empty, so these stand in for feature declarations. */
+/** Test events: the composed contracts map is still empty, so these stand in for feature events. */
 const testEvents = {
   "access.changed": z.strictObject({ accessState: z.string() }),
   "tasks.changed": z.strictObject({
@@ -78,178 +54,16 @@ class Log implements OperationalLog {
   }
 }
 
-interface UserFixture {
-  readonly userId: string;
-  readonly sessionId: string;
-}
-
-async function addUser(
-  db: DbClient,
-  options: { betaState?: "locked" | "unlocked" | "relocked"; expiresAt?: number } = {},
-): Promise<UserFixture> {
-  const userId = uuidv7();
-  const sessionId = uuidv7();
-  const now = Date.now();
-  await db.batch([
-    sql(
-      `INSERT INTO users (id, email, email_verified_at, beta_state, created_at, updated_at, write_id)
-       VALUES (:id, :email, :now, :beta, :now, :now, :w)`,
-      {
-        id: userId,
-        email: `${userId}@example.com`,
-        now: int(now),
-        beta: options.betaState ?? "unlocked",
-        w: newWriteId(),
-      },
-    ),
-    sql(
-      `INSERT INTO auth_sessions (id, user_id, token_digest, digest_version, created_at, last_seen_at, expires_at, write_id)
-       VALUES (:id, :user, :digest, '1', :now, :now, :expires, :w)`,
-      {
-        id: sessionId,
-        user: userId,
-        digest: `digest-${sessionId}`,
-        now: int(Math.min(now, options.expiresAt ?? now) - 60_000),
-        expires: int(options.expiresAt ?? now + 3_600_000),
-        w: newWriteId(),
-      },
-    ),
-  ]);
-  return { userId, sessionId };
-}
-
-async function addSession(db: DbClient, userId: string): Promise<string> {
-  const sessionId = uuidv7();
-  const now = Date.now();
-  await db.run(
-    sql(
-      `INSERT INTO auth_sessions (id, user_id, token_digest, digest_version, created_at, last_seen_at, expires_at, write_id)
-       VALUES (:id, :user, :digest, '1', :now, :now, :expires, :w)`,
-      {
-        id: sessionId,
-        user: userId,
-        digest: `digest-${sessionId}`,
-        now: int(now - 1),
-        expires: int(now + 3_600_000),
-        w: newWriteId(),
-      },
-    ),
-  );
-  return sessionId;
-}
-
-/** Resolves `sym_session=<sessionId>` against D1, as the core session service would. */
-function sessionResolver(db: DbClient): WsSessionResolver {
-  return {
-    async fromUpgradeRequest(request: IncomingMessage): Promise<SessionContext | null> {
-      const match = /(?:^|;\s*)sym_session=([0-9a-f-]{36})/.exec(request.headers.cookie ?? "");
-      if (!match?.[1]) return null;
-      const row = await db.first(
-        sql(
-          `SELECT s.id, s.user_id, s.revoked_at, s.expires_at, u.email_verified_at, u.beta_state, u.suspended_at,
-                  u.onboarding_step, u.role, u.access_generation, u.access_epoch, u.deletion_state
-           FROM auth_sessions s JOIN users u ON u.id = s.user_id WHERE s.id = :id`,
-          { id: match[1] },
-        ),
-      );
-      if (!row || row.revoked_at !== null || Number(row.expires_at) <= Date.now()) return null;
-      const access: AccessState = {
-        emailVerifiedAt: row.email_verified_at === null ? null : Number(row.email_verified_at),
-        betaState: row.beta_state as AccessState["betaState"],
-        suspendedAt: row.suspended_at === null ? null : Number(row.suspended_at),
-        onboardingStep: row.onboarding_step as AccessState["onboardingStep"],
-        role: row.role as AccessState["role"],
-        accessGeneration: Number(row.access_generation),
-        accessEpoch: Number(row.access_epoch),
-        deletionState: row.deletion_state as AccessState["deletionState"],
-      };
-      return { userId: String(row.user_id), sessionId: String(row.id), access };
-    },
-  };
-}
-
-interface Frame {
-  readonly t: string;
-  readonly [key: string]: unknown;
-}
-
-class Client {
-  readonly frames: Frame[] = [];
-  private readonly listeners = new Set<() => void>();
-  readonly closed: Promise<{ code: number; reason: string }>;
-
-  private constructor(readonly socket: WebSocket) {
-    socket.addEventListener("message", (event) => {
-      this.frames.push(JSON.parse(String(event.data)) as Frame);
-      for (const listener of this.listeners) listener();
-    });
-    this.closed = new Promise((resolve) => {
-      socket.addEventListener("close", (event) =>
-        resolve({ code: event.code, reason: event.reason }),
-      );
-    });
-  }
-
-  static connect(url: string, headers: Record<string, string>): Promise<Client> {
-    const socket = new WebSocket(url, { headers } as unknown as string[]);
-    const client = new Client(socket);
-    return new Promise((resolve, reject) => {
-      socket.addEventListener("open", () => resolve(client));
-      socket.addEventListener("close", () => reject(new Error("closed before open")));
-    });
-  }
-
-  send(frame: unknown): void {
-    this.socket.send(typeof frame === "string" ? frame : JSON.stringify(frame));
-  }
-
-  /** Resolves with the first frame (seen or future) matching `predicate`, consuming nothing. */
-  waitFor(predicate: (frame: Frame) => boolean, timeoutMs = 2_000): Promise<Frame> {
-    const found = this.frames.find(predicate);
-    if (found) return Promise.resolve(found);
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.listeners.delete(check);
-        reject(new Error(`No matching frame; received ${JSON.stringify(this.frames)}`));
-      }, timeoutMs);
-      const check = () => {
-        const frame = this.frames.find(predicate);
-        if (!frame) return;
-        clearTimeout(timer);
-        this.listeners.delete(check);
-        resolve(frame);
-      };
-      this.listeners.add(check);
-    });
-  }
-
-  /** Round-trips a ping so every earlier server frame has arrived. */
-  async settle(): Promise<void> {
-    const before = this.frames.filter((frame) => frame.t === "pong").length;
-    this.send({ t: "ping" });
-    await this.waitFor(() => this.frames.filter((frame) => frame.t === "pong").length > before);
-  }
-
-  close(): void {
-    this.socket.close();
-  }
-}
-
 interface Harness {
-  app: NestExpressApplication;
-  db: LocalSqliteClient;
-  resolver: WsSessionResolver;
-  url: string;
-  hub: TopicHub;
-  registry: TopicRegistry;
-  sweep: AccessSweep;
-  hook: AccessPostCommitHook;
-  log: Log;
-  clients: Client[];
-  connect(
-    user: UserFixture | { sessionId: string },
-    headers?: Record<string, string>,
-  ): Promise<Client>;
+  readonly app: TestApp;
+  readonly hub: TopicHub;
+  readonly registry: TopicRegistry;
+  readonly sweep: AccessSweep;
+  readonly control: RealtimeSessionControl;
+  readonly clients: WsTestClient[];
+  user(state?: TestUserState): Promise<{ readonly id: string; readonly session: TestSession }>;
+  connect(session: TestSession, headers?: Record<string, string>): Promise<WsTestClient>;
+  upgradeHeaders(session: TestSession): Record<string, string>;
 }
 
 const harnesses: Harness[] = [];
@@ -258,95 +72,60 @@ afterEach(async () => {
   for (const harness of harnesses.splice(0)) {
     for (const client of harness.clients) client.close();
     await harness.app.close();
-    harness.db.close();
   }
 });
 
 async function start(
   tuning: RealtimeDependencies["tuning"] = {},
-  options: { readonly resolver?: (db: DbClient) => WsSessionResolver } = {},
+  options: Pick<TestAppOptions, "env"> & { readonly backgroundLoops?: boolean } = {},
 ): Promise<Harness> {
-  const db = createLocalSqliteClient({ path: ":memory:", env: { NODE_ENV: "test" } });
-  await applyMigrations(db);
-  const log = new Log();
-  const resolver = (options.resolver ?? sessionResolver)(db);
-
-  @Module({
-    imports: [
-      RealtimeModule.forRoot({
-        useFactory: (): RealtimeDependencies => ({
-          db,
-          sessions: resolver,
-          access: accessPolicy,
-          allowedOrigins: [WEB_ORIGIN],
-          log,
-          events: testEvents,
-          tuning: { sweepIntervalMs: 3_600_000, ...tuning },
-        }),
-      }),
-    ],
-  })
-  class TestModule {}
-
-  const app = await createApp(TestModule, { logger: ["error"] });
-  app.useWebSocketAdapter(new AuthWsAdapter(app));
-  await app.listen(0, "127.0.0.1");
-  const url = `${(await app.getUrl()).replace("http", "ws")}/v1/ws`;
-  const clients: Client[] = [];
+  const app = await bootTestApp({
+    ...(options.env ? { env: options.env } : {}),
+    runtime: {
+      ...(options.backgroundLoops === undefined
+        ? {}
+        : { backgroundLoops: options.backgroundLoops }),
+      realtime: { tuning: { sweepIntervalMs: 3_600_000, ...tuning }, events: testEvents },
+    },
+  });
+  const clients: WsTestClient[] = [];
+  const upgradeHeaders = (session: TestSession) => ({
+    origin: app.config.WEB_ORIGIN,
+    cookie: session.cookie,
+  });
   const harness: Harness = {
     app,
-    db,
-    resolver,
-    url,
-    hub: app.get(TopicHub),
-    registry: app.get(TopicRegistry),
-    sweep: app.get(AccessSweep),
-    hook: app.get(REALTIME_POST_COMMIT_HOOK),
-    log,
+    hub: app.inject(TopicHub),
+    registry: app.inject(TopicRegistry),
+    sweep: app.inject(AccessSweep),
+    control: app.inject(RealtimeSessionControl),
     clients,
-    async connect(user, headers = {}) {
-      const client = await Client.connect(url, {
-        origin: WEB_ORIGIN,
-        cookie: `sym_session=${user.sessionId}`,
+    async user(state = "admitted") {
+      const user = await app.createSignedInUser(state);
+      return { id: user.id, session: user.session };
+    },
+    async connect(session, headers = {}) {
+      const client = await WsTestClient.connect(app.wsUrl, {
+        ...upgradeHeaders(session),
         ...headers,
       });
       clients.push(client);
       return client;
     },
+    upgradeHeaders,
   };
   harnesses.push(harness);
   return harness;
 }
 
-/** A raw upgrade request, to observe HTTP statuses and to act as a client that never answers pings. */
-function rawUpgrade(
-  url: string,
-  headers: Record<string, string>,
-): Promise<{ status: number; socket?: Socket }> {
-  const target = new URL(url.replace("ws", "http"));
-  return new Promise((resolve, reject) => {
-    const request = httpRequest({
-      host: target.hostname,
-      port: target.port,
-      path: target.pathname,
-      headers: {
-        connection: "Upgrade",
-        upgrade: "websocket",
-        "sec-websocket-version": "13",
-        "sec-websocket-key": Buffer.from("0123456789abcdef").toString("base64"),
-        ...headers,
-      },
-    });
-    request.on("response", (response) => {
-      response.resume();
-      resolve({ status: response.statusCode ?? 0 });
-    });
-    request.on("upgrade", (response, socket) =>
-      resolve({ status: response.statusCode ?? 0, socket }),
-    );
-    request.on("error", reject);
-    request.end();
-  });
+/** Ends a session by expiry in D1 alone, as time passing would, without moving other sessions. */
+async function expireSession(h: Harness, session: TestSession): Promise<void> {
+  await h.app.db.run(
+    sql("UPDATE auth_sessions SET expires_at = created_at + 1 WHERE id = :id", {
+      id: session.sessionId,
+    }),
+  );
+  await h.app.clock.advance(2);
 }
 
 function ownedConversations(owner: Map<string, string>) {
@@ -375,90 +154,105 @@ describe("ring buffer", () => {
   });
 });
 
+describe("platform wiring (§5.5, §7)", () => {
+  it("binds the gateway's session control, shutdown control and access policy into the platform", async () => {
+    const h = await start();
+    expect(h.app.inject<RealtimeShutdownControl>(REALTIME_SHUTDOWN)).toBeInstanceOf(
+      RealtimeShutdownControl,
+    );
+    const notifier = h.app.inject<{ sessionsEnded: unknown }>(REALTIME_ACCESS_NOTIFIER);
+    expect(typeof notifier.sessionsEnded).toBe("function");
+    // The hub's policy is the access service's own check, honoring BETA_ACCESS_REQUIRED.
+    const lenient = await start({}, { env: { BETA_ACCESS_REQUIRED: "false" } });
+    const locked = await lenient.user("locked");
+    const client = await lenient.connect(locked.session);
+    await client.settle();
+    expect(lenient.hub.socketsOfUser(locked.id)[0]?.admitted).toBe(true);
+    const policy = lenient.app.inject<AccessLevelPolicy>(ACCESS_SERVICE);
+    const state = await lenient.app.accessState(locked.id);
+    expect(state && policy.satisfies(state, "admitted")).toBe(true);
+  });
+});
+
 describe("WebSocket upgrade authentication (§7)", () => {
   it("rejects a missing or foreign Origin with 403 before looking at the session", async () => {
     const h = await start();
-    const user = await addUser(h.db);
-    const resolve = vi.spyOn(h.resolver, "fromUpgradeRequest");
-    expect((await rawUpgrade(h.url, { cookie: `sym_session=${user.sessionId}` })).status).toBe(403);
+    const user = await h.user();
+    const resolve = vi.spyOn(h.app.sessions, "resolveUpgrade");
+    expect((await rawUpgrade(h.app.wsUrl, { cookie: user.session.cookie })).status).toBe(403);
     expect(
       (
-        await rawUpgrade(h.url, {
+        await rawUpgrade(h.app.wsUrl, {
           origin: "https://artifact.example.com",
-          cookie: `sym_session=${user.sessionId}`,
+          cookie: user.session.cookie,
         })
       ).status,
     ).toBe(403);
     expect(resolve).not.toHaveBeenCalled();
-    const accepted = await rawUpgrade(h.url, {
-      origin: WEB_ORIGIN,
-      cookie: `sym_session=${user.sessionId}`,
-    });
+    const accepted = await rawUpgrade(h.app.wsUrl, h.upgradeHeaders(user.session));
     accepted.socket?.destroy();
     expect(accepted.status).toBe(101);
     expect(resolve).toHaveBeenCalledTimes(1);
   });
 
-  it("rejects a missing, revoked or expired session with 401 and ignores bearer tokens", async () => {
+  it("rejects a missing, forged, revoked or expired session with 401 and ignores bearer tokens", async () => {
     const h = await start();
-    const revoked = await addUser(h.db);
-    await h.db.run(
-      sql("UPDATE auth_sessions SET revoked_at = 1 WHERE id = :id", { id: revoked.sessionId }),
-    );
-    const expired = await addUser(h.db, { expiresAt: Date.now() - 1 });
-    expect((await rawUpgrade(h.url, { origin: WEB_ORIGIN })).status).toBe(401);
+    const revoked = await h.user();
+    await h.app.sessions.revoke({ userId: revoked.id, sessionId: revoked.session.sessionId });
+    const expired = await h.user();
+    await expireSession(h, expired.session);
+    const origin = h.app.config.WEB_ORIGIN;
+    expect((await rawUpgrade(h.app.wsUrl, { origin })).status).toBe(401);
+    expect(
+      (await rawUpgrade(h.app.wsUrl, { origin, authorization: `Bearer ${revoked.session.token}` }))
+        .status,
+    ).toBe(401);
     expect(
       (
-        await rawUpgrade(h.url, {
-          origin: WEB_ORIGIN,
-          authorization: `Bearer ${revoked.sessionId}`,
+        await rawUpgrade(h.app.wsUrl, {
+          origin,
+          cookie: `${h.app.sessionCookieName}=${Buffer.alloc(32, 7).toString("base64url")}`,
         })
       ).status,
     ).toBe(401);
-    expect(
-      (await rawUpgrade(h.url, { origin: WEB_ORIGIN, cookie: `sym_session=${revoked.sessionId}` }))
-        .status,
-    ).toBe(401);
-    expect(
-      (await rawUpgrade(h.url, { origin: WEB_ORIGIN, cookie: `sym_session=${expired.sessionId}` }))
-        .status,
-    ).toBe(401);
+    // The cached lookup of a session revoked in this process is evicted at once.
+    expect((await rawUpgrade(h.app.wsUrl, h.upgradeHeaders(revoked.session))).status).toBe(401);
+    expect((await rawUpgrade(h.app.wsUrl, h.upgradeHeaders(expired.session))).status).toBe(401);
   });
 
-  it("rejects an account being deleted with 403", async () => {
+  it("rejects an account being deleted with 403, below the identity level", async () => {
     const h = await start();
-    const user = await addUser(h.db);
-    await h.db.run(
+    const user = await h.user();
+    await h.app.db.run(
       sql(
         "UPDATE users SET deletion_state = 'deleting', deletion_requested_at = 1 WHERE id = :id",
-        { id: user.userId },
+        { id: user.id },
       ),
     );
-    expect(
-      (await rawUpgrade(h.url, { origin: WEB_ORIGIN, cookie: `sym_session=${user.sessionId}` }))
-        .status,
-    ).toBe(403);
+    expect((await rawUpgrade(h.app.wsUrl, h.upgradeHeaders(user.session))).status).toBe(403);
   });
 
-  it("accepts a valid session and records the socket's user and session", async () => {
+  it("accepts a valid session at identity level and records the socket's user, session and access", async () => {
     const h = await start();
-    const user = await addUser(h.db);
-    const client = await h.connect(user);
+    const user = await h.user();
+    const locked = await h.user("locked");
+    const client = await h.connect(user.session);
+    const lockedClient = await h.connect(locked.session);
     await client.settle();
-    const [socket] = h.hub.socketsOfSession(user.sessionId);
-    expect(socket).toMatchObject({
-      userId: user.userId,
-      sessionId: user.sessionId,
+    await lockedClient.settle();
+    expect(h.hub.socketsOfSession(user.session.sessionId)[0]).toMatchObject({
+      userId: user.id,
+      sessionId: user.session.sessionId,
       admitted: true,
     });
-    expect(h.hub.socketsOfUser(user.userId)).toHaveLength(1);
+    expect(h.hub.socketsOfUser(locked.id)[0]).toMatchObject({ admitted: false });
   });
 });
 
 describe("frames (§7)", () => {
   it("answers ping with pong and malformed, unknown or binary frames with a validation error", async () => {
     const h = await start();
-    const client = await h.connect(await addUser(h.db));
+    const client = await h.connect((await h.user()).session);
     client.send({ t: "ping" });
     await client.waitFor((frame) => frame.t === "pong");
     client.send("{not json");
@@ -474,61 +268,62 @@ describe("frames (§7)", () => {
 
   it("handles a socket's frames in order, so an unsub never races an in-flight sub", async () => {
     const h = await start();
-    const user = await addUser(h.db);
+    const user = await h.user();
     h.registry.registerAuthorizer({
       kind: "conversation",
       authorize: () => new Promise((resolve) => setTimeout(() => resolve(true), 30)),
     });
-    const client = await h.connect(user);
+    const client = await h.connect(user.session);
     const topic = conversationTopic(uuidv7() as ConversationId);
     client.send({ t: "sub", topic, cursor: null });
     client.send({ t: "unsub", topic });
     await client.settle();
-    expect(h.hub.socketsOfUser(user.userId)[0]?.subscriptionCount).toBe(0);
+    expect(h.hub.socketsOfUser(user.id)[0]?.subscriptionCount).toBe(0);
   });
 
   it("closes with 1008 after more than 20 frames in 10 seconds", async () => {
     const h = await start();
-    const client = await h.connect(await addUser(h.db));
+    const client = await h.connect((await h.user()).session);
     for (let index = 0; index < 21; index += 1) client.send({ t: "ping" });
     expect((await client.closed).code).toBe(1008);
   });
 
   it("closes with 1008 above 50 subscriptions", async () => {
     const h = await start({ framesPerWindow: 100 });
-    const user = await addUser(h.db);
+    const user = await h.user();
     h.registry.registerAuthorizer({ kind: "conversation", authorize: async () => true });
-    const client = await h.connect(user);
+    const client = await h.connect(user.session);
     for (let index = 0; index < 50; index += 1) {
       client.send({ t: "sub", topic: conversationTopic(uuidv7() as ConversationId), cursor: null });
     }
     await client.settle();
-    expect(h.hub.socketsOfUser(user.userId)[0]?.subscriptionCount).toBe(50);
+    expect(h.hub.socketsOfUser(user.id)[0]?.subscriptionCount).toBe(50);
     client.send({ t: "sub", topic: conversationTopic(uuidv7() as ConversationId), cursor: null });
     expect((await client.closed).code).toBe(1008);
   });
 
   it("pings every heartbeat interval and terminates a client that never answers", async () => {
-    const h = await start({ heartbeatIntervalMs: 60 });
-    const user = await addUser(h.db);
-    const { status, socket } = await rawUpgrade(h.url, {
-      origin: WEB_ORIGIN,
-      cookie: `sym_session=${user.sessionId}`,
-    });
+    const h = await start({ heartbeatIntervalMs: 60 }, { backgroundLoops: true });
+    const user = await h.user();
+    const { status, socket } = await rawUpgrade(h.app.wsUrl, h.upgradeHeaders(user.session));
     expect(status).toBe(101);
     const opcodes: number[] = [];
     socket?.on("data", (chunk: Buffer) => opcodes.push((chunk[0] ?? 0) & 0x0f));
-    await new Promise<void>((resolve) => socket?.on("close", () => resolve()));
+    const closed = new Promise<void>((resolve) => socket?.on("close", () => resolve()));
+    await h.app.clock.advance(60);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await h.app.clock.advance(60);
+    await closed;
     expect(opcodes).toContain(0x9);
-    expect(h.hub.socketsOfUser(user.userId)).toHaveLength(0);
+    expect(h.hub.socketsOfUser(user.id)).toHaveLength(0);
   });
 });
 
 describe("user topic (§7)", () => {
   it("sends an admitted socket the composed snapshot and then its user events", async () => {
     const h = await start();
-    const user = await addUser(h.db);
-    const other = await addUser(h.db);
+    const user = await h.user();
+    const other = await h.user();
     const taskId = uuidv7();
     h.registry.registerUserSnapshotContributor({
       name: "workspace",
@@ -542,8 +337,8 @@ describe("user topic (§7)", () => {
         ) as never,
       }),
     });
-    const client = await h.connect(user);
-    const otherClient = await h.connect(other);
+    const client = await h.connect(user.session);
+    const otherClient = await h.connect(other.session);
     client.send({ t: "sub", topic: "user", cursor: null, openTasks: [taskId] });
     otherClient.send({ t: "sub", topic: "user", cursor: null, openTasks: [] });
     const snapshot = await client.waitFor((frame) => frame.t === "snapshot");
@@ -558,7 +353,7 @@ describe("user topic (§7)", () => {
     });
     await otherClient.waitFor((frame) => frame.t === "snapshot");
 
-    await h.hub.publishToUser(user.userId, {
+    await h.hub.publishToUser(user.id, {
       type: "tasks.changed",
       data: { taskTreeVersion: 8, taskIds: [taskId] },
     });
@@ -574,10 +369,10 @@ describe("user topic (§7)", () => {
 
   it("gives a socket that is not admitted an empty snapshot and access-state events only", async () => {
     const h = await start();
-    const locked = await addUser(h.db, { betaState: "locked" });
+    const locked = await h.user("locked");
     const contributor = vi.fn(async () => ({ unreadCount: 99 }));
     h.registry.registerUserSnapshotContributor({ name: "scheduling", contribute: contributor });
-    const client = await h.connect(locked);
+    const client = await h.connect(locked.session);
     client.send({ t: "sub", topic: "user", cursor: null, openTasks: [] });
     const snapshot = await client.waitFor((frame) => frame.t === "snapshot");
     expect(snapshot.data).toEqual({
@@ -588,11 +383,11 @@ describe("user topic (§7)", () => {
     });
     expect(contributor).not.toHaveBeenCalled();
 
-    await h.hub.publishToUser(locked.userId, {
+    await h.hub.publishToUser(locked.id, {
       type: "tasks.changed",
       data: { taskTreeVersion: 1, taskIds: [] },
     });
-    await h.hub.publishToUser(locked.userId, {
+    await h.hub.publishToUser(locked.id, {
       type: "access.changed",
       data: { accessState: "unlocked" },
     });
@@ -604,7 +399,7 @@ describe("user topic (§7)", () => {
 
   it("rejects undeclared events, events on the wrong topic and publish() to the user topic", async () => {
     const h = await start();
-    const publisher = h.app.get(REALTIME_PUBLISHER) as TopicHub;
+    const publisher = h.app.inject<TopicHub>(REALTIME_PUBLISHER);
     await expect(
       h.hub.publishToUser(uuidv7(), { type: "undeclared.event", data: {} }),
     ).rejects.toBeInstanceOf(RealtimePublishError);
@@ -626,17 +421,17 @@ describe("user topic (§7)", () => {
 describe("conversation topics (§7)", () => {
   it("answers unknown and foreign conversations with the same not_found, and requires admitted access", async () => {
     const h = await start();
-    const alice = await addUser(h.db);
-    const bob = await addUser(h.db);
-    const locked = await addUser(h.db, { betaState: "locked" });
+    const alice = await h.user();
+    const bob = await h.user();
+    const locked = await h.user("locked");
     const aliceConversation = uuidv7() as ConversationId;
     const lockedConversation = uuidv7() as ConversationId;
     const owners = new Map([
-      [aliceConversation, alice.userId],
-      [lockedConversation, locked.userId],
+      [aliceConversation, alice.id],
+      [lockedConversation, locked.id],
     ]);
 
-    const bobClient = await h.connect(bob);
+    const bobClient = await h.connect(bob.session);
     bobClient.send({ t: "sub", topic: conversationTopic(aliceConversation), cursor: null });
     await bobClient.waitFor((frame) => frame.t === "err");
     expect(bobClient.frames).toEqual([{ t: "err", code: "not_found" }]);
@@ -656,20 +451,20 @@ describe("conversation topics (§7)", () => {
       { t: "err", code: "not_found" },
     ]);
 
-    const lockedClient = await h.connect(locked);
+    const lockedClient = await h.connect(locked.session);
     lockedClient.send({ t: "sub", topic: conversationTopic(lockedConversation), cursor: null });
     await lockedClient.waitFor((frame) => frame.t === "err");
     expect(lockedClient.frames).toEqual([{ t: "err", code: "not_found" }]);
-    expect(authorize.mock.calls.every(([socket]) => socket.userId === bob.userId)).toBe(true);
+    expect(authorize.mock.calls.every(([socket]) => socket.userId === bob.id)).toBe(true);
   });
 
   it("delivers conversation events to the owner only, snapshots with the live partial, and replays from a cursor", async () => {
     const h = await start({ bufferCapacity: 3 });
-    const alice = await addUser(h.db);
-    const bob = await addUser(h.db);
+    const alice = await h.user();
+    const bob = await h.user();
     const conversation = uuidv7() as ConversationId;
     const topic = conversationTopic(conversation);
-    h.registry.registerAuthorizer(ownedConversations(new Map([[conversation, alice.userId]])));
+    h.registry.registerAuthorizer(ownedConversations(new Map([[conversation, alice.id]])));
     const liveSeen: BufferedTopicEvent[][] = [];
     h.registry.registerSnapshotProvider({
       kind: "conversation",
@@ -678,14 +473,14 @@ describe("conversation topics (§7)", () => {
         return { conversationId: parsed.conversationId, messages: [] };
       },
     });
-    const audience = { ownerId: alice.userId, conversationId: conversation };
+    const audience = { ownerId: alice.id, conversationId: conversation };
     const chunk = (index: number) => ({
       type: "chunk",
       data: { runId: "r", chunk: { type: "text-delta", delta: `${MARKER}-${index}` } },
     });
 
     await h.hub.publishToConversation(audience, chunk(1));
-    const alice1 = await h.connect(alice);
+    const alice1 = await h.connect(alice.session);
     alice1.send({ t: "sub", topic, cursor: null });
     const snapshot = await alice1.waitFor((frame) => frame.t === "snapshot");
     expect(snapshot).toMatchObject({ topic, data: { conversationId: conversation } });
@@ -702,7 +497,7 @@ describe("conversation topics (§7)", () => {
 
     // A reconnect inside the buffer replays the tail.
     const cursor = events[0]?.seq as number;
-    const alice2 = await h.connect(alice);
+    const alice2 = await h.connect(alice.session);
     alice2.send({ t: "sub", topic, cursor });
     await alice2.waitFor((frame) => frame.t === "ev");
     await alice2.settle();
@@ -713,33 +508,30 @@ describe("conversation topics (§7)", () => {
     // Cursors outside the buffer, ahead of the topic or from an earlier process get a snapshot.
     for (const index of [4, 5, 6]) await h.hub.publishToConversation(audience, chunk(index));
     for (const stale of [cursor, (h.hub.topicSeq(topic) as number) + 5, 12]) {
-      const client = await h.connect(alice);
+      const client = await h.connect(alice.session);
       client.send({ t: "sub", topic, cursor: stale });
       await client.waitFor((frame) => frame.t === "snapshot");
     }
 
-    // Bob, even subscribed through a permissive mistake, never receives Alice's events.
-    const bobClient = await h.connect(bob);
+    // Bob, even publishing as the owner through a mistake, never receives Alice's events.
+    const bobClient = await h.connect(bob.session);
     bobClient.send({ t: "sub", topic, cursor: null });
     await bobClient.waitFor((frame) => frame.t === "err");
-    await h.hub.publishToConversation(
-      { ownerId: bob.userId, conversationId: conversation },
-      chunk(7),
-    );
+    await h.hub.publishToConversation({ ownerId: bob.id, conversationId: conversation }, chunk(7));
     await bobClient.settle();
     expect(bobClient.frames.filter((frame) => frame.t === "ev")).toEqual([]);
-    expect(h.log.lines.some((line) => line.includes("realtime.owner_mismatch"))).toBe(true);
+    expect(h.app.logs.events("realtime.owner_mismatch")).toHaveLength(1);
 
-    expect(h.log.lines.join("\n")).not.toContain(MARKER);
+    expect(h.app.logs.text()).not.toContain(MARKER);
   });
 
   it("sends resync when no snapshot provider exists and queues events published while a snapshot is built", async () => {
     const h = await start();
-    const alice = await addUser(h.db);
+    const alice = await h.user();
     const conversation = uuidv7() as ConversationId;
     const topic = conversationTopic(conversation);
-    h.registry.registerAuthorizer(ownedConversations(new Map([[conversation, alice.userId]])));
-    const client = await h.connect(alice);
+    h.registry.registerAuthorizer(ownedConversations(new Map([[conversation, alice.id]])));
+    const client = await h.connect(alice.session);
     client.send({ t: "sub", topic, cursor: null });
     expect(await client.waitFor((frame) => frame.t === "resync")).toEqual({ t: "resync", topic });
 
@@ -756,11 +548,11 @@ describe("conversation topics (§7)", () => {
           building();
         }),
     });
-    const second = await h.connect(alice);
+    const second = await h.connect(alice.session);
     second.send({ t: "sub", topic, cursor: null });
     await providerCalled;
     await h.hub.publishToConversation(
-      { ownerId: alice.userId, conversationId: conversation },
+      { ownerId: alice.id, conversationId: conversation },
       { type: "run.progress", data: { step: 1 } },
     );
     release({ messages: [] });
@@ -772,29 +564,30 @@ describe("conversation topics (§7)", () => {
 describe("session and access freshness (§5.5)", () => {
   it("closes revoked or expired sessions with 4401 and lost access with 4403 on the sweep", async () => {
     const h = await start();
-    const revoked = await addUser(h.db);
-    const relocked = await addUser(h.db);
-    const expiring = await addUser(h.db);
-    const locked = await addUser(h.db, { betaState: "locked" });
+    const revoked = await h.user();
+    const relocked = await h.user();
+    const expiring = await h.user();
+    const locked = await h.user("locked");
     const clients = {
-      revoked: await h.connect(revoked),
-      relocked: await h.connect(relocked),
-      expiring: await h.connect(expiring),
-      locked: await h.connect(locked),
+      revoked: await h.connect(revoked.session),
+      relocked: await h.connect(relocked.session),
+      expiring: await h.connect(expiring.session),
+      locked: await h.connect(locked.session),
     };
-    await h.db.batch([
-      sql("UPDATE auth_sessions SET revoked_at = 1 WHERE id = :id", { id: revoked.sessionId }),
-      sql("UPDATE auth_sessions SET expires_at = :t WHERE id = :id", {
-        id: expiring.sessionId,
-        t: int(Date.now() - 1),
+    // Changes committed by another api instance: nothing in this process was notified.
+    await expireSession(h, expiring.session);
+    await h.app.db.batch([
+      sql("UPDATE auth_sessions SET revoked_at = :now WHERE id = :id", {
+        id: revoked.session.sessionId,
+        now: int(h.app.clock.now()),
       }),
       sql(
         "UPDATE users SET beta_state = 'relocked', access_generation = access_generation + 1 WHERE id = :id",
-        { id: relocked.userId },
+        { id: relocked.id },
       ),
       sql(
         "UPDATE users SET suspended_at = 1, access_generation = access_generation + 1 WHERE id = :id",
-        { id: locked.userId },
+        { id: locked.id },
       ),
     ]);
     const report = await h.sweep.sweep();
@@ -803,27 +596,27 @@ describe("session and access freshness (§5.5)", () => {
     expect((await clients.expiring.closed).code).toBe(4401);
     expect((await clients.relocked.closed).code).toBe(4403);
     await clients.locked.settle();
-    expect(h.hub.socketsOfUser(locked.userId)[0]?.access.suspendedAt).toBe(1);
+    expect(h.hub.socketsOfUser(locked.id)[0]?.access.suspendedAt).toBe(1);
   });
 
   it("closes an admitted socket whose access generation moved, even when access was restored", async () => {
     const h = await start();
-    const restored = await addUser(h.db);
-    const steady = await addUser(h.db);
-    const locked = await addUser(h.db, { betaState: "locked" });
+    const restored = await h.user();
+    const steady = await h.user();
+    const locked = await h.user("locked");
     const clients = {
-      restored: await h.connect(restored),
-      steady: await h.connect(steady),
-      locked: await h.connect(locked),
+      restored: await h.connect(restored.session),
+      steady: await h.connect(steady.session),
+      locked: await h.connect(locked.session),
     };
     // A relock and a restore committed on another instance: admitted again, one generation later.
-    await h.db.batch([
+    await h.app.db.batch([
       sql("UPDATE users SET access_generation = access_generation + 2 WHERE id = :id", {
-        id: restored.userId,
+        id: restored.id,
       }),
       sql(
         "UPDATE users SET beta_state = 'unlocked', access_generation = access_generation + 1 WHERE id = :id",
-        { id: locked.userId },
+        { id: locked.id },
       ),
     ]);
     expect(await h.sweep.sweep()).toEqual({ checked: 3, closedSession: 0, closedAccess: 1 });
@@ -831,89 +624,95 @@ describe("session and access freshness (§5.5)", () => {
     await clients.steady.settle();
     await clients.locked.settle();
     // A socket that was only at identity level is refreshed instead: it is admitted from now on.
-    expect(h.hub.socketsOfUser(locked.userId)[0]).toMatchObject({ admitted: true });
+    expect(h.hub.socketsOfUser(locked.id)[0]).toMatchObject({ admitted: true });
     expect(await h.sweep.sweep()).toEqual({ checked: 2, closedSession: 0, closedAccess: 0 });
   });
 
-  it("uses one D1 request for any number of sockets", async () => {
-    const h = await start();
-    for (let index = 0; index < 3; index += 1) await h.connect(await addUser(h.db));
-    const batch = vi.spyOn(h.db, "batch");
+  it("uses one D1 request for any number of sockets, and runs on its interval", async () => {
+    const h = await start({ sweepIntervalMs: 30_000 }, { backgroundLoops: true });
+    for (let index = 0; index < 3; index += 1) await h.connect((await h.user()).session);
+    const batch = vi.spyOn(h.app.db, "batch");
     await h.sweep.sweep();
     expect(batch).toHaveBeenCalledTimes(1);
+    batch.mockClear();
+    await h.app.clock.advance(30_000);
+    await vi.waitFor(() =>
+      expect(
+        batch.mock.calls.some(([statements]) => statements[0]?.sql.includes("auth_sessions")),
+      ).toBe(true),
+    );
+    batch.mockRestore();
   });
 
-  it("closes exactly the ended sessions' sockets on logout and admitted sockets on restriction", async () => {
+  it("closes exactly the ended sessions' sockets on logout and the right sockets on restriction", async () => {
     const h = await start();
-    const alice = await addUser(h.db);
-    const aliceOtherSession = await addSession(h.db, alice.userId);
-    const bob = await addUser(h.db);
-    const locked = await addUser(h.db, { betaState: "locked" });
-    const aliceA = await h.connect(alice);
-    const aliceB = await h.connect({ sessionId: aliceOtherSession });
-    const bobClient = await h.connect(bob);
-    const lockedClient = await h.connect(locked);
+    const alice = await h.user();
+    const aliceOther = await h.app.signIn(alice.id);
+    const bob = await h.user();
+    const locked = await h.user("locked");
+    const aliceA = await h.connect(alice.session);
+    const aliceB = await h.connect(aliceOther);
+    const bobClient = await h.connect(bob.session);
+    const lockedClient = await h.connect(locked.session);
 
     // A logout for Alice's first session, naming Bob's session id too, closes only Alice's socket.
-    await h.hook.onSessionsEnded({
-      userId: alice.userId,
-      sessionIds: [alice.sessionId, bob.sessionId],
+    await h.control.sessionsEnded({
+      userId: alice.id,
+      sessionIds: [alice.session.sessionId, bob.session.sessionId],
       reason: "logout",
     });
     expect((await aliceA.closed).code).toBe(4401);
     await aliceB.settle();
     await bobClient.settle();
 
-    await h.hook.onAccessRestricted({
-      userId: alice.userId,
-      reason: "relocked",
-      cancelledRunIds: [],
-    });
+    await h.control.accessRestricted({ userId: alice.id, reason: "relocked", accessGeneration: 1 });
     expect((await aliceB.closed).code).toBe(4403);
 
-    await h.hook.onAccessRestricted({
-      userId: locked.userId,
+    // A socket that was only at identity level stays open on suspension and is refreshed from D1.
+    await h.control.accessRestricted({
+      userId: locked.id,
       reason: "suspended",
-      cancelledRunIds: [],
+      accessGeneration: 1,
     });
     await lockedClient.settle();
-    expect(h.hub.socketsOfUser(locked.userId)).toHaveLength(1);
+    expect(h.hub.socketsOfUser(locked.id)).toHaveLength(1);
 
-    await h.hook.onSessionsEnded({ userId: bob.userId, sessionIds: "all", reason: "deleted" });
+    // Account deletion closes every socket of the account, identity level included.
+    await h.control.accessRestricted({ userId: locked.id, reason: "deleted", accessGeneration: 2 });
+    expect((await lockedClient.closed).code).toBe(4403);
+
+    await h.control.sessionsEnded({
+      userId: bob.id,
+      sessionIds: [bob.session.sessionId],
+      reason: "revoked",
+    });
     expect((await bobClient.closed).code).toBe(4401);
+    expect(h.app.logs.events("realtime.sessions_ended").length).toBeGreaterThan(0);
   });
 });
 
 describe("upgrades racing a post-commit hook", () => {
   it("refuses an upgrade whose session lookup was in flight when its session ended or access changed", async () => {
+    const h = await start();
+    const alice = await h.user();
+    const bob = await h.user();
+    const original = h.app.sessions.resolveUpgrade.bind(h.app.sessions);
     let pause: Promise<void> = Promise.resolve();
     let lookedUp: () => void = () => undefined;
-    const h = await start(
-      {},
-      {
-        resolver: (db) => {
-          const inner = sessionResolver(db);
-          return {
-            async fromUpgradeRequest(request) {
-              const session = await inner.fromUpgradeRequest(request);
-              lookedUp();
-              await pause;
-              return session;
-            },
-          };
-        },
-      },
-    );
-    const alice = await addUser(h.db);
-    const bob = await addUser(h.db);
+    vi.spyOn(h.app.sessions, "resolveUpgrade").mockImplementation(async (token, address) => {
+      const resolved = await original(token, address);
+      lookedUp();
+      await pause;
+      return resolved;
+    });
     const cases = [
       {
         user: alice,
         code: 4401,
         commit: () =>
-          h.hook.onSessionsEnded({
-            userId: alice.userId,
-            sessionIds: [alice.sessionId],
+          h.control.sessionsEnded({
+            userId: alice.id,
+            sessionIds: [alice.session.sessionId],
             reason: "logout",
           }),
       },
@@ -921,11 +720,7 @@ describe("upgrades racing a post-commit hook", () => {
         user: bob,
         code: 4403,
         commit: () =>
-          h.hook.onAccessRestricted({
-            userId: bob.userId,
-            reason: "relocked",
-            cancelledRunIds: [],
-          }),
+          h.control.accessRestricted({ userId: bob.id, reason: "relocked", accessGeneration: 1 }),
       },
     ];
     for (const { user, code, commit } of cases) {
@@ -936,37 +731,40 @@ describe("upgrades racing a post-commit hook", () => {
       const read = new Promise<void>((resolve) => {
         lookedUp = resolve;
       });
-      const connecting = h.connect(user);
+      const connecting = h.connect(user.session);
       // The session was read as valid; the logout or restriction commits before the socket opens.
       await read;
       await commit();
-      await new Promise((resolve) => setTimeout(resolve, 5));
       release();
       const client = await connecting;
       expect((await client.closed).code).toBe(code);
-      expect(h.hub.socketsOfUser(user.userId)).toHaveLength(0);
+      expect(h.hub.socketsOfUser(user.id)).toHaveLength(0);
     }
   });
 
   it("refuses an upgrade answered from a session cache that predates a logout", async () => {
     const h = await start();
-    const user = await addUser(h.db);
+    const user = await h.user();
     // The auth_sessions row is untouched, as a cached session lookup would still see it.
-    await h.hook.onSessionsEnded({
-      userId: user.userId,
-      sessionIds: [user.sessionId],
+    await h.control.sessionsEnded({
+      userId: user.id,
+      sessionIds: [user.session.sessionId],
       reason: "revoked",
     });
-    await new Promise((resolve) => setTimeout(resolve, 5));
-    const client = await h.connect(user);
+    const client = await h.connect(user.session);
     expect((await client.closed).code).toBe(4401);
+    // Once the cache TTL has passed since the logout, the margin no longer applies.
+    await h.app.clock.advance(10_001);
+    const later = await h.connect(user.session);
+    await later.settle();
+    expect(h.hub.socketsOfUser(user.id)).toHaveLength(1);
   });
 
   it("refuses a connection verified before its session ended or its access changed", async () => {
     const clock = new FakeClock(1_000_000);
     const hub = new TopicHub({
       registry: new TopicRegistry(),
-      access: accessPolicy,
+      access: { satisfies: () => true },
       timers: clock,
       log: new Log(),
     });
@@ -1000,26 +798,20 @@ describe("upgrades racing a post-commit hook", () => {
 });
 
 describe("shutdown (§7)", () => {
-  it("closes every socket with 1001 and refuses new upgrades", async () => {
+  it("closes every socket with 1001 through the shutdown coordinator and refuses new upgrades", async () => {
     const h = await start({ shutdownGraceMs: 400 });
-    const user = await addUser(h.db);
-    const client = await h.connect(user);
+    harnesses.splice(harnesses.indexOf(h), 1);
+    const user = await h.user();
+    const client = await h.connect(user.session);
     await client.settle();
     // A client that never answers the close handshake holds the grace period open.
-    const stuck = await rawUpgrade(h.url, {
-      origin: WEB_ORIGIN,
-      cookie: `sym_session=${user.sessionId}`,
-    });
+    const stuck = await rawUpgrade(h.app.wsUrl, h.upgradeHeaders(user.session));
     expect(stuck.status).toBe(101);
     const closing = h.app.close();
     expect((await client.closed).code).toBe(1001);
-    expect(
-      (await rawUpgrade(h.url, { origin: WEB_ORIGIN, cookie: `sym_session=${user.sessionId}` }))
-        .status,
-    ).toBe(503);
+    expect((await rawUpgrade(h.app.wsUrl, h.upgradeHeaders(user.session))).status).toBe(503);
     await closing;
     stuck.socket?.destroy();
-    harnesses.splice(harnesses.indexOf(h), 1);
-    h.db.close();
+    expect(h.hub.isShuttingDown).toBe(true);
   });
 });

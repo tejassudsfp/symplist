@@ -20,7 +20,20 @@ export class IpFailureLimiter {
 
   /** Throws `rate.limited` when the request's network is over the bucket. */
   assertAllowed(bucket: IpFailureBucket, req: Request): void {
-    const state = this.counters.peek(this.key(bucket, req));
+    this.assertAllowedAddress(bucket, clientIp(req));
+  }
+
+  /** Records one failure for the request's network. */
+  recordFailure(bucket: IpFailureBucket, req: Request): void {
+    this.recordFailureAddress(bucket, clientIp(req));
+  }
+
+  /**
+   * {@link assertAllowed} for a client address computed outside Express, such as a WebSocket upgrade
+   * (`upgradeClientIp`). A null address counts under the shared `unknown` key.
+   */
+  assertAllowedAddress(bucket: IpFailureBucket, address: string | null): void {
+    const state = this.counters.peek(this.key(bucket, address));
     const limit = ipFailureBuckets[bucket].limit;
     if (state && (state.blocked || state.hits >= limit)) {
       const waitMs = state.blocked ? state.blockRemainingMs : state.windowRemainingMs;
@@ -28,13 +41,13 @@ export class IpFailureLimiter {
     }
   }
 
-  /** Records one failure for the request's network. */
-  recordFailure(bucket: IpFailureBucket, req: Request): void {
+  /** {@link recordFailure} for a client address computed outside Express. */
+  recordFailureAddress(bucket: IpFailureBucket, address: string | null): void {
     const { limit, windowMs } = ipFailureBuckets[bucket];
-    this.counters.hit(this.key(bucket, req), limit, windowMs, windowMs);
+    this.counters.hit(this.key(bucket, address), limit, windowMs, windowMs);
   }
 
-  private key(bucket: IpFailureBucket, req: Request): string {
-    return `${bucket}:${ipBucketKey(clientIp(req))}`;
+  private key(bucket: IpFailureBucket, address: string | null): string {
+    return `${bucket}:${ipBucketKey(address)}`;
   }
 }

@@ -49,6 +49,11 @@ export interface SharedRuntimeConfig {
   QUICK_CHAT_TTL_HOURS: number;
   DOC_MAX_BYTES: number;
   GIT_TMP_DIR: string;
+  /**
+   * Absolute directory of the `DATA_DRIVER=local` SQLite file and object store, shared by the api and
+   * `trigger dev`; defaults to `<repo>/.local-data`.
+   */
+  LOCAL_DATA_DIR: string;
 
   AI_ENABLED: boolean;
   AI_DEFAULT_TIER: AiTier;

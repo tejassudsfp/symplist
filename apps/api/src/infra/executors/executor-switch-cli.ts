@@ -1,12 +1,7 @@
-import { ConfigError } from "@symplist/config";
+import { ConfigError, localDataPaths } from "@symplist/config";
 import { type ApiConfig, loadApiConfig } from "@symplist/config/api";
 import { collectExecutionKinds, type ExecutorMode } from "@symplist/core/events";
-import {
-  createD1RestClient,
-  createLocalSqliteClient,
-  type DbClient,
-  DEFAULT_LOCAL_DATABASE_PATH,
-} from "@symplist/db";
+import { createD1RestClient, createLocalSqliteClient, type DbClient } from "@symplist/db";
 import type { OperationalLog } from "../scheduler/runtime.ts";
 import { ExecutionRegistry } from "./execution-registry.ts";
 import { ExecutorError, type TriggerRunsClient } from "./executor.ts";
@@ -38,7 +33,11 @@ export function parseExecutorSwitchArgs(argv: readonly string[]): ExecutorMode |
 
 function defaultDb(config: ApiConfig): DbClient {
   if (config.DATA_DRIVER === "local") {
-    return createLocalSqliteClient({ path: DEFAULT_LOCAL_DATABASE_PATH });
+    // The database the api and `trigger dev` share under LOCAL_DATA_DIR.
+    return createLocalSqliteClient({
+      path: localDataPaths(config.LOCAL_DATA_DIR).database,
+      env: { NODE_ENV: config.NODE_ENV },
+    });
   }
   const { CLOUDFLARE_ACCOUNT_ID, D1_DATABASE_ID, CLOUDFLARE_D1_API_TOKEN } = config;
   if (!CLOUDFLARE_ACCOUNT_ID || !D1_DATABASE_ID || !CLOUDFLARE_D1_API_TOKEN) {

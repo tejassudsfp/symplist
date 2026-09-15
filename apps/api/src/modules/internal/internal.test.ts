@@ -1,7 +1,6 @@
-import { Module } from "@nestjs/common";
-import type { NestExpressApplication } from "@nestjs/platform-express";
-import type { AccessState, ConversationId } from "@symplist/contracts";
+import type { ConversationId } from "@symplist/contracts";
 import { conversationTopic } from "@symplist/contracts";
+import type { AccountKeyStore } from "@symplist/core/account";
 import {
   INTERNAL_CONTENT_TYPE,
   INTERNAL_EVENTS_PATH,
@@ -17,15 +16,12 @@ import {
   createKeyProvider,
   encryptFieldText,
   generateToken,
-  type ManagedKeyProvider,
   runChunkContext,
   signInternalRequest,
 } from "@symplist/crypto";
 import {
   applyMigrations,
   createLocalSqliteClient,
-  type DbClient,
-  int,
   type LocalSqliteClient,
   newWriteId,
   sql,
@@ -33,20 +29,14 @@ import {
 } from "@symplist/db";
 import { FakeClock } from "@symplist/testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { z } from "zod";
-import { createApp } from "../../app.ts";
+import { bootTestApp, generatedSecret, type TestApp } from "../../../test/harness.ts";
+import { buildRouteClassRegistry, collectRoutes } from "../../common/route-registry.ts";
 import type { ExecutorStateReader } from "../../infra/executors/executor-state.ts";
-import { ExecutorsModule } from "../../infra/executors/executors.module.ts";
 import type { OperationalLog, OperationalLogFields } from "../../infra/scheduler/runtime.ts";
-import { AuthWsAdapter } from "../realtime/auth-ws.adapter.ts";
-import { RealtimeModule } from "../realtime/realtime.module.ts";
 import { TopicHub } from "../realtime/topic-hub.ts";
 import { TopicRegistry } from "../realtime/topic-registry.ts";
-import type { AccountKeyReader } from "./account-keys.ts";
-import { InternalModule } from "./internal.module.ts";
 import { InternalEventHandlerRegistry } from "./internal-event-handlers.ts";
 import { InternalEventsController } from "./internal-events.controller.ts";
-import { internalRouteClasses } from "./internal-route-classes.ts";
 import { EventIdMemory } from "./replay-memory.ts";
 import { RunOutputController } from "./run-output.controller.ts";
 import { RunOutputRelay } from "./run-output.relay.ts";
@@ -58,8 +48,6 @@ import { recordWebhookDelivery, webhookReceiptBatch } from "./webhook-receipts.t
 
 const MARKER = "MARKER-2b91-run-output-plaintext";
 const secret = (seed: number) => Buffer.alloc(32, seed).toString("base64url");
-const SECRET_V1 = secret(11);
-const SECRET_V2 = secret(12);
 
 class Log implements OperationalLog {
   readonly lines: string[] = [];
@@ -73,17 +61,6 @@ class Log implements OperationalLog {
     this.lines.push(JSON.stringify({ event, ...fields }));
   }
 }
-
-const admitted: AccessState = {
-  emailVerifiedAt: 1,
-  betaState: "unlocked",
-  suspendedAt: null,
-  onboardingStep: "done",
-  role: "member",
-  accessGeneration: 1,
-  accessEpoch: 0,
-  deletionState: "none",
-};
 
 class FakeRuns implements RunRelaySource {
   readonly runs = new Map<
@@ -107,96 +84,46 @@ class FakeRuns implements RunRelaySource {
 }
 
 interface Harness {
-  app: NestExpressApplication;
-  base: string;
-  db: LocalSqliteClient;
-  clock: FakeClock;
-  keys: ManagedKeyProvider;
-  log: Log;
-  runs: FakeRuns;
-  hub: TopicHub;
-  handlers: InternalEventHandlerRegistry;
+  readonly app: TestApp;
+  readonly base: string;
+  readonly clock: FakeClock;
+  readonly runs: FakeRuns;
+  readonly hub: TopicHub;
+  readonly handlers: InternalEventHandlerRegistry;
+  /** `INTERNAL_EVENT_SECRET_1`, still configured beside the current version 2. */
+  readonly previousSecret: string;
+  /** Log lines of the platform logger, one JSON object per line. */
+  logLines(): string[];
 }
 
 const harnesses: Harness[] = [];
 afterEach(async () => {
-  for (const harness of harnesses.splice(0)) {
-    await harness.app.close();
-    harness.db.close();
-  }
+  for (const harness of harnesses.splice(0)) await harness.app.close();
 });
 
+/** The platform with two internal secret versions (current 2) and a probe run relay source. */
 async function start(): Promise<Harness> {
-  const db = createLocalSqliteClient({ path: ":memory:", env: { NODE_ENV: "test" } });
-  await applyMigrations(db);
-  await db.run(sql("UPDATE executor_state SET mode = 'durable', generation = 3 WHERE id = 1"));
-  const clock = new FakeClock(Date.UTC(2026, 8, 15, 10, 0, 0));
-  const keys = createKeyProvider({
-    INTERNAL_EVENT_SECRET: {
-      current: 2,
-      versions: new Map([
-        [1, SECRET_V1],
-        [2, SECRET_V2],
-      ]),
-    },
-    CONTENT_KEK: { current: 1, versions: new Map([[1, secret(21)]]) },
-  });
-  const log = new Log();
   const runs = new FakeRuns();
-
-  @Module({
-    imports: [
-      ExecutorsModule.forRoot({
-        useFactory: () => ({
-          db,
-          durable: true,
-          trigger: {
-            tasks: { trigger: async () => ({ id: "run_x" }) },
-            runs: {
-              retrieve: async () => ({ id: "x", status: "QUEUED" }),
-              cancel: async () => undefined,
-            },
-          },
-          timers: clock,
-          log,
-          backgroundLoops: false,
-          contributors: [],
-        }),
-      }),
-      RealtimeModule.forRoot({
-        useFactory: () => ({
-          db,
-          sessions: { fromUpgradeRequest: async () => null },
-          access: {
-            satisfies: (state: AccessState, level: string) =>
-              level === "identity" || state.betaState === "unlocked",
-          },
-          allowedOrigins: ["http://localhost:3000"],
-          timers: clock,
-          log,
-          events: { "tasks.changed": z.object({ taskIds: z.array(z.string()) }) },
-        }),
-      }),
-      InternalModule.forRoot({
-        useFactory: () => ({ db, keys, timers: clock, log, runRelaySource: runs }),
-      }),
-    ],
-  })
-  class TestModule {}
-
-  const app = await createApp(TestModule, { logger: ["error"] });
-  app.useWebSocketAdapter(new AuthWsAdapter(app));
-  await app.listen(0, "127.0.0.1");
+  const previousSecret = generatedSecret();
+  const app = await bootTestApp({
+    env: {
+      INTERNAL_EVENT_SECRET_1: previousSecret,
+      INTERNAL_EVENT_SECRET_2: generatedSecret(),
+      INTERNAL_EVENT_SECRET_CURRENT: "2",
+    },
+    runtime: {
+      eventsContributors: [{ domain: "simon", executionKinds: [], runRelaySource: () => runs }],
+    },
+  });
   const harness: Harness = {
     app,
-    base: await app.getUrl(),
-    db,
-    clock,
-    keys,
-    log,
+    base: app.baseUrl,
+    clock: app.clock,
     runs,
-    hub: app.get(TopicHub),
-    handlers: app.get(InternalEventHandlerRegistry),
+    hub: app.inject(TopicHub),
+    handlers: app.inject(InternalEventHandlerRegistry),
+    previousSecret,
+    logLines: () => app.logs.lines,
   };
   harnesses.push(harness);
   return harness;
@@ -215,7 +142,7 @@ function signed(
   options: { eventId?: string; timestamp?: number; bodyOverride?: Buffer } = {},
 ): SignedRequest {
   const raw = options.bodyOverride ?? Buffer.from(JSON.stringify(body));
-  const headers = signInternalRequest(h.keys, {
+  const headers = signInternalRequest(h.app.keys, {
     timestamp: options.timestamp ?? Math.floor(h.clock.now() / 1000),
     eventId: options.eventId ?? uuidv7(),
     method: "POST",
@@ -229,7 +156,7 @@ async function send(h: Harness, request: SignedRequest, extra: Record<string, st
   const response = await fetch(`${h.base}${request.path}`, {
     method: "POST",
     headers: { ...request.headers, ...extra },
-    body: request.body,
+    body: new Uint8Array(request.body),
   });
   return {
     status: response.status,
@@ -238,31 +165,37 @@ async function send(h: Harness, request: SignedRequest, extra: Record<string, st
   };
 }
 
-async function addOwner(
-  db: DbClient,
-  keys: ManagedKeyProvider,
-): Promise<{ ownerId: string; key: AccountDataKey }> {
-  const ownerId = uuidv7();
-  const { key, wrapped } = createAccountKey(keys, ownerId);
-  await db.batch([
-    sql(
-      `INSERT INTO users (id, email, created_at, updated_at, write_id) VALUES (:id, :email, '1', '1', :w)`,
-      { id: ownerId, email: `${ownerId}@example.com`, w: newWriteId() },
-    ),
-    sql(
-      `INSERT INTO account_keys (owner_id, kek_version, wrapped_key, created_at, updated_at, write_id)
-       VALUES (:id, :kek, :wrapped, '1', '1', :w)`,
-      { id: ownerId, kek: int(wrapped.kekVersion), wrapped: wrapped.wrapped, w: newWriteId() },
-    ),
-  ]);
-  return { ownerId, key };
+/** The current executor generation, which runs must carry for their output to be relayed. */
+async function currentGeneration(h: Harness): Promise<number> {
+  const row = await h.app.db.first<{ generation: number }>(
+    sql("SELECT generation FROM executor_state WHERE id = 1"),
+  );
+  return Number(row?.generation);
+}
+
+async function addOwner(h: Harness): Promise<{ ownerId: string; key: AccountDataKey }> {
+  const user = await h.app.createUser();
+  return { ownerId: user.id, key: await h.app.accountKeys.require(user.id) };
 }
 
 function collect(h: Harness, ownerId: string) {
   const frames: Record<string, unknown>[] = [];
   const socket = h.hub.connect(
     { send: (text) => frames.push(JSON.parse(text)), close: () => undefined, isOpen: () => true },
-    { userId: ownerId, sessionId: uuidv7(), access: admitted },
+    {
+      userId: ownerId,
+      sessionId: uuidv7(),
+      access: {
+        emailVerifiedAt: 1,
+        betaState: "unlocked",
+        suspendedAt: null,
+        onboardingStep: "done",
+        role: "member",
+        accessGeneration: 0,
+        accessEpoch: 0,
+        deletionState: "none",
+      },
+    },
   );
   return { socket, frames };
 }
@@ -291,11 +224,10 @@ describe("POST /internal/v1/events (§6.2)", () => {
     h.handlers.register({ type: "tasks.changed", handle: handled });
   });
 
-  it("declares the signed route class for both internal routes and skips IP throttling", () => {
-    expect(internalRouteClasses).toEqual({
-      "POST /internal/v1/events": "signed",
-      "POST /internal/v1/runs/:runId/output": "signed",
-    });
+  it("declares the signed route class for both internal routes in the platform registry and skips IP throttling", () => {
+    const registry = buildRouteClassRegistry(collectRoutes(h.app.app));
+    expect(registry["POST /internal/v1/events"]).toBe("signed");
+    expect(registry["POST /internal/v1/runs/:runId/output"]).toBe("signed");
     for (const controller of [InternalEventsController, RunOutputController]) {
       expect(Reflect.getMetadata("THROTTLER:SKIPdefault", controller)).toBe(true);
     }
@@ -344,7 +276,7 @@ describe("POST /internal/v1/events (§6.2)", () => {
       expect((response.body.error as { code: string }).code).toBe("not_found");
     }
     expect(handled).not.toHaveBeenCalled();
-    expect(h.log.lines.filter((line) => line.includes("invalid_signature"))).toHaveLength(2);
+    expect(h.logLines().filter((line) => line.includes("invalid_signature"))).toHaveLength(2);
   });
 
   it("rejects stale timestamps outside ±300 seconds", async () => {
@@ -365,7 +297,7 @@ describe("POST /internal/v1/events (§6.2)", () => {
         )
       ).status,
     ).toBe(202);
-    expect(h.log.lines.filter((line) => line.includes('"reason":"stale"'))).toHaveLength(2);
+    expect(h.logLines().filter((line) => line.includes('"reason":"stale"'))).toHaveLength(2);
   });
 
   it("rejects a replayed event id for 10 minutes, even with a fresh signature", async () => {
@@ -378,7 +310,7 @@ describe("POST /internal/v1/events (§6.2)", () => {
       (await send(h, signed(h, INTERNAL_EVENTS_PATH, body, { eventId: body.id }))).status,
     ).toBe(404);
     expect(handled).toHaveBeenCalledTimes(1);
-    expect(h.log.lines.filter((line) => line.includes('"reason":"replayed"'))).toHaveLength(2);
+    expect(h.logLines().filter((line) => line.includes('"reason":"replayed"'))).toHaveLength(2);
   });
 
   it("remembers an event id until its signature leaves the window, even when signed ahead of the api clock", async () => {
@@ -397,8 +329,8 @@ describe("POST /internal/v1/events (§6.2)", () => {
     await h.clock.advance(1);
     expect((await send(h, request)).status).toBe(404);
     expect(handled).toHaveBeenCalledTimes(1);
-    expect(h.log.lines.filter((line) => line.includes('"reason":"replayed"'))).toHaveLength(2);
-    expect(h.log.lines.filter((line) => line.includes('"reason":"stale"'))).toHaveLength(1);
+    expect(h.logLines().filter((line) => line.includes('"reason":"replayed"'))).toHaveLength(2);
+    expect(h.logLines().filter((line) => line.includes('"reason":"stale"'))).toHaveLength(1);
   });
 
   it("rejects a key version that is not configured and accepts the previous configured version", async () => {
@@ -411,7 +343,7 @@ describe("POST /internal/v1/events (§6.2)", () => {
       headers: {
         ...request.headers,
         "x-sym-key": "1",
-        "x-sym-signature": computeInternalSignature(Buffer.from(SECRET_V1, "base64url"), {
+        "x-sym-signature": computeInternalSignature(Buffer.from(h.previousSecret, "base64url"), {
           timestamp: Number(request.headers["x-sym-timestamp"]),
           eventId: body.id,
           method: "POST",
@@ -449,7 +381,7 @@ describe("POST /internal/v1/events (§6.2)", () => {
     const huge = signed(h, INTERNAL_EVENTS_PATH, null, { bodyOverride: Buffer.alloc(70_000, 97) });
     expect((await send(h, huge)).status).toBe(413);
     expect(handled).not.toHaveBeenCalled();
-    expect(h.log.lines.join("\n")).not.toContain(MARKER);
+    expect(h.logLines().join("\n")).not.toContain(MARKER);
   });
 
   it("returns 500 when a handler fails and accepts a retry of the same signed request", async () => {
@@ -463,7 +395,7 @@ describe("POST /internal/v1/events (§6.2)", () => {
     expect(JSON.stringify(failed.body)).not.toContain(MARKER);
     expect((await send(h, request)).status).toBe(202);
     expect(handled).toHaveBeenCalledTimes(2);
-    expect(h.log.lines.join("\n")).not.toContain(MARKER);
+    expect(h.logLines().join("\n")).not.toContain(MARKER);
   });
 });
 
@@ -501,6 +433,7 @@ describe("POST /internal/v1/runs/:runId/output (§8.2)", () => {
   let owner: { ownerId: string; key: AccountDataKey };
   let runId: string;
   let conversationId: ConversationId;
+  let generation: number;
 
   const chunks = (text: string) => [
     { type: "text-start", id: "t1" },
@@ -535,16 +468,17 @@ describe("POST /internal/v1/runs/:runId/output (§8.2)", () => {
 
   beforeEach(async () => {
     h = await start();
-    owner = await addOwner(h.db, h.keys);
+    owner = await addOwner(h);
     runId = uuidv7();
     conversationId = uuidv7() as ConversationId;
+    generation = await currentGeneration(h);
     h.runs.runs.set(runId, {
       ownerId: owner.ownerId,
       conversationId,
       status: "running",
-      generation: 3,
+      generation,
     });
-    h.app.get(TopicRegistry).registerAuthorizer({
+    h.app.inject<TopicRegistry>(TopicRegistry).registerAuthorizer({
       kind: "conversation",
       authorize: async (socket, topic) =>
         socket.userId === h.runs.runs.get(runId)?.ownerId &&
@@ -571,7 +505,7 @@ describe("POST /internal/v1/runs/:runId/output (§8.2)", () => {
     const cursor = (events[0]?.seq as number) - 1;
     await h.hub.subscribeConversation(late.socket, conversationTopic(conversationId), cursor);
     expect(late.frames.map((frame) => frame.seq)).toEqual(events.map((frame) => frame.seq));
-    expect(h.log.lines.join("\n")).not.toContain(MARKER);
+    expect(h.logLines().join("\n")).not.toContain(MARKER);
   });
 
   it("deduplicates on (runId, seq) even when the retry carries a new event id and signature", async () => {
@@ -601,10 +535,14 @@ describe("POST /internal/v1/runs/:runId/output (§8.2)", () => {
   });
 
   it("rejects output for a moved executor generation", async () => {
-    await h.db.run(sql("UPDATE executor_state SET generation = 4 WHERE id = 1"));
+    await h.app.db.run(
+      sql("UPDATE executor_state SET generation = generation + 1, write_id = :w WHERE id = 1", {
+        w: newWriteId(),
+      }),
+    );
     await h.clock.advance(10_000);
     expect((await send(h, output(0))).status).toBe(404);
-    expect(h.log.lines.some((line) => line.includes("stale_generation"))).toBe(true);
+    expect(h.logLines().some((line) => line.includes("stale_generation"))).toBe(true);
   });
 
   it("rejects the wrong run: a path that differs from the body, an unknown run, or another run's envelope", async () => {
@@ -619,7 +557,7 @@ describe("POST /internal/v1/runs/:runId/output (§8.2)", () => {
       ownerId: owner.ownerId,
       conversationId,
       status: "running",
-      generation: 3,
+      generation,
     });
     const moved = signed(h, runOutputPath(other), {
       runId: other,
@@ -641,7 +579,7 @@ describe("POST /internal/v1/runs/:runId/output (§8.2)", () => {
     });
     expect((await send(h, swappedSeq)).status).toBe(400);
 
-    const stranger = await addOwner(h.db, h.keys);
+    const stranger = await addOwner(h);
     const foreign = signed(h, runOutputPath(runId), {
       runId,
       attempt: 1,
@@ -655,7 +593,7 @@ describe("POST /internal/v1/runs/:runId/output (§8.2)", () => {
     expect(frames.filter((frame) => frame.t === "ev")).toEqual([]);
     // A rejected seq was not remembered: the genuine envelope for it is still relayed.
     expect((await send(h, output(2))).status).toBe(202);
-    expect(h.log.lines.join("\n")).not.toContain(MARKER);
+    expect(h.logLines().join("\n")).not.toContain(MARKER);
   });
 
   it("rejects forged, stale and replayed output requests and wrong key versions", async () => {
@@ -703,7 +641,7 @@ describe("run output relay key cache (§8.2)", () => {
       },
       accountKeys: {
         load: async () => ({ ...key, key: Uint8Array.from(key.key) }),
-      } as unknown as AccountKeyReader,
+      } as unknown as Pick<AccountKeyStore, "load">,
       executorState: {
         readCached: async () => ({ generation: 1 }),
       } as unknown as ExecutorStateReader,

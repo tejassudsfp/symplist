@@ -10,15 +10,17 @@ import { RouteParamtypes } from "@nestjs/common/enums/route-paramtypes.enum.js";
 import { Reflector } from "@nestjs/core";
 import { idempotencyKeyHeader, idempotencyKeySchema } from "@symplist/contracts";
 import {
+  type FoldedClaimDecision,
   type IdempotencyClaim,
+  type IdempotencyRequest,
   IdempotencyStore,
   redactOneTimeSecretResponse,
   type StoredIdempotentResponse,
 } from "@symplist/core/idempotency";
 import type { AccountDataKey } from "@symplist/crypto";
-import type { Statement } from "@symplist/db";
+import type { Statement, StatementResult } from "@symplist/db";
 import type { Request, Response } from "express";
-import { catchError, from, mergeMap, type Observable, of, throwError } from "rxjs";
+import { catchError, from, map, mergeMap, type Observable, of, throwError } from "rxjs";
 import { CLOCK, type Clock } from "../clock.ts";
 import { ApiError } from "../errors/api-error.ts";
 import { validationExceptionFactory } from "../errors/validation.ts";
@@ -56,12 +58,65 @@ export interface IdempotencyContext {
   completionStatement(response: StoredIdempotentResponse, accountKey: AccountDataKey): Statement;
 }
 
+/** What a folded claim decided for the handler. */
+export type FoldedIdempotencyDecision =
+  /** This request holds the key: its effect applied in the batch together with the record. */
+  | { readonly kind: "started" }
+  /**
+   * An exact retry: nothing applied. Return `body`; the interceptor sends the recorded status and
+   * body with `Idempotency-Replayed: true`.
+   */
+  | { readonly kind: "replay"; readonly body: unknown };
+
+/**
+ * The claim of a `@Idempotent({ folded: true })` route, folded into the handler's deciding D1 batch
+ * (§3.1, §6.1): put `statements` first, guard every effect statement with `claim.guard.exists` and
+ * its params, add `completionStatement`, then read the outcome with `decide`. D1 runs the batch as one
+ * transaction, so the effect applies exactly once, together with the recorded response, in one
+ * request. See `apps/api/src/common/idempotency/README.md`.
+ */
+export interface FoldedIdempotency {
+  readonly claim: IdempotencyClaim;
+  /** The claim insert and the record read, in this order, first in the batch. */
+  readonly statements: readonly Statement[];
+  /**
+   * Records `response` for exact retries (redacted for a one-time secret endpoint), guarded by the
+   * claim. The live response is sent with `response.status`.
+   */
+  completionStatement(response: StoredIdempotentResponse, accountKey: AccountDataKey): Statement;
+  /**
+   * The claim's decision from the batch results (`offset`: the index of the first claim statement).
+   * Throws `idempotency.mismatch` for another input under the key and `idempotency.in_progress` for
+   * a record whose outcome is not known yet. `accountKey` decrypts a replayed response; the caller
+   * zeroises it afterwards.
+   */
+  decide(
+    results: readonly StatementResult[],
+    accountKey: AccountDataKey,
+    offset?: number,
+  ): FoldedIdempotencyDecision;
+}
+
 const contextKey = Symbol("symplist.idempotency");
-type RequestWithIdempotency = Request & { [contextKey]?: IdempotencyContext & { folded: boolean } };
+const foldedKey = Symbol("symplist.idempotency.folded");
+type RequestWithIdempotency = Request & {
+  [contextKey]?: IdempotencyContext & { folded: boolean };
+  [foldedKey]?: FoldedIdempotency;
+};
 
 /** The idempotency claim of the current request, for handlers that fold its completion. */
 export function idempotencyContextOf(req: Request): IdempotencyContext | undefined {
   return (req as RequestWithIdempotency)[contextKey];
+}
+
+/**
+ * The folded claim of the current request. Throws `internal` when the route is not declared
+ * `@Idempotent({ folded: true })`, so a handler can never apply its effect without a claim.
+ */
+export function foldedIdempotencyOf(req: Request): FoldedIdempotency {
+  const folded = (req as RequestWithIdempotency)[foldedKey];
+  if (!folded) throw ApiError.internal();
+  return folded;
 }
 
 function plainJson(value: unknown): unknown {
@@ -171,13 +226,15 @@ export class IdempotencyInterceptor implements NestInterceptor {
     if (!parsedKey.success) throw new ApiError("idempotency.key_invalid");
 
     const input = await validatedRouteInput(context, req);
-    const begin = await this.store.begin({
+    const request: IdempotencyRequest = {
       scope: `${req.method.toUpperCase()} ${route}`,
       userId: session.userId,
       key: parsedKey.data,
       input,
       now: this.clock.now(),
-    });
+    };
+    if (requirement.folded) return this.runFolded(request, requirement, req, res, next);
+    const begin = await this.store.begin(request);
 
     switch (begin.kind) {
       case "replay":
@@ -191,6 +248,72 @@ export class IdempotencyInterceptor implements NestInterceptor {
       case "started":
         return this.run(begin.claim, requirement, req, res, next);
     }
+  }
+
+  /**
+   * A folded route: no D1 request here. The handler's batch claims the key, applies the effect and
+   * records the response; this only sends the decision's status and fails closed when the handler did
+   * not fold the claim, since its effect would then have no record.
+   */
+  private runFolded(
+    request: IdempotencyRequest,
+    requirement: IdempotentRequirement,
+    req: Request,
+    res: Response,
+    next: CallHandler,
+  ): Observable<unknown> {
+    const folded = this.store.foldedClaim(request);
+    let decision: FoldedClaimDecision | null = null;
+    let liveStatus: number | null = null;
+    const context: FoldedIdempotency = {
+      claim: folded.claim,
+      statements: folded.statements,
+      completionStatement: (response, accountKey) => {
+        liveStatus = response.status;
+        return this.store.completeStatement({
+          claim: folded.claim,
+          response: requirement.secretFields
+            ? {
+                status: 200,
+                body: redactOneTimeSecretResponse(response.body, requirement.secretFields),
+              }
+            : response,
+          accountKey,
+          now: this.clock.now(),
+        });
+      },
+      decide: (results, accountKey, offset = 0) => {
+        decision = this.store.decideFoldedClaim({ request, folded, results, accountKey, offset });
+        switch (decision.kind) {
+          case "started":
+            return { kind: "started" };
+          case "replay":
+            return { kind: "replay", body: decision.response.body };
+          case "mismatch":
+            throw new ApiError("idempotency.mismatch");
+          case "in_progress":
+            throw new ApiError("idempotency.in_progress");
+        }
+      },
+    };
+    (req as RequestWithIdempotency)[foldedKey] = context;
+
+    return next.handle().pipe(
+      map((body) => {
+        const decided = decision as FoldedClaimDecision | null;
+        if (decided?.kind === "replay") {
+          res.status(decided.response.status);
+          res.setHeader(IDEMPOTENCY_REPLAYED_HEADER, "true");
+          return decided.response.body;
+        }
+        if (decided?.kind !== "started" || liveStatus === null) {
+          this.logger.error("idempotency.fold_incomplete");
+          throw ApiError.internal();
+        }
+        res.status(liveStatus);
+        return body;
+      }),
+    );
   }
 
   private run(

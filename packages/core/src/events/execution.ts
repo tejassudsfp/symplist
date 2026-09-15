@@ -94,11 +94,16 @@ export interface ActiveExecution {
  * worker wrote first always wins.
  */
 export interface ExecutionTracker {
-  /** Active subjects run by `executor`, ordered by subject id, after `after` when given. */
+  /**
+   * Active subjects run by `executor`, ordered by subject id, after `after` when given. With
+   * `ownerId`, only that owner's subjects: the restriction canceller and the account purge list one
+   * user's work without scanning everyone's.
+   */
   listActive(query: {
     readonly executor: ExecutorKind;
     readonly limit: number;
     readonly after?: string;
+    readonly ownerId?: string;
   }): Promise<readonly ActiveExecution[]>;
   /** Records which executor took the subject and its Trigger run id, after the intent is dispatched. */
   recordDispatch(

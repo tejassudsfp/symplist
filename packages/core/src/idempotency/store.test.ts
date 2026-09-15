@@ -217,6 +217,102 @@ describe("idempotency records (§6.1)", () => {
     expect(await db.all(sql(`SELECT label FROM probe_effects`))).toEqual([{ label: "first" }]);
   });
 
+  describe("folded claims (§6.1, one D1 request)", () => {
+    beforeEach(async () => {
+      await db.executeScript(`CREATE TABLE probe_effects (label TEXT NOT NULL) STRICT;`);
+    });
+
+    /** One deciding batch: the claim, an effect guarded by it and the completion. */
+    async function foldedRequest(input: unknown, at: number, label: string) {
+      const request = { scope, userId, key, input, now: at };
+      const folded = store.foldedClaim(request);
+      const accountKey = await new AccountKeyStore({ db, keys }).require(userId);
+      const batch = vi.spyOn(db, "batch");
+      const results = await db.batch([
+        ...folded.statements,
+        sql(`INSERT INTO probe_effects (label) SELECT :label WHERE ${folded.claim.guard.exists}`, {
+          ...folded.claim.guard.params,
+          label,
+        }),
+        store.completeStatement({
+          claim: folded.claim,
+          response: { status: 201, body: { label } },
+          accountKey,
+          now: at,
+        }),
+      ]);
+      expect(batch).toHaveBeenCalledTimes(1);
+      batch.mockRestore();
+      return store.decideFoldedClaim({ request, folded, results, accountKey });
+    }
+
+    const labels = async () =>
+      (await db.all<{ label: string }>(sql(`SELECT label FROM probe_effects`))).map(
+        (row) => row.label,
+      );
+
+    it("claims, applies the effect and completes in one batch, then replays without a second effect", async () => {
+      expect(await foldedRequest({ title: "Plan" }, now, "first")).toEqual({ kind: "started" });
+      expect(await foldedRequest({ title: "Plan" }, now + 1, "retry")).toEqual({
+        kind: "replay",
+        response: { status: 201, body: { label: "first" } },
+      });
+      expect(await foldedRequest({ title: "Other" }, now + 2, "other")).toEqual({
+        kind: "mismatch",
+      });
+      expect(await labels()).toEqual(["first"]);
+      expect(await db.first(sql(`SELECT status FROM idempotency_records`))).toEqual({
+        status: "completed",
+      });
+    });
+
+    it("never takes over a pending record, whose effect may have applied, until it expires", async () => {
+      // A pending record left by an interceptor claim (or a batch with an unknown outcome).
+      await started({ title: "Plan" });
+      const afterLease = now + IDEMPOTENCY_PENDING_LEASE_MS + 1;
+      expect(await foldedRequest({ title: "Plan" }, afterLease, "takeover")).toEqual({
+        kind: "in_progress",
+      });
+      expect(await labels()).toEqual([]);
+      expect(
+        await foldedRequest({ title: "Plan" }, now + IDEMPOTENCY_RECORD_TTL_MS, "later"),
+      ).toEqual({ kind: "started" });
+      expect(await labels()).toEqual(["later"]);
+    });
+
+    it("lends the caller's account key to a replay without zeroising it", async () => {
+      await foldedRequest({ title: "Plan" }, now, "first");
+      const request = { scope, userId, key, input: { title: "Plan" }, now: now + 5 };
+      const folded = store.foldedClaim(request);
+      const accountKey = await new AccountKeyStore({ db, keys }).require(userId);
+      const results = await db.batch([...folded.statements]);
+      const decision = store.decideFoldedClaim({ request, folded, results, accountKey });
+      expect(decision.kind).toBe("replay");
+      expect(accountKey.key.some((byte) => byte !== 0)).toBe(true);
+    });
+
+    it("reads the decision at an offset and refuses an unknown user", async () => {
+      const request = { scope, userId, key, input: 1, now };
+      const folded = store.foldedClaim(request);
+      const accountKey = await new AccountKeyStore({ db, keys }).require(userId);
+      const results = await db.batch([sql("SELECT 1 AS probe"), ...folded.statements]);
+      expect(store.decideFoldedClaim({ request, folded, results, accountKey, offset: 1 })).toEqual({
+        kind: "started",
+      });
+      const stranger = { ...request, userId: uuidv7(now), key: "other-key-aaaaaaaaaaaa" };
+      const strangerClaim = store.foldedClaim(stranger);
+      const none = await db.batch([...strangerClaim.statements]);
+      expect(() =>
+        store.decideFoldedClaim({
+          request: stranger,
+          folded: strangerClaim,
+          results: none,
+          accountKey,
+        }),
+      ).toThrow(expect.objectContaining({ code: "idempotency.state_invalid" }));
+    });
+  });
+
   it("rejects malformed scopes, keys and statuses", async () => {
     await expect(store.begin({ scope: "", userId, key, input: 1, now })).rejects.toThrow(TypeError);
     await expect(

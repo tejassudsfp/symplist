@@ -1,13 +1,17 @@
 import { Body, Controller, Inject, Module, Param, Post, Req, Res } from "@nestjs/common";
 import type { SessionContext } from "@symplist/core/access";
 import type { AccountKeyStore } from "@symplist/core/account";
+import { zeroize } from "@symplist/crypto";
 import { type DbClient, sql, uuidv7 } from "@symplist/db";
 import type { Request, Response } from "express";
 import { z } from "zod";
 import { ACCOUNT_KEYS } from "../../src/common/access/access.providers.ts";
 import { Access, CurrentSession } from "../../src/common/access.decorator.ts";
 import { ApiError } from "../../src/common/errors/api-error.ts";
-import { idempotencyContextOf } from "../../src/common/idempotency/idempotency.interceptor.ts";
+import {
+  foldedIdempotencyOf,
+  idempotencyContextOf,
+} from "../../src/common/idempotency/idempotency.interceptor.ts";
 import { Idempotent, OneTimeSecret } from "../../src/common/idempotent.decorator.ts";
 import { RouteClass } from "../../src/common/route-classes.ts";
 import { DB_CLIENT } from "../../src/infra/db/db.providers.ts";
@@ -128,5 +132,68 @@ export class IdempotencyProbeController {
   }
 }
 
-@Module({ controllers: [IdempotencyProbeController] })
+/**
+ * The worked example of `apps/api/src/common/idempotency/README.md`: an effectful mutation that folds
+ * the idempotency claim, its effect and the recorded response into one D1 batch (§3.1, §6.1).
+ */
+@Controller("idem")
+@RouteClass("app")
+export class FoldedIdempotencyProbeController {
+  constructor(
+    @Inject(DB_CLIENT) private readonly db: DbClient,
+    @Inject(ACCOUNT_KEYS) private readonly keys: AccountKeyStore,
+  ) {}
+
+  @Post("labels")
+  @Access("admitted")
+  @Idempotent({ folded: true })
+  async addLabel(
+    @Req() req: Request,
+    @CurrentSession() session: SessionContext,
+    @Body({ schema: z.strictObject({ label: z.string().trim().min(1).max(40) }) })
+    body: { label: string },
+  ) {
+    const idempotency = foldedIdempotencyOf(req);
+    // The handler holds the owner's key anyway to encrypt its own fields; the response envelope uses it.
+    const accountKey = await this.keys.require(session.userId);
+    try {
+      const response = { status: 201, body: { label: body.label } };
+      const { exists, params } = idempotency.claim.guard;
+      const results = await this.db.batch([
+        // 1. The claim: insert the pending record, then read it back.
+        ...idempotency.statements,
+        // 2. The effect, applied only while this request's claim holds the key.
+        sql(`INSERT INTO probe_effects (label) SELECT :label WHERE ${exists}`, {
+          ...params,
+          label: body.label,
+        }),
+        // 3. The recorded response, in the same transaction as the effect.
+        idempotency.completionStatement(response, accountKey),
+      ]);
+      const decision = idempotency.decide(results, accountKey);
+      if (decision.kind === "replay") return decision.body;
+      idempotencyProbe.effects.push(`label:${body.label}`);
+      return response.body;
+    } finally {
+      zeroize(accountKey.key);
+    }
+  }
+
+  @Post("labels/forgotten")
+  @Access("admitted")
+  @Idempotent({ folded: true })
+  async forgetsTheClaim(@Body() body: { label: string }) {
+    idempotencyProbe.effects.push(`forgotten:${body.label}`);
+    return { label: body.label };
+  }
+
+  @Post("labels/unfolded")
+  @Access("admitted")
+  @Idempotent()
+  unfolded(@Req() req: Request) {
+    return { folded: foldedIdempotencyOf(req) !== undefined };
+  }
+}
+
+@Module({ controllers: [IdempotencyProbeController, FoldedIdempotencyProbeController] })
 export class IdempotencyProbeModule {}

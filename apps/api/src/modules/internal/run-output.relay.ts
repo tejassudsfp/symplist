@@ -1,3 +1,4 @@
+import type { AccountKeyStore } from "@symplist/core/account";
 import {
   executingRunStatuses,
   RUN_CHUNK_EVENT_TYPE,
@@ -18,7 +19,6 @@ import {
   type RuntimeTimers,
 } from "../../infra/scheduler/runtime.ts";
 import type { TopicHub } from "../realtime/topic-hub.ts";
-import type { AccountKeyReader } from "./account-keys.ts";
 
 export type RelayRejection =
   | "run_mismatch"
@@ -52,7 +52,7 @@ interface KeyEntry {
 
 export interface RunOutputRelayOptions {
   readonly source: RunRelaySource | null;
-  readonly accountKeys: AccountKeyReader;
+  readonly accountKeys: Pick<AccountKeyStore, "load">;
   readonly executorState: ExecutorStateReader;
   readonly hub: TopicHub;
   readonly timers: RuntimeTimers;

@@ -1,15 +1,16 @@
+import type { AccountKeyStore } from "@symplist/core/account";
 import type { RunRelaySource } from "@symplist/core/events";
 import type { KeyProvider } from "@symplist/crypto";
-import type { DbClient } from "@symplist/db";
 import type { OperationalLog, RuntimeTimers } from "../../infra/scheduler/runtime.ts";
 
 /** What the bootstrap supplies to the internal endpoints module. */
 export interface InternalDependencies {
-  readonly db: DbClient;
-  /** Holds `INTERNAL_EVENT_SECRET` and `CONTENT_KEK`. */
+  /** Holds `INTERNAL_EVENT_SECRET` for the request signatures (§6.2). */
   readonly keys: KeyProvider;
-  /** Defaults to the `runs` reader from the core events contributors (supplied by Simon). */
-  readonly runRelaySource?: RunRelaySource | null;
+  /** Loads the run owner's account data key to decrypt run output (§8.2). */
+  readonly accountKeys: Pick<AccountKeyStore, "load">;
+  /** The `runs` reader from the core events contributors (supplied by Simon); null until one exists. */
+  readonly runRelaySource: RunRelaySource | null;
   readonly timers?: RuntimeTimers;
   readonly log?: OperationalLog;
   readonly tuning?: {

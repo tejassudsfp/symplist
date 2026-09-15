@@ -39,6 +39,7 @@
     "@symplist/storage": "workspace:*",
     "@trigger.dev/sdk": "4.6.0",
     "cookie-parser": "1.4.7",
+    "express": "5.2.1",
     "helmet": "8.3.0",
     "hono": "4.13.8",
     "jose": "6.2.12",

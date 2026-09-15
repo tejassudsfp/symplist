@@ -26,8 +26,8 @@ import { ExecutionRegistry } from "./execution-registry.ts";
 import type { TriggerRunsClient } from "./executor.ts";
 import { ExecutorStateRepository, ExecutorStateService } from "./executor-state.ts";
 import { LocalExecutor } from "./local-executor.ts";
-import { ExecutionPostCommitHook } from "./post-commit-hook.ts";
 import { ExecutionReconciler } from "./reconciler.ts";
+import { RestrictedRunCanceller } from "./restricted-run-canceller.ts";
 import { TriggerExecutor } from "./trigger-executor.ts";
 
 export interface ExecutorsDependencies {
@@ -55,8 +55,6 @@ export const EXECUTORS_DEPENDENCIES = "symplist:executors-dependencies";
 export const LOCAL_EXECUTOR = "symplist:local-executor";
 /** The Trigger executor in durable mode, null in local mode. */
 export const TRIGGER_EXECUTOR = "symplist:trigger-executor";
-/** The executors' `AccessPostCommitHook` (§5.5). */
-export const EXECUTION_POST_COMMIT_HOOK = "symplist:execution-post-commit-hook";
 
 const log = (dependencies: ExecutorsDependencies, context: string) =>
   dependencies.log ?? nestOperationalLog(context);
@@ -95,8 +93,9 @@ export class ExecutorsLifecycle implements OnApplicationBootstrap, BeforeApplica
 /**
  * Dispatch, executors and reconciliation (§8.1). Global: features inject `ExecutionDispatcher` (kick
  * after committing an intent, Stop), `ExecutionRegistry` (local handlers) and `ExecutorStateService`.
- * Only the executor of the configured mode is constructed, so a local-mode api never builds a Trigger
- * client and a durable-mode api never runs handlers in process.
+ * Only the executor of the configured mode is constructed, so a local-mode api never uses a Trigger
+ * client and a durable-mode api never runs handlers in process. `PlatformSeamsModule` binds
+ * `RestrictedRunCanceller` to `RUN_CANCELLER`.
  */
 @Module({})
 // biome-ignore lint/complexity/noStaticOnlyClass: Nest dynamic modules are classes with a static forRoot.
@@ -235,24 +234,27 @@ export class ExecutorsModule {
             }),
         },
         {
-          provide: EXECUTION_POST_COMMIT_HOOK,
+          provide: RestrictedRunCanceller,
           inject: [
             EXECUTORS_DEPENDENCIES,
+            ExecutionRegistry,
             DispatchIntentRepository,
             LOCAL_EXECUTOR,
             TRIGGER_EXECUTOR,
           ],
           useFactory: (
             dependencies: ExecutorsDependencies,
+            registry: ExecutionRegistry,
             repository: DispatchIntentRepository,
             local: LocalExecutor | null,
             trigger: TriggerExecutor | null,
           ) =>
-            new ExecutionPostCommitHook({
+            new RestrictedRunCanceller({
+              registry,
               repository,
               local,
               trigger,
-              log: log(dependencies, "ExecutionPostCommitHook"),
+              log: log(dependencies, "RestrictedRunCanceller"),
             }),
         },
         ExecutorsLifecycle,
@@ -261,8 +263,11 @@ export class ExecutorsModule {
         ExecutorStateService,
         ExecutionRegistry,
         ExecutionDispatcher,
+        ExecutionReconciler,
         DispatchIntentRepository,
-        EXECUTION_POST_COMMIT_HOOK,
+        RestrictedRunCanceller,
+        LOCAL_EXECUTOR,
+        TRIGGER_EXECUTOR,
       ],
     };
   }

@@ -1,10 +1,4 @@
-import type {
-  ParsedTopic,
-  RestrictionReason,
-  Topic,
-  UserTopicSnapshot,
-  WsEvent,
-} from "@symplist/contracts";
+import type { ParsedTopic, Topic, UserTopicSnapshot, WsEvent } from "@symplist/contracts";
 import type { SessionContext } from "../access/types.ts";
 import type { InternalEventPayload } from "./wire.ts";
 
@@ -96,33 +90,6 @@ export interface UserSnapshotContributor {
     socket: SessionContext,
     input: { readonly openTasks: readonly string[] },
   ): Promise<Partial<UserTopicSnapshot>>;
-}
-
-/** Why a login session's sockets are closed with 4401 (§5.1). */
-export type SessionEndReason = "logout" | "revoked" | "expired" | "deleted";
-
-export interface SessionsEndedEvent {
-  readonly userId: string;
-  /** The ended auth sessions, or `all` when every session of the user was revoked (§5.6). */
-  readonly sessionIds: readonly string[] | "all";
-  readonly reason: SessionEndReason;
-}
-
-export interface AccessRestrictedEvent {
-  readonly userId: string;
-  readonly reason: RestrictionReason;
-  /** Runs the restriction batch cancelled or stopped; durable ones get Trigger `runs.cancel` (§5.5). */
-  readonly cancelledRunIds: readonly string[];
-}
-
-/**
- * Effects that run after a logout, session revocation or restriction batch commits (§5.1, §5.5). The
- * restriction routine calls every registered hook; the realtime gateway closes sockets and the
- * executors cancel durable runs. Hooks never throw for delivery problems.
- */
-export interface AccessPostCommitHook {
-  onSessionsEnded(event: SessionsEndedEvent): Promise<void>;
-  onAccessRestricted(event: AccessRestrictedEvent): Promise<void>;
 }
 
 /**

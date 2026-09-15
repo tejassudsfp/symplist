@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { ACCOUNT_PURGE_INTENT_KIND } from "../account/deletion.ts";
 import {
+  ACCOUNT_PURGE_TASK_ID,
   collectExecutionKinds,
   createRunRelaySource,
   type EventsContributor,
@@ -79,6 +81,22 @@ describe("execution contributors (§8.1)", () => {
       "simon",
     ]);
     expect(() => collectExecutionKinds()).not.toThrow();
+  });
+
+  it("dispatches the account purge to the account-purge task with an ids-only payload (§5.6)", () => {
+    const purge = collectExecutionKinds().get(ACCOUNT_PURGE_INTENT_KIND);
+    expect(purge).toMatchObject({ kind: "account_purge", triggerTaskId: ACCOUNT_PURGE_TASK_ID });
+    expect(ACCOUNT_PURGE_TASK_ID).toBe("account-purge");
+    expect(
+      purge?.payload({
+        intentId: id,
+        kind: "account_purge",
+        subjectId: owner,
+        ownerId: owner,
+        generation: 3,
+      }),
+    ).toEqual({ userId: owner });
+    expect(purge?.tracker).toBeUndefined();
   });
 
   it("maps modes to executor kinds", () => {
