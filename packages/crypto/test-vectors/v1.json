@@ -1,0 +1,651 @@
+{
+  "description": "Frozen @symplist/crypto format vectors (architecture §4). Every key, IV and salt is a throwaway value derived from SHA-256 of a label; never use them outside tests.",
+  "keys": {
+    "CONTENT_KEK": {
+      "current": 2,
+      "versions": {
+        "1": "aITyC49cxoXqUmO-wRyYEX-__BEwYnSc6RTawa30x8I",
+        "2": "fBe7x0k4bUfCIG5pjsCeFMk3avMYHOCyTznn3To9FVA"
+      }
+    },
+    "VAULT_RECOVERY_KEY": {
+      "current": 2,
+      "versions": {
+        "1": "xyePsP_ktFsMyKywyhNKo-kRFvHYKtm-Ax0AtTgONzA",
+        "2": "oD94fxFYuT6Z7qvUp4WaClNZE9Z75bXxn7_lt_QS-38"
+      }
+    },
+    "SESSION_DIGEST_SECRET": {
+      "current": 2,
+      "versions": {
+        "1": "wsX7TKyUu0iDrXmc6Ubkig4XY11QADzeNV3gQmez3Yc",
+        "2": "I1luMbfFQvx0tH55-Y_kfzHHcXJC_93eUXk34aqFy-I"
+      }
+    },
+    "OTP_DIGEST_SECRET": {
+      "current": 1,
+      "versions": {
+        "1": "fo6SvYqclDzRTGvrs9lTTJ72E5jmRAQsP0I0oLozGrY"
+      }
+    },
+    "INVITE_DIGEST_SECRET": {
+      "current": 1,
+      "versions": {
+        "1": "6m4JWRzkD5ef7vY2WngMbnfu6Dv3iUP_1MdQ8IhYCPA"
+      }
+    },
+    "SHARE_DIGEST_SECRET": {
+      "current": 1,
+      "versions": {
+        "1": "F3PMoFsZWRAfpPb3etXVlRoCbFh-FBiA7UxDiCwAmvY"
+      }
+    },
+    "SHARE_SESSION_DIGEST_SECRET": {
+      "current": 1,
+      "versions": {
+        "1": "K5GK4l_pjbpMhwRODNGXbUNNwF9DrV4D35xN2seoM3I"
+      }
+    },
+    "MCP_TOKEN_DIGEST_SECRET": {
+      "current": 1,
+      "versions": {
+        "1": "OXtHQTl7zlYDX0hGgRKKFAZs5sEvoUJBql6w80LmTLo"
+      }
+    },
+    "IDEMPOTENCY_SECRET": {
+      "current": 1,
+      "versions": {
+        "1": "WILwRd7g6CINJ8fb-9MSrlPX8vFkqOKQl_eSRCk7lM0"
+      }
+    },
+    "REMINDER_UNSUBSCRIBE_SECRET": {
+      "current": 1,
+      "versions": {
+        "1": "LCKDCGbBeS35BeSAQfgUp4JrEd7eeBnApCX_V_wwDQs"
+      }
+    }
+  },
+  "aad": [
+    {
+      "name": "field",
+      "shape": "field",
+      "input": {
+        "context": {
+          "purpose": "title",
+          "ownerId": "0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b",
+          "table": "tasks",
+          "rowId": "0199a1b2-0000-7000-8000-000000000001",
+          "column": "title_enc"
+        },
+        "keyVersion": 1
+      },
+      "encoded": "{\"c\":\"title_enc\",\"f\":\"sym1\",\"i\":\"0199a1b2-0000-7000-8000-000000000001\",\"k\":1,\"o\":\"0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b\",\"p\":\"title\",\"t\":\"tasks\"}"
+    },
+    {
+      "name": "field-escaping",
+      "shape": "field",
+      "input": {
+        "context": {
+          "purpose": "note \"quoted\" \\ é 😀",
+          "ownerId": "0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b",
+          "table": "tasks",
+          "rowId": "row\u0001\n",
+          "column": "title_enc"
+        },
+        "keyVersion": 1
+      },
+      "encoded": "{\"c\":\"title_enc\",\"f\":\"sym1\",\"i\":\"row\\u0001\\n\",\"k\":1,\"o\":\"0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b\",\"p\":\"note \\\"quoted\\\" \\\\ é 😀\",\"t\":\"tasks\"}"
+    },
+    {
+      "name": "run-chunk",
+      "shape": "field",
+      "input": {
+        "context": {
+          "purpose": "run_chunk",
+          "ownerId": "0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b",
+          "table": "runs",
+          "rowId": "0199a1b2-0000-7000-8000-00000000000a",
+          "column": "seq:42"
+        },
+        "keyVersion": 1
+      },
+      "encoded": "{\"c\":\"seq:42\",\"f\":\"sym1\",\"i\":\"0199a1b2-0000-7000-8000-00000000000a\",\"k\":1,\"o\":\"0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b\",\"p\":\"run_chunk\",\"t\":\"runs\"}"
+    },
+    {
+      "name": "idempotency-response",
+      "shape": "field",
+      "input": {
+        "context": {
+          "purpose": "idempotency_response",
+          "ownerId": "0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b",
+          "table": "idempotency_records",
+          "rowId": "[\"tasks.create\",\"2f8a1c9e-key\"]",
+          "column": "response_enc"
+        },
+        "keyVersion": 1
+      },
+      "encoded": "{\"c\":\"response_enc\",\"f\":\"sym1\",\"i\":\"[\\\"tasks.create\\\",\\\"2f8a1c9e-key\\\"]\",\"k\":1,\"o\":\"0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b\",\"p\":\"idempotency_response\",\"t\":\"idempotency_records\"}"
+    },
+    {
+      "name": "object",
+      "shape": "object",
+      "input": {
+        "context": {
+          "kind": "doc_snapshot",
+          "ownerId": "0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b",
+          "objectId": "u/0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b/docs/task-1/commit-1.md.sym",
+          "formatVersion": 1
+        },
+        "keyVersion": 1
+      },
+      "encoded": "{\"f\":\"symo1\",\"i\":\"u/0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b/docs/task-1/commit-1.md.sym\",\"k\":1,\"o\":\"0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b\",\"p\":\"doc_snapshot\",\"v\":1}"
+    },
+    {
+      "name": "account-key",
+      "shape": "account-key",
+      "input": {
+        "ownerId": "0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b",
+        "kekVersion": 2
+      },
+      "encoded": "{\"f\":\"symk1\",\"kv\":2,\"o\":\"0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b\",\"p\":\"account-key\"}"
+    },
+    {
+      "name": "vault-pass",
+      "shape": "vault-pass",
+      "input": {
+        "ownerId": "0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b",
+        "vaultVersion": 3
+      },
+      "encoded": "{\"f\":\"symk1\",\"o\":\"0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b\",\"p\":\"vault-pass\",\"vv\":3}"
+    },
+    {
+      "name": "vault-recovery",
+      "shape": "vault-recovery",
+      "input": {
+        "ownerId": "0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b",
+        "recoveryKeyVersion": 2
+      },
+      "encoded": "{\"f\":\"symk1\",\"o\":\"0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b\",\"p\":\"vault-recovery\",\"rk\":2}"
+    },
+    {
+      "name": "vault-session",
+      "shape": "vault-session",
+      "input": {
+        "ownerId": "0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b",
+        "vaultSessionId": "0199a1b2-0000-7000-8000-0000000000v5"
+      },
+      "encoded": "{\"f\":\"symk1\",\"o\":\"0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b\",\"p\":\"vault-session\",\"s\":\"0199a1b2-0000-7000-8000-0000000000v5\"}"
+    },
+    {
+      "name": "vault-item",
+      "shape": "vault-item",
+      "input": {
+        "ownerId": "0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b",
+        "itemId": "0199a1b2-0000-7000-8000-0000000000i1"
+      },
+      "encoded": "{\"f\":\"sym1\",\"i\":\"0199a1b2-0000-7000-8000-0000000000i1\",\"o\":\"0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b\",\"p\":\"vault-item\"}"
+    },
+    {
+      "name": "vault-grant",
+      "shape": "vault-grant",
+      "input": {
+        "ownerId": "0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b",
+        "grantId": "0199a1b2-0000-7000-8000-0000000000g1",
+        "taskId": "0199a1b2-0000-7000-8000-000000000001"
+      },
+      "encoded": "{\"f\":\"sym1\",\"g\":\"0199a1b2-0000-7000-8000-0000000000g1\",\"o\":\"0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b\",\"p\":\"vault-grant\",\"t\":\"0199a1b2-0000-7000-8000-000000000001\"}"
+    }
+  ],
+  "hkdf": [
+    {
+      "label": "symplist/account-key/v1",
+      "ikm": "c49e8752f49f56a03e669421e976e5aa427df8ed4a3c02185e769f36133269c0",
+      "output": "48facaf953ded87a38a3c119e8f4b83d81587f74a9fdf21ca8d0b447515e4db6"
+    },
+    {
+      "label": "symplist/approval-args/v1",
+      "ikm": "22f111efcb16f78b9e6e502fb7cab58c8e9c7615ae3376d507490daf1986cb4e",
+      "output": "fb23d79b133108882da17212e8dd293dc8d318d41ca2f893abd6e348235b65db"
+    },
+    {
+      "label": "symplist/email-suppression/v1",
+      "ikm": "5de820627f4b240ddb82b562b4e30c7821793bee6ef92109fce1ca72e3bf859e",
+      "output": "23146ffa091dc8ced9d44c81dd856d12398d4daf62f4fa4ac699092642809055"
+    },
+    {
+      "label": "symplist/vault-recovery/v1",
+      "ikm": "0d854282ded743a957ede9a89cfb84fe2d534b61f3404494c883354389849353",
+      "output": "ab9d331d0dca6f6323fd4bb49b70457b32c535387654e3a1931240f4e6049221"
+    },
+    {
+      "label": "symplist/vault-session/v1",
+      "ikm": "1e109983ef07ca4821ac8e5d1fb1f92532e7c8f7073a75bd207d31327fd7202a",
+      "output": "b3e78fc912889feb92b6f72647e3d6de507516da0e56a8a8ebd2700f3a24246b"
+    }
+  ],
+  "accountKeys": [
+    {
+      "name": "account-key-kek-1",
+      "ownerId": "0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b",
+      "kekVersion": 1,
+      "random": [
+        "065bdc3da3f2d120038445969cd48ebf500e27282f9fa5399e8e65d27fea5d0a",
+        "5e296aea4a98dc2803e751c5"
+      ],
+      "wrappingKey": "e4f40eae22a4943189d550cd52e28e35cc8adb0b8ca7cbf36385f8555ef7e5ea",
+      "aad": "{\"f\":\"symk1\",\"kv\":1,\"o\":\"0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b\",\"p\":\"account-key\"}",
+      "wrapped": "Xilq6kqY3CgD51HF3fkMzluraUGa2UNNCJ-kUafVx64iTDEq_NMKfJvAJyzt-BpL8WXFavb5EhnnBooE"
+    },
+    {
+      "name": "account-key-kek-2",
+      "ownerId": "0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b",
+      "kekVersion": 2,
+      "random": [
+        "f3d2fe44436deb8ef72893d9ff0c8cfa16a0aff92bf0cc07f804d081e2dcfc98",
+        "dfe887d3042f2a716e70f4db"
+      ],
+      "wrappingKey": "a209dc171f739400123dc2b622b268c9cd0c900ffe5f2327b83e476580bc5e75",
+      "aad": "{\"f\":\"symk1\",\"kv\":2,\"o\":\"0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b\",\"p\":\"account-key\"}",
+      "wrapped": "3-iH0wQvKnFucPTbTd38Lb3IJ08LJ3_k78qVvWHOSLzLXN3N49uNw6W2W9RVyZ7Mf8swbbrMfIe95xOM"
+    }
+  ],
+  "fields": [
+    {
+      "name": "title",
+      "dataKey": "f3d2fe44436deb8ef72893d9ff0c8cfa16a0aff92bf0cc07f804d081e2dcfc98",
+      "context": {
+        "purpose": "title",
+        "ownerId": "0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b",
+        "table": "tasks",
+        "rowId": "0199a1b2-0000-7000-8000-000000000001",
+        "column": "title_enc"
+      },
+      "plaintextHex": "4275646765742072657669657720666f7220513320e29c85",
+      "random": ["8f7d2459133faefd8f312fc7"],
+      "aad": "{\"c\":\"title_enc\",\"f\":\"sym1\",\"i\":\"0199a1b2-0000-7000-8000-000000000001\",\"k\":1,\"o\":\"0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b\",\"p\":\"title\",\"t\":\"tasks\"}",
+      "envelope": "sym1.1.j30kWRM_rv2PMS_H.n3OfchJC5NXITT8_a6mVf73nnpCRkN8lIQbbY4KmM-Q44yh-WxJLaw"
+    },
+    {
+      "name": "empty",
+      "dataKey": "f3d2fe44436deb8ef72893d9ff0c8cfa16a0aff92bf0cc07f804d081e2dcfc98",
+      "context": {
+        "purpose": "preview",
+        "ownerId": "0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b",
+        "table": "tasks",
+        "rowId": "0199a1b2-0000-7000-8000-000000000001",
+        "column": "preview_enc"
+      },
+      "plaintextHex": "",
+      "random": ["41c0207e1160b4c2786a9457"],
+      "aad": "{\"c\":\"preview_enc\",\"f\":\"sym1\",\"i\":\"0199a1b2-0000-7000-8000-000000000001\",\"k\":1,\"o\":\"0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b\",\"p\":\"preview\",\"t\":\"tasks\"}",
+      "envelope": "sym1.1.QcAgfhFgtMJ4apRX.3Uxi913DDx3v1RJ6-8V5JQ"
+    },
+    {
+      "name": "binary",
+      "dataKey": "f3d2fe44436deb8ef72893d9ff0c8cfa16a0aff92bf0cc07f804d081e2dcfc98",
+      "context": {
+        "purpose": "data",
+        "ownerId": "0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b",
+        "table": "user_preferences",
+        "rowId": "0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b:appearance",
+        "column": "data_enc"
+      },
+      "plaintextHex": "59988ac93ec7526d904f00dd58ae3f910d264ee9a7c6d3f332fc909a2736826d0d7fbbae0b119775c37ffb9d3d6a95bd",
+      "random": ["bf36e8278e7d0491d6a4ff17"],
+      "aad": "{\"c\":\"data_enc\",\"f\":\"sym1\",\"i\":\"0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b:appearance\",\"k\":1,\"o\":\"0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b\",\"p\":\"data\",\"t\":\"user_preferences\"}",
+      "envelope": "sym1.1.vzboJ459BJHWpP8X.Uqkd-OQd6b9l-ed_0cCGqpSdQU5KpMgAbNYRmZbCYIpUJ6VeA5U5U7ssJXDxf6JLT2V2jm7gGsTiQKPFFyKdnA"
+    },
+    {
+      "name": "run-chunk",
+      "dataKey": "f3d2fe44436deb8ef72893d9ff0c8cfa16a0aff92bf0cc07f804d081e2dcfc98",
+      "context": {
+        "purpose": "run_chunk",
+        "ownerId": "0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b",
+        "table": "runs",
+        "rowId": "0199a1b2-0000-7000-8000-00000000000a",
+        "column": "seq:7"
+      },
+      "plaintextHex": "5b7b2274797065223a22746578742d64656c7461222c2264656c7461223a2248656c6c6f227d5d",
+      "random": ["72c43a9efb531a53e3dc614c"],
+      "aad": "{\"c\":\"seq:7\",\"f\":\"sym1\",\"i\":\"0199a1b2-0000-7000-8000-00000000000a\",\"k\":1,\"o\":\"0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b\",\"p\":\"run_chunk\",\"t\":\"runs\"}",
+      "envelope": "sym1.1.csQ6nvtTGlPj3GFM.EPA1Qfp-8MqOhiYtvasKI08zewpfBPR7Mk-XlzQEqkYJ8NDAS99vAueUH7-51t8sEmtRzFuGcA"
+    },
+    {
+      "name": "idempotency-response",
+      "dataKey": "f3d2fe44436deb8ef72893d9ff0c8cfa16a0aff92bf0cc07f804d081e2dcfc98",
+      "context": {
+        "purpose": "idempotency_response",
+        "ownerId": "0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b",
+        "table": "idempotency_records",
+        "rowId": "[\"tasks.create\",\"2f8a1c9e-key\"]",
+        "column": "response_enc"
+      },
+      "plaintextHex": "7b22737461747573223a3230312c22626f6479223a7b226964223a227431227d7d",
+      "random": ["0a93a8fadb217f574f0f626b"],
+      "aad": "{\"c\":\"response_enc\",\"f\":\"sym1\",\"i\":\"[\\\"tasks.create\\\",\\\"2f8a1c9e-key\\\"]\",\"k\":1,\"o\":\"0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b\",\"p\":\"idempotency_response\",\"t\":\"idempotency_records\"}",
+      "envelope": "sym1.1.CpOo-tshf1dPD2Jr.iMQKTaA27FQNmVA9OxqzG7UB87DuKOSGzijCj80AhACX_y6DzhLhomYkvVCdRhJyFA"
+    }
+  ],
+  "objects": [
+    {
+      "name": "doc-snapshot",
+      "dataKey": "f3d2fe44436deb8ef72893d9ff0c8cfa16a0aff92bf0cc07f804d081e2dcfc98",
+      "context": {
+        "kind": "doc_snapshot",
+        "ownerId": "0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b",
+        "objectId": "u/0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b/docs/0199a1b2-0000-7000-8000-000000000001/c070bc19.md.sym",
+        "formatVersion": 1
+      },
+      "plaintextHex": "23204275646765740a0a2a2052656e740a2a20466f6f6420e29c850a",
+      "random": [
+        "691927d98582b49ea7d8c0e72d4e50e05b693fbd81f577f65269f42ee64c3cfe",
+        "08d04830d445cac5d33b26e9",
+        "e6619687a652691f4fc5c582"
+      ],
+      "aad": "{\"f\":\"symo1\",\"i\":\"u/0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b/docs/0199a1b2-0000-7000-8000-000000000001/c070bc19.md.sym\",\"k\":1,\"o\":\"0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b\",\"p\":\"doc_snapshot\",\"v\":1}",
+      "header": "{\"alg\":\"A256GCM\",\"iv\":\"5mGWh6ZSaR9PxcWC\",\"kv\":1,\"v\":1,\"wk\":\"CNBIMNRFysXTOybpRsIGSWbOtHgkonkXRZKOeLjB35ivO1TmfVZL7beMUk_aGmGEGG-ZmmUoT-3c0TqP\"}",
+      "envelopeHex": "53594d4f010000008e7b22616c67223a224132353647434d222c226976223a22356d475768365a536152395078635743222c226b76223a312c2276223a312c22776b223a22434e42494d4e5246797358544f796270527349475357624f7448676b6f6e6b58525a4b4f654c6a42333569764f31546d66565a4c3762654d556b5f61476d474547472d5a6d6d556f542d336330547150227dc938d87f3ca3b17f18654c9ddddcd43b6a22cc21401a53cd24a773a1f98c616e08b9cb64185b8c4293d1fc12"
+    },
+    {
+      "name": "search-index-empty",
+      "dataKey": "f3d2fe44436deb8ef72893d9ff0c8cfa16a0aff92bf0cc07f804d081e2dcfc98",
+      "context": {
+        "kind": "search_index",
+        "ownerId": "0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b",
+        "objectId": "u/0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b/search/3-0199a1b2.idx",
+        "formatVersion": 2
+      },
+      "plaintextHex": "",
+      "random": [
+        "a2e290603fb384ecbd15369d19f992927ac63e2cd78195d0f69fda79abce77b2",
+        "9a9ee82cd0dd292f2c83dffb",
+        "6dedff68187e30c54fbfd9a4"
+      ],
+      "aad": "{\"f\":\"symo1\",\"i\":\"u/0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b/search/3-0199a1b2.idx\",\"k\":1,\"o\":\"0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b\",\"p\":\"search_index\",\"v\":2}",
+      "header": "{\"alg\":\"A256GCM\",\"iv\":\"be3_aBh-MMVPv9mk\",\"kv\":1,\"v\":2,\"wk\":\"mp7oLNDdKS8sg9_7JJW9nd-EqQGoaadEcAY3TJzTcvJgeKH1DjVjBAJSA-ZmXrxkBWBXRCLoqAoADUJ_\"}",
+      "envelopeHex": "53594d4f010000008e7b22616c67223a224132353647434d222c226976223a226265335f6142682d4d4d565076396d6b222c226b76223a312c2276223a322c22776b223a226d70376f4c4e44644b53387367395f374a4a57396e642d457151476f6161644563415933544a7a5463764a67654b4831446a566a42414a53412d5a6d5872786b4257425852434c6f71416f4144554a5f227d9c619337ae218be8545d79d257f5dab8"
+    }
+  ],
+  "vault": {
+    "vaultKey": "461bf4ce1bc8abd52e1fd054ca1c0622c9cd817eaf0d60f49f0214598a451602",
+    "passphrase": {
+      "passphraseKey": "f825d8a62373b672d0c0c996f07a0a9b639c576041839d7427fa3c346138ed7e",
+      "context": {
+        "ownerId": "0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b",
+        "vaultVersion": 3
+      },
+      "random": ["584830d26b16e21ef40a13f4"],
+      "aad": "{\"f\":\"symk1\",\"o\":\"0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b\",\"p\":\"vault-pass\",\"vv\":3}",
+      "wrapped": "WEgw0msW4h70ChP0D9yYeuEqzvwSGKMGgoAI8rUgGb-pMIemKAUM7PyOrH4SULWguvGk0dXY22zZhTR4"
+    },
+    "recovery": {
+      "ownerId": "0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b",
+      "recoveryKeyVersion": 2,
+      "random": ["2c88d78b5e39ef6b59628f2f"],
+      "wrappingKey": "ab9a9bcba65b614663ead1e925fc48db35843e5397392dd2f05c449f6bd95077",
+      "aad": "{\"f\":\"symk1\",\"o\":\"0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b\",\"p\":\"vault-recovery\",\"rk\":2}",
+      "wrapped": "LIjXi14572tZYo8vqoZEjUGoIJfFuaF41ZyoXCEqSjwUM4cLDd6cS9E-XFNqqpyk4R1KABHbxVIGK1Mn"
+    },
+    "session": {
+      "sessionToken": "gfTd5tjaPN8_6rkmrK7hEcD7kCn4qGKCyRRNvr_C6F0",
+      "context": {
+        "ownerId": "0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b",
+        "vaultSessionId": "0199a1b2-0000-7000-8000-0000000000v5"
+      },
+      "random": ["ef5deff044624795a063b462"],
+      "wrappingKey": "6572e979ce5919db54c65e2a0a32d63561a31b27773f596d80d36b5447a98bc7",
+      "aad": "{\"f\":\"symk1\",\"o\":\"0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b\",\"p\":\"vault-session\",\"s\":\"0199a1b2-0000-7000-8000-0000000000v5\"}",
+      "wrapped": "713v8ERiR5WgY7RiJLzVipbeLbDR9Gk4YUbOiyqYg8unqS9OlYyDKbUaGKp-00Kp8H2QwHscU6nCHFmU"
+    },
+    "item": {
+      "context": {
+        "ownerId": "0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b",
+        "itemId": "0199a1b2-0000-7000-8000-0000000000i1"
+      },
+      "plaintextHex": "7b226b696e64223a22736563726574222c2276616c7565223a2268756e746572322d7468726f7761776179227d",
+      "random": ["a04cced8fc3bc1b2cf56d9b9"],
+      "aad": "{\"f\":\"sym1\",\"i\":\"0199a1b2-0000-7000-8000-0000000000i1\",\"o\":\"0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b\",\"p\":\"vault-item\"}",
+      "envelope": "sym1.1.oEzO2Pw7wbLPVtm5.xGpUPtE2wHxOx4TrN4avt7CQ19Arh1GNPdxvMFSE5AvmNSIf2rR7an2XS3GxqXcSw2Lhz010gmGdrEpohQ"
+    },
+    "grant": {
+      "dataKey": "f3d2fe44436deb8ef72893d9ff0c8cfa16a0aff92bf0cc07f804d081e2dcfc98",
+      "context": {
+        "ownerId": "0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b",
+        "grantId": "0199a1b2-0000-7000-8000-0000000000g1",
+        "taskId": "0199a1b2-0000-7000-8000-000000000001"
+      },
+      "plaintextHex": "68756e746572322d7468726f7761776179",
+      "random": ["0d82df0af1470d7ef7b79fe3"],
+      "aad": "{\"f\":\"sym1\",\"g\":\"0199a1b2-0000-7000-8000-0000000000g1\",\"o\":\"0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b\",\"p\":\"vault-grant\",\"t\":\"0199a1b2-0000-7000-8000-000000000001\"}",
+      "envelope": "sym1.1.DYLfCvFHDX73t5_j.r-giqVjlF_dcy-s3BKH1P8pqn_qUTSpr4ICVrSRCya_v"
+    }
+  },
+  "digests": [
+    {
+      "purpose": "session",
+      "family": "SESSION_DIGEST_SECRET",
+      "version": 2,
+      "valueText": "session:value:0199a1b2-é",
+      "digest": "a3y2JYdUgaYKn7ubMvIRo3MBeswGwCt0QJtdascdMJ0"
+    },
+    {
+      "purpose": "session",
+      "family": "SESSION_DIGEST_SECRET",
+      "version": 1,
+      "valueText": "session:value:0199a1b2-é",
+      "digest": "TWc_KGbhuWImF6OcP_1AQEhC9YwiF5rE7XFcUiHkeho"
+    },
+    {
+      "purpose": "csrf",
+      "family": "SESSION_DIGEST_SECRET",
+      "version": 2,
+      "valueText": "csrf:value:0199a1b2-é",
+      "digest": "92hQUHdZ7c5PGI00FQLPiVyv3kaK-h0gc-0_voIYTbk"
+    },
+    {
+      "purpose": "csrf",
+      "family": "SESSION_DIGEST_SECRET",
+      "version": 1,
+      "valueText": "csrf:value:0199a1b2-é",
+      "digest": "6dTaJCZVYJmCjV-ae4JHCI4JuAK693dhphnHBJ-aA8k"
+    },
+    {
+      "purpose": "vault-session",
+      "family": "SESSION_DIGEST_SECRET",
+      "version": 2,
+      "valueText": "vault-session:value:0199a1b2-é",
+      "digest": "Sby-kfFkIrELInJ2JqPgCJChjizUZ2IfY1IrviY6x4Q"
+    },
+    {
+      "purpose": "vault-session",
+      "family": "SESSION_DIGEST_SECRET",
+      "version": 1,
+      "valueText": "vault-session:value:0199a1b2-é",
+      "digest": "AWHvvIhCiiqKMe1DLd022GaCAbYxgZ-4kIu8_sxflcU"
+    },
+    {
+      "purpose": "otp",
+      "family": "OTP_DIGEST_SECRET",
+      "version": 1,
+      "valueText": "otp:value:0199a1b2-é",
+      "digest": "ApOFYHTKmlfAB8UOvpzAH449pXCvK6kTpadCvCHivAw"
+    },
+    {
+      "purpose": "otp-limit-email",
+      "family": "OTP_DIGEST_SECRET",
+      "version": 1,
+      "valueText": "otp-limit-email:value:0199a1b2-é",
+      "digest": "kWJToUTPjMS4ngVTs4DZ_Ijeu2-uIi3FoIjD9VXINFs"
+    },
+    {
+      "purpose": "account-tombstone",
+      "family": "OTP_DIGEST_SECRET",
+      "version": 1,
+      "valueText": "account-tombstone:value:0199a1b2-é",
+      "digest": "pxMmjhmyCKmYr3VjuwROULdQOn23AL3E-JW4n7v3j5U"
+    },
+    {
+      "purpose": "invite",
+      "family": "INVITE_DIGEST_SECRET",
+      "version": 1,
+      "valueText": "invite:value:0199a1b2-é",
+      "digest": "8bZjXEelzrkUPYX0O8nj_-HdAxCcVSSnVzywbbnOTpE"
+    },
+    {
+      "purpose": "share-token",
+      "family": "SHARE_DIGEST_SECRET",
+      "version": 1,
+      "valueText": "share-token:value:0199a1b2-é",
+      "digest": "jQcfguQ6e8oN87Co9ajjomydgTAjcXN4zNeCKf7xo0E"
+    },
+    {
+      "purpose": "share-form",
+      "family": "SHARE_DIGEST_SECRET",
+      "version": 1,
+      "valueText": "share-form:value:0199a1b2-é",
+      "digest": "iIPtlMawF02oku_XZ-kCeA1a0Z4NcT3DuWwlgiZf13M"
+    },
+    {
+      "purpose": "share-session",
+      "family": "SHARE_SESSION_DIGEST_SECRET",
+      "version": 1,
+      "valueText": "share-session:value:0199a1b2-é",
+      "digest": "zNMGG14lrX79e0ArzzMGsu_JahCp3OWqo_O__GpIDqI"
+    },
+    {
+      "purpose": "mcp-key",
+      "family": "MCP_TOKEN_DIGEST_SECRET",
+      "version": 1,
+      "valueText": "mcp-key:value:0199a1b2-é",
+      "digest": "nbmm8o2dIB7tQl_wZFqMH8vzMOkwZGkmf-buwzEa29o"
+    },
+    {
+      "purpose": "oauth-code",
+      "family": "MCP_TOKEN_DIGEST_SECRET",
+      "version": 1,
+      "valueText": "oauth-code:value:0199a1b2-é",
+      "digest": "kfMyyM3VFeN7IJOKJ3RSW4gJv_j-tdq6Ifq73uUnND4"
+    },
+    {
+      "purpose": "oauth-refresh",
+      "family": "MCP_TOKEN_DIGEST_SECRET",
+      "version": 1,
+      "valueText": "oauth-refresh:value:0199a1b2-é",
+      "digest": "ML7DUb2cyTPLPMuIEh_iUUODFd0AbF77ynfQ5hP4b9k"
+    },
+    {
+      "purpose": "idem",
+      "family": "IDEMPOTENCY_SECRET",
+      "version": 1,
+      "valueText": "idem:value:0199a1b2-é",
+      "digest": "fcpaZyCRlQzjnYFg2cODIU2uf_GLfj-RvtpgEaAeAoQ"
+    },
+    {
+      "purpose": "reminder-unsubscribe",
+      "family": "REMINDER_UNSUBSCRIBE_SECRET",
+      "version": 1,
+      "valueText": "reminder-unsubscribe:value:0199a1b2-é",
+      "digest": "uxFxBImG1nleZKmv3SfPli4IX7Sq7rFjHNW6HpsypvM"
+    },
+    {
+      "purpose": "session",
+      "family": "SESSION_DIGEST_SECRET",
+      "version": 2,
+      "valueHex": "c507f8caf6a885a03532d0d58b11c9bfc5621f36634ec053b5aa9d57c50d6dae",
+      "digest": "PuiYlijzK8kiVDWINEQMqkl0DaSjfLyyCVFR4W-5zU0"
+    }
+  ],
+  "otp": [
+    {
+      "challengeId": "0199a1b2-0000-7000-8000-0000000000c1",
+      "purpose": "login",
+      "code": "042917",
+      "value": "[\"0199a1b2-0000-7000-8000-0000000000c1\",\"login\",\"042917\"]",
+      "version": 1,
+      "digest": "mBjOR3lC2fpfEntpxiyUthmsGTZpmKLXcGuvjUazuZs"
+    },
+    {
+      "challengeId": "0199a1b2-0000-7000-8000-0000000000c1",
+      "purpose": "vault_reset",
+      "code": "042917",
+      "value": "[\"0199a1b2-0000-7000-8000-0000000000c1\",\"vault_reset\",\"042917\"]",
+      "version": 1,
+      "digest": "HYxJSmxSOCOr3366GWEVsKCpMf7bznQCCC6FmCjZ2G8"
+    }
+  ],
+  "idempotency": [
+    {
+      "input": {
+        "title": "Budget",
+        "collection": "now",
+        "nested": {
+          "b": [1, 2.5, true, null],
+          "a": "é"
+        }
+      },
+      "canonical": "{\"collection\":\"now\",\"nested\":{\"a\":\"é\",\"b\":[1,2.5,true,null]},\"title\":\"Budget\"}",
+      "version": 1,
+      "digest": "L66kc9zAXrUmSQ8s3Vw68lriA4J7IgtzYTr9Zz7lbWE"
+    }
+  ],
+  "approvalArgs": [
+    {
+      "dataKey": "f3d2fe44436deb8ef72893d9ff0c8cfa16a0aff92bf0cc07f804d081e2dcfc98",
+      "input": {
+        "toolSlug": "GMAIL_SEND_EMAIL",
+        "connectedAccountId": "ca_throwaway123",
+        "arguments": {
+          "to": "someone@example.test",
+          "subject": "Hi",
+          "body": "Hello ✅"
+        }
+      },
+      "canonical": "{\"arguments\":{\"body\":\"Hello ✅\",\"subject\":\"Hi\",\"to\":\"someone@example.test\"},\"connectedAccountId\":\"ca_throwaway123\",\"toolSlug\":\"GMAIL_SEND_EMAIL\"}",
+      "digestKey": "4ef9d8866f57298ba771320abd25078340d779dd82d18de9424cdbbba20d3d23",
+      "digest": "I8iqiMcSjy8Z_oKVI0tNUIOhemm0wzLY9IkfefJtnko"
+    }
+  ],
+  "emailSuppression": [
+    {
+      "email": "maya@example.test",
+      "version": 2,
+      "digest": "RiSWp1xbfBQegeFegQd9iV_HopThtZP7P-RRwkQN4DI"
+    },
+    {
+      "email": "maya@example.test",
+      "version": 1,
+      "digest": "NKCYpguGMLdiNK7G1KibAMvRW9QjHTCnL8InMcLDjT4"
+    }
+  ],
+  "argon2id": [
+    {
+      "name": "passphrase",
+      "secret": "correct horse battery staple ✅",
+      "salt": "49922806cfeb5a65e39f6e54bb9da6fa",
+      "record": {
+        "v": 1,
+        "alg": "argon2id",
+        "m": 19456,
+        "t": 2,
+        "p": 1,
+        "salt": "SZIoBs_rWmXjn25Uu52m-g",
+        "hash": "-iHuTtzjkYw2sOx5R4A-N-9uckXcbMppYYklwh2nH3o"
+      }
+    },
+    {
+      "name": "nfkc-fullwidth",
+      "secret": "ｃｏｒｒｅｃｔ",
+      "normalized": "correct",
+      "salt": "49922806cfeb5a65e39f6e54bb9da6fa",
+      "record": {
+        "v": 1,
+        "alg": "argon2id",
+        "m": 19456,
+        "t": 2,
+        "p": 1,
+        "salt": "SZIoBs_rWmXjn25Uu52m-g",
+        "hash": "2e1tE3SV5dTz-7nIkZW5hOJW11WQdDGW8OPix82I3MA"
+      }
+    }
+  ]
+}
