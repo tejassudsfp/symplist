@@ -317,7 +317,7 @@ describe("the restriction routine (§5.5)", () => {
     expect(await service.load(failing ?? "")).toMatchObject({ betaState: "unlocked" });
   });
 
-  it("registers the foundation seam contributors, which contribute nothing yet", () => {
+  it("registers every domain's seam contributor in batch order", () => {
     const service = new D1AccessService({ db, policy });
     expect(restrictContributors.map((contributor) => contributor.domain)).toEqual([
       "access",
@@ -328,7 +328,11 @@ describe("the restriction routine (§5.5)", () => {
       "mcp",
       "connections",
     ]);
-    expect(service.restrictStatements(input(uuidv7(now)))).toHaveLength(1);
+    // The deciding UPDATE users comes first; feature domains append their guarded statements, which
+    // restrictStatements has already checked against the §5.5 rules.
+    const statements = service.restrictStatements(input(uuidv7(now)));
+    expect(statements[0]?.sql).toMatch(/^UPDATE users SET beta_state = 'relocked'/);
+    expect(statements.length).toBeGreaterThanOrEqual(1);
   });
 });
 

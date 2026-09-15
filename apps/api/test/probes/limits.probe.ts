@@ -11,14 +11,14 @@ import { IpLimit } from "../../src/infra/limits/ip-limits.ts";
 export class LimitsProbeController {
   constructor(private readonly failures: IpFailureLimiter) {}
 
-  @Post("auth/lookup")
+  @Post("auth/probe-lookup")
   @RouteClass("pre_session")
   @IpLimit("auth_lookup")
   lookup(@Req() req: Request) {
     return { ip: clientIp(req) };
   }
 
-  @Post("auth/signup")
+  @Post("auth/probe-signup")
   @RouteClass("pre_session")
   @IpLimit("auth_lookup")
   signup() {

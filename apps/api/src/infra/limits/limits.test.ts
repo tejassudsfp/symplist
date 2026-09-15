@@ -26,7 +26,7 @@ async function boot(env: Record<string, string> = {}): Promise<TestApp> {
 }
 
 const lookup = (app: TestApp, headers: Record<string, string> = {}) =>
-  app.post("/v1/auth/lookup", { csrf: "1", headers });
+  app.post("/v1/auth/probe-lookup", { csrf: "1", headers });
 
 describe("in-memory per-IP buckets (§5.8)", () => {
   it("refuses the request past the bucket with rate.limited and Retry-After, before any D1 access", async () => {
@@ -36,7 +36,7 @@ describe("in-memory per-IP buckets (§5.8)", () => {
       expect((await lookup(app)).status).toBe(201);
     }
     // Lookup and signup share one bucket.
-    expect((await app.post("/v1/auth/signup", { csrf: "1" })).status).toBe(201);
+    expect((await app.post("/v1/auth/probe-signup", { csrf: "1" })).status).toBe(201);
 
     const batch = vi.spyOn(app.db, "batch");
     const refused = await lookup(app);

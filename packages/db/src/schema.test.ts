@@ -137,13 +137,14 @@ afterAll(() => {
 });
 
 describe("foundation schema (§3.4)", () => {
-  it("creates every foundation table as STRICT", async () => {
+  it("creates every foundation table, and every other table, as STRICT", async () => {
     const tables = await db.all<{ name: string; strict: number }>(
       sql(
         `SELECT name, strict FROM pragma_table_list WHERE schema = 'main' AND type = 'table' AND name NOT LIKE 'sqlite_%' AND name <> 'd1_migrations' ORDER BY name`,
       ),
     );
-    expect(tables.map((table) => table.name)).toEqual(foundationTables);
+    // Feature ranges (§3.4) add their own tables to the same migrations directory.
+    expect(tables.map((table) => table.name)).toEqual(expect.arrayContaining(foundationTables));
     expect(tables.every((table) => table.strict === 1)).toBe(true);
   });
 
