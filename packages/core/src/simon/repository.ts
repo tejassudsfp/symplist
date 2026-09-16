@@ -8,6 +8,7 @@ import {
   zeroize,
 } from "@symplist/crypto";
 import { int, type Statement, sql, uuidv7 } from "@symplist/db";
+import { receiptStatement } from "@symplist/docs";
 import { evaluateAccess } from "../access/evaluate.ts";
 import { accessCondition, accessStateFromRow, accessStateSelectList } from "../access/sql.ts";
 import { AccountKeyStore } from "../account/keys.ts";
@@ -400,6 +401,26 @@ export class SimonRepository {
     }
     const telemetry = extra?.telemetry;
     if (
+      extra?.retrievedBytes !== undefined &&
+      (!Number.isSafeInteger(extra.retrievedBytes) ||
+        extra.retrievedBytes < 0 ||
+        extra.retrievedBytes > 96_000)
+    )
+      throw new SimonError("validation");
+    if (
+      extra?.receipts &&
+      (extra.receipts.length > 10 ||
+        extra.snapshotJson === undefined ||
+        extra.receipts.some(
+          (receipt) =>
+            receipt.ownerId !== run.ownerId ||
+            receipt.runId !== run.id ||
+            receipt.reader.kind !== "conversation" ||
+            receipt.reader.id !== run.conversationId,
+        ))
+    )
+      throw new SimonError("validation");
+    if (
       telemetry &&
       (![telemetry.inputTokens, telemetry.outputTokens].every(
         (n) => Number.isSafeInteger(n) && n >= 0,
@@ -413,6 +434,7 @@ export class SimonRepository {
         `UPDATE runs SET status = :status, steps = :steps, heartbeat_at = :now,
         finished_at = CASE WHEN :status = 'running' THEN NULL ELSE :now END, write_id = :w
         ${telemetry ? ", provider = :provider, model = :model, rules_version = :rules, input_tokens = :input_tokens, output_tokens = :output_tokens" : ""}
+        ${extra?.retrievedBytes !== undefined ? ", retrieved_bytes = MAX(retrieved_bytes, CAST(:retrieved_bytes AS INTEGER))" : ""}
         WHERE id = :run AND owner_id = :owner AND executor_generation = :generation AND ${stopGuard}
         ${extra?.guard ? `AND ${extra.guard.sql}` : ""}`,
         {
@@ -423,6 +445,9 @@ export class SimonRepository {
           steps: int(steps),
           now: int(now),
           ...extra?.guard?.params,
+          ...(extra?.retrievedBytes !== undefined
+            ? { retrieved_bytes: int(extra.retrievedBytes) }
+            : {}),
           ...(telemetry
             ? {
                 provider: telemetry.provider,
@@ -490,6 +515,12 @@ export class SimonRepository {
           ]
         : []),
       ...(extra?.statements ?? []),
+      ...(extra?.receipts ?? []).map((receipt) =>
+        receiptStatement(receipt, now, {
+          sql: "EXISTS (SELECT 1 FROM runs WHERE id = :checkpoint_run AND write_id = :checkpoint_write)",
+          params: { checkpoint_run: run.id, checkpoint_write: writeId },
+        }),
+      ),
       ...(terminal ? this.releaseStatements(run.id, writeId, now) : []),
       sql("SELECT id FROM runs WHERE id = :run AND write_id = :w", params),
     ];

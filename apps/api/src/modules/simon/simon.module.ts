@@ -1,13 +1,18 @@
 import { Inject, Injectable, Module, type OnModuleInit } from "@nestjs/common";
+import { DocumentRepository, DocumentTools } from "@symplist/core/documents";
 import { SimonRepository } from "@symplist/core/simon";
 import type { KeyProvider } from "@symplist/crypto";
 import type { DbClient } from "@symplist/db";
+import type { GitService } from "@symplist/docs";
+import type { ObjectStore } from "@symplist/storage";
 import { CLOCK, type Clock } from "../../common/clock.ts";
 import { AppLogger } from "../../common/logging/logger.ts";
 import { API_CONFIG, type ApiConfig } from "../../infra/config/api-config.ts";
 import { KEY_PROVIDER } from "../../infra/crypto/crypto.providers.ts";
 import { DB_CLIENT } from "../../infra/db/db.providers.ts";
+import { DOCUMENT_GIT } from "../../infra/documents/git.module.ts";
 import { ExecutionRegistry } from "../../infra/executors/execution-registry.ts";
+import { OBJECT_STORE } from "../../infra/storage/storage.providers.ts";
 import { TopicHub } from "../realtime/topic-hub.ts";
 import { createLocalSimonHandler } from "./simon.local.ts";
 
@@ -18,13 +23,20 @@ export class SimonLifecycle implements OnModuleInit {
     @Inject(API_CONFIG) private readonly config: ApiConfig,
     @Inject(ExecutionRegistry) private readonly registry: ExecutionRegistry,
     @Inject(TopicHub) private readonly hub: TopicHub,
+    @Inject(DocumentTools) private readonly documents: DocumentTools,
     private readonly logger: AppLogger,
   ) {}
   onModuleInit(): void {
     if (!this.config.DURABLE)
       this.registry.registerLocalHandler(
         "simon_run",
-        createLocalSimonHandler(this.repository, this.config, this.hub, this.logger),
+        createLocalSimonHandler(
+          this.repository,
+          this.config,
+          this.hub,
+          this.logger,
+          this.documents,
+        ),
       );
   }
 }
@@ -32,6 +44,54 @@ export class SimonLifecycle implements OnModuleInit {
 /** The simon feature: controllers, gateway handlers and providers live in this folder (§2.3). */
 @Module({
   providers: [
+    {
+      provide: DocumentTools,
+      inject: [
+        DB_CLIENT,
+        KEY_PROVIDER,
+        OBJECT_STORE,
+        DOCUMENT_GIT,
+        API_CONFIG,
+        CLOCK,
+        TopicHub,
+        AppLogger,
+      ],
+      useFactory: (
+        db: DbClient,
+        keys: KeyProvider,
+        objects: ObjectStore,
+        git: GitService,
+        config: ApiConfig,
+        clock: Clock,
+        hub: TopicHub,
+        logger: AppLogger,
+      ) =>
+        new DocumentTools(
+          new DocumentRepository({
+            db,
+            keys,
+            objects,
+            git,
+            accessPolicy: { betaAccessRequired: config.BETA_ACCESS_REQUIRED },
+            now: () => clock.now(),
+            docMaxBytes: config.DOC_MAX_BYTES,
+            events: {
+              headChanged: async (event) => {
+                await hub.publishToUser(event.ownerId, {
+                  type: "document.head_changed",
+                  data: {
+                    taskId: event.taskId,
+                    revision: event.revision,
+                    author: event.author,
+                    changedSectionIds: event.changedSectionIds.slice(0, 100),
+                  },
+                });
+              },
+              onError: () => logger.warn("documents.announce_failed"),
+            },
+          }),
+        ),
+    },
     {
       provide: SimonRepository,
       inject: [DB_CLIENT, KEY_PROVIDER, CLOCK, API_CONFIG],

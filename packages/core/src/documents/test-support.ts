@@ -2,7 +2,12 @@ import { randomBytes } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createKeyProvider, type ManagedKeyProvider } from "@symplist/crypto";
+import {
+  createKeyProvider,
+  encryptFieldText,
+  type ManagedKeyProvider,
+  zeroize,
+} from "@symplist/crypto";
 import {
   applyMigrations,
   createLocalSqliteClient,
@@ -14,6 +19,7 @@ import {
 import { CiphertextCache, GitService } from "@symplist/docs";
 import { createLocalObjectStore, type LocalObjectStore } from "@symplist/storage";
 import { AccountKeyStore } from "../account/keys.ts";
+import { taskTitleContext } from "../tasks/sql.ts";
 import type { DocumentActor, McpDocumentActor, SimonDocumentActor } from "./actor.ts";
 import type { DocumentHeadChanged } from "./events.ts";
 import { DocumentRepository, type DocumentRepositoryOptions } from "./repository.ts";
@@ -100,11 +106,18 @@ export async function createDocumentsTestEnvironment(
     },
     async createTask(ownerId) {
       const id = uuidv7(environment.clock);
+      const key = await accountKeys.require(ownerId);
+      let title: string;
+      try {
+        title = encryptFieldText(key, taskTitleContext(ownerId, id), "Test task");
+      } finally {
+        zeroize(key.key);
+      }
       await db.run(
         sql(
           `INSERT INTO tasks (id, owner_id, collection, position, source, write_id, title_enc, created_at, updated_at)
-           VALUES (:id, :owner, 'now', 'a0', 'user', :w, 'sym1.1.x.y', :now, :now)`,
-          { id, owner: ownerId, w: uuidv7(environment.clock), now: int(environment.clock) },
+           VALUES (:id, :owner, 'now', 'a0', 'user', :w, :title, :now, :now)`,
+          { id, owner: ownerId, title, w: uuidv7(environment.clock), now: int(environment.clock) },
         ),
       );
       return id;

@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AccountKeyStore } from "@symplist/core/account";
 import { type DocumentGitJobActor, DurableDocumentGit } from "@symplist/core/documents";
-import { createKeyProvider } from "@symplist/crypto";
+import { SimonRepository } from "@symplist/core/simon";
+import { createKeyProvider, type ManagedKeyProvider } from "@symplist/crypto";
 import {
   applyMigrations,
   createLocalSqliteClient,
@@ -68,6 +69,7 @@ describe("document-git body with local drivers (§9.1, §8.3)", () => {
   let db: LocalSqliteClient;
   let worker: DocumentWorker;
   let accountKeys: AccountKeyStore;
+  let keys: ManagedKeyProvider;
   const logLines: string[] = [];
   const announced: unknown[] = [];
 
@@ -75,7 +77,7 @@ describe("document-git body with local drivers (§9.1, §8.3)", () => {
     dir = mkdtempSync(join(tmpdir(), "symplist-worker-docs-"));
     db = createLocalSqliteClient({ path: join(dir, "d1.sqlite"), env: {} });
     await applyMigrations(db);
-    const keys = createKeyProvider(
+    keys = createKeyProvider(
       { CONTENT_KEK: { current: 1, versions: new Map([[1, randomBytes(32)]]) } },
       { required: ["CONTENT_KEK"] },
     );
@@ -107,6 +109,7 @@ describe("document-git body with local drivers (§9.1, §8.3)", () => {
 
   afterEach(() => {
     db.close();
+    keys.destroy();
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -128,6 +131,22 @@ describe("document-git body with local drivers (§9.1, §8.3)", () => {
       ),
     ]);
     const marker = "MARKER-worker-document-git";
+    await db.run(sql("UPDATE executor_state SET mode = 'durable'"));
+    const simon = new SimonRepository({
+      db,
+      keys,
+      now: () => now,
+      policy: { betaAccessRequired: true },
+      quickChatTtlHours: 24,
+    });
+    const conversationId = await simon.createConversation(owner, taskId);
+    const accepted = await simon.acceptMessage(owner, conversationId, "document-job", {
+      text: "Edit page",
+      tier: "fast",
+    });
+    const claim = await simon.claim(String(accepted.runId), "trigger");
+    if (!claim) throw new Error("missing claim");
+    simon.releaseClaim(claim);
     const payloads: unknown[] = [];
     const results: unknown[] = [];
     const durable = new DurableDocumentGit({
@@ -141,8 +160,8 @@ describe("document-git body with local drivers (§9.1, §8.3)", () => {
       },
     });
     const actor: DocumentGitJobActor = {
-      conversationId: uuidv7(now),
-      runId: uuidv7(now),
+      conversationId,
+      runId: claim.run.id,
       toolCallId: "call_worker_1",
       contextEpoch: 0,
       mode: "task",

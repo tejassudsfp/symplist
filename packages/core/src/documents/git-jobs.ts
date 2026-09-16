@@ -81,6 +81,31 @@ function budgetOf(bytes: number): RetrievalBudget {
   };
 }
 
+/** Child Git work retains its parent's live claim; generation alone cannot fence Stop or a forged context. */
+function parentRunGuard(ownerId: string, actor: DocumentGitJobActor, now: number): SqlGuard {
+  return {
+    sql: `EXISTS (SELECT 1 FROM runs r JOIN conversations c ON c.id = r.conversation_id
+      JOIN executor_state e ON e.id = 1
+      WHERE r.id = :doc_parent_run AND r.owner_id = :doc_parent_owner AND c.owner_id = r.owner_id
+      AND r.conversation_id = :doc_parent_conversation AND c.active_run_id = r.id
+      AND COALESCE(r.task_id, '') = :doc_parent_task AND c.task_id IS r.task_id AND c.context_epoch = CAST(:doc_parent_epoch AS INTEGER)
+      AND c.kind = :doc_parent_kind AND (c.expires_at IS NULL OR c.expires_at > CAST(:doc_parent_now AS INTEGER))
+      AND r.status = 'running' AND r.cancel_requested_at IS NULL AND r.executor = 'trigger'
+      AND e.mode = 'durable' AND e.generation = r.executor_generation AND e.generation = CAST(:doc_parent_generation AS INTEGER)
+      AND (r.task_id IS NULL OR EXISTS (SELECT 1 FROM tasks t WHERE t.id = r.task_id AND t.owner_id = r.owner_id AND t.status = 'active')))`,
+    params: {
+      doc_parent_run: actor.runId,
+      doc_parent_owner: ownerId,
+      doc_parent_conversation: actor.conversationId,
+      doc_parent_task: actor.taskId ?? "",
+      doc_parent_epoch: int(actor.contextEpoch),
+      doc_parent_kind: actor.mode,
+      doc_parent_now: int(now),
+      doc_parent_generation: int(actor.executorGeneration),
+    },
+  };
+}
+
 /**
  * Runs one Git-backed document tool operation for Simon. The same function serves the in-process path
  * (`DURABLE=false`) and the `document-git` task, so both executors behave identically (§9.1).
@@ -280,10 +305,17 @@ export async function runDocumentGitJob(input: {
       jobInput.actor?.runId !== payload.runId ||
       jobInput.actor?.toolCallId !== payload.toolCallId ||
       !Number.isSafeInteger(jobInput.actor.executorGeneration) ||
-      !Number.isSafeInteger(jobInput.remainingBudgetBytes)
+      !Number.isSafeInteger(jobInput.actor.contextEpoch) ||
+      jobInput.actor.contextEpoch < 0 ||
+      !["task", "quick"].includes(jobInput.actor.mode) ||
+      !Number.isSafeInteger(jobInput.remainingBudgetBytes) ||
+      jobInput.remainingBudgetBytes < 0 ||
+      jobInput.remainingBudgetBytes > 96_000 ||
+      (jobInput.args as { taskId?: unknown } | null)?.taskId !== payload.taskId
     ) {
       return { status: "failed", code: "document_git.input_invalid" };
     }
+    const claimGuard = parentRunGuard(ownerId, jobInput.actor, input.now());
     const actor: SimonDocumentActor = {
       kind: "simon",
       userId: ownerId,
@@ -293,11 +325,15 @@ export async function runDocumentGitJob(input: {
       contextEpoch: jobInput.actor.contextEpoch,
       mode: jobInput.actor.mode,
       taskId: jobInput.actor.taskId,
-      guards: [executorGenerationGuard(jobInput.actor.executorGeneration)],
+      guards: [executorGenerationGuard(jobInput.actor.executorGeneration), claimGuard],
     };
     const budget = budgetOf(jobInput.remainingBudgetBytes);
     let output: DocumentGitJobOutput;
     try {
+      if (
+        !(await input.db.first(sql(`SELECT 1 AS live WHERE ${claimGuard.sql}`, claimGuard.params)))
+      )
+        throw new DocumentError("document.read_only");
       const result = await executeDocumentGitOperation(
         input.tools,
         actor,

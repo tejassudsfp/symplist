@@ -2,11 +2,12 @@ import { type DocumentGitPayload, documentsTools } from "@symplist/contracts";
 import { int, sql, uuidv7 } from "@symplist/db";
 import { DocumentError, jobObjectKey } from "@symplist/docs";
 import { createLocalObjectStore } from "@symplist/storage";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountPurgeRunner } from "../account/purge.ts";
 import { accountPurgeContributor } from "../account/purge-contributors/account.ts";
 import { documentsPurgeContributor } from "../account/purge-contributors/documents.ts";
 import type { PurgeContributor } from "../account/purge-contributors/types.ts";
+import { SimonRepository } from "../simon/repository.ts";
 import {
   type DocumentGitJobActor,
   DurableDocumentGit,
@@ -27,17 +28,19 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   await env.close();
 });
 
-const runId = "0192f0a0-0000-7000-8000-000000000601";
+let runId = "0192f0a0-0000-7000-8000-000000000601";
+let conversationId = "0192f0a0-0000-7000-8000-000000000501";
 
 function jobActor(
   toolCallId: string,
   overrides: Partial<DocumentGitJobActor> = {},
 ): DocumentGitJobActor {
   return {
-    conversationId: "0192f0a0-0000-7000-8000-000000000501",
+    conversationId,
     runId,
     toolCallId,
     contextEpoch: 0,
@@ -49,6 +52,25 @@ function jobActor(
 }
 
 describe("document-git jobs (§9.1, §8.3)", () => {
+  beforeEach(async () => {
+    await env.db.run(sql("UPDATE executor_state SET mode = 'durable'"));
+    const simon = new SimonRepository({
+      db: env.db,
+      keys: env.keys,
+      now: () => env.clock,
+      policy: { betaAccessRequired: true },
+      quickChatTtlHours: 24,
+    });
+    conversationId = await simon.createConversation(owner, task);
+    const accepted = await simon.acceptMessage(owner, conversationId, "document-job", {
+      text: "Edit the page",
+      tier: "fast",
+    });
+    runId = String(accepted.runId);
+    const claimed = await simon.claim(runId, "trigger");
+    if (!claimed) throw new Error("missing claim");
+    simon.releaseClaim(claimed);
+  });
   it("runs Git tools through encrypted job objects with ids-only payloads and cleans up", async () => {
     const triggered: Array<{ payload: DocumentGitPayload; idempotencyKey: string }> = [];
     const worker = (payload: unknown) =>
@@ -205,6 +227,122 @@ describe("document-git jobs (§9.1, §8.3)", () => {
       .catch((failure: unknown) => failure);
     expect((error as DocumentError).code).toBe("document.read_only");
     expect(await env.count("doc_commits")).toBe(0);
+  });
+
+  it.each(["stop", "generation", "conversation", "epoch", "task", "mode"] as const)(
+    "refuses a child whose parent claim no longer matches: %s",
+    async (change) => {
+      if (change === "stop")
+        await env.db.run(
+          sql("UPDATE runs SET cancel_requested_at = :now WHERE id = :run", {
+            now: int(env.clock),
+            run: runId,
+          }),
+        );
+      if (change === "generation")
+        await env.db.run(sql("UPDATE executor_state SET generation = generation + 1"));
+      const overrides: Partial<DocumentGitJobActor> =
+        change === "conversation"
+          ? { conversationId: uuidv7() }
+          : change === "epoch"
+            ? { contextEpoch: 2 }
+            : change === "task"
+              ? { taskId: null }
+              : change === "mode"
+                ? { mode: "quick" }
+                : {};
+      const key = await env.repository.accountKeys.require(owner);
+      try {
+        const bridge = new DurableDocumentGit({
+          artifacts: env.repository.artifacts,
+          now: () => env.clock,
+          triggerAndWait: async (_id, payload) => {
+            const output = await runDocumentGitJob({
+              payload,
+              db: env.db,
+              accountKeys: env.repository.accountKeys,
+              artifacts: env.repository.artifacts,
+              tools: env.tools,
+              now: () => env.clock,
+            });
+            return { ok: output.status === "completed" };
+          },
+        });
+        await expect(
+          bridge.run({
+            ownerId: owner,
+            taskId: task,
+            accountKey: key,
+            actor: jobActor("fenced_child", overrides),
+            op: "update_section",
+            args: {
+              taskId: task,
+              expectedRevision: null,
+              placement: "end",
+              markdown: "## Must not publish",
+            },
+            remainingBudgetBytes: 1_000,
+          }),
+        ).rejects.toMatchObject({ code: "document.read_only" });
+        expect(await env.count("doc_commits")).toBe(0);
+      } finally {
+        key.key.fill(0);
+      }
+    },
+  );
+
+  it("folds Stop into the final publication guard after Git and uploads already finished", async () => {
+    const batch = env.db.batch.bind(env.db);
+    let intercepted = false;
+    vi.spyOn(env.db, "batch").mockImplementation(async (statements) => {
+      if (
+        !intercepted &&
+        statements.some((statement) => /(?:UPDATE|INSERT INTO) doc_repos/.test(statement.sql))
+      ) {
+        intercepted = true;
+        await env.db.run(
+          sql("UPDATE runs SET cancel_requested_at = :now WHERE id = :run", {
+            now: int(env.clock),
+            run: runId,
+          }),
+        );
+      }
+      return batch(statements);
+    });
+    const key = await env.repository.accountKeys.require(owner);
+    try {
+      const bridge = new DurableDocumentGit({
+        artifacts: env.repository.artifacts,
+        now: () => env.clock,
+        triggerAndWait: async (_id, payload) => {
+          const output = await runDocumentGitJob({
+            payload,
+            db: env.db,
+            accountKeys: env.repository.accountKeys,
+            artifacts: env.repository.artifacts,
+            tools: env.tools,
+            now: () => env.clock,
+          });
+          return { ok: output.status === "completed" };
+        },
+      });
+      await expect(
+        bridge.run({
+          ownerId: owner,
+          taskId: task,
+          accountKey: key,
+          actor: jobActor("stop_before_publish"),
+          op: "update_section",
+          args: { taskId: task, expectedRevision: null, placement: "end", markdown: "## Too late" },
+          remainingBudgetBytes: 1_000,
+        }),
+      ).rejects.toMatchObject({ code: "document.read_only" });
+      expect(intercepted).toBe(true);
+      expect(await env.count("doc_commits")).toBe(0);
+      expect(await env.count("doc_repos")).toBe(0);
+    } finally {
+      key.key.fill(0);
+    }
   });
 });
 

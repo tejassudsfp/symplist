@@ -1,6 +1,7 @@
 /** Conversations, runs, dispatch, approvals and user asks (§8). */
 
 export * from "./approvals.ts";
+export * from "./documents.ts";
 export * from "./invocations.ts";
 export * from "./lifecycle.ts";
 export * from "./maintenance.ts";

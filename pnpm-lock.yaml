@@ -623,6 +623,9 @@ importers:
         specifier: 4.6.5
         version: 4.6.5
     devDependencies:
+      '@symplist/crypto':
+        specifier: workspace:*
+        version: link:../crypto
       '@symplist/testing':
         specifier: workspace:*
         version: link:../testing

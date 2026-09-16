@@ -1,3 +1,4 @@
+import type { DocumentTools } from "@symplist/core/documents";
 import type { LocalExecutionHandler } from "@symplist/core/events";
 import type { SimonRepository } from "@symplist/core/simon";
 import type { AppLogger } from "../../common/logging/logger.ts";
@@ -10,6 +11,7 @@ export function createLocalSimonHandler(
   config: ApiConfig,
   hub: TopicHub,
   logger: AppLogger,
+  documents: DocumentTools,
 ): LocalExecutionHandler {
   return async (job, context) => {
     if (config.DURABLE) throw new Error("simon.local_disabled");
@@ -20,6 +22,7 @@ export function createLocalSimonHandler(
       models: createSimonModels(config),
       signal: context.signal,
       telemetryEnabled: config.AI_TELEMETRY_ENABLED,
+      documents: () => ({ tools: documents, git: null }),
       log: (event) => logger.warn("simon.run_event", { code: event.code, runId: job.subjectId }),
       sink: (claim) => ({
         write: async (chunk) => {

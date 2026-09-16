@@ -1,6 +1,7 @@
 import type { simonRunStatusSchema } from "@symplist/contracts";
 import type { AccountDataKey, KeyProvider } from "@symplist/crypto";
 import type { DbClient, DbRow } from "@symplist/db";
+import type { ReceiptDraft } from "@symplist/docs";
 import type { AccessPolicy } from "../access/evaluate.ts";
 import type { ExecutorKind } from "../events/execution.ts";
 
@@ -43,6 +44,9 @@ export interface ClaimedSimonRun {
 }
 
 export interface SimonCheckpointData {
+  /** Native document receipts are persisted only with the step containing their tool results. */
+  readonly receipts?: readonly ReceiptDraft[];
+  readonly retrievedBytes?: number;
   /** A validated AI SDK UI message, stored only in an encrypted message_parts envelope. */
   readonly snapshotJson?: string;
   readonly telemetry?: {

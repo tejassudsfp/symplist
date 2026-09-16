@@ -22,6 +22,7 @@ import { AccountPurgeModule } from "../account/account-purge.module.ts";
 import { API_CONFIG, type ApiConfig } from "../config/api-config.ts";
 import { KEY_PROVIDER } from "../crypto/crypto.providers.ts";
 import { DB_CLIENT } from "../db/db.providers.ts";
+import { DocumentGitRuntimeModule } from "../documents/git.module.ts";
 import { type ExecutorsDependencies, ExecutorsModule } from "../executors/executors.module.ts";
 import { RUNTIME_TIMERS, type RuntimeTimers } from "../scheduler/runtime.ts";
 import { type SchedulerDependencies, SchedulerModule } from "../scheduler/scheduler.module.ts";
@@ -63,6 +64,7 @@ export function runtimeModules(options: RuntimeOptions = {}): DynamicModule[] {
     ...replaced,
   ];
   return [
+    { module: DocumentGitRuntimeModule },
     ExecutorsModule.forRoot({
       inject: [API_CONFIG, DB_CLIENT, TRIGGER_CLIENT, RUNTIME_TIMERS, AppLogger],
       useFactory: (

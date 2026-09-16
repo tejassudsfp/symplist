@@ -85,7 +85,7 @@ Maps every specification, screen and required flow to implementation and verific
 | Existing account OTP login and access-state routing (unlocked, locked, relocked, suspended) | In progress | `access.spec.ts` (relocked and restored); `packages/core/src/access/evaluate.test.ts` and `apps/web/src/features/access/session*.test.*` for every state | `apps/e2e/evidence/access/*-access-paused.png`; a returning-account login journey is not yet driven end to end |
 | Edit page → saved → history → compare → restore as new commit | Implemented | `apps/web/src/features/documents/**/*.test.tsx`, `packages/docs/src/**/*.test.ts` | Component level only; no Playwright journey |
 | Concurrent edit conflict → review → keep draft | Implemented | `apps/web/src/features/documents/conflict-review.test.tsx` | Component level only |
-| Simon reads a section → edits a section → page updates | Not started | | |
+| Simon reads a section → edits a section → page updates | In progress | `packages/agent/src/documents.ts`, `packages/core/src/simon/documents.ts`, local/Trigger adapters | `packages/agent/src/documents.test.ts` runs the same read → atomic receipt/checkpoint → edit → stale-revision conflict flow under both executors. Durable Git uses real encrypted job objects and the child handler. Browser page-update journey remains Phase E. |
 | Simon connector action → exact-argument approval → per-action outcome | Not started | | |
 | Quick chat → save as task → end → 24-hour expiry | Not started | | |
 | Drag Now → Later with Undo; keyboard Move to | Verified | `workspace.spec.ts` "moves a task from Now to Later and back with Undo" | `apps/e2e/evidence/workspace/workspace_later--moved-in--*.png` |

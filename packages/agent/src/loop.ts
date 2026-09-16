@@ -36,6 +36,8 @@ export interface SimonLoopDependencies {
   readonly selectedModel: SelectedSimonModel;
   /** Loaded from owner-bound encrypted storage, never supplied by the browser. */
   readonly history: readonly UIMessage[];
+  /** Only task identity/title/revision/read positions; never the document body. */
+  readonly initialContext?: string;
   readonly tools: ToolSet;
   readonly signal: AbortSignal;
   /** Fresh generation, cancellation, task and access check before every step and tool. */
@@ -132,7 +134,7 @@ export async function runSimonModelLoop(
   };
   const result = streamText({
     model: deps.selectedModel.model,
-    instructions: simonInstructions(deps.kind),
+    instructions: [simonInstructions(deps.kind), deps.initialContext].filter(Boolean).join("\n\n"),
     messages: modelMessages,
     tools,
     stopWhen: [isStepCount(10), () => deps.pauseStatus() !== null || failure || fenced],

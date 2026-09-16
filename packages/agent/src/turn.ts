@@ -1,9 +1,11 @@
+import type { DocumentTools, DurableDocumentGit } from "@symplist/core/documents";
 import type { ExecutorKind } from "@symplist/core/events";
 import {
   type ApprovalProposal,
   type ApprovedEffect,
   type ClaimedSimonRun,
   SimonApprovals,
+  SimonDocumentSession,
   SimonError,
   SimonExecutionTracker,
   SimonInvocations,
@@ -12,9 +14,10 @@ import {
 } from "@symplist/core/simon";
 import { type ToolSet, tool, type UIMessage, type UIMessageChunk } from "ai";
 import { z } from "zod";
+import { simonDocumentTools } from "./documents.ts";
 import { runSimonModelLoop, type SimonLoopDependencies } from "./loop.ts";
 import { type createSimonModels, SimonModelError } from "./providers.ts";
-import { SIMON_RULES, SIMON_RULES_VERSION } from "./rules.ts";
+import { SIMON_RULES, SIMON_RULES_VERSION, untrustedData } from "./rules.ts";
 
 export interface SimonToolContext {
   readonly claim: ClaimedSimonRun;
@@ -36,6 +39,10 @@ export interface SimonTurnDependencies {
   };
   readonly tools?: (context: SimonToolContext) => Promise<ToolSet>;
   readonly approvedEffect?: ApprovedEffect;
+  readonly documents?: () => {
+    readonly tools: DocumentTools;
+    readonly git: DurableDocumentGit | null;
+  };
 }
 
 type Pause =
@@ -131,6 +138,17 @@ export async function runSimonTurn(
       });
     }
     let pause: Pause | null = null;
+    const documents = deps.documents
+      ? await SimonDocumentSession.create({ repository, claim: owned, ...deps.documents() })
+      : null;
+    const initialContext =
+      owned.run.taskId && documents
+        ? untrustedData(
+            "document",
+            owned.run.taskId,
+            JSON.stringify(await documents.context(owned.run.taskId, "initial_context")),
+          )
+        : undefined;
     const requestApproval: SimonToolContext["requestApproval"] = (proposal) => {
       if (pause) throw new SimonError("simon.stale");
       const id = repository.nextId();
@@ -141,6 +159,7 @@ export async function runSimonTurn(
       (await deps.tools?.({ claim: owned, repository, signal: deps.signal, requestApproval })) ??
       {};
     const tools: ToolSet = {
+      ...(documents ? simonDocumentTools(documents) : {}),
       ...extraTools,
       rules_read: tool({
         description:
@@ -165,6 +184,7 @@ export async function runSimonTurn(
       kind: owned.run.taskId ? "task" : "quick",
       selectedModel: selected,
       history,
+      ...(initialContext ? { initialContext } : {}),
       tools,
       signal: deps.signal,
       mayExecute: () => repository.mayExecute(owned.run),
@@ -182,6 +202,13 @@ export async function runSimonTurn(
           .map((part) => part.text)
           .join("\n");
         const data = {
+          ...documents?.checkpointData(
+            snapshot.message.parts.flatMap((part) =>
+              part.type === "dynamic-tool" && part.state === "output-available"
+                ? [part.toolCallId]
+                : [],
+            ),
+          ),
           snapshotJson: JSON.stringify(snapshot.message),
           ...(deps.telemetryEnabled
             ? {

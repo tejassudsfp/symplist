@@ -21,6 +21,7 @@ import { AppLogger } from "../../common/logging/logger.ts";
 import { API_CONFIG, type ApiConfig } from "../../infra/config/api-config.ts";
 import { KEY_PROVIDER } from "../../infra/crypto/crypto.providers.ts";
 import { DB_CLIENT } from "../../infra/db/db.providers.ts";
+import { DOCUMENT_GIT } from "../../infra/documents/git.module.ts";
 import { LocalScheduler } from "../../infra/scheduler/local-scheduler.ts";
 import { OBJECT_STORE } from "../../infra/storage/storage.providers.ts";
 import { InternalEventHandlerRegistry } from "../internal/internal-event-handlers.ts";
@@ -34,7 +35,7 @@ import {
 } from "./documents.realtime.ts";
 
 /** The api's Git service: at most 2 concurrent reconstructions (§9.1). */
-export const DOCUMENT_GIT = "symplist:DOCUMENT_GIT";
+export { DOCUMENT_GIT } from "../../infra/documents/git.module.ts";
 /** Optional publication hooks, bound only by tests to stop a publication at a crash point. */
 export const DOCUMENT_PUBLICATION_HOOKS = "symplist:DOCUMENT_PUBLICATION_HOOKS";
 
@@ -101,15 +102,6 @@ export class DocumentsLifecycle implements OnModuleInit, OnApplicationBootstrap 
   controllers: [DocumentsController],
   providers: [
     {
-      provide: DOCUMENT_GIT,
-      inject: [API_CONFIG],
-      useFactory: (config: ApiConfig) =>
-        new GitService({
-          tempDir: config.GIT_TMP_DIR,
-          limits: { maxConcurrent: 2, maxQueued: 16, maxBlobBytes: config.DOC_MAX_BYTES },
-        }),
-    },
-    {
       provide: RealtimeDocumentEvents,
       inject: [TopicHub, AppLogger],
       useFactory: (hub: TopicHub, logger: AppLogger) => new RealtimeDocumentEvents(hub, logger),
@@ -172,12 +164,6 @@ export class DocumentsLifecycle implements OnModuleInit, OnApplicationBootstrap 
     },
     DocumentsLifecycle,
   ],
-  exports: [
-    DocumentRepository,
-    DocumentService,
-    DocumentTools,
-    GrantRetrievalBudgets,
-    DOCUMENT_GIT,
-  ],
+  exports: [DocumentRepository, DocumentService, DocumentTools, GrantRetrievalBudgets],
 })
 export class DocumentsModule {}

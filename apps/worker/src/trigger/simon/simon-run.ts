@@ -1,7 +1,9 @@
 import { createSimonModels, runSimonTurn } from "@symplist/agent";
 import { simonRunPayloadSchema } from "@symplist/contracts";
+import { DocumentRepository, DocumentTools, DurableDocumentGit } from "@symplist/core/documents";
 import { SimonRepository } from "@symplist/core/simon";
-import { AbortTaskRunError, task } from "@trigger.dev/sdk";
+import { GitService } from "@symplist/docs";
+import { AbortTaskRunError, task, tasks } from "@trigger.dev/sdk";
 import { reportingD1Counters } from "../../infra/d1-counters.ts";
 import { toWorkerError, WorkerError } from "../../infra/errors.ts";
 import { type WorkerRuntime, workerRuntime } from "../../infra/runtime.ts";
@@ -33,6 +35,31 @@ export async function runDurableSimon(
         ? AbortSignal.any([signal, AbortSignal.timeout(890_000)])
         : AbortSignal.timeout(890_000),
       telemetryEnabled: runtime.config.AI_TELEMETRY_ENABLED,
+      documents: () => {
+        const documents = new DocumentRepository({
+          db: runtime.db,
+          objects: runtime.objects,
+          keys: runtime.keys,
+          git: new GitService({
+            tempDir: runtime.config.GIT_TMP_DIR,
+            runner: async () => {
+              throw new WorkerError("simon.git_forbidden");
+            },
+          }),
+          accessPolicy: { betaAccessRequired: runtime.config.BETA_ACCESS_REQUIRED },
+          now: () => Date.now(),
+          docMaxBytes: runtime.config.DOC_MAX_BYTES,
+        });
+        return {
+          tools: new DocumentTools(documents),
+          git: new DurableDocumentGit({
+            artifacts: documents.artifacts,
+            now: () => Date.now(),
+            triggerAndWait: (taskId, input, options) =>
+              tasks.triggerAndWait(taskId, input, options),
+          }),
+        };
+      },
       log: (event) =>
         runtime.logger.warn("simon.run_event", { code: event.code, runId: parsed.data.runId }),
       sink: (claim) =>
