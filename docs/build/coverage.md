@@ -9,6 +9,12 @@ Development lifecycle regression evidence: `workspace-provider.test.tsx` and sch
 reopen, abandoned responses and resumed preference saves. `core/search/task-writer-boundary.test.ts`
 creates through TaskService before search decryption, checking the real encryption AAD boundary.
 
+D1 request-budget evidence: the merged [combined load contract](reports/e-d1-load.md) runs ten
+five-step Simon turns with real encrypted document Git jobs plus fifty due reminders through rated
+D1 REST clients. Five load/safeguard tests pass; this is local request-volume evidence, not a live
+capacity or five-minute completion claim. Shared hourly cleanup and Vault lock-before-close have
+merged core/API/worker regressions; quick-chat and MCP cleanup integration remains open.
+
 | Note | Status | Implementation | Evidence |
 | --- | --- | --- | --- |
 | [01_product.md](../notes/files/01_product.md) | In progress | Tasks, their pages and the shell (D1); Simon, Vault, scheduling, sharing and connections are D2 | `apps/e2e/evidence/workspace/`, `apps/e2e/evidence/shell/` |

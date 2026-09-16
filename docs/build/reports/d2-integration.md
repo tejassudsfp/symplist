@@ -31,3 +31,14 @@ Integrator: `feat/symplist-build`. No pushes or live migrations. Branch implemen
 - Full unit/contract/script suite, both builds, local smoke, deploy completeness/boot (40 migrations), docs and lint pass after all three merges.
 - First browser run found four consistent failures across all viewports, not random contention: checkbox touch targets, obsolete pre-D2 tab sequence, ambiguous search/consent retry locator, and a misspelled Vault test CSRF header. Fixed all four without dropping assertions; final full run is 107 passed / 19 unchanged viewport skips.
 - New real-API Vault recovery, scheduling/calendar/settings and sharing/viewer/revocation journeys pass on all three viewports. Vault theme frames currently exist only in run attachments; comprehensive retained visual review remains pending.
+
+## D1 load contract — `fb6783b`
+
+- Merged with `--no-ff` as `19c1834`; all three added paths are byte-identical to the stream head.
+- All 17 typechecks and five load/safeguard tests pass on the merged tree. The contract measures 379 requests for ten five-step Simon turns with document children plus fifty reminders. It proves the request-volume budget, not completion within five minutes or live capacity; see [limitations and measurements](e-d1-load.md).
+
+## Shared maintenance — `37a0e70`
+
+- Merged with `--no-ff` as `9e63cfc`; no conflicts. All production/test/migration/report paths retained byte-identically at the merge; the append-only decisions file also retains newer root rulings.
+- All 17 typechecks pass. Combined focused checks pass: 13 cleanup contracts, 32 API/realtime contracts and the worker adapter test. Migration 0604 adds a persistent cursor and lease; no existing table is rewritten.
+- Closes Vault/share hourly cleanup and canonical lock-before-close seams listed above. Quick-chat expiry and upcoming Connections/MCP cleanup must still compose into the shared hook. Native scheduling's worker event handler is a subsequent root addition, not a discarded maintenance change.

@@ -45,6 +45,15 @@ export class SchedulingLifecycle implements OnModuleInit {
       contribute: async (session) => ({ unreadCount: await this.realtime.unread(session.userId) }),
     });
     this.internal.register({
+      type: "schedule.changed",
+      handle: async (event) => {
+        if (typeof event.payload.taskId !== "string") return;
+        // The signed event is still a hint: publish only the owner's persisted current version.
+        const current = await this.service.get(event.ownerId, event.payload.taskId);
+        await this.realtime.schedule(event.ownerId, event.payload.taskId, current.version);
+      },
+    });
+    this.internal.register({
       type: "notifications.changed",
       handle: async (event) => {
         if (typeof event.payload.notificationId === "string")

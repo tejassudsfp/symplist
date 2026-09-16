@@ -6,6 +6,7 @@ export type { SimonAuthorization, SimonWriteFold } from "./fold.ts";
 export * from "./invocations.ts";
 export * from "./lifecycle.ts";
 export * from "./maintenance.ts";
+export * from "./native.ts";
 export * from "./repository.ts";
 export * from "./retries.ts";
 export * from "./types.ts";
