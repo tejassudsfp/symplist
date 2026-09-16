@@ -21,6 +21,11 @@ export function quickDeleteStatements(
     ),
     sql(`DELETE FROM tool_invocations WHERE owner_id=:qd_owner AND run_id IN (${runs})`, params),
     sql(
+      `DELETE FROM idempotency_records WHERE user_id=:qd_owner AND scope='simon.native.task'
+       AND substr(key,1,36) IN (${runs})`,
+      params,
+    ),
+    sql(
       `DELETE FROM message_parts WHERE owner_id=:qd_owner AND message_id IN (${messages})`,
       params,
     ),

@@ -68,7 +68,10 @@ export async function createDocumentsTestEnvironment(
   await applyMigrations(db);
   const objects = createLocalObjectStore({ root: join(dir, "objects"), env: {} });
   const keys = createKeyProvider(
-    { CONTENT_KEK: { current: 1, versions: new Map([[1, randomBytes(32)]]) } },
+    {
+      CONTENT_KEK: { current: 1, versions: new Map([[1, randomBytes(32)]]) },
+      IDEMPOTENCY_SECRET: { current: 1, versions: new Map([[1, randomBytes(32)]]) },
+    },
     { required: ["CONTENT_KEK"] },
   );
   const git = new GitService({ tempDir: join(dir, "git") });
