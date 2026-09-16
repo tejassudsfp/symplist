@@ -11,7 +11,12 @@ import {
   useRef,
   useState,
 } from "react";
-import { type PanelSize, usePanelRef } from "react-resizable-panels";
+import {
+  type Layout,
+  type LayoutChangedMeta,
+  type PanelSize,
+  usePanelRef,
+} from "react-resizable-panels";
 import { ACTION_CONTEXT_ATTRIBUTE, describeFocus, PANE_ATTRIBUTE } from "@/actions/focus";
 import { useOptionalActions } from "@/actions/provider";
 import type { PaneId, ShellController, WorkspaceRoute } from "@/actions/types";
@@ -22,6 +27,7 @@ import { DEFAULT_THEME_ID, isThemeId, type ThemeId, themes } from "@/theme/regis
 import { ChatIcon, ChevronIcon, CollectionIcon, PanelToggleIcon } from "./collection-icons.tsx";
 import { collectionMeta, collections } from "./routes.ts";
 import {
+  INBOX_SIZE,
   initialShellState,
   isChatVisible,
   isInboxVisible,
@@ -30,7 +36,7 @@ import {
   panelSizes,
   shellReducer,
 } from "./shell-state.ts";
-import { useShellSlots } from "./slots.tsx";
+import { type ShellPanelLayout, useShellSlots } from "./slots.tsx";
 import { useLayoutMode } from "./use-layout-mode.ts";
 
 export const INBOX_TITLE_ID = "sym-inbox-title";
@@ -494,6 +500,77 @@ export function Workspace({
     stateRef.current = state;
   }, [state]);
 
+  /*
+   * Panel persistence (§10.3, `panels`). The workspace feature owns the stored preference and hands
+   * it in through the `panels` slot; the shell applies it once it arrives and reports every change
+   * back. Stored widths are panel widths without the theme's frame inset, so they stay meaningful
+   * when the theme changes.
+   */
+  const inset = sizes.inbox.default - INBOX_SIZE.default;
+  const panels = slots.panels;
+  const panelsRef = useRef(panels);
+  /** The layout last applied or reported, so the shell never echoes a layout back unchanged. */
+  const knownLayout = useRef<string | null>(null);
+  const storedWidths = useRef<{ inbox: number | null; chat: number | null }>({
+    inbox: null,
+    chat: null,
+  });
+  useEffect(() => {
+    panelsRef.current = panels;
+  }, [panels]);
+
+  const reportLayout = useCallback(() => {
+    const seam = panelsRef.current;
+    if (!seam || knownLayout.current === null) return;
+    const next: ShellPanelLayout = {
+      inboxWidth: storedWidths.current.inbox,
+      chatWidth: storedWidths.current.chat,
+      inboxCollapsed: stateRef.current.inboxCollapsed,
+      chatCollapsed: stateRef.current.chatCollapsed,
+    };
+    const key = JSON.stringify(next);
+    if (key === knownLayout.current) return;
+    knownLayout.current = key;
+    seam.onLayoutChange(next);
+  }, []);
+
+  const onLayoutChanged = useCallback(
+    (_layout: Layout, meta: LayoutChangedMeta) => {
+      if (!meta.isUserInteraction || modeRef.current !== "desktop") return;
+      const inboxSize = inboxPanel.current?.getSize().inPixels ?? 0;
+      const chatSize = chatPanel.current?.getSize().inPixels ?? 0;
+      if (inboxSize > 1) storedWidths.current.inbox = Math.round(inboxSize - inset);
+      if (chatSize > 1) storedWidths.current.chat = Math.round(chatSize - inset);
+      reportLayout();
+    },
+    [inboxPanel, chatPanel, inset, reportLayout],
+  );
+
+  // The account's layout, applied once it is known and whenever another device changes it.
+  const storedLayout = panels?.layout ?? null;
+  useEffect(() => {
+    if (!storedLayout) return;
+    const key = JSON.stringify(storedLayout);
+    if (knownLayout.current === key) return;
+    knownLayout.current = key;
+    storedWidths.current = { inbox: storedLayout.inboxWidth, chat: storedLayout.chatWidth };
+    dispatch({ type: "set-inbox-collapsed", collapsed: storedLayout.inboxCollapsed });
+    dispatch({ type: "set-chat-collapsed", collapsed: storedLayout.chatCollapsed });
+    if (modeRef.current !== "desktop") return;
+    if (storedLayout.inboxWidth !== null && !storedLayout.inboxCollapsed) {
+      inboxPanel.current?.resize(storedLayout.inboxWidth + inset);
+    }
+    if (storedLayout.chatWidth !== null && !storedLayout.chatCollapsed) {
+      chatPanel.current?.resize(storedLayout.chatWidth + inset);
+    }
+  }, [storedLayout, inset, inboxPanel, chatPanel]);
+
+  // Collapsing or showing a panel is part of the stored layout too.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the collapse flags are what this reports.
+  useEffect(() => {
+    reportLayout();
+  }, [reportLayout, state.inboxCollapsed, state.chatCollapsed]);
+
   // Complete a pending `revealInbox` once the list is visible (after navigation or expansion).
   useEffect(() => {
     if (!pendingInboxFocus.current || !isInboxVisible(state, mode)) return;
@@ -594,6 +671,7 @@ export function Workspace({
         className="sym-panels"
         disabled={mode !== "desktop"}
         onPointerDown={onPanelsPointerDown}
+        onLayoutChanged={onLayoutChanged}
       >
         <ResizablePanel
           id="sym-inbox-panel"
