@@ -41,13 +41,42 @@ export const ACCOUNT_DELETION = "symplist:ACCOUNT_DELETION";
 export const ACCOUNT_DELETION_EFFECTS = "symplist:ACCOUNT_DELETION_EFFECTS";
 
 /**
- * The api's post-commit restriction effects in order (§5.5): evict this process's access caches,
- * close sockets and publish `access.changed` through the gateway, and cancel the user's runs.
+ * Post-commit restriction effects that feature modules own (§5.5: "evicts access, grant and search
+ * caches"), such as dropping a user's decrypted search index or cached grants. Features register them
+ * from `onModuleInit`; they run after this process's access cache eviction and before sockets close,
+ * in registration order, each failure logged and never rethrown. Account deletion runs them too,
+ * because it runs every restriction effect after its batch (§5.6).
+ */
+@Injectable()
+export class RestrictionEffectRegistry {
+  private readonly effects = new Map<string, RestrictionEffect>();
+
+  register(effect: RestrictionEffect): void {
+    if (!/^[a-z][a-z0-9_]{0,63}$/.test(effect.name)) {
+      throw new Error("Restriction effect names are lower-case identifiers");
+    }
+    if (this.effects.has(effect.name)) {
+      throw new Error(`A restriction effect named ${effect.name} is already registered`);
+    }
+    this.effects.set(effect.name, effect);
+  }
+
+  registered(): readonly RestrictionEffect[] {
+    return [...this.effects.values()];
+  }
+}
+
+/**
+ * The api's post-commit restriction effects in order (§5.5): evict this process's access caches, run
+ * the feature cache evictions registered in {@link RestrictionEffectRegistry}, close sockets and
+ * publish `access.changed` through the gateway, and cancel the user's runs.
  */
 @Injectable()
 export class RestrictionEffects {
   constructor(
     private readonly sessions: SessionService,
+    private readonly registry: RestrictionEffectRegistry,
+    private readonly logger: AppLogger,
     @Optional()
     @Inject(REALTIME_ACCESS_NOTIFIER)
     private readonly realtime?: RealtimeAccessNotifier,
@@ -60,6 +89,19 @@ export class RestrictionEffects {
         name: "access_cache_eviction",
         afterCommit: async (event: RestrictionCommitted) => {
           this.sessions.evictUser(event.userId, event.accessGeneration);
+        },
+      },
+      {
+        // Features register after this list is built, so the registry is read at each commit.
+        name: "feature_cache_eviction",
+        afterCommit: async (event: RestrictionCommitted) => {
+          for (const effect of this.registry.registered()) {
+            try {
+              await effect.afterCommit(event);
+            } catch (error) {
+              this.logger.warn("access.restriction_effect_failed", { effect: effect.name, error });
+            }
+          }
         },
       },
     ];
@@ -90,6 +132,7 @@ export class RestrictionEffects {
 }
 
 export const accessProviders: Provider[] = [
+  RestrictionEffectRegistry,
   RestrictionEffects,
   {
     provide: ACCESS_SERVICE,

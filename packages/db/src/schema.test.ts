@@ -145,8 +145,10 @@ describe("foundation schema (§3.4)", () => {
     );
     const names = tables.map((table) => table.name);
     // Feature ranges add their own tables (§3.4), so the foundation set is a subset, not the whole
-    // list; every table in the database, whoever added it, is STRICT.
+    // list; every foundation table must still be there, exactly once and in order, and every table
+    // in the database, whoever added it, must be STRICT.
     expect(names).toEqual(expect.arrayContaining(foundationTables));
+    expect(names.filter((name) => foundationTables.includes(name))).toEqual(foundationTables);
     expect(tables.filter((table) => table.strict !== 1)).toEqual([]);
   });
 

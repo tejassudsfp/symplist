@@ -3,7 +3,7 @@
 import { UserRound } from "lucide-react";
 import Link from "next/link";
 import { useOptionalActions } from "@/actions/provider";
-import { SIGN_OUT_ACTION_ID } from "@/actions/shell-actions";
+import { SHORTCUT_HELP_ACTION_ID, SIGN_OUT_ACTION_ID } from "@/actions/shell-actions";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -36,6 +36,8 @@ function ProfileMenu() {
   const { identity } = useShellSlots();
   const actions = useOptionalActions();
   const signOut = actions?.actions.find((action) => action.id === SIGN_OUT_ACTION_ID);
+  const shortcutHelp = actions?.actions.find((action) => action.id === SHORTCUT_HELP_ACTION_ID);
+  const shortcutHelpBinding = actions?.bindingLabel(SHORTCUT_HELP_ACTION_ID);
   const label = identity ? `Account menu, ${identity.displayName}` : "Account menu";
   return (
     <DropdownMenu>
@@ -68,6 +70,19 @@ function ProfileMenu() {
             </DropdownMenuLinkItem>
           );
         })}
+        <DropdownMenuItem
+          disabled={!shortcutHelp}
+          onClick={() => {
+            void actions?.invoke(SHORTCUT_HELP_ACTION_ID, "menu");
+          }}
+        >
+          <span>Shortcut help</span>
+          {shortcutHelpBinding ? (
+            <DropdownMenuShortcut spoken={shortcutHelpBinding.spoken}>
+              {shortcutHelpBinding.display}
+            </DropdownMenuShortcut>
+          ) : null}
+        </DropdownMenuItem>
         {identity?.isAdmin ? (
           <DropdownMenuLinkItem render={<Link href="/admin/invites" />}>
             Beta administration

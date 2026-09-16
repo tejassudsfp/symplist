@@ -124,6 +124,28 @@ describe("AppShell on a task route", () => {
     );
   });
 
+  it("adds the chat panel when a task opens through client-side navigation", async () => {
+    // Opening a task from the palette or a search result re-renders the workspace with a new panel;
+    // the panel group has no constraints for it yet, so the collapse sync must not crash the app.
+    const { rerender } = renderShell({ path: "/now" });
+    expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
+    navigation.pathname = `/now/${taskId}`;
+    await act(async () => {
+      rerender(
+        <StatusAnnouncerProvider>
+          <TooltipProvider>
+            <ShellSlotsProvider value={{}}>
+              <AppShell>
+                <h1>Page content</h1>
+              </AppShell>
+            </ShellSlotsProvider>
+          </TooltipProvider>
+        </StatusAnnouncerProvider>,
+      );
+    });
+    expect(screen.getByRole("complementary", { name: "Simon" })).toBeInTheDocument();
+  });
+
   it("collapses the task list to the rail's Show task list control", async () => {
     const user = userEvent.setup();
     renderShell({ path: `/now/${taskId}` });
@@ -216,6 +238,29 @@ describe("keyboard actions through the shell", () => {
     expect(
       within(menu).queryByRole("menuitem", { name: "Beta administration" }),
     ).not.toBeInTheDocument();
+    await act(async () => {
+      await user.keyboard("{Escape}");
+    });
+    await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
+    unmount();
+  });
+
+  it("keeps both shortcut surfaces in the profile menu", async () => {
+    // keyboard_shortcuts.md asks for two surfaces: the help overlay (opened by `?` or the menu) and
+    // Settings → Keyboard shortcuts for remapping. The overlay entry is additional to the settings
+    // link, never a replacement for it — dropping the link would strand the remapping page.
+    const user = userEvent.setup();
+    const { unmount } = renderShell({ path: "/now" });
+    screen.getByRole("button", { name: "Account menu" }).focus();
+    await user.keyboard("{Enter}");
+    const menu = await screen.findByRole("menu");
+    expect(within(menu).getByRole("menuitem", { name: /Keyboard shortcuts/ })).toHaveAttribute(
+      "href",
+      "/settings/shortcuts",
+    );
+    const help = within(menu).getByRole("menuitem", { name: /Shortcut help/ });
+    expect(help).not.toHaveAttribute("href");
+    expect(help).not.toHaveAttribute("aria-disabled", "true");
     await act(async () => {
       await user.keyboard("{Escape}");
     });
