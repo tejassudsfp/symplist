@@ -2472,6 +2472,12 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  min-height: 32px;
+}
+.sym-schedule-check input[type="checkbox"] {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
 }
 .sym-schedule-row {
   display: flex;

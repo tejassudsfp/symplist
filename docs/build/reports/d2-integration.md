@@ -25,3 +25,9 @@ Integrator: `feat/symplist-build`. No pushes or live migrations. Branch implemen
 - Combined styles exposed unnecessary calendar header/state specificity ahead of unrelated sharing/consent selectors. `:where(header)` and `:where([data-completed])` retain identical matches and ordering, without the extra specificity; no declarations or feature block was dropped.
 - Frozen install and all 17 typechecks pass. Focused verification: 9 core, 20 HTTP, 31 sharing/consent/shell UI and 105 analytics wrapper tests pass. Combined lint: 1,259 files, zero errors/warnings.
 - Still required: Simon native tools/handoff callback, worker grant-event relay, hourly maintenance wiring, server lifecycle analytics, combined browser/visual/live evidence.
+
+## Combined browser pass
+
+- Full unit/contract/script suite, both builds, local smoke, deploy completeness/boot (40 migrations), docs and lint pass after all three merges.
+- First browser run found four consistent failures across all viewports, not random contention: checkbox touch targets, obsolete pre-D2 tab sequence, ambiguous search/consent retry locator, and a misspelled Vault test CSRF header. Fixed all four without dropping assertions; final full run is 107 passed / 19 unchanged viewport skips.
+- New real-API Vault recovery, scheduling/calendar/settings and sharing/viewer/revocation journeys pass on all three viewports. Vault theme frames currently exist only in run attachments; comprehensive retained visual review remains pending.

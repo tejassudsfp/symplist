@@ -93,7 +93,7 @@ Maps every specification, screen and required flow to implementation and verific
 | Keyboard-only journey (note 13 acceptance) | Verified | `workspace.spec.ts` "runs the whole list from the keyboard, with no pointer at all"; `shell.spec.ts` focus order and sequences | `apps/e2e/evidence/workspace/keyboard_shortcuts--list-journey--*.png` (desktop and laptop; the phone run is skipped, it has no keyboard) |
 | Command palette and full search (scopes, archive/chat opt-in, jump to section) | Implemented | `search.spec.ts` at three viewports | `apps/e2e/evidence/search/`; it runs against contract-shaped `/v1/*` fixtures, not a live index (decision S16), and chat search stays inert until the Simon and preferences contributors land |
 | Style × accent × mode switching preserves drafts and running chat | In progress | `workspace.spec.ts` appearance journey; `shell.spec.ts` per-theme first paint | Switching is verified; that it preserves a document draft and a running chat needs the documents and Simon surfaces in one journey (D2) |
-| Vault setup → unlock → item → reset via OTP → re-unlock | In progress | `apps/e2e/tests/vault.spec.ts` | Real-API journey authored; execution pending combined integration |
+| Vault setup → unlock → item → reset via OTP → re-unlock | Verified locally | `apps/e2e/tests/vault.spec.ts` | Real-API setup/edit/lock/recovery/preserved contents pass at 1440/1024/390; live provider verification pending |
 | Deadline → calendar reschedule → reminder at top of hour → notification → snooze → complete | Not started | | |
 | Handoff prompt → snapshot review → expiring link → signed-out HTML and raw read → revoke/expire | Not started | | |
 | Password and public share variants; relock disables grants | Not started | | |
