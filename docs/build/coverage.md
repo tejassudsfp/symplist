@@ -10,7 +10,7 @@ Maps every specification, screen and required flow to implementation and verific
 | [02_themes.md](../notes/files/02_themes.md) | Verified | `apps/web/src/theme/`, `apps/web/src/features/workspace/appearance-settings.tsx` | `shell.spec.ts` renders all six themes in light and dark on first paint and checks each with axe (`apps/e2e/evidence/shell/desktop-theme-*.png`); `workspace.spec.ts` "changes appearance and keeps it, without touching the list" |
 | [03_access_and_billing.md](../notes/files/03_access_and_billing.md) | Verified | `apps/web/src/features/access/`, `apps/api/src/modules/access/`, `packages/core/src/access/` | `access.spec.ts` (signup consent, emailed code, gate, onboarding, relock, restore, sign out) with `apps/e2e/evidence/access/`; `packages/core/src/access/*.test.ts` |
 | [04_beta_access.md](../notes/files/04_beta_access.md) | Verified | `packages/core/src/access/invites.ts`, `redemption.ts`, `apps/web/src/features/access/admin/` | `access.spec.ts` (an administrator generates a code, the member redeems it, a second code cannot bypass a relock); `apps/api/src/modules/access/admin-invites.test.ts` |
-| [05_vault.md](../notes/files/05_vault.md) | Not started | | |
+| [05_vault.md](../notes/files/05_vault.md) | In progress | Vault core/API/UI merged; Simon grants, shared lock events and cleanup wiring remain | Vault core/security/HTTP/UI tests; browser journey and visual matrix authored, not yet run |
 | [06_document_tools.md](../notes/files/06_document_tools.md) | Implemented | `packages/docs/`, `packages/core/src/documents/`, `apps/web/src/features/documents/` | 347 component and unit tests; the artifact viewer, share dialog and grant list are the `artifact-surface.ts` seam for D2, and no Playwright coverage was added |
 | [07_architecture.md](../notes/files/07_architecture.md) | In progress | Shared Simon loop/local/Trigger adapters, document tools, encrypted lifecycle, HTTP commands/history and production conversation topics/snapshots; metadata edit-validator integration, chat UI/reduction and remaining tool integrations remain | Core `repository.test.ts`, `approvals.test.ts`, `fold.test.ts`, `retries.test.ts`, `views.test.ts`; agent document parity/marker tests; `simon.api.test.ts` covers HTTP replay/races/owner isolation, question/approval decisions, fresh-session revocation, CSRF, encrypted persistence and real WebSocket snapshot/replay. Full browser executor parity remains Phase E. |
 | [08_self_hosting.md](../notes/files/08_self_hosting.md) | Not started | | |
@@ -65,11 +65,11 @@ Maps every specification, screen and required flow to implementation and verific
 | [task_document](../../design/mockups/task_document.md) | Implemented | `apps/web/src/features/documents/document-pane.tsx` | documents component suite; the task page header is the shell/workspace feature's `taskHeader` slot and the two halves are composed in `shell.spec.ts` |
 | [task_schedule](../../design/mockups/task_schedule.md) | Not started | | |
 | [transactional_emails](../../design/mockups/transactional_emails.md) | Not started | | |
-| [vault_item_editor](../../design/mockups/vault_item_editor.md) | Not started | | |
-| [vault_items](../../design/mockups/vault_items.md) | Not started | | |
-| [vault_reset](../../design/mockups/vault_reset.md) | Not started | | |
-| [vault_setup](../../design/mockups/vault_setup.md) | Not started | | |
-| [vault_unlock](../../design/mockups/vault_unlock.md) | Not started | | |
+| [vault_item_editor](../../design/mockups/vault_item_editor.md) | Implemented | `features/vault/item-editor.tsx` | Component tests pass; combined browser/visual check pending |
+| [vault_items](../../design/mockups/vault_items.md) | Implemented | `features/vault/vault-screen.tsx` | Component tests; 36-frame matrix authored, unrun |
+| [vault_reset](../../design/mockups/vault_reset.md) | Implemented | `features/vault/reset-screen.tsx` | Recovery core/HTTP/UI tests; browser verification pending |
+| [vault_setup](../../design/mockups/vault_setup.md) | Implemented | `features/vault/key-form.tsx` | Core/HTTP/UI tests; browser verification pending |
+| [vault_unlock](../../design/mockups/vault_unlock.md) | Implemented | `features/vault/key-form.tsx` | Core/HTTP/UI tests; browser verification pending |
 | [workspace_later](../../design/mockups/workspace_later.md) | Verified | `apps/web/src/app/(app)/later/` | `workspace.spec.ts` "moves a task from Now to Later and back with Undo"; `apps/e2e/evidence/workspace/workspace_later--moved-in--*.png` |
 | [workspace_now](../../design/mockups/workspace_now.md) | Verified | `apps/web/src/app/(app)/now/`, `apps/web/src/features/workspace/task-inbox.tsx` | `workspace.spec.ts` with axe and a screen-reader tree check; `apps/e2e/evidence/workspace/workspace_now--*.png` |
 | [workspace_unclassified](../../design/mockups/workspace_unclassified.md) | Verified | `apps/web/src/app/(app)/unclassified/` | `workspace.spec.ts` shares the collection surface; `shell.spec.ts` rail navigation |
@@ -93,7 +93,7 @@ Maps every specification, screen and required flow to implementation and verific
 | Keyboard-only journey (note 13 acceptance) | Verified | `workspace.spec.ts` "runs the whole list from the keyboard, with no pointer at all"; `shell.spec.ts` focus order and sequences | `apps/e2e/evidence/workspace/keyboard_shortcuts--list-journey--*.png` (desktop and laptop; the phone run is skipped, it has no keyboard) |
 | Command palette and full search (scopes, archive/chat opt-in, jump to section) | Implemented | `search.spec.ts` at three viewports | `apps/e2e/evidence/search/`; it runs against contract-shaped `/v1/*` fixtures, not a live index (decision S16), and chat search stays inert until the Simon and preferences contributors land |
 | Style × accent × mode switching preserves drafts and running chat | In progress | `workspace.spec.ts` appearance journey; `shell.spec.ts` per-theme first paint | Switching is verified; that it preserves a document draft and a running chat needs the documents and Simon surfaces in one journey (D2) |
-| Vault setup → unlock → item → reset via OTP → re-unlock | Not started | | |
+| Vault setup → unlock → item → reset via OTP → re-unlock | In progress | `apps/e2e/tests/vault.spec.ts` | Real-API journey authored; execution pending combined integration |
 | Deadline → calendar reschedule → reminder at top of hour → notification → snooze → complete | Not started | | |
 | Handoff prompt → snapshot review → expiring link → signed-out HTML and raw read → revoke/expire | Not started | | |
 | Password and public share variants; relock disables grants | Not started | | |

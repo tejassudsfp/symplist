@@ -1,3 +1,4 @@
+import { VaultScreen } from "@/features/vault/vault-screen";
 export default function SetUpVaultPage() {
-  return <h1>Set up Vault</h1>;
+  return <VaultScreen initial="setup" />;
 }

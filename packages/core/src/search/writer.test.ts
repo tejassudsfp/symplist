@@ -472,15 +472,25 @@ describe("SearchIndexWriter (§10.1)", () => {
 
   it("never reads Vault data into the index", async () => {
     const marker = "vault-marker-7f3a9c";
-    await store.db.executeScript(
-      `CREATE TABLE vault_items (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, value TEXT NOT NULL) STRICT;`,
+    // D2 owns the real Vault schema now. Deliberately put a plaintext canary where an envelope
+    // belongs: even malformed Vault data must never be read or copied into the search index.
+    await store.db.run(
+      sql(
+        `INSERT INTO vaults (owner_id,parameters,pass_wrap_enc,recovery_wrap_enc,recovery_version,created_at,updated_at,write_id) VALUES (:owner,'{}','unused','unused',1,:now,:now,:w)`,
+        { owner, now: int(store.now), w: uuidv7(store.now) },
+      ),
     );
     await store.db.run(
-      sql(`INSERT INTO vault_items (id, owner_id, value) VALUES (:id, :owner, :value)`, {
-        id: uuidv7(store.now),
-        owner,
-        value: marker,
-      }),
+      sql(
+        `INSERT INTO vault_items (id, owner_id, data_enc, created_at, updated_at, write_id) VALUES (:id, :owner, :value, :now, :now, :w)`,
+        {
+          id: uuidv7(store.now),
+          owner,
+          value: marker,
+          now: int(store.now),
+          w: uuidv7(store.now),
+        },
+      ),
     );
     await writeTask(store, owner, { title: "Ordinary task" });
     await writer().run(owner, { mode: "local" });

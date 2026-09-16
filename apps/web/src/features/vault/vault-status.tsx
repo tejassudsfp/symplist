@@ -2,8 +2,8 @@
 
 /**
  * The Vault's lock status beside the top bar's Vault link (§11.1). It never names items (§15).
- * PLACEHOLDER: renders nothing until the vault feature implements it.
+ * Status deliberately never probes or exposes item metadata outside the Vault route group.
  */
 export function VaultStatus() {
-  return null;
+  return <span className="sr-only">Vault uses a separate key</span>;
 }

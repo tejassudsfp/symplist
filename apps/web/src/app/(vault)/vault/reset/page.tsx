@@ -1,3 +1,4 @@
+import { VaultScreen } from "@/features/vault/vault-screen";
 export default function ResetVaultPage() {
-  return <h1>Reset Vault</h1>;
+  return <VaultScreen initial="reset" />;
 }
