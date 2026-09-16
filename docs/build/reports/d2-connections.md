@@ -55,6 +55,9 @@ Status: **in progress; not ready to integrate as a finished feature**. Sole writ
   UI routes `/v1/mcp/grants` list/mint/revoke; bearer MCP and OAuth exchanges are not mounted yet.
   Restriction revokes grants and expires OAuth rows atomically; logout expires same-session requests;
   purge removes owner rows in bounded dependency order.
+- MCP JWT signer/verifier uses exact HS256/at+jwt/versioned kid, issuer, single audience, 15-minute
+  lifetime and fresh grant claim binding. API keys receive the required synthetic sixty-second
+  resource-server expiry. Twenty focused token tests pass; these helpers are not yet HTTP-mounted.
 
 ## Simon seam
 
@@ -124,7 +127,8 @@ used for a write. An ambiguous write is surfaced as uncertain, not silently rese
 
 ## Remaining work
 
-Connections UI, incoming MCP grants/API keys/OAuth/CIMD/tools/client suites, complete runtime tool
+Connections UI is now owned by the separate `connections-ui` worktree. Incoming MCP OAuth/transport/
+tools/client suites, complete runtime tool
 authority, remaining secret scans, browser specs and whole-diff review. The root must wire
 `connectionReconcilerFor(runtime)?.drain({mode:'durable',generation})` into merged cleanup-hourly;
 the daily task already drains but hourly durable retry is not yet integrated here. Full feature gates
