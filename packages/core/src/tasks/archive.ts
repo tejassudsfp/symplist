@@ -14,7 +14,18 @@ import { TASK_COLUMNS } from "./sql.ts";
 /** Completed tasks one archive search scans per page before returning what it found. */
 export const ARCHIVE_SEARCH_SCAN = 200;
 
-/** A malformed archive query value; the api answers `validation` on the named field. */
+/**
+ * Archived subtasks one page shows under a single completed task. A search scans up to
+ * {@link ARCHIVE_SEARCH_SCAN} completed tasks, so without a bound per group one page's member read
+ * grew with the size of the largest trees the owner ever completed — an unbounded read and an
+ * unbounded response (§3 D1 budget). Three levels of nesting at a sane fan-out fit well inside it.
+ */
+export const ARCHIVE_MEMBERS_PER_GROUP = 50;
+
+/** Archived subtasks one page reads in total, across every completed task it scanned. */
+export const ARCHIVE_MEMBERS_PER_PAGE = 2_000;
+
+/** A malformed archive or task-tree query value; the api answers `validation` on the named field. */
 export class ArchiveQueryError extends Error {
   readonly code = "validation";
   readonly field: "cursor" | "timeZone";
@@ -23,6 +34,35 @@ export class ArchiveQueryError extends Error {
     this.name = "ArchiveQueryError";
     this.field = field;
   }
+}
+
+/** Where a task-tree page ended: an offset into one version's pre-order walk. */
+export interface TaskTreeCursor {
+  readonly version: number;
+  readonly offset: number;
+}
+
+export function encodeTaskTreeCursor(cursor: TaskTreeCursor): string {
+  return Buffer.from(JSON.stringify([cursor.version, cursor.offset]), "utf8").toString("base64url");
+}
+
+export function decodeTaskTreeCursor(value: string): TaskTreeCursor {
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
+    if (
+      Array.isArray(parsed) &&
+      parsed.length === 2 &&
+      Number.isSafeInteger(parsed[0]) &&
+      Number.isSafeInteger(parsed[1]) &&
+      (parsed[0] as number) >= 0 &&
+      (parsed[1] as number) >= 0
+    ) {
+      return { version: parsed[0] as number, offset: parsed[1] as number };
+    }
+  } catch {
+    // Falls through to the error below.
+  }
+  throw new ArchiveQueryError("cursor");
 }
 
 export interface ArchiveCursor {
@@ -108,11 +148,24 @@ export function archivePageStatements(
        ORDER BY archived_at DESC, id DESC LIMIT CAST(:scan AS INTEGER)`,
       params,
     ),
+    // Two bounds, because either alone still lets a page grow: the window keeps the first
+    // `per_group` subtasks of each completed task in display order, and the outer limit caps the
+    // whole page however many groups were scanned (§3 D1 budget).
     sql(
-      `SELECT ${TASK_COLUMNS} FROM tasks
-       WHERE owner_id = :owner AND status = 'archived' AND archived_with_root_id <> id
-         AND archived_with_root_id IN (${roots})`,
-      params,
+      `SELECT ${TASK_COLUMNS} FROM (
+         SELECT ${TASK_COLUMNS},
+           ROW_NUMBER() OVER (PARTITION BY archived_with_root_id ORDER BY position, id) AS member_rank
+         FROM tasks
+         WHERE owner_id = :owner AND status = 'archived' AND archived_with_root_id <> id
+           AND archived_with_root_id IN (${roots})
+       )
+       WHERE member_rank <= CAST(:per_group AS INTEGER)
+       LIMIT CAST(:per_page AS INTEGER)`,
+      {
+        ...params,
+        per_group: int(ARCHIVE_MEMBERS_PER_GROUP),
+        per_page: int(ARCHIVE_MEMBERS_PER_PAGE),
+      },
     ),
   ];
 }

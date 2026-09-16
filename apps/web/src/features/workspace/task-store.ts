@@ -181,6 +181,41 @@ export class TaskStore {
   }
 
   /** Fetches a list again; a request already running is followed by one more. */
+  /**
+   * A whole collection, following the pages `GET /v1/tasks` returns (§3 D1 budget). The list is one
+   * tree, not a feed, so the workspace holds all of it; the window only bounds each response.
+   *
+   * A page whose `taskTreeVersion` differs from the first has been read against a tree that moved,
+   * so the walk starts again from the beginning rather than stitching two different trees together.
+   * A realtime `tasks.changed` will schedule another refresh anyway; the attempt bound is there so a
+   * tree under constant writes cannot hold the loop open.
+   */
+  private async loadWholeCollection(collection: TaskCollection): Promise<{
+    readonly tasks: readonly TaskNode[];
+    readonly taskTreeVersion: number;
+  }> {
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      const first = await this.api.listTasks(collection);
+      const tasks = [...first.tasks];
+      let cursor = first.nextCursor;
+      let restart = false;
+      while (cursor !== null) {
+        const page = await this.api.listTasks(collection, { cursor });
+        if (page.taskTreeVersion !== first.taskTreeVersion) {
+          restart = true;
+          break;
+        }
+        tasks.push(...page.tasks);
+        cursor = page.nextCursor;
+      }
+      if (!restart) return { tasks, taskTreeVersion: first.taskTreeVersion };
+    }
+    // Every attempt was overtaken. Take the first page's tree, which is internally consistent, and
+    // let the version it reports bring the next refresh.
+    const last = await this.api.listTasks(collection);
+    return { tasks: last.tasks, taskTreeVersion: last.taskTreeVersion };
+  }
+
   async refresh(collection: TaskCollection): Promise<void> {
     const entry = this.entry(collection);
     if (entry.inFlight) {
@@ -195,7 +230,7 @@ export class TaskStore {
     }
     const startSeq = this.nextSeq();
     try {
-      const response = await this.api.listTasks(collection);
+      const response = await this.loadWholeCollection(collection);
       if (this.disposed) return;
       entry.base = response.tasks;
       entry.version = response.taskTreeVersion;

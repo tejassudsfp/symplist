@@ -65,7 +65,12 @@ export class TasksController {
     @CurrentSession() session: SessionContext,
     @Query({ schema: taskTreeQuerySchema }) query: TaskTreeQuery,
   ): Promise<TaskTreeResponse> {
-    return workspaceCall(() => this.tasks.listCollection(session.userId, query.collection));
+    return workspaceCall(() =>
+      this.tasks.listCollection(session.userId, query.collection, {
+        ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
+        ...(query.limit === undefined ? {} : { limit: query.limit }),
+      }),
+    );
   }
 
   @Get(":id")

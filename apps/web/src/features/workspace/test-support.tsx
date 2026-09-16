@@ -231,10 +231,28 @@ export class FakeWorkspaceApi implements WorkspaceApi {
 
   /* --------------------------------------------------------------------------------------- */
 
-  async listTasks(collection: TaskCollection) {
-    this.calls.push({ method: "listTasks", detail: collection });
+  /**
+   * One page of a collection, as the route returns it. `pageSize` makes a test walk real pages; by
+   * default a collection fits in one, so most tests never see a cursor.
+   */
+  pageSize = Number.POSITIVE_INFINITY;
+
+  async listTasks(collection: TaskCollection, options?: { readonly cursor?: string }) {
+    this.calls.push({
+      method: "listTasks",
+      detail: { collection, cursor: options?.cursor ?? null },
+    });
     this.check("listTasks");
-    return { collection, taskTreeVersion: this.sequence, tasks: this.activeTree(collection) };
+    const all = this.activeTree(collection);
+    const offset = options?.cursor ? Number(options.cursor.split(":")[1] ?? 0) : 0;
+    const end = Number.isFinite(this.pageSize) ? offset + this.pageSize : all.length;
+    const tasks = all.slice(offset, end);
+    return {
+      collection,
+      taskTreeVersion: this.sequence,
+      tasks,
+      nextCursor: offset + tasks.length < all.length ? `p:${offset + tasks.length}` : null,
+    };
   }
 
   async getTask(taskId: string): Promise<TaskDetailResponse> {

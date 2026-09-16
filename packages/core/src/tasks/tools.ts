@@ -18,6 +18,11 @@ export type TaskToolActor = Exclude<TaskActor, { readonly kind: "user" }>;
  * call (the same tool call) create the task once: a retry that finds the task it created returns it
  * with `created: false`. Access is checked inside the write batch; archived parents are refused with
  * `task.archived`.
+ *
+ * The create is attempted first and the task is only looked up when it is refused. Probing for the
+ * tool's own id up front cost a D1 read on every call — always a miss, because the id is new — so a
+ * first-time create cost two requests where the write's own id condition already decides it (§3 write
+ * -id verification, decision WS18).
  */
 export async function taskCreateTool(
   service: TaskService,
@@ -30,8 +35,6 @@ export async function taskCreateTool(
   },
 ): Promise<TaskCreateToolOutput> {
   const args = taskCreateToolInputSchema.parse(input.arguments);
-  const existing = await findOwn(service, input.ownerId, input.taskId);
-  if (existing) return existing;
   const collection =
     args.parentTaskId !== undefined
       ? undefined
@@ -56,7 +59,8 @@ export async function taskCreateTool(
       created: true,
     };
   } catch (error) {
-    // A retry whose first attempt committed without an answer finds its own task now.
+    // The refusal a retry gets: its first attempt committed, so the id is taken. Every other
+    // refusal (an archived parent, paused access) finds no task and is passed on unchanged.
     const found = await findOwn(service, input.ownerId, input.taskId);
     if (found) return found;
     throw error;

@@ -94,7 +94,36 @@ export const taskNodeSchema = z.strictObject({
 });
 export type TaskNode = z.infer<typeof taskNodeSchema>;
 
-export const taskTreeQuerySchema = z.strictObject({ collection: taskCollectionSchema });
+/**
+ * Nodes one `GET /v1/tasks` page carries. A collection has no natural bound, so a page has to have
+ * one (§3 D1 budget) — but the owner's tree is read and cached whole, so every page after the first
+ * is served from that one read and the window can be far wider than a general list page.
+ */
+export const TASK_TREE_PAGE_LIMIT = 500;
+
+export const taskTreePageLimitSchema = z
+  .union([
+    z.number({ error: "Expected a page limit" }),
+    z
+      .string({ error: "Expected a page limit" })
+      .regex(/^[1-9][0-9]{0,3}$/, { error: "Expected a page limit" })
+      .transform(Number),
+  ])
+  .pipe(
+    z
+      .number()
+      .int({ error: "Expected a whole page limit" })
+      .min(1, { error: `Expected a page limit between 1 and ${TASK_TREE_PAGE_LIMIT}` })
+      .max(TASK_TREE_PAGE_LIMIT, {
+        error: `Expected a page limit between 1 and ${TASK_TREE_PAGE_LIMIT}`,
+      }),
+  );
+
+export const taskTreeQuerySchema = z.strictObject({
+  collection: taskCollectionSchema,
+  cursor: cursorSchema.optional(),
+  limit: taskTreePageLimitSchema.optional(),
+});
 export type TaskTreeQuery = z.infer<typeof taskTreeQuerySchema>;
 
 export const taskTreeResponseSchema = z.strictObject({
@@ -103,6 +132,12 @@ export const taskTreeResponseSchema = z.strictObject({
   taskTreeVersion: counterSchema,
   /** Top-level tasks by position, each followed by its subtasks (pre-order). */
   tasks: z.array(taskNodeSchema),
+  /**
+   * The next page of the same pre-order walk, or null on the last page. A cursor is only meaningful
+   * against the `taskTreeVersion` it came with: a client whose next page reports a different version
+   * has been reading a tree that moved under it and starts the collection again.
+   */
+  nextCursor: cursorSchema.nullable(),
 });
 export type TaskTreeResponse = z.infer<typeof taskTreeResponseSchema>;
 

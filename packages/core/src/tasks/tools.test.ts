@@ -122,6 +122,60 @@ describe("task_create and task_move for Simon and MCP (§8.7, §14.6)", () => {
     expect(later.collection).toBe("later");
   });
 
+  it("creates in one D1 request with a warm tree, and still answers a retry (§3 D1 budget)", async () => {
+    const owner = await insertUser();
+    const tasks = service();
+    // Warm the owner's tree, as any read of the workspace leaves it.
+    await tasks.listCollection(owner, "unclassified");
+
+    let batches = 0;
+    const counted = new Proxy(db, {
+      get(target, property, receiver) {
+        if (property === "batch") {
+          return (statements: Parameters<typeof db.batch>[0]) => {
+            batches += 1;
+            return db.batch(statements);
+          };
+        }
+        return Reflect.get(target, property, receiver) as unknown;
+      },
+    });
+    const counting = new TaskService({
+      db: counted,
+      keys,
+      policy: { betaAccessRequired: true },
+      now,
+      cache: (tasks as unknown as { cache: MemoryTaskTreeCache }).cache,
+      archiveContributors: [],
+    });
+
+    const taskId = uuidv7(clock);
+    const output = await taskCreateTool(counting, {
+      ownerId: owner,
+      actor: { kind: "mcp", grantId },
+      arguments: { title: "Review the outline" },
+      taskId,
+    });
+    expect(output.created).toBe(true);
+    // The write alone. Probing for the tool's own id first made this two.
+    expect(batches).toBe(1);
+
+    // The same tool call again still answers with the task it created, not a conflict.
+    const retry = await taskCreateTool(counting, {
+      ownerId: owner,
+      actor: { kind: "mcp", grantId },
+      arguments: { title: "Review the outline" },
+      taskId,
+    });
+    expect(retry).toEqual({
+      taskId,
+      collection: "unclassified",
+      parentTaskId: null,
+      created: false,
+    });
+    expect(await db.all(sql(`SELECT COUNT(*) AS n FROM tasks`))).toEqual([{ n: 1 }]);
+  });
+
   it("moves a task with its subtasks and refuses archived and foreign tasks", async () => {
     const owner = await insertUser();
     const other = await insertUser();

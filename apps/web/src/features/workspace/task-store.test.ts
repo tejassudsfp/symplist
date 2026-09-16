@@ -32,6 +32,43 @@ describe("TaskStore", () => {
     expect(api.calls.filter((call) => call.method === "listTasks")).toHaveLength(1);
   });
 
+  it("follows the pages of a collection the route bounds (§3 D1 budget)", async () => {
+    const { store, api } = seeded();
+    api.pageSize = 2;
+    await store.refresh("now");
+    // The list is whole even though the route answered it two nodes at a time.
+    expect(titles(store)).toEqual([
+      "Refresh my portfolio",
+      "Pick five projects to feature",
+      "Send the project outline",
+    ]);
+    const pages = api.calls.filter((call) => call.method === "listTasks");
+    expect(pages).toHaveLength(2);
+    expect(pages[0]?.detail).toMatchObject({ cursor: null });
+    expect(pages[1]?.detail).toMatchObject({ cursor: "p:2" });
+  });
+
+  it("starts a collection again when a later page reports a tree that moved", async () => {
+    const { store, api } = seeded();
+    api.pageSize = 2;
+    const pageOne = api.listTasks.bind(api);
+    let served = 0;
+    api.listTasks = async (collection, options) => {
+      const page = await pageOne(collection, options);
+      served += 1;
+      // The second page of the first walk is read against a newer tree.
+      return served === 2 ? { ...page, taskTreeVersion: page.taskTreeVersion + 1 } : page;
+    };
+    await store.refresh("now");
+    expect(titles(store)).toEqual([
+      "Refresh my portfolio",
+      "Pick five projects to feature",
+      "Send the project outline",
+    ]);
+    // Two pages for the abandoned walk, two for the one that completed.
+    expect(served).toBe(4);
+  });
+
   it("keeps a failed load explained, and recovers on retry", async () => {
     const { store, api } = seeded();
     api.fail("listTasks");

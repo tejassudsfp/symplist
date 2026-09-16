@@ -13,6 +13,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountKeyStore } from "../account/keys.ts";
 import { IdempotencyStore } from "../idempotency/store.ts";
+import { ARCHIVE_MEMBERS_PER_GROUP } from "./archive.ts";
 import type { ArchiveContributor } from "./archive-contributors/types.ts";
 import { archiveGuard } from "./archive-runner.ts";
 import { TaskOperationError } from "./errors.ts";
@@ -992,6 +993,74 @@ describe("reads", () => {
       tasks.listArchive({ ownerId: owner, cursor: "bm90LWEtY3Vyc29y" }),
     ).rejects.toMatchObject({ field: "cursor" });
     void ids;
+  });
+
+  it("pages a collection's tree in pre-order, from one tree read (§3 D1 budget)", async () => {
+    const owner = await insertUser();
+    const tasks = service();
+    const parent = await create(tasks, owner, "Refresh my portfolio", { collection: "now" });
+    await create(tasks, owner, "Pick five projects", { parentId: parent });
+    await create(tasks, owner, "Rewrite the about page", { parentId: parent });
+    await create(tasks, owner, "Send the project outline", { collection: "now" });
+
+    const whole = await tasks.listCollection(owner, "now");
+    expect(whole.nextCursor).toBeNull();
+    expect(whole.tasks).toHaveLength(4);
+
+    const first = await tasks.listCollection(owner, "now", { limit: 2 });
+    expect(first.tasks.map((task) => task.title)).toEqual([
+      "Refresh my portfolio",
+      "Pick five projects",
+    ]);
+    expect(first.nextCursor).not.toBeNull();
+
+    const second = await tasks.listCollection(owner, "now", {
+      limit: 2,
+      cursor: first.nextCursor as string,
+    });
+    expect(second.tasks.map((task) => task.title)).toEqual([
+      "Rewrite the about page",
+      "Send the project outline",
+    ]);
+    expect(second.nextCursor).toBeNull();
+    // Pre-order across the pages is exactly the unpaged walk, depths included.
+    expect([...first.tasks, ...second.tasks]).toEqual(whole.tasks);
+
+    // A page taken after the tree moved reports the new version, which is how a client knows to
+    // start again rather than stitch two trees together.
+    clock += 1;
+    await create(tasks, owner, "Water the plants", { collection: "now" });
+    const stale = await tasks.listCollection(owner, "now", {
+      limit: 2,
+      cursor: first.nextCursor as string,
+    });
+    expect(stale.taskTreeVersion).not.toBe(first.taskTreeVersion);
+
+    await expect(
+      tasks.listCollection(owner, "now", { cursor: "bm90LWEtY3Vyc29y" }),
+    ).rejects.toMatchObject({ field: "cursor" });
+  });
+
+  it("bounds the subtasks one archive page reads per completed task (§3 D1 budget)", async () => {
+    const owner = await insertUser();
+    const tasks = service();
+    const parent = await create(tasks, owner, "Clear the studio", { collection: "later" });
+    const members = ARCHIVE_MEMBERS_PER_GROUP + 12;
+    for (let index = 0; index < members; index += 1) {
+      await create(tasks, owner, `Box ${index}`, { parentId: parent });
+    }
+    clock += 1;
+    await tasks.complete({ ownerId: owner, taskId: parent, mode: "all", stopRun: false });
+
+    const page = await tasks.listArchive({ ownerId: owner });
+    const shown = page.groups.flatMap((group) => group.tasks);
+    // Without the bound this would be every subtask ever completed under one task.
+    expect(shown).toHaveLength(ARCHIVE_MEMBERS_PER_GROUP + 1);
+    expect(shown[0]?.title).toBe("Clear the studio");
+    // The members kept are the first in display order, not an arbitrary slice.
+    expect(shown.slice(1).map((task) => task.title)).toEqual(
+      Array.from({ length: ARCHIVE_MEMBERS_PER_GROUP }, (_, index) => `Box ${index}`),
+    );
   });
 
   it("evicts a tree cache entry an archive read proves stale (decision WS2)", async () => {

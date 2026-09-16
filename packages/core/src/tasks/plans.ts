@@ -318,6 +318,12 @@ export function planCreate(
   input: CreatePlanInput,
 ): WritePlan<TaskCreateResponse> {
   const { tree } = state;
+  // A caller-chosen id that this state already holds is a retried tool call whose first try
+  // committed. The insert's own `requires` refuses it in the batch either way, but recognizing it
+  // here turns a refusal the writer would retry into one answer (decision WS18).
+  if (tree.get(input.taskId) !== undefined || state.archived.has(input.taskId)) {
+    throw new TaskOperationError("task.conflict", { reason: "task_exists" });
+  }
   let collection: TaskCollection;
   let parentId: string | null = null;
   let depth = 0;

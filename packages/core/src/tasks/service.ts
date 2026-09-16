@@ -10,6 +10,7 @@ import type {
   TaskRestoreResponse,
   TaskTreeResponse,
 } from "@symplist/contracts";
+import { TASK_TREE_PAGE_LIMIT } from "@symplist/contracts";
 import type { AccountDataKey, KeyProvider, RandomOptions } from "@symplist/crypto";
 import { zeroize } from "@symplist/crypto";
 import type { DbClient, DbRow, SqlParams, Statement, StatementResult } from "@symplist/db";
@@ -25,6 +26,8 @@ import {
   buildArchivePage,
   canonicalTimeZone,
   decodeArchiveCursor,
+  decodeTaskTreeCursor,
+  encodeTaskTreeCursor,
 } from "./archive.ts";
 import { archiveContributors as defaultArchiveContributors } from "./archive-contributors/index.ts";
 import type { ArchiveContributor } from "./archive-contributors/types.ts";
@@ -188,15 +191,31 @@ export class TaskService {
     this.cache?.delete(ownerId);
   }
 
-  /** A collection's active tasks in pre-order (`GET /v1/tasks?collection=`). */
-  async listCollection(ownerId: string, collection: TaskCollection): Promise<TaskTreeResponse> {
+  /**
+   * A collection's active tasks in pre-order (`GET /v1/tasks?collection=`), one page at a time. The
+   * owner's tree is read and cached whole, so every page after the first is served from that read;
+   * the window exists so one response cannot grow with the size of the collection (§3 D1 budget).
+   */
+  async listCollection(
+    ownerId: string,
+    collection: TaskCollection,
+    page: { readonly cursor?: string; readonly limit?: number } = {},
+  ): Promise<TaskTreeResponse> {
     const state = await this.state(ownerId);
+    const cursor = page.cursor === undefined ? null : decodeTaskTreeCursor(page.cursor);
+    const limit = page.limit ?? TASK_TREE_PAGE_LIMIT;
+    const flat = state.tree.flatten(collection);
+    // A cursor taken against another version indexes a tree that has moved. The page is still
+    // served, and the version it reports tells the client to start the collection again.
+    const offset = cursor === null ? 0 : Math.min(cursor.offset, flat.length);
+    const window = flat.slice(offset, offset + limit);
+    const end = offset + window.length;
     return {
       collection,
       taskTreeVersion: state.version,
-      tasks: state.tree
-        .flatten(collection)
-        .map(({ task, depth }) => toTaskNode(state.tree, task, depth)),
+      tasks: window.map(({ task, depth }) => toTaskNode(state.tree, task, depth)),
+      nextCursor:
+        end < flat.length ? encodeTaskTreeCursor({ version: state.version, offset: end }) : null,
     };
   }
 
@@ -372,7 +391,11 @@ export class TaskService {
     return this.write({
       ownerId: input.ownerId,
       ...(input.fold ? { fold: input.fold } : {}),
-      probe: [input.parentId, input.taskId].filter((id): id is string => id !== undefined),
+      // The new id is deliberately not probed. It is never in a cached tree (it does not exist
+      // yet), so probing it forced a tree read before every create with a caller-chosen id and made
+      // `task_create` cost two D1 requests. The insert's `requires` is the authority on the id being
+      // free, and `planCreate` recognizes an id a *freshly read* state already holds (§3, WS18).
+      probe: input.parentId === undefined ? [] : [input.parentId],
       plan: (state, ctx) =>
         planCreate(state, ctx, {
           taskId,

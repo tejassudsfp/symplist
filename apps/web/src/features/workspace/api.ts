@@ -36,7 +36,11 @@ import { type ApiClient, getApiClient } from "@/lib/api";
  * Mutations take the caller's idempotency key: a retry of the same intent reuses it (§6.1).
  */
 export interface WorkspaceApi {
-  listTasks(collection: TaskCollection, signal?: AbortSignal): Promise<TaskTreeResponse>;
+  /** One page of a collection's pre-order tree; pass the previous page's `nextCursor` for more. */
+  listTasks(
+    collection: TaskCollection,
+    options?: { readonly cursor?: string; readonly signal?: AbortSignal },
+  ): Promise<TaskTreeResponse>;
   getTask(taskId: string, signal?: AbortSignal): Promise<TaskDetailResponse>;
   createTask(body: TaskCreateRequest, idempotencyKey: string): Promise<TaskCreateResponse>;
   renameTask(taskId: string, title: string, idempotencyKey: string): Promise<TaskRenameResponse>;
@@ -67,11 +71,11 @@ function taskPath(taskId: string, suffix = ""): string {
 /** The workspace api over a browser client. */
 export function createWorkspaceApi(client: () => ApiClient = getApiClient): WorkspaceApi {
   return {
-    listTasks: (collection, signal) =>
+    listTasks: (collection, options) =>
       client().get("/v1/tasks", {
-        query: { collection },
+        query: { collection, ...(options?.cursor ? { cursor: options.cursor } : {}) },
         schema: taskTreeResponseSchema,
-        ...(signal ? { signal } : {}),
+        ...(options?.signal ? { signal: options.signal } : {}),
       }),
     getTask: (taskId, signal) =>
       client().get(taskPath(taskId), {
