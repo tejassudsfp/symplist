@@ -2,8 +2,8 @@ import { AbortTaskRunError, schedules } from "@trigger.dev/sdk";
 import { reportingD1Counters } from "../../infra/d1-counters.ts";
 import { toWorkerError } from "../../infra/errors.ts";
 import { workerRuntime } from "../../infra/runtime.ts";
+import { runScheduledWork } from "../../infra/scheduling-runtime.ts";
 import { reminderScan } from "../../queues.ts";
-import { runScheduledWork } from "./runtime.ts";
 
 export const reminderScanTask = schedules.task({
   id: "reminder-scan",

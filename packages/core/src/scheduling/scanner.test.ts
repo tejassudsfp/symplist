@@ -213,4 +213,137 @@ describe("shared reminder scan", () => {
       JSON.stringify(await env.db.all(sql("SELECT * FROM notification_outbox"))),
     ).not.toContain("PRIVATE ERROR");
   });
+  it("an expired materialization lease cannot publish even if no second worker has claimed it", async () => {
+    await schedule();
+    env.clock += 3600000;
+    await scanner({
+      renderEmail: async () => {
+        env.clock += 121000;
+        return {
+          to: "x@example.test",
+          subject: "Reminder",
+          html: "<p>Reminder</p>",
+          text: "Reminder",
+          sender: "reminders",
+          idempotencyKey: "ignored",
+        };
+      },
+    }).run({ executor: "local", generation: 1 });
+    expect(await env.count("notifications")).toBe(0);
+    expect(await env.count("notification_outbox")).toBe(0);
+    expect(send).not.toHaveBeenCalled();
+    await scanner().run({ executor: "local", generation: 1 });
+    expect(send).toHaveBeenCalledOnce();
+    expect(await env.count("notifications")).toBe(1);
+  });
+  it("collapses simultaneous overdue reminders to one accurate missed count and one email", async () => {
+    await schedules.save({
+      ownerId: owner,
+      taskId: task,
+      actor: "user",
+      requestId: "simultaneous",
+      data: {
+        baseVersion: 0,
+        deadline: null,
+        reminders: Array.from({ length: 3 }, () => ({
+          rule: {
+            kind: "absolute" as const,
+            local: "2026-09-15T10:00",
+            zone: "UTC",
+            disambiguation: "reject" as const,
+          },
+          channels: ["in_app" as const, "email" as const],
+          overrideQuiet: false,
+        })),
+      },
+    });
+    env.clock += 2 * 3600000;
+    await scanner().run({ executor: "local", generation: 1 });
+    const items = (await notifications.list(owner)).items;
+    expect(items).toHaveLength(1);
+    expect(items[0]?.count).toBe(3);
+    expect(send).toHaveBeenCalledOnce();
+    expect(
+      (await env.db.all(sql("SELECT status FROM reminder_occurrences"))).filter(
+        (row) => row.status === "skipped",
+      ),
+    ).toHaveLength(2);
+  });
+  it("rechecks quiet preferences before provider dispatch and defers to their new end", async () => {
+    await schedule();
+    env.clock += 3600000;
+    await scanner({
+      notify: async () => {
+        await notifications.savePreferences(owner, 1, {
+          ...schedulingDefaultPreferences,
+          email: true,
+          quietStart: 9,
+          quietEnd: 12,
+        });
+      },
+    }).run({ executor: "local", generation: 1 });
+    expect(send).not.toHaveBeenCalled();
+    expect(await env.db.first(sql("SELECT status,deliver_after FROM notification_outbox"))).toEqual(
+      { status: "pending", deliver_after: Date.parse("2026-09-15T12:00Z") },
+    );
+    env.clock = Date.parse("2026-09-15T12:00Z");
+    await scanner().run({ executor: "local", generation: 1 });
+    expect(send).toHaveBeenCalledOnce();
+  });
+  it("five unknown provider failures stop automatic retries as uncertain", async () => {
+    await schedule();
+    env.clock += 3600000;
+    const failing = vi.fn().mockRejectedValue(new Error("private"));
+    for (let index = 0; index < 7; index++) {
+      await scanner({ email: { send: failing } }).run({ executor: "local", generation: 1 });
+      env.clock += 3600000;
+    }
+    expect(failing).toHaveBeenCalledTimes(5);
+    expect((await env.db.first(sql("SELECT status FROM notification_outbox")))?.status).toBe(
+      "uncertain",
+    );
+  });
+  it("fifty due tasks use bounded D1 batches and one owner announcement, not a query loop", async () => {
+    const key = await schedules.accountKeys.require(owner);
+    for (let index = 0; index < 50; index++) {
+      const id = await env.createTask(owner);
+      await env.db.run(
+        sql("UPDATE tasks SET title_enc=:title WHERE id=:id", {
+          id,
+          title: encryptFieldText(key, taskTitleContext(owner, id), `Reminder task ${index}`),
+        }),
+      );
+      await schedules.save({
+        ownerId: owner,
+        taskId: id,
+        actor: "user",
+        requestId: `batch-${index}`,
+        data: {
+          baseVersion: 0,
+          deadline: null,
+          reminders: [
+            {
+              rule: {
+                kind: "absolute",
+                local: "2026-09-15T10:00",
+                zone: "UTC",
+                disambiguation: "reject",
+              },
+              channels: ["in_app"],
+              overrideQuiet: false,
+            },
+          ],
+        },
+      });
+    }
+    zeroize(key.key);
+    env.clock += 3600000;
+    const batch = vi.spyOn(env.db, "batch");
+    expect((await scanner().run({ executor: "local", generation: 1 })).occurrenceCount).toBe(50);
+    expect(batch.mock.calls.length).toBeLessThanOrEqual(10);
+    batch.mockRestore();
+    expect(await env.count("notifications")).toBe(50);
+    expect(notify).toHaveBeenCalledOnce();
+    expect(send).not.toHaveBeenCalled();
+  });
 });

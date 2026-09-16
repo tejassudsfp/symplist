@@ -7,4 +7,5 @@ export * from "./notifications.ts";
 export * from "./scanner.ts";
 export * from "./service.ts";
 export * from "./time.ts";
+export * from "./tools.ts";
 export * from "./webhooks.ts";

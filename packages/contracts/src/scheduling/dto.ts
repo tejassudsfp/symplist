@@ -71,7 +71,11 @@ export const schedulingSaveSchema = z
     deadline: schedulingDeadlineSchema.nullable(),
     reminders: z.array(schedulingReminderInputSchema).max(20),
   })
-  .strict();
+  .strict()
+  .refine((value) => {
+    const ids = value.reminders.flatMap((reminder) => (reminder.id ? [reminder.id] : []));
+    return new Set(ids).size === ids.length;
+  }, "A reminder can appear only once in a schedule");
 export const schedulingPrefsDataSchema = z
   .object({
     zone: schedulingZoneSchema,

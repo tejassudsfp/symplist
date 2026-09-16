@@ -7,7 +7,7 @@ import {
 import { computeDigest, decryptFieldText, verifyDigest, zeroize } from "@symplist/crypto";
 import { int, type Statement, sql, uuidv7 } from "@symplist/db";
 import type { TaskWriteFold } from "../tasks/service.ts";
-import { type SchedulingService, schedulingContext } from "./service.ts";
+import { deadlineFromRow, type SchedulingService, schedulingContext } from "./service.ts";
 import { SchedulingError } from "./time.ts";
 
 export class NotificationsService {
@@ -21,7 +21,7 @@ export class NotificationsService {
     const service = this.schedules;
     const [rows, count, keys] = await service.options.db.batch([
       sql(
-        `SELECT n.*,t.status AS task_status FROM notifications n JOIN tasks t ON t.id=n.task_id AND t.owner_id=n.owner_id WHERE n.owner_id=:owner AND n.dismissed_at IS NULL AND ${service.access()} ${before ? "AND n.id<:before" : ""} ORDER BY n.id DESC LIMIT :limit`,
+        `SELECT n.*,t.status AS task_status,s.deadline_kind,s.deadline_date,s.deadline_local,s.deadline_zone,s.disambiguation FROM notifications n JOIN tasks t ON t.id=n.task_id AND t.owner_id=n.owner_id LEFT JOIN task_schedules s ON s.task_id=t.id AND s.owner_id=t.owner_id WHERE n.owner_id=:owner AND n.dismissed_at IS NULL AND ${service.access()} ${before ? "AND (n.created_at,n.id)<(SELECT created_at,id FROM notifications WHERE id=:before AND owner_id=:owner)" : ""} ORDER BY n.created_at DESC,n.id DESC LIMIT :limit`,
         { owner, limit: int(limit + 1), ...(before ? { before } : {}) },
       ),
       sql(
@@ -52,6 +52,7 @@ export class NotificationsService {
           count: Number(row.count),
           readAt: row.read_at as number | null,
           taskActive: row.task_status === "active",
+          deadline: deadlineFromRow(row),
         }),
       );
       return {
@@ -115,6 +116,7 @@ export class NotificationsService {
       values,
     );
     const statements = [statement];
+    statements.push(...disableChannels(owner, w, guard, data.inApp, data.email));
     if (!data.email)
       statements.push(
         sql(
@@ -197,6 +199,9 @@ export class NotificationsService {
       zone: input.zone,
       disambiguation: input.disambiguation,
     });
+    const fingerprintInput = { notificationId: input.notificationId, snooze: body };
+    const replay = await service.replay({ ...input, actor: "user", fingerprint: fingerprintInput });
+    if (replay) return replay;
     const row = await service.options.db.first(
       sql(
         `SELECT n.task_id,r.channels_json,r.override_quiet FROM notifications n JOIN reminder_occurrences o ON o.id=n.last_occurrence_id JOIN reminders r ON r.id=o.reminder_id WHERE n.id=:id AND n.owner_id=:owner AND n.dismissed_at IS NULL AND ${service.access()}`,
@@ -210,6 +215,7 @@ export class NotificationsService {
       taskId: current.taskId,
       actor: "user",
       requestId: input.requestId,
+      fingerprintInput,
       data: {
         baseVersion: current.version,
         deadline: current.deadline,
@@ -267,6 +273,38 @@ export class NotificationsService {
         "UPDATE notification_outbox SET status='cancelled',write_id=:w WHERE owner_id=:owner AND channel='email' AND status IN ('pending','claimed','uncertain')",
         { owner, w },
       ),
+      ...disableChannels(owner, w, "1=1", true, false),
     ]);
   }
+}
+
+/** Remove disabled channels from existing pending reminders; an opt-in later cannot resurrect them. */
+function disableChannels(
+  owner: string,
+  w: string,
+  guard: string,
+  inApp: boolean,
+  email: boolean,
+): Statement[] {
+  if (inApp && email) return [];
+  const params = { owner, w, in_app: inApp ? "1" : "0", email: email ? "1" : "0" };
+  const disabled = `((CAST(:in_app AS INTEGER)=0 AND channels_json LIKE '%in_app%') OR (CAST(:email AS INTEGER)=0 AND channels_json LIKE '%email%'))`;
+  return [
+    sql(
+      `UPDATE task_schedules SET version=version+1,write_id=:w WHERE owner_id=:owner AND ${guard} AND task_id IN (SELECT task_id FROM reminders WHERE owner_id=:owner AND status='active' AND ${disabled})`,
+      params,
+    ),
+    sql(
+      `UPDATE reminders SET channels_json=(SELECT json_group_array(value) FROM json_each(reminders.channels_json) WHERE (value='in_app' AND CAST(:in_app AS INTEGER)=1) OR (value='email' AND CAST(:email AS INTEGER)=1)),write_id=:w WHERE owner_id=:owner AND status='active' AND ${guard} AND ${disabled}`,
+      params,
+    ),
+    sql(
+      `UPDATE reminder_occurrences SET status='cancelled',write_id=:w WHERE owner_id=:owner AND status IN ('pending','claimed') AND ${guard} AND reminder_id IN (SELECT id FROM reminders WHERE owner_id=:owner AND channels_json='[]')`,
+      { owner, w },
+    ),
+    sql(
+      `UPDATE reminders SET status='cancelled',generation=generation+1,write_id=:w WHERE owner_id=:owner AND status='active' AND channels_json='[]' AND ${guard}`,
+      { owner, w },
+    ),
+  ];
 }

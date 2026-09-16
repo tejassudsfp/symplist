@@ -159,4 +159,36 @@ describe("authorized scheduling persistence", () => {
       }),
     ).rejects.toThrow("schedule.channel_disabled");
   });
+  it("does not block an unrelated edit while an unchanged saved reminder awaits its scan", async () => {
+    const original = await save();
+    env.clock = Date.parse("2026-09-17T04:00Z");
+    const reminders = original.reminders.map(({ id, rule, channels, overrideQuiet }) => ({
+      id,
+      rule,
+      channels,
+      overrideQuiet,
+    }));
+    const result = await service.save({
+      ownerId: owner,
+      taskId: task,
+      actor: "user",
+      requestId: "unchanged-overdue",
+      data: { baseVersion: original.version, deadline: original.deadline, reminders },
+    });
+    expect(result.version).toBe(2);
+    expect(result.reminders[0]?.intendedAt).toBe(original.reminders[0]?.intendedAt);
+    await expect(
+      service.save({
+        ownerId: owner,
+        taskId: task,
+        actor: "user",
+        requestId: "changed-overdue",
+        data: {
+          baseVersion: result.version,
+          deadline: result.deadline,
+          reminders: reminders.map((reminder) => ({ ...reminder, overrideQuiet: true })),
+        },
+      }),
+    ).rejects.toThrow("schedule.past_reminder");
+  });
 });

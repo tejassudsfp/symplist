@@ -16,7 +16,7 @@ import {
   createResendEmailTransport,
 } from "@symplist/email";
 import { tasks } from "@trigger.dev/sdk";
-import type { WorkerRuntime } from "../../infra/runtime.ts";
+import type { WorkerRuntime } from "./runtime.ts";
 
 export async function runScheduledWork(
   runtime: WorkerRuntime,

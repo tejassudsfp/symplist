@@ -8,6 +8,7 @@ import {
 } from "@symplist/contracts";
 import {
   canonicalJson,
+  computeEmailSuppressionDigestCandidates,
   decryptFieldText,
   encryptFieldText,
   type KeyProvider,
@@ -28,6 +29,11 @@ export interface SchedulingOptions {
   readonly remindersEnabled?: boolean;
   readonly emailEnabled?: boolean;
   readonly defaultZone?: string;
+  readonly deliveryTracking?: boolean;
+}
+export interface SchedulingGuard {
+  readonly sql: string;
+  readonly params: Readonly<Record<string, string>>;
 }
 export function schedulingContext(ownerId: string, table: string, rowId: string, column: string) {
   return { purpose: "scheduling", ownerId, table, rowId, column };
@@ -85,12 +91,20 @@ export class SchedulingService {
       deadlineAt: (row.deadline_at as number | null) ?? null,
     }));
   }
-  async get(ownerId: string, taskId: string): Promise<SchedulingSnapshot> {
+  async get(
+    ownerId: string,
+    taskId: string,
+    guards: readonly SchedulingGuard[] = [],
+  ): Promise<SchedulingSnapshot> {
     const [tasks, schedules, reminders, preferences] = await this.options.db.batch([
-      sql(`SELECT id FROM tasks WHERE id=:task AND owner_id=:owner AND ${this.access()}`, {
-        task: taskId,
-        owner: ownerId,
-      }),
+      sql(
+        `SELECT id FROM tasks WHERE id=:task AND owner_id=:owner AND ${this.access()} ${guards.map((guard) => `AND (${guard.sql})`).join(" ")}`,
+        {
+          task: taskId,
+          owner: ownerId,
+          ...Object.assign({}, ...guards.map((guard) => guard.params)),
+        },
+      ),
       sql("SELECT * FROM task_schedules WHERE task_id=:task AND owner_id=:owner", {
         task: taskId,
         owner: ownerId,
@@ -126,16 +140,37 @@ export class SchedulingService {
   }
   async preferences(ownerId: string) {
     const [access, prefs] = await this.options.db.batch([
-      sql(`SELECT id FROM users WHERE id=:owner AND ${this.access()}`, { owner: ownerId }),
+      sql(`SELECT id,email FROM users WHERE id=:owner AND ${this.access()}`, { owner: ownerId }),
       sql("SELECT * FROM notification_prefs WHERE owner_id=:owner", { owner: ownerId }),
     ]);
     if (!access?.results.length) throw new SchedulingError("not_found");
     const row = prefs?.results[0];
+    let addressSuppressed = false;
+    if (this.options.deliveryTracking) {
+      const candidates = computeEmailSuppressionDigestCandidates(
+        this.options.keys,
+        String(access.results[0]?.email),
+      );
+      const params = Object.fromEntries(
+        candidates.flatMap((candidate, index) => [
+          [`digest${index}`, candidate.digest],
+          [`version${index}`, int(candidate.version)],
+        ]),
+      );
+      addressSuppressed = !!(await this.options.db.first(
+        sql(
+          `SELECT 1 AS suppressed FROM email_suppressions WHERE ${candidates.map((_, index) => `(address_digest=:digest${index} AND digest_version=CAST(:version${index} AS INTEGER))`).join(" OR ")} LIMIT 1`,
+          params,
+        ),
+      ));
+    }
     return {
       version: Number(row?.version ?? 0),
       data: preferencesFromRow(row, this.options.defaultZone),
       remindersEnabled: this.options.remindersEnabled !== false,
       emailEnabled: this.options.emailEnabled !== false,
+      deliveryTracking: this.options.deliveryTracking === true,
+      addressSuppressed,
     };
   }
   async preview(ownerId: string, input: SchedulingSave) {
@@ -150,6 +185,68 @@ export class SchedulingService {
       })),
     };
   }
+  /** Check an immutable operation before re-planning it against newer task state. */
+  async replay(input: {
+    ownerId: string;
+    requestId: string;
+    actor: "user" | "simon" | "mcp";
+    fingerprint: unknown;
+    guards?: readonly SchedulingGuard[];
+    fold?: TaskWriteFold;
+  }): Promise<SchedulingSnapshot | null> {
+    const owner = input.ownerId;
+    const [audit, keys] = await this.options.db.batch([
+      sql(
+        `SELECT * FROM schedule_audit WHERE owner_id=:owner AND request_id=:request AND ${this.access()} ${input.guards?.map((guard) => `AND (${guard.sql})`).join(" ") ?? ""}`,
+        {
+          owner,
+          request: input.requestId,
+          ...Object.assign({}, ...(input.guards?.map((guard) => guard.params) ?? [])),
+        },
+      ),
+      this.accountKeys.selectStatement(owner),
+    ]);
+    const old = audit?.results[0];
+    if (!old) return null;
+    const row = keys?.results[0];
+    if (!row) throw new SchedulingError("not_found");
+    const key = this.accountKeys.unwrapRow(row);
+    try {
+      if (input.fold) {
+        const results = await this.options.db.batch([
+          ...input.fold.statements,
+          sql(
+            "DELETE FROM idempotency_records WHERE scope=:scope AND user_id=:owner AND key=:idem AND write_id=:claim AND status='pending'",
+            {
+              owner,
+              scope: input.fold.claim.scope,
+              idem: input.fold.claim.key,
+              claim: input.fold.claim.writeId,
+            },
+          ),
+        ]);
+        const decision = input.fold.decide(results, key, 0);
+        if (decision.kind === "replay") return decision.body as SchedulingSnapshot;
+      }
+      const expected = canonicalJson({ actor: input.actor, operation: input.fingerprint });
+      const actual = decryptFieldText(
+        key,
+        schedulingContext(owner, "schedule_audit", input.requestId, "fingerprint_enc"),
+        String(old.fingerprint_enc),
+      );
+      if (actual !== expected) throw new SchedulingError("idempotency.mismatch");
+      if (!old.response_enc) return this.get(owner, String(old.task_id), input.guards);
+      return JSON.parse(
+        decryptFieldText(
+          key,
+          schedulingContext(owner, "schedule_audit", input.requestId, "response_enc"),
+          String(old.response_enc),
+        ),
+      ) as SchedulingSnapshot;
+    } finally {
+      zeroize(key.key);
+    }
+  }
   async save(input: {
     ownerId: string;
     taskId: string;
@@ -157,43 +254,43 @@ export class SchedulingService {
     requestId: string;
     data: SchedulingSave;
     fold?: TaskWriteFold;
+    guards?: readonly SchedulingGuard[];
+    fingerprintInput?: unknown;
   }): Promise<SchedulingSnapshot> {
     const data = schedulingSaveSchema.parse(input.data);
     const { ownerId: owner, taskId: task } = input;
+    const operation = input.fingerprintInput ?? { task, data };
+    const replay = await this.replay({ ...input, fingerprint: operation });
+    if (replay) return replay;
     const [current, preferenceState, key] = await Promise.all([
-      this.get(owner, task),
+      this.get(owner, task, input.guards),
       this.preferences(owner),
       this.accountKeys.require(owner),
     ]);
     const now = this.options.now();
     const w = uuidv7(now);
     try {
-      const fingerprint = canonicalJson({ task, actor: input.actor, data });
-      const old = await this.options.db.first(
-        sql(
-          `SELECT fingerprint_enc FROM schedule_audit WHERE owner_id=:owner AND request_id=:request AND ${this.access()}`,
-          { owner, request: input.requestId },
-        ),
-      );
-      if (old && !input.fold) {
-        const saved = decryptFieldText(
-          key,
-          schedulingContext(owner, "schedule_audit", input.requestId, "fingerprint_enc"),
-          String(old.fingerprint_enc),
-        );
-        if (saved !== fingerprint) throw new SchedulingError("idempotency.mismatch");
-        return current;
-      }
+      const fingerprint = canonicalJson({ actor: input.actor, operation });
       const reminders = data.reminders.map((r) => {
-        if (r.id && !current.reminders.some((existing) => existing.id === r.id))
-          throw new SchedulingError("not_found");
+        const existing = current.reminders.find((reminder) => reminder.id === r.id);
+        if (r.id && !existing) throw new SchedulingError("not_found");
         const preview = previewReminder(
           r.rule,
           data.deadline,
           preferenceState.data,
           r.overrideQuiet,
         );
-        if (preview.intendedAt <= now) throw new SchedulingError("schedule.past_reminder");
+        const unchangedPending =
+          existing &&
+          existing.intendedAt === preview.intendedAt &&
+          canonicalJson({
+            rule: existing.rule,
+            channels: existing.channels,
+            overrideQuiet: existing.overrideQuiet,
+          }) ===
+            canonicalJson({ rule: r.rule, channels: r.channels, overrideQuiet: r.overrideQuiet });
+        if (preview.intendedAt <= now && !unchangedPending)
+          throw new SchedulingError("schedule.past_reminder");
         if (this.options.remindersEnabled === false)
           throw new SchedulingError("schedule.unavailable");
         if (
@@ -227,9 +324,10 @@ export class SchedulingService {
         due: deadlineAt === null ? "" : int(deadlineAt),
         choice: data.deadline?.kind === "timed" ? data.deadline.disambiguation : "",
         ...input.fold?.claim.guard.params,
+        ...Object.assign({}, ...(input.guards?.map((guard) => guard.params) ?? [])),
       };
       const assignments = `deadline_kind=NULLIF(:kind,''),deadline_date=NULLIF(:date,''),deadline_local=NULLIF(:local,''),deadline_zone=NULLIF(:zone,''),deadline_at=CAST(NULLIF(:due,'') AS INTEGER),disambiguation=NULLIF(:choice,''),updated_at=:now,write_id=:w`;
-      const active = `EXISTS(SELECT 1 FROM tasks WHERE id=:task AND owner_id=:owner AND status='active') AND ${this.access()} AND EXISTS(SELECT 1 FROM account_keys WHERE owner_id=:owner) ${foldGuard}`;
+      const active = `EXISTS(SELECT 1 FROM tasks WHERE id=:task AND owner_id=:owner AND status='active') AND ${this.access()} AND EXISTS(SELECT 1 FROM account_keys WHERE owner_id=:owner) ${foldGuard} ${input.guards?.map((guard) => `AND (${guard.sql})`).join(" ") ?? ""}`;
       const statements: Statement[] = [
         ...(input.fold?.statements ?? []),
         data.baseVersion === 0
@@ -280,7 +378,7 @@ export class SchedulingService {
       }
       statements.push(
         sql(
-          `INSERT INTO schedule_audit(id,owner_id,task_id,actor,version,request_id,fingerprint_enc,created_at) SELECT :id,:owner,:task,:actor,:version,:request,:fingerprint,:now WHERE ${guard}`,
+          `INSERT INTO schedule_audit(id,owner_id,task_id,actor,version,request_id,fingerprint_enc,response_enc,created_at) SELECT :id,:owner,:task,:actor,:version,:request,:fingerprint,:response,:now WHERE ${guard}`,
           {
             id: w,
             owner,
@@ -292,6 +390,11 @@ export class SchedulingService {
               key,
               schedulingContext(owner, "schedule_audit", input.requestId, "fingerprint_enc"),
               fingerprint,
+            ),
+            response: encryptFieldText(
+              key,
+              schedulingContext(owner, "schedule_audit", input.requestId, "response_enc"),
+              JSON.stringify(snapshot),
             ),
             now: int(now),
             w,

@@ -2,7 +2,6 @@ import { type DbClient, int, sql } from "@symplist/db";
 import { SimonPauseReconciler, SimonRepository } from "../simon/index.ts";
 import type { ScannerExecution } from "./scanner.ts";
 import type { SchedulingOptions } from "./service.ts";
-import { ResendDeliveryEvents } from "./webhooks.ts";
 
 export interface SchedulingCleanupOptions extends SchedulingOptions {
   readonly quickChatTtlHours: number;
@@ -24,7 +23,6 @@ export async function cleanupHourly(options: SchedulingCleanupOptions, input: Sc
   if (!state || input.signal?.aborted) return { noop: true };
   const simon = new SimonRepository({ ...options, quickChatTtlHours: options.quickChatTtlHours });
   await new SimonPauseReconciler(simon).run(input);
-  await new ResendDeliveryEvents(options.db, options.keys, options.now).reconcile();
   await options.db.batch([
     sql(
       "DELETE FROM webhook_receipts WHERE rowid IN (SELECT rowid FROM webhook_receipts WHERE received_at<:cutoff LIMIT 100)",

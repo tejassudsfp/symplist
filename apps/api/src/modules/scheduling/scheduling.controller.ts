@@ -45,7 +45,7 @@ export async function schedulingCall<T>(work: () => Promise<T>): Promise<T> {
   }
 }
 function requestId(req: Request) {
-  return req.get("Idempotency-Key") ?? "";
+  return `${req.method}:${req.path}:${req.get("Idempotency-Key") ?? ""}`;
 }
 
 @Controller()

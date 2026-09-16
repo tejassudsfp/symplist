@@ -18,6 +18,7 @@ import { EMAIL_TRANSPORT } from "../../infra/email/email.providers.ts";
 import { LocalScheduler } from "../../infra/scheduler/local-scheduler.ts";
 import { InternalEventHandlerRegistry } from "../internal/internal-event-handlers.ts";
 import { TopicRegistry } from "../realtime/topic-registry.ts";
+import { DeliveryReconciler } from "./delivery-reconciler.ts";
 import { ResendWebhookController } from "./resend.controller.ts";
 import { SchedulingController } from "./scheduling.controller.ts";
 import { SchedulingRealtime } from "./scheduling.realtime.ts";
@@ -108,6 +109,7 @@ export class SchedulingLifecycle implements OnModuleInit {
           remindersEnabled: config.REMINDERS_ENABLED,
           emailEnabled: config.REMINDER_EMAIL_ENABLED,
           defaultZone: config.DEFAULT_TIMEZONE,
+          deliveryTracking: !!config.RESEND_WEBHOOK_SECRET,
         }),
     },
     {
@@ -121,6 +123,7 @@ export class SchedulingLifecycle implements OnModuleInit {
       useFactory: (db: DbClient, keys: KeyProvider, clock: Clock) =>
         new ResendDeliveryEvents(db, keys, () => clock.now()),
     },
+    DeliveryReconciler,
     SchedulingRealtime,
     SchedulingLifecycle,
   ],

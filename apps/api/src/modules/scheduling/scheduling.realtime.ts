@@ -40,7 +40,7 @@ export class SchedulingRealtime {
     // An internal event is only a hint: count persisted rows again, never trust worker-supplied count.
     const row = await this.schedules.options.db.first(
       sql(
-        `SELECT COUNT(*) AS count FROM notifications n JOIN notification_prefs p ON p.owner_id=n.owner_id WHERE n.owner_id=:owner AND n.quiet=1 AND n.read_at IS NULL AND n.dismissed_at IS NULL AND n.created_at<=p.last_quiet_summary_at AND n.created_at>p.last_quiet_summary_at-86400000 AND ${this.schedules.access()}`,
+        `SELECT COUNT(*) AS count FROM notifications n JOIN notification_prefs p ON p.owner_id=n.owner_id WHERE n.owner_id=:owner AND n.quiet=1 AND n.read_at IS NULL AND n.dismissed_at IS NULL AND n.created_at<p.last_quiet_summary_at AND n.created_at>=p.last_quiet_summary_start_at AND ${this.schedules.access()}`,
         { owner },
       ),
     );
