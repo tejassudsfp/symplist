@@ -127,6 +127,9 @@ test.describe("app shell", () => {
 
   test("keeps a logical keyboard focus order", async ({ page }, testInfo) => {
     await openShell(page, "/now");
+    // The list's own controls come after the rail and before the page: quick add, then search, then
+    // the failed load's retry. This spec runs with no api (see the config), so the list always ends
+    // in that failure; `workspace.spec.ts` covers the list with one behind it.
     const expectedNow: Record<ProjectName, string[]> = {
       desktop: [
         "a:Skip to content",
@@ -136,6 +139,9 @@ test.describe("app shell", () => {
         "a:Later",
         "a:Unclassified",
         "button:Hide task list",
+        "input:Add task to Now",
+        "button:Search Now",
+        "button:Try again",
         "separator:Resize task list",
       ],
       laptop: [
@@ -146,6 +152,9 @@ test.describe("app shell", () => {
         "a:Later",
         "a:Unclassified",
         "button:Hide task list",
+        "input:Add task to Now",
+        "button:Search Now",
+        "button:Try again",
       ],
       mobile: [
         "a:Skip to content",
@@ -154,6 +163,9 @@ test.describe("app shell", () => {
         "a:Now",
         "a:Later",
         "a:Unclassified",
+        "input:Add task to Now",
+        "button:Search Now",
+        "button:Try again",
       ],
     };
     const nowOrder = expectedNow[project(testInfo)];
@@ -169,6 +181,9 @@ test.describe("app shell", () => {
         "a:Later",
         "a:Unclassified",
         "button:Hide task list",
+        "input:Add task to Now",
+        "button:Search Now",
+        "button:Try again",
         "separator:Resize task list",
         "separator:Resize chat",
         "button:Hide chat",
