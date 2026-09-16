@@ -167,7 +167,7 @@
   width: 16px;
   height: 16px;
   margin: 2px 0 0;
-  border: 1.5px solid var(--sym-line-strong);
+  border: 1.5px solid var(--sym-muted);
   border-radius: var(--sym-rc);
   background: var(--sym-surface);
   appearance: none;
