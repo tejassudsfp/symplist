@@ -40,6 +40,18 @@ import { backToPageHref } from "./routes.ts";
 
 export const HISTORY_PAGE_SIZE = 25;
 
+/** Matches the stylesheet's phone breakpoint, where the list and the preview are separate screens. */
+const PHONE_QUERY = "(max-width: 767.98px)";
+
+function isPhoneLayout(): boolean {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+  try {
+    return window.matchMedia(PHONE_QUERY).matches;
+  } catch {
+    return false;
+  }
+}
+
 type RestorePhase =
   | { readonly kind: "idle" }
   | { readonly kind: "confirming" }
@@ -89,6 +101,8 @@ export function DocumentHistoryScreen({
   const keys = useRef(new IdempotencyKeys());
   const restoreButton = useRef<HTMLButtonElement>(null);
   const detailRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const detailToken = useRef(0);
   const { announce } = useAnnouncer();
   const titleId = useId();
   const listId = useId();
@@ -132,25 +146,36 @@ export function DocumentHistoryScreen({
 
   const openRevision = useCallback(
     async (revision: string) => {
+      // Two revisions opened in quick succession race: the first response must never overwrite the
+      // second one's preview, so every detail write is gated on still being the newest request.
+      detailToken.current += 1;
+      const token = detailToken.current;
       setSelected(revision);
       setScreen("detail");
       setDetailPhase("loading");
       setDetailFailure(null);
       setPreview(null);
       setComparison(null);
+      setLoadingHunks(false);
       setRestore({ kind: "idle" });
+      // On the phone layout the revisions list is hidden once a revision opens, which would take the
+      // focused button out of the page and strand the keyboard on `<body>`.
+      if (isPhoneLayout()) detailRef.current?.focus();
       try {
         const revisionPreview = await api.revision(taskId, revision);
+        if (detailToken.current !== token) return;
         setPreview(revisionPreview);
         if (!revisionPreview.isHead) {
           const compared = await api.compare(taskId, {
             base: revision,
             target: revisionPreview.headRevision,
           });
+          if (detailToken.current !== token) return;
           setComparison(compared);
         }
         setDetailPhase("ready");
       } catch (error) {
+        if (detailToken.current !== token) return;
         setDetailFailure(describeFailure(error));
         setDetailPhase("failed");
       }
@@ -158,8 +183,17 @@ export function DocumentHistoryScreen({
     [api, taskId],
   );
 
+  /** Returns to the revisions list, taking the keyboard with it on the phone layout. */
+  const showList = useCallback(() => {
+    setScreen("list");
+    if (!isPhoneLayout()) return;
+    const current = listRef.current?.querySelector<HTMLElement>('[aria-current="true"]');
+    (current ?? listRef.current)?.focus();
+  }, []);
+
   const loadMoreHunks = useCallback(async () => {
     if (!comparison?.nextCursor || !selected) return;
+    const token = detailToken.current;
     setLoadingHunks(true);
     try {
       const next = await api.compare(taskId, {
@@ -167,6 +201,8 @@ export function DocumentHistoryScreen({
         target: comparison.targetRevision,
         cursor: comparison.nextCursor,
       });
+      // Another revision was opened while this page was in flight: its hunks belong to the old one.
+      if (detailToken.current !== token) return;
       setComparison((current) =>
         current
           ? {
@@ -177,6 +213,7 @@ export function DocumentHistoryScreen({
           : next,
       );
     } catch (error) {
+      if (detailToken.current !== token) return;
       setDetailFailure(describeFailure(error));
     } finally {
       setLoadingHunks(false);
@@ -234,7 +271,12 @@ export function DocumentHistoryScreen({
       </header>
 
       <div className="sym-doc-history-body">
-        <section className="sym-doc-history-list" aria-labelledby={listId}>
+        <section
+          className="sym-doc-history-list"
+          aria-labelledby={listId}
+          ref={listRef}
+          tabIndex={-1}
+        >
           <h2 id={listId} className="sym-doc-subheading">
             Revisions
           </h2>
@@ -328,14 +370,14 @@ export function DocumentHistoryScreen({
           onKeyDown={(event) => {
             if (event.key === "Escape" && screen === "detail") {
               event.preventDefault();
-              setScreen("list");
+              showList();
             }
           }}
         >
           <button
             type="button"
             className="sym-doc-detail-back"
-            onClick={() => setScreen("list")}
+            onClick={showList}
             aria-label="Back to revisions"
           >
             <BackIcon />

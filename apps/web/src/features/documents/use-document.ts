@@ -242,6 +242,9 @@ export function documentReducer(state: DocumentState, action: Action): DocumentS
         head: action.head,
         baseRevision: action.revision,
         normalizationPending: false,
+        // An untouched buffer follows the normalization it just published. Otherwise the buffer
+        // still holds the old formatting and the next save would revert the commit (decision R7).
+        buffer: state.dirty ? state.buffer : action.head.markdown,
       };
     case "read_only":
       return { ...state, readOnly: action.reason };
@@ -466,13 +469,17 @@ export function useDocument(options: UseDocumentOptions): DocumentHandle {
         ) {
           const canonical = canonicalOrNull(head.markdown);
           if (canonical !== null && canonical !== head.markdown) {
+            // Scoped to the revision being normalized: a key kept for a retry must never be reused
+            // for another head, whose canonical text differs and which answers `idempotency.mismatch`
+            // for as long as the key is held.
+            const scope = `normalize:${head.revision}`;
             const normalized = await api.publish(taskId, {
               baseRevision: head.revision,
               markdown: canonical,
               kind: "normalization",
-              idempotencyKey: keysRef.current.acquire("normalize"),
+              idempotencyKey: keysRef.current.acquire(scope),
             });
-            keysRef.current.release("normalize");
+            keysRef.current.release(scope);
             if (normalized.revision) {
               base = normalized.revision;
               head = {
@@ -489,6 +496,18 @@ export function useDocument(options: UseDocumentOptions): DocumentHandle {
           } else {
             dispatch({ type: "normalization_published", revision: head.revision, head });
           }
+        }
+        // Nothing local is unsaved, so the normalization (or the discovery that none is owed) was the
+        // whole save. Publishing here would send a buffer still holding the old formatting on top of
+        // the commit just made, reverting it in a second visible revision (decision R7).
+        if (!retryPending && !stateRef.current.dirty) {
+          if (!mountedRef.current) return;
+          const at = timers.now();
+          if (head !== null) {
+            dispatch({ type: "saved", head: { ...head, updatedAt: at }, at, stillDirty: false });
+          }
+          schedulerRef.current?.published();
+          return;
         }
         const payload = retryPending
           ? (inFlightRef.current as NonNullable<typeof inFlightRef.current>)
@@ -694,7 +713,11 @@ export function useDocument(options: UseDocumentOptions): DocumentHandle {
       const base = current.conflict?.currentRevision ?? current.head?.revision ?? null;
       keysRef.current.release("save");
       inFlightRef.current = null;
-      dispatch({ type: "buffer", markdown });
+      // Advanced through the reducer first, the way `setBuffer` does, so the `stillDirty` check
+      // below compares against the merged text even before React has re-rendered.
+      const merged = { type: "buffer", markdown } as const;
+      stateRef.current = documentReducer(stateRef.current, merged);
+      dispatch(merged);
       dispatch({ type: "conflict_cleared" });
       dispatch({ type: "saving" });
       savingRef.current = true;
@@ -709,10 +732,12 @@ export function useDocument(options: UseDocumentOptions): DocumentHandle {
         keysRef.current.release("save");
         if (!mountedRef.current) return;
         const at = timers.now();
+        // Anything typed while the merge was publishing is still unsaved, exactly as in `runSave`.
+        const stillDirty = stateRef.current.buffer !== markdown;
         dispatch({
           type: "saved",
           at,
-          stillDirty: false,
+          stillDirty,
           head: {
             revision: result.revision,
             generation: result.generation,
@@ -726,6 +751,7 @@ export function useDocument(options: UseDocumentOptions): DocumentHandle {
           },
         });
         schedulerRef.current?.published();
+        if (stillDirty) schedulerRef.current?.changed();
       } catch (error) {
         if (!mountedRef.current) return;
         const failure = describeFailure(error);

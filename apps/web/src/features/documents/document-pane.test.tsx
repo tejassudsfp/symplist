@@ -303,6 +303,10 @@ describe("read-only pages", () => {
     await waitFor(() =>
       expect(screen.getByRole("textbox")).toHaveAttribute("contenteditable", "false"),
     );
+    // The Markdown view is refused too, so it says why rather than silently ignoring typing.
+    const notice = await slot("read-only-notice");
+    expect(within(notice).getByText("This page is read-only")).toBeInTheDocument();
+    expect(within(notice).queryByRole("button", { name: "Switch to Markdown" })).toBeNull();
   });
 });
 

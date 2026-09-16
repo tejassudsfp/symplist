@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { AnchorHTMLAttributes, ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { StatusAnnouncerProvider } from "@/components/ui/status-announcer";
 import { ApiError, ApiNetworkError } from "@/lib/api";
 import { FakeDocuments } from "./fake-api.ts";
@@ -25,6 +25,24 @@ const now = 1_758_000_000_000;
 const v1 = "## Overview\n\nThe first draft.\n";
 const v2 = "## Overview\n\nThe first draft.\n\n## Next steps\n\n* Pick three projects\n";
 const v3 = "## Overview\n\nA clearer overview.\n\n## Next steps\n\n* Pick three projects\n";
+
+/** Reports the stylesheet's phone breakpoint as matching; jsdom has no layout of its own. */
+function onPhone(): void {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: query.includes("max-width"),
+    media: query,
+    onchange: null,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+    addListener: () => undefined,
+    removeListener: () => undefined,
+    dispatchEvent: () => false,
+  }));
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 function slot(name: string): HTMLElement {
   const elements = document.querySelectorAll<HTMLElement>(`[data-slot="${name}"]`);
@@ -327,5 +345,51 @@ describe("the phone layout", () => {
     const user = userEvent.setup();
     await user.keyboard("{Escape}");
     expect(screenRoot).toHaveAttribute("data-screen", "list");
+  });
+
+  it("carries focus with the screen, so the keyboard is never left on a hidden panel", async () => {
+    // The stylesheet hides whichever panel is off-screen at this width; a focused element inside it
+    // would be taken out of the page and drop focus to `<body>`.
+    onPhone();
+    mount(threeVersions());
+    const screenRoot = slot("history-screen");
+    const user = await openOldest();
+    await waitFor(() => expect(screenRoot).toHaveAttribute("data-screen", "detail"));
+    expect(screen.getByRole("region", { name: "Revision preview" })).toHaveFocus();
+
+    await user.click(screen.getByRole("button", { name: "Back to revisions" }));
+    expect(screenRoot).toHaveAttribute("data-screen", "list");
+    expect(document.activeElement).toHaveAttribute("aria-current", "true");
+  });
+});
+
+describe("two revisions opened in quick succession", () => {
+  it("shows the one that was asked for last, whichever answer arrives first", async () => {
+    const fake = threeVersions();
+    const pending: Array<() => void> = [];
+    const revision = fake.api.revision.bind(fake.api);
+    const api = {
+      ...fake.api,
+      revision: async (task: string, id: string) => {
+        const answer = await revision(task, id);
+        await new Promise<void>((resolve) => pending.push(resolve));
+        return answer;
+      },
+    };
+    render(
+      <StatusAnnouncerProvider>
+        <DocumentHistoryScreen taskId={fake.taskId} from={null} api={api} now={() => now} />
+      </StatusAnnouncerProvider>,
+    );
+    const user = userEvent.setup();
+    const rows = await screen.findAllByRole("button", { name: /You,|Simon,/ });
+    await user.click(rows.at(-1) as HTMLElement);
+    await user.click(rows[0] as HTMLElement);
+    await waitFor(() => expect(pending).toHaveLength(2));
+    // The first request answers last.
+    (pending[1] as () => void)();
+    (pending[0] as () => void)();
+    await waitFor(() => expect(slot("revision-preview")).toBeInTheDocument());
+    expect(within(slot("revision-preview")).getByText("A clearer overview.")).toBeInTheDocument();
   });
 });

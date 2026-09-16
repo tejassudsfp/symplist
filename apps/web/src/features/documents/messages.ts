@@ -109,7 +109,8 @@ const byCode: Readonly<Record<string, Omit<DocumentFailure, "code">>> = {
   },
   "rate.limited": {
     title: "Too many changes at once",
-    description: "Saving paused for a moment. It will be retried automatically.",
+    description:
+      "Saving paused for a moment. Your draft is kept; keep typing or use Retry in a moment.",
     retryable: true,
   },
   "validation.failed": {

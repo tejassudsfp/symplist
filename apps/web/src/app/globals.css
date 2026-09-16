@@ -1790,6 +1790,7 @@
     min-width: 0;
   }
 
+  .sym-doc-history-list:focus,
   .sym-doc-history-detail:focus {
     outline: none;
   }

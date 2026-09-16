@@ -593,6 +593,56 @@ describe("the formatting-normalization commit (decision R7)", () => {
     expect(fake.commits.filter((commit) => commit.kind === "normalization")).toHaveLength(1);
   });
 
+  it("publishes it alone, and never an edit that reverts it, when nothing was typed", async () => {
+    const fake = new FakeDocuments({ commits: [{ markdown: nonCanonical }] });
+    const { result } = mount(fake, "page");
+    await ready(result);
+    await act(async () => {
+      result.current.flush("blur");
+    });
+    await waitFor(() => expect(result.current.state.save.kind).toBe("saved"));
+    expect(fake.commits.map((commit) => commit.kind)).toEqual(["create", "normalization"]);
+    expect(fake.markdown).toBe(canonicalFixture(nonCanonical));
+    // The buffer follows the commit, so the next save builds on the canonical text.
+    expect(result.current.state.buffer).toBe(canonicalFixture(nonCanonical));
+    expect(result.current.state.dirty).toBe(false);
+  });
+
+  it("scopes its idempotency key to the revision it normalizes", async () => {
+    const fake = new FakeDocuments({ commits: [{ markdown: nonCanonical }] });
+    const { result } = mount(fake, "page");
+    await ready(result);
+    act(() => result.current.setBuffer(`${canonicalFixture(nonCanonical)}one\n`));
+    // A normalization that fails keeps its key, so an exact retry replays rather than duplicating.
+    fake.failNext = new ApiNetworkError();
+    await act(async () => {
+      result.current.flush("shortcut");
+    });
+    await waitFor(() => expect(result.current.state.save.kind).toBe("failed"));
+    // A revision published elsewhere moves the head, so the normalization now rewrites other text.
+    fake.publishElsewhere("Other\n=====\n\n- a\n");
+    await act(async () => {
+      socket.headChanged(headEvent(fake.head?.revision ?? "", "simon"));
+    });
+    await act(async () => {
+      result.current.flush("shortcut");
+    });
+    await waitFor(() => expect(result.current.state.save.kind).not.toBe("saving"));
+    const normalizations = fake.calls
+      .filter((call) => call.name === "publish")
+      .map((call) => call.input as { kind: string; baseRevision: string; idempotencyKey: string })
+      .filter((input) => input.kind === "normalization");
+    expect(normalizations.length).toBeGreaterThan(1);
+    // Different bases are different intents: reusing one key across them is `idempotency.mismatch`.
+    const first = normalizations[0] as { baseRevision: string; idempotencyKey: string };
+    const last = normalizations[normalizations.length - 1] as {
+      baseRevision: string;
+      idempotencyKey: string;
+    };
+    expect(last.baseRevision).not.toBe(first.baseRevision);
+    expect(last.idempotencyKey).not.toBe(first.idempotencyKey);
+  });
+
   it("owes nothing for a document that is already canonical", async () => {
     const fake = new FakeDocuments({ commits: [{ markdown: canonicalFixture(page) }] });
     const { result } = mount(fake, "page");
@@ -730,6 +780,24 @@ describe("conflicts", () => {
     await waitFor(() => expect(result.current.state.conflict).toBeNull());
     expect(fake.markdown).toBe(`${page}\nmine and Simon's\n`);
     expect(result.current.state.save.kind).toBe("saved");
+  });
+
+  it("keeps text typed while the merge was publishing unsaved rather than losing it", async () => {
+    const { fake, result } = await conflicted();
+    await act(async () => {
+      const publishing = result.current.resolveConflict(`${page}\nmerged\n`);
+      result.current.setBuffer(`${page}\nmerged and more\n`);
+      await publishing;
+    });
+    expect(fake.markdown).toBe(`${page}\nmerged\n`);
+    expect(result.current.state.buffer).toBe(`${page}\nmerged and more\n`);
+    expect(result.current.state.dirty).toBe(true);
+    expect(result.current.state.save.kind).toBe("unsaved");
+    // The scheduler was restarted, so the extra text still reaches the server on its own.
+    await act(async () => {
+      timers.advance(SAVE_IDLE_MS);
+    });
+    await waitFor(() => expect(fake.markdown).toBe(`${page}\nmerged and more\n`));
   });
 
   it("reports a second conflict when the head moved again during review", async () => {

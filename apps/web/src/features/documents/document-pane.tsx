@@ -296,7 +296,9 @@ export function DocumentPane({ taskId, api, timers, watch }: DocumentPaneProps) 
         />
       ) : null}
 
-      {state.phase === "ready" && state.readOnly && view === "page" ? (
+      {/* A locked page says so in either view: the Markdown editor is refused too, and an editor
+          that silently ignores typing explains nothing (system_states.md). */}
+      {state.phase === "ready" && state.readOnly && (view === "page" || !rawEditable) ? (
         <div className="sym-doc-notice" role="status" data-slot="read-only-notice">
           <p className="sym-doc-notice-title">{readOnlyNotice(state.readOnly).title}</p>
           <p>{readOnlyNotice(state.readOnly).description}</p>
