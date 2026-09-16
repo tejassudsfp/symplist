@@ -116,7 +116,9 @@ async function start(tuning: { readonly replayMemoryCapacity?: number } = {}): P
       eventsContributors: [
         {
           domain: "simon",
-          executionKinds: eventsContributors.flatMap((contributor) => contributor.executionKinds),
+          executionKinds: eventsContributors
+            .filter((contributor) => contributor.domain === "simon")
+            .flatMap((contributor) => contributor.executionKinds),
           runRelaySource: () => runs,
         },
       ],

@@ -61,7 +61,9 @@ class ProbeRuns implements RunRelaySource {
     return {
       domain: "simon",
       executionKinds: [
-        ...eventsContributors.flatMap((contributor) => contributor.executionKinds),
+        ...eventsContributors
+          .filter((contributor) => contributor.domain === "simon")
+          .flatMap((contributor) => contributor.executionKinds),
         {
           kind: PROBE_KIND,
           triggerTaskId: "probe-run",
