@@ -1,6 +1,7 @@
 import {
   ComposioSessions,
   ConnectionMutations,
+  ConnectionReconciler,
   ConnectionsService,
   ConnectionWebhooks,
 } from "@symplist/core/connections";
@@ -25,6 +26,7 @@ export interface ConnectionsRuntime {
   readonly mutations: ConnectionMutations;
   readonly catalogue: Pick<ToolkitCatalogue, "list">;
   readonly webhooks: ConnectionWebhooks;
+  readonly reconciler: ConnectionReconciler;
   readonly client?: ReturnType<typeof createComposioClient>;
 }
 
@@ -61,10 +63,12 @@ export function createConnectionsRuntime(
     now,
     quickChatTtlHours: config.QUICK_CHAT_TTL_HOURS,
   });
+  const reconciler = new ConnectionReconciler({ repository, provider, sessions, changed });
   return {
     enabled: client !== undefined,
     client,
     catalogue,
+    reconciler,
     service: new ConnectionsService({
       db,
       keys,
@@ -74,6 +78,15 @@ export function createConnectionsRuntime(
       provider,
       catalogue,
       apiOrigin: config.API_ORIGIN,
+      afterConfirmed: async (ownerId, connectionId) => {
+        await changed(ownerId, connectionId);
+        // Confirmation has committed. Provider cleanup failure leaves native authority intact;
+        // the daily pass rediscovers and revokes unconfirmed accounts.
+        await reconciler
+          .owner(ownerId)
+          .then(() => reconciler.drain(undefined, ownerId))
+          .catch(() => undefined);
+      },
     }),
     mutations: new ConnectionMutations({ repository, provider, sessions, changed }),
     webhooks: new ConnectionWebhooks(repository, sessions, changed),

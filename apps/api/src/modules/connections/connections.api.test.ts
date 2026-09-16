@@ -1,6 +1,7 @@
 import { connectionStartResultSchema, errorEnvelopeSchema } from "@symplist/contracts";
 import {
   ConnectionMutations,
+  ConnectionReconciler,
   ConnectionsService,
   ConnectionWebhooks,
 } from "@symplist/core/connections";
@@ -33,6 +34,9 @@ async function boot(enabled = true, webhookSecret?: string) {
     },
     get webhooks() {
       return runtime.webhooks;
+    },
+    get reconciler() {
+      return runtime.reconciler;
     },
   };
   const app = await bootTestApp({
@@ -98,6 +102,7 @@ async function boot(enabled = true, webhookSecret?: string) {
     delay: async () => undefined,
   });
   runtime = {
+    reconciler: new ConnectionReconciler({ repository, provider, sessions }),
     ...(webhookSecret ? { client: createComposioClient("test-only-client-key") } : {}),
     webhooks: new ConnectionWebhooks(repository, sessions),
     enabled,

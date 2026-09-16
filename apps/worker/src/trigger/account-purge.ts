@@ -1,3 +1,4 @@
+import { createConnectionPurgeProvider } from "@symplist/integrations";
 import { AbortTaskRunError, runs, task } from "@trigger.dev/sdk";
 import { accountPurgePayloadSchema, runAccountPurgeTask } from "../infra/account-purge.ts";
 import { reportingD1Counters } from "../infra/d1-counters.ts";
@@ -30,7 +31,15 @@ export const accountPurge = task({
         () =>
           runAccountPurgeTask(
             payload,
-            { db: runtime.db, objects: runtime.objects, runs, logger: runtime.logger },
+            {
+              db: runtime.db,
+              objects: runtime.objects,
+              runs,
+              logger: runtime.logger,
+              ...(runtime.config.COMPOSIO_API_KEY
+                ? { connections: createConnectionPurgeProvider(runtime.config.COMPOSIO_API_KEY) }
+                : {}),
+            },
             signal,
           ),
       );

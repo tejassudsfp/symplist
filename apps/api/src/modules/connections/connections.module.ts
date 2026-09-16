@@ -8,12 +8,14 @@ import { DB_CLIENT } from "../../infra/db/db.providers.ts";
 import { TopicHub } from "../realtime/topic-hub.ts";
 import { ComposioWebhookController } from "./composio-webhook.controller.ts";
 import { ConnectionsController } from "./connections.controller.ts";
+import { ConnectionsRegistration } from "./connections.registration.ts";
 import { CONNECTIONS_RUNTIME, createConnectionsRuntime } from "./connections.runtime.ts";
 
 /** The connections feature: controllers, gateway handlers and providers live in this folder (§2.3). */
 @Module({
   controllers: [ConnectionsController, ComposioWebhookController],
   providers: [
+    ConnectionsRegistration,
     {
       provide: CONNECTIONS_RUNTIME,
       inject: [DB_CLIENT, KEY_PROVIDER, CLOCK, API_CONFIG, TopicHub],

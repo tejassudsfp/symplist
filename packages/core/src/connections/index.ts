@@ -7,5 +7,6 @@ export * from "./authority.ts";
 export * from "./fold.ts";
 export * from "./lifecycle.ts";
 export * from "./mutations.ts";
+export * from "./reconcile.ts";
 export * from "./sessions.ts";
 export * from "./webhook.ts";

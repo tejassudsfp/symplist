@@ -168,6 +168,15 @@ export class ComposioLifecycleProvider implements ConnectionLifecycleProvider {
     try {
       const result = await this.client.connectedAccounts.list({
         userIds: [ownerId],
+        statuses: [
+          "ACTIVE",
+          "EXPIRED",
+          "FAILED",
+          "REVOKED",
+          "INACTIVE",
+          "INITIATED",
+          "INITIALIZING",
+        ],
         limit: 100,
         ...(cursor ? { cursor } : {}),
       });
@@ -186,7 +195,10 @@ export class ComposioLifecycleProvider implements ConnectionLifecycleProvider {
 
   async revoke(id: string): Promise<void> {
     try {
-      await this.client.getClient().connectedAccounts.delete(id, { revoke_on_delete: true });
+      await this.client
+        .getClient()
+        .withOptions({ maxRetries: 0, timeout: 10_000 })
+        .connectedAccounts.delete(id, { revoke_on_delete: true });
     } catch (error) {
       if (error && typeof error === "object" && "status" in error && error.status === 404) return;
       throw normalizeIntegrationError(error);

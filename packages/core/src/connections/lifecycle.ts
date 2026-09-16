@@ -54,6 +54,7 @@ function nonceValue(attempt: string, value: string): string {
 }
 
 export interface ConnectionsOptions {
+  readonly afterConfirmed?: (ownerId: string, connectionId: string) => Promise<void>;
   readonly db: DbClient;
   readonly keys: KeyProvider;
   readonly policy: AccessPolicy;
@@ -350,6 +351,7 @@ export class ConnectionsService {
       if (!active) throw new IntegrationError("integration.connection_required");
       const connection = await this.confirm(actor, attempt, keyRow, write);
       await this.options.sessions.use(actor.ownerId);
+      await this.options.afterConfirmed?.(actor.ownerId, connection);
       return connection;
     } catch (error) {
       const failed = await this.options.db.batch([

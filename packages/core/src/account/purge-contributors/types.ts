@@ -1,4 +1,5 @@
 import type { DbClient, Statement } from "@symplist/db";
+import type { ConnectionPurgeProvider } from "@symplist/integrations";
 import type { CoreDomain } from "../../domains.ts";
 
 export interface PurgeInput {
@@ -20,6 +21,7 @@ export interface PurgeProviderInput {
  * connections domain's Composio client) adds it here when it registers that work.
  */
 export interface PurgeProviderDependencies {
+  readonly connections?: ConnectionPurgeProvider;
   readonly db: DbClient;
   readonly now: () => number;
 }

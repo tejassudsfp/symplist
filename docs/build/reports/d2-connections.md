@@ -44,6 +44,11 @@ Status: **in progress; not ready to integrate as a finished feature**. Sole writ
   payload identity), receipt/effect/approval expiry in one batch, and deduplicated pin refresh.
   Forged, altered and stale requests fail before any database work without logging their bodies.
   Migration 0601 is a byte-identical, explicitly authorized dependency copied from merged Scheduling.
+- Shared generation-fenced reconciliation, daily Trigger task on imported d1, matching local daily
+  schedule, local hourly revocation retry, callback cleanup and ids-only worker announcements.
+  Batches cap connection mutations at eight and provider revocation claims at twenty. Active pending
+  callback attempts are protected until their bounded expiry. Provider purge removes all account
+  statuses in bounded shrinking-page passes, then the known session, after crypto-shredding.
 
 ## Simon seam
 
@@ -86,6 +91,14 @@ used for a write. An ambiguous write is surfaced as uncertain, not silently rese
   suite: 439 passed / 6 existing live skips, and all 47 script tests passed; docs check passed.
 - Webhook checkpoint: eight connection/webhook HTTP tests passed; lint over 1,177 files has zero
   warnings/errors and all 17 project typechecks passed.
+- Reconcile/purge checkpoint: 110 core connection/account tests and ten focused worker tests passed;
+  all 17 typechecks and lint over 1,184 files pass. Full tests hit the known parallel-load Git timeout;
+  unchanged rerun passed all packages (core 492, API 442 plus six live skips, worker 84, web 1,484,
+  and 47 script tests). Updated the pre-D2 provider-purge test because a domain now really owns
+  provider cleanup: the assertion now requires registered provider state to block premature success.
+- Adversarial follow-up bounds provider revocation to five concurrent calls with a fresh executor
+  check between groups and a ten-second no-retry transport deadline. A mode-switch test proves no
+  new group starts and the retired executor cannot acknowledge already-deleted jobs.
 
 ## Adversarial findings fixed in this checkpoint
 
@@ -100,10 +113,11 @@ used for a write. An ambiguous write is surfaced as uncertain, not silently rese
 
 ## Remaining work
 
-Connection/auth-config lifecycle, callback identity verification, same-batch webhook dedupe and
-approval expiry, generation-fenced reconcile/local scheduler/provider purge, full HTTP and UI,
-incoming MCP grants/API keys/OAuth/CIMD/tools/client suites, secret scans, browser specs and whole
-diff review. Full feature gates remain required. Root owns progress/coverage and combined E work.
+Connections UI, incoming MCP grants/API keys/OAuth/CIMD/tools/client suites, complete runtime tool
+authority, remaining secret scans, browser specs and whole-diff review. The root must wire
+`connectionReconcilerFor(runtime)?.drain({mode:'durable',generation})` into merged cleanup-hourly;
+the daily task already drains but hourly durable retry is not yet integrated here. Full feature gates
+remain required. Root owns progress/coverage and combined E work.
 
 ## Files outside owned feature directories
 
@@ -112,6 +126,9 @@ diff review. Full feature gates remain required. Root owns progress/coverage and
 - `packages/db/migrations/0601_notification_provider_events.sql` (exact Scheduling dependency)
 - `packages/core/src/access/restrict-contributors/connections.ts`
 - `packages/core/src/account/purge-contributors/connections.ts`
+- `packages/core/src/account/purge-contributors/types.ts` and `packages/core/src/account/purge-steps.test.ts`
+- `apps/api/src/infra/account/account-purge.module.ts`
+- `apps/worker/src/infra/account-purge.ts` and `apps/worker/src/trigger/account-purge.ts`
 - `packages/core/src/access/session-revoke-contributors/connections.ts` and its registry
 - `apps/api/src/common/guards/route-class.guard.test.ts` and
   `apps/api/test/probes/route-classes.probe.ts` (pre-D2 probe route collision, assertions preserved)
