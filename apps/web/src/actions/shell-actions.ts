@@ -6,6 +6,12 @@ import type { ActionAvailability, ActionEnvironment, AppAction } from "./types.t
  */
 export const SIGN_OUT_ACTION_ID = "access.sign_out";
 
+/**
+ * The action id the search feature registers for the shortcut help overlay. The profile menu invokes
+ * it through the registry, so `?` and the menu entry open the same surface (keyboard_shortcuts.md).
+ */
+export const SHORTCUT_HELP_ACTION_ID = "search.show_shortcuts";
+
 const enabled: ActionAvailability = { enabled: true };
 
 function needsTask(environment: ActionEnvironment): ActionAvailability {

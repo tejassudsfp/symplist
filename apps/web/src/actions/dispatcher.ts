@@ -14,6 +14,7 @@ import {
   type ParsedBinding,
 } from "./keys.ts";
 import type {
+  ActionAvailability,
   ActionContext,
   ActionEnvironment,
   ActionServices,
@@ -165,6 +166,21 @@ export class KeyboardDispatcher {
       }
     }
     return { kind: "ignored" };
+  }
+
+  /**
+   * Whether an action could run now from `source`, with its reason when it cannot, without running
+   * it or announcing anything. Lists such as the command palette use it to show disabled actions and
+   * their reasons before anyone picks one (note 13). Null for an unknown action id.
+   */
+  check(
+    actionId: string,
+    source: ActionSource,
+    pane: PaneId | null = null,
+  ): ActionAvailability | null {
+    const action = this.options.getActions().find((candidate) => candidate.id === actionId);
+    if (!action) return null;
+    return action.availability(this.environment(source, pane));
   }
 
   /**

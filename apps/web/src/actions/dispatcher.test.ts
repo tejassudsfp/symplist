@@ -262,6 +262,32 @@ describe("disabled actions", () => {
     expect(run.mock.calls[0]?.[0]).toMatchObject({ source: "palette", pane: "chat" });
     await expect(h.dispatcher.invoke("missing", "pointer")).resolves.toEqual({ kind: "unknown" });
   });
+
+  it("reports availability for lists without running or announcing anything", () => {
+    const run = vi.fn();
+    const seen: ActionEnvironment[] = [];
+    const h = setup(() => [
+      action({
+        id: "locked",
+        context: "app",
+        availability: (environment) => {
+          seen.push(environment);
+          return { enabled: false, reason: "Locked" };
+        },
+        run,
+      }),
+      action({ id: "open", context: "app", run }),
+    ]);
+    expect(h.dispatcher.check("locked", "palette", "inbox")).toEqual({
+      enabled: false,
+      reason: "Locked",
+    });
+    expect(seen[0]).toMatchObject({ source: "palette", pane: "inbox" });
+    expect(h.dispatcher.check("open", "palette")).toEqual({ enabled: true });
+    expect(h.dispatcher.check("missing", "palette")).toBeNull();
+    expect(run).not.toHaveBeenCalled();
+    expect(h.disabled).toEqual([]);
+  });
 });
 
 describe("typing and IME guard", () => {

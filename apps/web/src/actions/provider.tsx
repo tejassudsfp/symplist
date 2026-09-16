@@ -18,13 +18,30 @@ import {
 } from "./bindings.ts";
 import { type InvokeResult, KeyboardDispatcher } from "./dispatcher.ts";
 import { type BindingLabel, detectPlatform, formatBinding, parseBinding } from "./keys.ts";
-import type { ActionServices, ActionSource, AppAction, PaneId, Platform } from "./types.ts";
+import type {
+  ActionAvailability,
+  ActionServices,
+  ActionSource,
+  AppAction,
+  PaneId,
+  Platform,
+} from "./types.ts";
 
 export interface ActionsContextValue {
   readonly platform: Platform;
   readonly actions: readonly AppAction[];
   /** Runs an action from a button, menu or the palette, through the same availability check. */
   invoke(actionId: string, source: ActionSource, pane?: PaneId | null): Promise<InvokeResult>;
+  /**
+   * Whether an action could run now from `source`, with its reason when it cannot, without running
+   * it; null for an unknown action or before the dispatcher attaches. The palette and shortcut help
+   * use it to explain disabled actions (note 13).
+   */
+  availability(
+    actionId: string,
+    source: ActionSource,
+    pane?: PaneId | null,
+  ): ActionAvailability | null;
   /** The platform-aware label of an action's current binding, or null when it is unbound. */
   bindingLabel(actionId: string): BindingLabel | null;
   readonly pendingSequence: readonly string[] | null;
@@ -119,6 +136,12 @@ export function ActionsProvider({
     [],
   );
 
+  const availability = useCallback(
+    (actionId: string, source: ActionSource, pane: PaneId | null = null) =>
+      dispatcherRef.current?.check(actionId, source, pane) ?? null,
+    [],
+  );
+
   const bindings = useMemo(() => effectiveBindings(actions, preferences), [actions, preferences]);
 
   const bindingLabel = useCallback(
@@ -130,8 +153,8 @@ export function ActionsProvider({
   );
 
   const value = useMemo<ActionsContextValue>(
-    () => ({ platform, actions, invoke, bindingLabel, pendingSequence }),
-    [platform, actions, invoke, bindingLabel, pendingSequence],
+    () => ({ platform, actions, invoke, availability, bindingLabel, pendingSequence }),
+    [platform, actions, invoke, availability, bindingLabel, pendingSequence],
   );
 
   return (

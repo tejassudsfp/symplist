@@ -330,6 +330,34 @@ export function workspacePanelSizes(themeId: ThemeId, doc: Document | undefined)
   return panelSizes(themes[isThemeId(live) ? live : themeId].geometry.panelInset);
 }
 
+/**
+ * Brings a panel to the collapsed state the shell holds. A panel that mounted in this commit (the
+ * chat panel when a task opens through client-side navigation) is not registered with its group yet
+ * and its imperative API throws `Panel constraints not found`; its `defaultSize` already carries the
+ * state, so the sync is simply retried on the next frame instead of crashing the workspace.
+ */
+function syncPanelCollapsed(
+  panelRef: ReturnType<typeof usePanelRef>,
+  collapsed: boolean,
+): (() => void) | undefined {
+  const apply = (): boolean => {
+    const panel = panelRef.current;
+    if (!panel) return false;
+    try {
+      if (collapsed && !panel.isCollapsed()) panel.collapse();
+      if (!collapsed && panel.isCollapsed()) panel.expand();
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  if (apply()) return undefined;
+  const handle = requestAnimationFrame(() => {
+    apply();
+  });
+  return () => cancelAnimationFrame(handle);
+}
+
 export interface WorkspaceProps {
   readonly route: WorkspaceRoute;
   /** Receives the shell controller used by keyboard and palette actions. */
@@ -383,18 +411,12 @@ export function Workspace({
   // Keep the resizable panels in step with shell state whenever the desktop layout is active.
   useEffect(() => {
     if (mode !== "desktop") return;
-    const panel = inboxPanel.current;
-    if (!panel) return;
-    if (state.inboxCollapsed && !panel.isCollapsed()) panel.collapse();
-    if (!state.inboxCollapsed && panel.isCollapsed()) panel.expand();
+    return syncPanelCollapsed(inboxPanel, state.inboxCollapsed);
   }, [mode, state.inboxCollapsed, inboxPanel]);
 
   useEffect(() => {
     if (mode !== "desktop" || route.taskId === null) return;
-    const panel = chatPanel.current;
-    if (!panel) return;
-    if (state.chatCollapsed && !panel.isCollapsed()) panel.collapse();
-    if (!state.chatCollapsed && panel.isCollapsed()) panel.expand();
+    return syncPanelCollapsed(chatPanel, state.chatCollapsed);
   }, [mode, state.chatCollapsed, chatPanel, route.taskId]);
 
   const onInboxResize = useCallback((size: PanelSize) => {

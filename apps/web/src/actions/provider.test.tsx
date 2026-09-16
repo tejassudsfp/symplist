@@ -96,6 +96,44 @@ describe("ActionsProvider", () => {
     expect(shellServices.announce).toHaveBeenCalledWith("Stop Simon: Simon isn't running");
   });
 
+  it("reports an action's availability without running it", async () => {
+    const shellServices = services();
+    function Availability() {
+      const { availability } = useActions();
+      const stopState = availability("run.stop", "palette");
+      const paletteState = availability("palette.open", "palette");
+      return (
+        <div>
+          <span data-testid="stop-state">
+            {stopState ? `${stopState.enabled}:${stopState.reason ?? ""}` : "none"}
+          </span>
+          <span data-testid="palette-state">
+            {paletteState ? String(paletteState.enabled) : "none"}
+          </span>
+          <span data-testid="missing-state">
+            {availability("missing", "palette") ? "some" : "none"}
+          </span>
+        </div>
+      );
+    }
+    const { rerender } = render(
+      <ActionsProvider actions={[palette, stop]} services={shellServices}>
+        <Availability />
+      </ActionsProvider>,
+    );
+    // The dispatcher attaches in an effect; the next render reads it.
+    rerender(
+      <ActionsProvider actions={[palette, stop]} services={shellServices}>
+        <Availability />
+      </ActionsProvider>,
+    );
+    expect(screen.getByTestId("stop-state")).toHaveTextContent("false:Simon isn't running");
+    expect(screen.getByTestId("palette-state")).toHaveTextContent("true");
+    expect(screen.getByTestId("missing-state")).toHaveTextContent("none");
+    expect(stop.run).not.toHaveBeenCalled();
+    expect(shellServices.announce).not.toHaveBeenCalled();
+  });
+
   it("stops listening when unmounted", async () => {
     const user = userEvent.setup();
     const run = vi.fn();

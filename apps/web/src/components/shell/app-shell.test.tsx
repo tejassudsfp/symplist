@@ -122,6 +122,28 @@ describe("AppShell on a task route", () => {
     );
   });
 
+  it("adds the chat panel when a task opens through client-side navigation", async () => {
+    // Opening a task from the palette or a search result re-renders the workspace with a new panel;
+    // the panel group has no constraints for it yet, so the collapse sync must not crash the app.
+    const { rerender } = renderShell({ path: "/now" });
+    expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
+    navigation.pathname = `/now/${taskId}`;
+    await act(async () => {
+      rerender(
+        <StatusAnnouncerProvider>
+          <TooltipProvider>
+            <ShellSlotsProvider value={{}}>
+              <AppShell>
+                <h1>Page content</h1>
+              </AppShell>
+            </ShellSlotsProvider>
+          </TooltipProvider>
+        </StatusAnnouncerProvider>,
+      );
+    });
+    expect(screen.getByRole("complementary", { name: "Simon" })).toBeInTheDocument();
+  });
+
   it("collapses the task list to the rail's Show task list control", async () => {
     const user = userEvent.setup();
     renderShell({ path: `/now/${taskId}` });
