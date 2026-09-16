@@ -50,9 +50,7 @@ describe("schedule editor", () => {
     await screen.findByLabelText("Deadline date");
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     await userEvent.click(screen.getByRole("button", { name: "Preview delivery times" }));
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Save" })).toBeEnabled(),
-    );
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toBeEnabled());
     expect(api.preview).toHaveBeenCalledOnce();
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(api.save).toHaveBeenCalledWith(

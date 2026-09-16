@@ -35,6 +35,18 @@ export function SchedulingProvider({
   useEffect(() => {
     scheduleOverlay.close();
     if (!userId) return;
+    let current = true;
+    // First admitted workspace follows onboarding. Detect once; travel never rewrites stored prefs.
+    void Promise.resolve()
+      .then(() => api.preferences())
+      .then(async (state) => {
+        if (!current || state.version !== 0) return;
+        const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        if (zone) await api.savePreferences(0, { ...state.data, zone }, crypto.randomUUID());
+      })
+      .catch(() => {
+        /* A simultaneous explicit settings save wins; the editor remains usable offline. */
+      });
     const menu = [
       {
         id: "scheduling.set_deadline",
@@ -65,6 +77,7 @@ export function SchedulingProvider({
       },
     });
     return () => {
+      current = false;
       unsubscribe?.();
       deadlines.dispose();
       scheduleOverlay.close();
@@ -73,7 +86,7 @@ export function SchedulingProvider({
         if (index >= 0) taskMenuExtensions.splice(index, 1);
       }
     };
-  }, [deadlines, userId]);
+  }, [api, deadlines, userId]);
   return (
     <Context.Provider value={useMemo(() => ({ api, deadlines }), [api, deadlines])}>
       {children}

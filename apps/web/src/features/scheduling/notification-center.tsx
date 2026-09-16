@@ -32,12 +32,22 @@ export function NotificationCenter({
   const [snooze, setSnooze] = useState<SchedulingNotification | null>(null);
   const [revision, setRevision] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
+  const [offline, setOffline] = useState(false);
   const request = useRef(new Map<string, string>());
   const active = useRef(true);
   useEffect(() => {
     active.current = true;
+    const updateOnline = () => {
+      setOffline(!navigator.onLine);
+      if (navigator.onLine) setRevision((value) => value + 1);
+    };
+    setOffline(!navigator.onLine);
+    window.addEventListener("online", updateOnline);
+    window.addEventListener("offline", updateOnline);
     return () => {
       active.current = false;
+      window.removeEventListener("online", updateOnline);
+      window.removeEventListener("offline", updateOnline);
     };
   }, []);
   const unread = useRef(onUnread);
@@ -118,6 +128,11 @@ export function NotificationCenter({
         <DialogDescription>
           Reading or dismissing a reminder never completes its task.
         </DialogDescription>
+        {offline ? (
+          <p role="status">
+            You’re offline. Saved reminders stay here; changes will be available when you reconnect.
+          </p>
+        ) : null}
         {loading && !items.length ? <p role="status">Loading reminders…</p> : null}
         {error ? (
           <div role="alert">
