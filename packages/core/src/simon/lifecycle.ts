@@ -65,7 +65,12 @@ export function releaseSimonStatements(
       },
     ),
     sql(
-      `UPDATE messages SET status = 'accepted', run_id = :next, write_id = :w
+      `UPDATE conversations SET next_message_seq = next_message_seq + 1 WHERE active_run_id = :next AND write_id = :w`,
+      { next: nextRun, w: writeId },
+    ),
+    sql(
+      `UPDATE messages SET status = 'accepted', run_id = :next, write_id = :w,
+      seq = (SELECT next_message_seq FROM conversations WHERE active_run_id = :next AND write_id = :w)
       WHERE id = (SELECT m.id FROM messages m JOIN conversations c ON c.id = m.conversation_id
         WHERE c.active_run_id = :next AND c.write_id = :w AND m.status = 'queued' ORDER BY m.seq LIMIT 1)`,
       { next: nextRun, w: writeId },

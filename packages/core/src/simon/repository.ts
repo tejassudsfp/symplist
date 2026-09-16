@@ -16,6 +16,7 @@ import { dispatchSimonStatements, releaseSimonStatements } from "./lifecycle.ts"
 import {
   type ClaimedSimonRun,
   runFromRow,
+  type SimonCheckpointData,
   SimonError,
   type SimonRepositoryOptions,
   type SimonRun,
@@ -35,6 +36,13 @@ export interface AcceptedMessage {
 
 /** All persistent chat mutations share this implementation in both executors. */
 export class SimonRepository {
+  nextId(): string {
+    return uuidv7(this.options.now());
+  }
+
+  releaseClaim(claim: ClaimedSimonRun): void {
+    zeroize(claim.key.key);
+  }
   readonly accountKeys: AccountKeyStore;
   constructor(readonly options: SimonRepositoryOptions) {
     this.accountKeys = new AccountKeyStore(options);
@@ -317,9 +325,24 @@ export class SimonRepository {
     text: string,
     steps: number,
     status: SimonRunStatus = "running",
+    data?: SimonCheckpointData,
   ): Promise<boolean> {
     const result = await this.options.db.batch(
-      this.checkpointStatements(run, key, text, steps, status),
+      this.checkpointStatements(
+        run,
+        key,
+        text,
+        steps,
+        status,
+        data
+          ? {
+              now: this.options.now(),
+              writeId: uuidv7(this.options.now()),
+              statements: [],
+              ...data,
+            }
+          : undefined,
+      ),
     );
     return Boolean(result.at(-1)?.results[0]);
   }
@@ -331,7 +354,7 @@ export class SimonRepository {
     text: string,
     steps: number,
     status: SimonRunStatus,
-    extra?: {
+    extra?: SimonCheckpointData & {
       readonly writeId: string;
       readonly now: number;
       readonly guard?: { readonly sql: string; readonly params: Readonly<Record<string, string>> };
@@ -369,10 +392,27 @@ export class SimonRepository {
       status === "stopped"
         ? this.runGuard().replace("cancel_requested_at IS NULL", "cancel_requested_at IS NOT NULL")
         : this.runGuard();
+    if (extra?.snapshotJson !== undefined) {
+      if (Buffer.byteLength(extra.snapshotJson) > 1_048_576) throw new SimonError("validation");
+      const snapshot = JSON.parse(extra.snapshotJson) as Record<string, unknown>;
+      if (snapshot.id !== run.id || snapshot.role !== "assistant" || !Array.isArray(snapshot.parts))
+        throw new SimonError("validation");
+    }
+    const telemetry = extra?.telemetry;
+    if (
+      telemetry &&
+      (![telemetry.inputTokens, telemetry.outputTokens].every(
+        (n) => Number.isSafeInteger(n) && n >= 0,
+      ) ||
+        !/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,199}$/.test(telemetry.model) ||
+        !/^[A-Za-z0-9._-]{1,80}$/.test(telemetry.rulesVersion))
+    )
+      throw new SimonError("validation");
     return [
       sql(
         `UPDATE runs SET status = :status, steps = :steps, heartbeat_at = :now,
         finished_at = CASE WHEN :status = 'running' THEN NULL ELSE :now END, write_id = :w
+        ${telemetry ? ", provider = :provider, model = :model, rules_version = :rules, input_tokens = :input_tokens, output_tokens = :output_tokens" : ""}
         WHERE id = :run AND owner_id = :owner AND executor_generation = :generation AND ${stopGuard}
         ${extra?.guard ? `AND ${extra.guard.sql}` : ""}`,
         {
@@ -383,6 +423,15 @@ export class SimonRepository {
           steps: int(steps),
           now: int(now),
           ...extra?.guard?.params,
+          ...(telemetry
+            ? {
+                provider: telemetry.provider,
+                model: telemetry.model,
+                rules: telemetry.rulesVersion,
+                input_tokens: int(telemetry.inputTokens),
+                output_tokens: int(telemetry.outputTokens),
+              }
+            : {}),
         },
       ),
       sql(
@@ -420,10 +469,111 @@ export class SimonRepository {
           ),
         },
       ),
+      ...(extra?.snapshotJson !== undefined
+        ? [
+            sql(
+              `INSERT INTO message_parts (id, message_id, owner_id, seq, content_enc, created_at, write_id)
+        SELECT :id, :id, :owner, 0, :content, :now, :w WHERE ${guard}
+        ON CONFLICT (id) DO UPDATE SET content_enc = excluded.content_enc, write_id = excluded.write_id`,
+              {
+                ...params,
+                id: messageId,
+                owner: run.ownerId,
+                now: int(now),
+                content: encryptFieldText(
+                  key,
+                  simonField(run.ownerId, "message_parts", messageId, "content_enc"),
+                  extra.snapshotJson,
+                ),
+              },
+            ),
+          ]
+        : []),
       ...(extra?.statements ?? []),
       ...(terminal ? this.releaseStatements(run.id, writeId, now) : []),
       sql("SELECT id FROM runs WHERE id = :run AND write_id = :w", params),
     ];
+  }
+
+  /** Model history excludes queued/cancelled follow-ups and uses encrypted structured checkpoints. */
+  async executionHistory(run: SimonRun, key: AccountDataKey) {
+    const rows = await this.options.db.all(
+      sql(
+        `SELECT m.id, m.role, m.content_enc, p.content_enc AS snapshot_enc FROM messages m
+      LEFT JOIN message_parts p ON p.message_id = m.id AND p.owner_id = m.owner_id AND p.seq = 0
+      WHERE m.owner_id = :owner AND m.conversation_id = :conversation AND m.status IN ('accepted', 'completed')
+      AND EXISTS (SELECT 1 FROM runs WHERE id = :run AND owner_id = :owner AND executor_generation = :generation AND ${this.runGuard()})
+      ORDER BY m.seq DESC LIMIT 100`,
+        {
+          owner: run.ownerId,
+          conversation: run.conversationId,
+          run: run.id,
+          generation: int(run.generation),
+          now: int(this.options.now()),
+        },
+      ),
+    );
+    return [...rows].reverse().map((row) => ({
+      id: String(row.id),
+      role: row.role as "user" | "assistant" | "tool",
+      text: decryptFieldText(
+        key,
+        simonField(run.ownerId, "messages", String(row.id), "content_enc"),
+        String(row.content_enc),
+      ),
+      snapshotJson:
+        row.snapshot_enc === null
+          ? null
+          : decryptFieldText(
+              key,
+              simonField(run.ownerId, "message_parts", String(row.id), "content_enc"),
+              String(row.snapshot_enc),
+            ),
+    }));
+  }
+
+  /** A continuation replaces only its own paused tool result, under its live execution guard. */
+  async resolvePauseSnapshot(
+    run: SimonRun,
+    key: AccountDataKey,
+    pausedRunId: string,
+    snapshotJson: string,
+  ): Promise<boolean> {
+    const snapshot = JSON.parse(snapshotJson) as Record<string, unknown>;
+    if (
+      Buffer.byteLength(snapshotJson) > 1_048_576 ||
+      snapshot.id !== pausedRunId ||
+      snapshot.role !== "assistant" ||
+      !Array.isArray(snapshot.parts)
+    )
+      throw new SimonError("validation");
+    const writeId = this.nextId();
+    const results = await this.options.db.batch([
+      sql(
+        `UPDATE message_parts SET content_enc = :content, write_id = :w WHERE id = :paused AND owner_id = :owner
+        AND EXISTS (SELECT 1 FROM runs WHERE id = :run AND owner_id = :owner AND continues_run_id = :paused
+          AND executor_generation = :generation AND ${this.runGuard()})`,
+        {
+          content: encryptFieldText(
+            key,
+            simonField(run.ownerId, "message_parts", pausedRunId, "content_enc"),
+            snapshotJson,
+          ),
+          w: writeId,
+          paused: pausedRunId,
+          owner: run.ownerId,
+          run: run.id,
+          generation: int(run.generation),
+          now: int(this.options.now()),
+        },
+      ),
+      sql("SELECT id FROM message_parts WHERE id = :id AND owner_id = :owner AND write_id = :w", {
+        id: pausedRunId,
+        owner: run.ownerId,
+        w: writeId,
+      }),
+    ]);
+    return Boolean(results[1]?.results[0]);
   }
 
   /** Release and advance the oldest queued message atomically; queue order uses seq, never ids. */

@@ -78,7 +78,9 @@ export interface RunOutputRelayOptions {
   readonly maxRuns?: number;
 }
 
-const executing = new Set<string>(executingRunStatuses);
+// A pause still owns the conversation; its approval/question output is emitted only after the
+// deciding checkpoint commits. Terminal runs still refuse late output.
+const executing = new Set<string>([...executingRunStatuses, "awaiting_approval", "awaiting_user"]);
 
 /**
  * How long a signed request can be replayed after the api first accepts it: a signature is fresh

@@ -15,7 +15,7 @@ import {
 } from "../connections/authority.ts";
 import { continuationStatements, pauseGuard } from "./continuations.ts";
 import { type SimonRepository, simonField } from "./repository.ts";
-import { SimonError, type SimonRun } from "./types.ts";
+import { type SimonCheckpointData, SimonError, type SimonRun } from "./types.ts";
 
 export const APPROVAL_TTL_MS = 24 * 3_600_000;
 export interface ApprovalProposal {
@@ -109,11 +109,12 @@ export class SimonApprovals {
     run: SimonRun,
     key: AccountDataKey,
     proposal: ApprovalProposal,
-    checkpoint: { text: string; steps: number },
+    checkpoint: { text: string; steps: number } & SimonCheckpointData,
+    reservedId?: string,
   ): Promise<string> {
     if (proposal.connection.ownerId !== run.ownerId) throw new SimonError("not_found");
     const now = this.repository.options.now();
-    const id = uuidv7(now);
+    const id = reservedId ?? uuidv7(now);
     const writeId = uuidv7(now);
     const result = await this.repository.options.db.batch(
       this.repository.checkpointStatements(
@@ -125,6 +126,7 @@ export class SimonApprovals {
         {
           now,
           writeId,
+          ...checkpoint,
           guard: confirmedConnectionGuard(proposal.connection),
           statements: [
             this.insert(id, run, key, proposal, now, writeId, {

@@ -1,9 +1,10 @@
 import { type ConversationId, conversationTopic } from "@symplist/contracts";
 import type { D1AccessService } from "@symplist/core/access";
-import type {
-  EventsContributor,
-  InternalEventHandler,
-  RunRelaySource,
+import {
+  type EventsContributor,
+  eventsContributors,
+  type InternalEventHandler,
+  type RunRelaySource,
 } from "@symplist/core/events";
 import { createKeyProvider } from "@symplist/crypto";
 import { newWriteId, uuidv7 } from "@symplist/db";
@@ -60,6 +61,7 @@ class ProbeRuns implements RunRelaySource {
     return {
       domain: "simon",
       executionKinds: [
+        ...eventsContributors.flatMap((contributor) => contributor.executionKinds),
         {
           kind: PROBE_KIND,
           triggerTaskId: "probe-run",

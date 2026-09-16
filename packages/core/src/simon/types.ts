@@ -42,6 +42,18 @@ export interface ClaimedSimonRun {
   readonly key: AccountDataKey;
 }
 
+export interface SimonCheckpointData {
+  /** A validated AI SDK UI message, stored only in an encrypted message_parts envelope. */
+  readonly snapshotJson?: string;
+  readonly telemetry?: {
+    readonly provider: "openai" | "bedrock" | "vertex" | "together" | "scripted";
+    readonly model: string;
+    readonly rulesVersion: string;
+    readonly inputTokens: number;
+    readonly outputTokens: number;
+  };
+}
+
 export function runFromRow(row: DbRow): SimonRun {
   return {
     id: String(row.id),

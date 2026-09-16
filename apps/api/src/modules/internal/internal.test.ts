@@ -2,6 +2,7 @@ import type { ConversationId } from "@symplist/contracts";
 import { conversationTopic } from "@symplist/contracts";
 import type { AccountKeyStore } from "@symplist/core/account";
 import {
+  eventsContributors,
   INTERNAL_CONTENT_TYPE,
   INTERNAL_EVENTS_PATH,
   type InternalEventHandler,
@@ -112,7 +113,13 @@ async function start(tuning: { readonly replayMemoryCapacity?: number } = {}): P
       INTERNAL_EVENT_SECRET_CURRENT: "2",
     },
     runtime: {
-      eventsContributors: [{ domain: "simon", executionKinds: [], runRelaySource: () => runs }],
+      eventsContributors: [
+        {
+          domain: "simon",
+          executionKinds: eventsContributors.flatMap((contributor) => contributor.executionKinds),
+          runRelaySource: () => runs,
+        },
+      ],
       internal: { tuning },
     },
   });
@@ -804,6 +811,17 @@ describe("run output relay dedupe as replay protection (§6.2, §8.2)", () => {
     expect(await relay.accept(c, body(c, 0))).toEqual({ status: "accepted", relayed: 1 });
     expect(relay.trackedRuns).toBe(2);
   });
+
+  it.each(["awaiting_approval", "awaiting_user"] as const)(
+    "relays a committed %s card while the pause owns the conversation",
+    async (status) => {
+      const { relay, active, body } = relayFor();
+      const id = uuidv7();
+      active.set(id, status);
+      expect(await relay.accept(id, body(id, 0))).toEqual({ status: "accepted", relayed: 1 });
+      expect(await relay.accept(id, body(id, 0))).toEqual({ status: "duplicate" });
+    },
+  );
 
   it("keeps the dedupe of a run that ended, and answers repeated misses without new lookups", async () => {
     const { clock, relay, active, lookups, body } = relayFor();
