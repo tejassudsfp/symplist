@@ -7,7 +7,7 @@ Checkpoint file for the end-to-end build. Read this first when resuming; update 
 - Branch: `feat/symplist-build` (no upstream; never push to `main`)
 - Scope sources: [notes](../notes/files/00_index.md), [screen briefs](../../design/mockups/overall.md), [UI sample](<../../design/UI sample/README.md>), [decisions](decisions.md), [coverage ledger](coverage.md)
 - Local runtime: Homebrew Node 24 (`export PATH="/opt/homebrew/opt/node@24/bin:$PATH"`), pnpm 12.4.2
-- Secrets: not yet provided. Trigger CLI is logged in (project `proj_rryekrktnjnrdzvabzqd`); the development secret key is still pending.
+- Secrets: the owner supplied live credentials in ignored `.env.local`; distribute and verify them in Phase E using the placement matrix. Never print values.
 
 ## Phases
 
@@ -18,12 +18,19 @@ Checkpoint file for the end-to-end build. Read this first when resuming; update 
 | B | Architecture and contracts: repository layout, D1 schema, API/WebSocket protocol, shared contracts, test conventions | Done ([architecture](architecture.md) revised after 56-issue adversarial review, verified) |
 | C | Foundation: apps and shared packages, configuration, storage/crypto/email adapters, auth guard skeleton, theme tokens, CI | Done (C0, C-a, C-b, C-close, code review c7 fixes; independent verification 39/43 PASS, the other 4 deferred below) |
 | D1 | Feature wave 1: identity/access/admin, workspace/tasks, appearance, documents/Git, keyboard/search core | Done (four branches merged into `feat/symplist-build`; every gate green, see the log) |
-| D2 | Feature wave 2: Simon/executors/Composio/quick chat, scheduling/notifications/calendar, Vault, sharing/handoff, connections/MCP, analytics/consent | Pending |
+| D2 | Feature wave 2: Simon/executors/Composio/quick chat, scheduling/notifications/calendar, Vault, sharing/handoff, connections/MCP, analytics/consent | In progress — Simon policy and persistence foundation; application integration remains |
 | E | Integration, end-to-end flows, visual verification at 1440/1024/390 across themes | Pending |
 | F | Adversarial review and fixes | Pending |
 | G | Documentation, spec updates, self-hosting guide, pull request | Pending |
 
 ## Log
+
+- 2026-09-16: **D2 started in the single clean build checkout.** The owner's current instruction supersedes the old worktree/attribution instructions: no worktrees, pushes, PRs or credit trailers. `CLAUDE.md` and `AGENTS.md` still describe the earlier D1 crash; the verified D1 log below and clean checkout are authoritative.
+  - First implementation slice: migration `0500_simon.sql` adds encrypted conversation/message storage, runs, approvals, asks and the invocation ledger. `SimonRepository` implements conditional message acceptance, duplicate request reconciliation, bounded queues, executor/generation claims, step snapshots, stop and atomic oldest-message advancement. Archive, restriction and account purge now include Simon's data and cancellation state.
+  - `packages/agent` now contains versioned mandatory rules and a deterministic action policy. No connector action is exempt until its schema and selector paths have been explicitly reviewed. Mixed approval batches and sandbox/meta execution slugs are refused; untrusted content cannot close its data delimiter.
+  - Verification: `pnpm install --frozen-lockfile`; lint over 1,115 files with zero errors/warnings; all 17 projects typecheck; 3,705 unit/contract tests plus 47 script tests pass (9 pre-existing live tests still skip pending Phase E distribution); both builds; 95 e2e passes (19 viewport-specific skips); local smoke; api deploy check with 31 migrations; docs check. Agent has 32 tests and core has 299, including 32 Simon persistence/cross-domain tests. The e2e run regenerated existing D1 screenshot evidence; it is not Phase E visual coverage.
+  - Review fix: the initial claim needed an explicit account-key existence condition. Without it a missing key could leave a run marked running while returning no claim to its executor. The conditional update now refuses it before changing state, with a crypto-shred regression test. Checked queue races, generation fencing, owner-bound foreign keys and bounded purge ordering; no existing test was weakened or suppressed.
+  - **Resume here:** this is a foundation slice, not completed Simon. Next implement approval/ask continuations and the no-retry invocation ledger, lifecycle tracker/relay source, shared AI SDK loop and provider registry, document job bridge, `simon-run`/local integration, HTTP/realtime routes and task/quick-chat UI. Then D2b–g, followed by every Phase E item. No live migrations or environment distribution has happened yet. Do not mark any D2 screen or the phase verified from these unit tests.
 
 - 2026-09-15: Full read of repository, notes, 44 briefs and UI sample. Deployment and product decisions confirmed with the owner (see [decisions](decisions.md)). Scaffolded pnpm workspace and `apps/worker` (Trigger.dev 4.6.0); worker typechecks, 5 tests pass, local worker registered with the Trigger development environment.
 - 2026-09-15: Phase A research completed by 10 parallel agents (versions locked in [architecture](architecture.md) section 1). Key findings: TypeScript 7.0.2 works across the stack except the Nest CLI and typescript-eslint (use tsc and Biome); Cloudflare API rate limit (~1,200 requests/5 min) constrains D1 REST usage; OpenAI models `gpt-5.6-luna` and `gpt-5.6-terra` verified. Architecture drafted.
