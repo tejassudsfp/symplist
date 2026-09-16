@@ -3,6 +3,7 @@ import type {
   HandoffRequest,
   SharingArtifact,
   SharingList,
+  SharingListQuery,
   SharingPreview,
   SharingSnapshotRequest,
 } from "@symplist/contracts";
@@ -78,6 +79,8 @@ export class SharingRepository {
     statements: readonly Statement[];
     effect: SqlGuard;
     fold?: SharingFold;
+    onApplied?: () => Promise<void>;
+    failure?: "sharing.stale" | "sharing.expiry_invalid";
   }): Promise<T> {
     const results = await this.options.db.batch([
       ...(input.fold?.prefix ?? []),
@@ -87,7 +90,12 @@ export class SharingRepository {
     ]);
     const decision = input.fold?.decide(results, input.key);
     if (decision) return decision.replay as T;
-    if (!results.at(-1)?.results[0]) throw new SharingError("sharing.stale");
+    if (!results.at(-1)?.results[0]) throw new SharingError(input.failure ?? "sharing.stale");
+    try {
+      await input.onApplied?.();
+    } catch {
+      // Analytics is best-effort and must never turn a committed write into a failed action.
+    }
     return input.body;
   }
   fingerprint(input: unknown): string {
@@ -104,6 +112,7 @@ export class SharingRepository {
   ): Promise<SharingArtifact> {
     authorizeActor(actor, taskId, "write");
     const owner = actor.userId;
+    const startedAt = this.options.now();
     const guard = this.guards(this.active(owner, taskId), ...actorGuards(actor));
     const read = await this.options.db.batch([
       sql(
@@ -157,13 +166,14 @@ export class SharingRepository {
       const sections = snapshot.index.sections.filter((section) => selected.includes(section.id));
       if (sections.length !== selected.length) throw new SharingError("not_found");
       const markdown = handoff
-        ? handoffTemplate(handoff.prompt, handoff.artifactIds)
+        ? handoffTemplate(handoff.prompt, handoff.artifactIds, this.options.privateOrigins)
         : exportMarkdown(
             selected.length === 0
               ? snapshot.markdown
               : sections
                   .map((section) => snapshot.markdown.slice(section.start, section.end))
                   .join("\n\n"),
+            this.options.privateOrigins,
           );
       const bytes = Buffer.byteLength(markdown);
       if (bytes > (this.options.maxBytes ?? 1_048_576))
@@ -202,11 +212,30 @@ export class SharingRepository {
         },
       });
       const effect = this.effect("artifacts", id, write);
+      // A delayed upload may never publish after the orphan collector's 24-hour grace period.
+      if (!existing && this.options.now() - startedAt >= 600_000)
+        throw new SharingError("sharing.stale");
       return await this.write({
         key,
         body,
         effect,
         ...(fold ? { fold } : {}),
+        ...(handoff
+          ? {
+              onApplied: async () => {
+                await this.options.onConfirmed?.(
+                  owner,
+                  "handoff_prepared",
+                  {
+                    target: handoff.target,
+                    sections: "whole_document",
+                    author: actor.kind === "simon" ? "simon" : "user",
+                  },
+                  write,
+                );
+              },
+            }
+          : {}),
         statements: [
           sql(
             `INSERT INTO artifacts (id, owner_id, task_id, kind, title_enc, source_revision, selection_json, object_key, bytes, request_id, fingerprint_enc, created_at, write_id)
@@ -246,7 +275,11 @@ export class SharingRepository {
     }
   }
 
-  async list(actor: DocumentActor, taskId: string): Promise<SharingList> {
+  async list(
+    actor: DocumentActor,
+    taskId: string,
+    query: SharingListQuery = {},
+  ): Promise<SharingList> {
     authorizeActor(actor, taskId, "read");
     const guard = this.access(actor.userId);
     const results = await this.options.db.batch([
@@ -255,12 +288,24 @@ export class SharingRepository {
         { ...guard.params, owner: actor.userId, task: taskId },
       ),
       sql(
-        `SELECT a.*, r.head_commit_id AS current_head FROM artifacts a LEFT JOIN doc_repos r ON r.task_id = a.task_id WHERE a.owner_id = :owner AND a.task_id = :task AND a.deleted_at IS NULL ORDER BY a.created_at DESC, a.id DESC LIMIT 51`,
-        { owner: actor.userId, task: taskId },
+        `SELECT a.*, r.head_commit_id AS current_head FROM artifacts a LEFT JOIN doc_repos r ON r.task_id = a.task_id WHERE a.owner_id = :owner AND a.task_id = :task AND a.deleted_at IS NULL ${query.beforeArtifact === "end" ? "AND 0" : query.beforeArtifact ? "AND a.id < :before" : ""} ORDER BY a.id DESC LIMIT 51`,
+        {
+          owner: actor.userId,
+          task: taskId,
+          ...(query.beforeArtifact && query.beforeArtifact !== "end"
+            ? { before: query.beforeArtifact }
+            : {}),
+        },
       ),
       sql(
-        `SELECT g.* FROM share_grants g JOIN artifacts a ON a.id = g.artifact_id WHERE g.owner_id = :owner AND a.task_id = :task AND a.deleted_at IS NULL ORDER BY g.created_at DESC, g.id DESC LIMIT 201`,
-        { owner: actor.userId, task: taskId },
+        `SELECT g.* FROM share_grants g JOIN artifacts a ON a.id = g.artifact_id WHERE g.owner_id = :owner AND a.task_id = :task AND a.deleted_at IS NULL ${query.beforeGrant === "end" ? "AND 0" : query.beforeGrant ? "AND g.id < :before" : ""} ORDER BY g.id DESC LIMIT 201`,
+        {
+          owner: actor.userId,
+          task: taskId,
+          ...(query.beforeGrant && query.beforeGrant !== "end"
+            ? { before: query.beforeGrant }
+            : {}),
+        },
       ),
     ]);
     const row = results[0]?.results[0];
@@ -273,6 +318,10 @@ export class SharingRepository {
           .slice(0, 200)
           .map((row) => grantView(row, this.options.now())),
         hasMore: (results[1]?.results.length ?? 0) > 50 || (results[2]?.results.length ?? 0) > 200,
+        nextArtifact:
+          (results[1]?.results.length ?? 0) > 50 ? String(results[1]?.results[49]?.id) : null,
+        nextGrant:
+          (results[2]?.results.length ?? 0) > 200 ? String(results[2]?.results[199]?.id) : null,
       };
     } finally {
       zeroize(key.key);

@@ -4,6 +4,7 @@ import {
   computeDigestCandidates,
   generateToken,
   parseArgon2idHash,
+  RateLimitedError,
   verifyArgon2id,
   verifyDigest,
   zeroize,
@@ -74,6 +75,7 @@ export class SharingReader {
       WHERE a.id = :artifact AND ${lookup} AND ${this.active()}`,
         { ...params, artifact: input.artifactId, now: int(now) },
       ),
+      { priority: "unauthenticated" },
     );
     if (!row) {
       if (input.key) {
@@ -155,6 +157,7 @@ export class SharingReader {
                 candidates: JSON.stringify(candidates),
               },
             ),
+            { priority: "unauthenticated" },
           ),
         );
       }
@@ -205,39 +208,42 @@ export class SharingReader {
     const [perIp, global] = windows;
     if (!perIp || !global) throw new SharingError("internal");
     // Reserve capacity before expensive verification. Concurrent requests cannot exceed either cap.
-    const results = await repo.options.db.batch([
-      sql(
-        `INSERT INTO share_limits (grant_id, owner_id, bucket, window_start, attempts, write_id)
+    const results = await repo.options.db.batch(
+      [
+        sql(
+          `INSERT INTO share_limits (grant_id, owner_id, bucket, window_start, attempts, write_id)
         SELECT :grant, :owner, :bucket, :start, 1, :write WHERE
         COALESCE((SELECT attempts FROM share_limits WHERE grant_id = :grant AND bucket = 'all' AND window_start = :day), 0) < 50
         ON CONFLICT (grant_id, bucket, window_start) DO UPDATE SET attempts = attempts + 1, write_id = :write WHERE attempts < 5`,
-        {
-          grant,
-          owner,
-          bucket: perIp.bucket,
-          start: int(perIp.start),
-          day: int(global.start),
-          write,
-        },
-      ),
-      sql(
-        `INSERT INTO share_limits (grant_id, owner_id, bucket, window_start, attempts, write_id)
+          {
+            grant,
+            owner,
+            bucket: perIp.bucket,
+            start: int(perIp.start),
+            day: int(global.start),
+            write,
+          },
+        ),
+        sql(
+          `INSERT INTO share_limits (grant_id, owner_id, bucket, window_start, attempts, write_id)
         SELECT :grant, :owner, 'all', :day, 1, :write WHERE EXISTS (SELECT 1 FROM share_limits WHERE grant_id = :grant AND bucket = :bucket AND window_start = :start AND write_id = :write)
         ON CONFLICT (grant_id, bucket, window_start) DO UPDATE SET attempts = attempts + 1, write_id = :write WHERE attempts < 50`,
-        {
-          grant,
-          owner,
-          day: int(global.start),
-          write,
-          bucket: perIp.bucket,
-          start: int(perIp.start),
-        },
-      ),
-      sql(
-        "SELECT 1 AS reserved FROM share_limits WHERE grant_id = :grant AND bucket = 'all' AND window_start = :day AND write_id = :write",
-        { grant, day: int(global.start), write },
-      ),
-    ]);
+          {
+            grant,
+            owner,
+            day: int(global.start),
+            write,
+            bucket: perIp.bucket,
+            start: int(perIp.start),
+          },
+        ),
+        sql(
+          "SELECT 1 AS reserved FROM share_limits WHERE grant_id = :grant AND bucket = 'all' AND window_start = :day AND write_id = :write",
+          { grant, day: int(global.start), write },
+        ),
+      ],
+      { priority: "unauthenticated" },
+    );
     if (!results[2]?.results[0]) throw new SharingError("rate.limited");
     let valid = false;
     try {
@@ -245,7 +251,8 @@ export class SharingReader {
         input.password,
         parseArgon2idHash(JSON.parse(String(row.password_hash))),
       );
-    } catch {
+    } catch (error) {
+      if (error instanceof RateLimitedError) throw new SharingError("rate.limited");
       throw new SharingError("sharing.password_invalid");
     }
     if (!valid) throw new SharingError("sharing.password_invalid");
@@ -258,32 +265,35 @@ export class SharingReader {
     );
     const expires = Math.min(now + 43_200_000, Number(row.grant_expires_at));
     const session = uuidv7();
-    const commit = await repo.options.db.batch([
-      sql(
-        `INSERT INTO share_sessions (id, owner_id, grant_id, grant_generation, digest, digest_version, expires_at, created_at, write_id)
-        SELECT :session, g.owner_id, g.id, g.generation, :digest, :version, :expires, :now, :write FROM share_grants g WHERE g.id = :grant AND g.generation = CAST(:generation AS INTEGER) AND ${this.active()}`,
-        {
-          session,
-          digest: digest.digest,
-          version: int(digest.version),
-          expires: int(expires),
-          now: int(repo.options.now()),
-          write,
-          grant,
-          generation: int(Number(row.grant_generation)),
-        },
-      ),
-      ...windows.map((window) =>
+    const commit = await repo.options.db.batch(
+      [
         sql(
-          `UPDATE share_limits SET attempts = MAX(0, attempts - 1) WHERE grant_id = :grant AND bucket = :bucket AND window_start = :start AND EXISTS (SELECT 1 FROM share_sessions WHERE id = :session AND write_id = :write)`,
-          { grant, bucket: window.bucket, start: int(window.start), session, write },
+          `INSERT INTO share_sessions (id, owner_id, grant_id, grant_generation, digest, digest_version, expires_at, created_at, write_id)
+        SELECT :session, g.owner_id, g.id, g.generation, :digest, :version, :expires, :now, :write FROM share_grants g WHERE g.id = :grant AND g.generation = CAST(:generation AS INTEGER) AND ${this.active()}`,
+          {
+            session,
+            digest: digest.digest,
+            version: int(digest.version),
+            expires: int(expires),
+            now: int(repo.options.now()),
+            write,
+            grant,
+            generation: int(Number(row.grant_generation)),
+          },
         ),
-      ),
-      sql("SELECT id FROM share_sessions WHERE id = :session AND write_id = :write", {
-        session,
-        write,
-      }),
-    ]);
+        ...windows.map((window) =>
+          sql(
+            `UPDATE share_limits SET attempts = MAX(0, attempts - 1) WHERE grant_id = :grant AND bucket = :bucket AND window_start = :start AND EXISTS (SELECT 1 FROM share_sessions WHERE id = :session AND write_id = :write)`,
+            { grant, bucket: window.bucket, start: int(window.start), session, write },
+          ),
+        ),
+        sql("SELECT id FROM share_sessions WHERE id = :session AND write_id = :write", {
+          session,
+          write,
+        }),
+      ],
+      { priority: "unauthenticated" },
+    );
     if (!commit.at(-1)?.results[0]) throw new SharingError("sharing.unavailable");
     return {
       cookieName: `__Host-sym_share_${grant}`,

@@ -1,3 +1,7 @@
+import type {
+  AnalyticsEventProperties,
+  ServerAnalyticsEventName,
+} from "@symplist/analytics/server";
 import type { ErrorCode } from "@symplist/contracts";
 import type { AccountDataKey, KeyProvider } from "@symplist/crypto";
 import type { DbClient, Statement, StatementResult } from "@symplist/db";
@@ -30,5 +34,13 @@ export interface SharingOptions {
   readonly policy: AccessPolicy;
   readonly now: () => number;
   readonly artifactOrigin: string;
+  readonly privateOrigins?: readonly string[];
   readonly maxBytes?: number;
+  readonly onGrantChanged?: (owner: string, taskId: string, artifactId: string) => Promise<void>;
+  readonly onConfirmed?: <Name extends ServerAnalyticsEventName>(
+    owner: string,
+    event: Name,
+    properties: AnalyticsEventProperties<Name>,
+    eventId: string,
+  ) => Promise<void>;
 }

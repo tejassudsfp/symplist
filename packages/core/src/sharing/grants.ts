@@ -1,6 +1,7 @@
 import type {
   SharingGrant,
   SharingGrantRequest,
+  SharingProposal,
   SharingProposalRequest,
   SharingRelease,
 } from "@symplist/contracts";
@@ -16,6 +17,32 @@ const DAY = 86_400_000;
 export class SharingGrants {
   constructor(readonly repository: SharingRepository) {}
 
+  async proposal(owner: string, id: string): Promise<SharingProposal> {
+    const repo = this.repository;
+    const access = repo.access(owner);
+    const row = await repo.options.db.first(
+      sql(
+        `SELECT p.*, a.task_id, r.head_commit_id FROM share_approvals p JOIN artifacts a ON a.id = p.artifact_id AND a.owner_id = p.owner_id LEFT JOIN doc_repos r ON r.task_id = a.task_id AND r.owner_id = a.owner_id WHERE p.id = :proposal AND p.owner_id = :owner AND a.deleted_at IS NULL AND ${access.sql}`,
+        { ...access.params, owner, proposal: id },
+      ),
+    );
+    if (!row) throw new SharingError("not_found");
+    return {
+      id,
+      artifactId: String(row.artifact_id),
+      taskId: String(row.task_id),
+      expectedHead: String(row.expected_head),
+      mode: row.mode as SharingProposal["mode"],
+      expiresAt: row.grant_expires_at as number | null,
+      proposalExpiresAt: Number(row.expires_at),
+      status:
+        row.status === "pending" && Number(row.expires_at) <= repo.options.now()
+          ? "expired"
+          : (row.status as SharingProposal["status"]),
+      sourceChanged: row.expected_head !== row.head_commit_id,
+    };
+  }
+
   validateExpiry(mode: string, expiresAt: number | null): void {
     const now = this.repository.options.now();
     if (
@@ -26,10 +53,10 @@ export class SharingGrants {
       throw new SharingError("sharing.expiry_invalid");
   }
 
-  /** Simon/MCP may propose access, never mint a token. The trusted UI supplies the password later. */
+  /** Simon may propose access, never mint a token. MCP must not expose this method. */
   async propose(actor: DocumentActor, input: SharingProposalRequest, requestId: string) {
+    if (actor.kind === "mcp") throw new SharingError("document.read_only");
     const repo = this.repository;
-    this.validateExpiry(input.mode, input.expiresAt);
     const loaded = await repo.loadArtifact(actor.userId, input.artifactId, [
       sql("SELECT * FROM share_approvals WHERE owner_id = :owner AND request_id = :request", {
         owner: actor.userId,
@@ -54,6 +81,7 @@ export class SharingGrants {
           throw new SharingError("idempotency.mismatch");
         return { proposalId: String(previous.id), status: String(previous.status) };
       }
+      this.validateExpiry(input.mode, input.expiresAt);
       if (loaded.row.current_head !== input.expectedHead) throw new SharingError("sharing.stale");
       const id = uuidv7();
       const write = uuidv7();
@@ -105,7 +133,12 @@ export class SharingGrants {
     fold: SharingFold,
   ): Promise<SharingRelease> {
     const repo = this.repository;
-    this.validateExpiry(input.mode, input.expiresAt);
+    let expiryValid = true;
+    try {
+      this.validateExpiry(input.mode, input.expiresAt);
+    } catch {
+      expiryValid = false;
+    }
     if (input.mode === "public" && !input.publicConfirmed) throw new SharingError("validation");
     if ((input.mode === "password") !== (input.password !== undefined))
       throw new SharingError("validation");
@@ -124,6 +157,11 @@ export class SharingGrants {
       const guards = [
         repo.active(owner, String(loaded.row.task_id)),
         fold.guard,
+        { sql: expiryValid ? "1" : "0", params: {} },
+        {
+          sql: "EXISTS (SELECT 1 FROM artifacts WHERE id = :release_artifact AND owner_id = :release_owner AND deleted_at IS NULL)",
+          params: { release_artifact: artifactId, release_owner: owner },
+        },
         {
           sql: "EXISTS (SELECT 1 FROM doc_repos WHERE owner_id = :release_owner AND task_id = :release_task AND head_commit_id = :release_head)",
           params: {
@@ -177,6 +215,31 @@ export class SharingGrants {
         body: { grant, url, secretUnavailable: false } as SharingRelease,
         effect,
         fold,
+        failure: expiryValid ? "sharing.stale" : "sharing.expiry_invalid",
+        onApplied: async () => {
+          await repo.options.onGrantChanged?.(owner, String(loaded.row.task_id), artifactId);
+          const duration = input.expiresAt === null ? null : input.expiresAt - now;
+          const expiry =
+            duration === null
+              ? "until_revoked"
+              : Math.abs(duration - 3_600_000) < 60_000
+                ? "1h"
+                : Math.abs(duration - DAY) < 60_000
+                  ? "24h"
+                  : Math.abs(duration - 7 * DAY) < 60_000
+                    ? "7d"
+                    : "custom";
+          await repo.options.onConfirmed?.(
+            owner,
+            "artifact_share_created",
+            {
+              share_mode: input.mode,
+              expiry,
+              origin: input.proposalId ? "simon_proposal" : "owner_ui",
+            },
+            write,
+          );
+        },
         statements: [
           sql(
             `INSERT INTO share_grants (id, owner_id, artifact_id, mode, token_digest, token_version, publication_id, password_hash, expires_at, created_at, write_id)
@@ -242,7 +305,10 @@ export class SharingGrants {
       if (!previous) throw new SharingError("not_found");
       const write = uuidv7();
       const now = repo.options.now();
-      const guard = repo.guards(repo.access(actor.userId), ...actorGuards(actor), fold?.guard);
+      const guard = repo.guards(repo.access(actor.userId), ...actorGuards(actor), fold?.guard, {
+        sql: "generation = :expected_generation",
+        params: { expected_generation: int(Number(previous.generation)) },
+      });
       const effect = repo.effect("share_grants", grantId, write);
       const body = {
         ...grantView(previous, now),
@@ -254,6 +320,9 @@ export class SharingGrants {
         body,
         effect,
         ...(fold ? { fold } : {}),
+        onApplied: async () => {
+          await repo.options.onGrantChanged?.(actor.userId, String(loaded.row.task_id), artifactId);
+        },
         statements: [
           sql(
             `UPDATE share_grants SET status = 'revoked', generation = generation + CASE WHEN status = 'revoked' THEN 0 ELSE 1 END, write_id = :write WHERE id = :grant AND owner_id = :owner AND artifact_id = :artifact AND ${guard.sql}`,

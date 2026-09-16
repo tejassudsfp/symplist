@@ -75,8 +75,15 @@ export const sharingListSchema = z.strictObject({
   artifacts: z.array(sharingArtifactSchema),
   grants: z.array(sharingGrantSchema),
   hasMore: z.boolean(),
+  nextArtifact: idSchema.nullable().default(null),
+  nextGrant: idSchema.nullable().default(null),
 });
 export type SharingList = z.infer<typeof sharingListSchema>;
+export const sharingListQuerySchema = z.strictObject({
+  beforeArtifact: z.union([idSchema, z.literal("end")]).optional(),
+  beforeGrant: z.union([idSchema, z.literal("end")]).optional(),
+});
+export type SharingListQuery = z.infer<typeof sharingListQuerySchema>;
 export const sharingPreviewSchema = z.strictObject({
   artifact: sharingArtifactSchema,
   markdown: z.string(),
@@ -95,6 +102,15 @@ export const sharingProposalRequestSchema = z.strictObject({
   expiresAt: z.number().int().positive().nullable(),
 });
 export type SharingProposalRequest = z.infer<typeof sharingProposalRequestSchema>;
+export const sharingProposalSchema = sharingProposalRequestSchema.extend({
+  id: idSchema,
+  taskId: idSchema,
+  status: z.enum(["pending", "released", "expired", "dismissed"]),
+  expiresAt: z.number().int().positive().nullable(),
+  proposalExpiresAt: z.number().int(),
+  sourceChanged: z.boolean(),
+});
+export type SharingProposal = z.infer<typeof sharingProposalSchema>;
 export const handoffRequestSchema = z.strictObject({
   title: z.string().trim().min(1).max(160),
   revision: documentRevisionSchema,

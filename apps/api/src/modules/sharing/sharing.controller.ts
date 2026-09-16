@@ -1,11 +1,13 @@
-import { Body, Controller, Get, Inject, Param, Post, Req } from "@nestjs/common";
+import { Body, Controller, Get, Inject, Param, Post, Query, Req } from "@nestjs/common";
 import {
   type HandoffRequest,
   handoffRequestSchema,
   idSchema,
   type SharingGrantRequest,
+  type SharingListQuery,
   type SharingSnapshotRequest,
   sharingGrantRequestSchema,
+  sharingListQuerySchema,
   sharingSnapshotRequestSchema,
 } from "@symplist/contracts";
 import type { SessionContext } from "@symplist/core/access";
@@ -51,7 +53,7 @@ export async function sharingCall<T>(call: () => Promise<T>): Promise<T> {
     if (error instanceof SharingError)
       throw new ApiError(
         error.code,
-        error.code === "rate.limited" ? { details: { retryAfter: 900 } } : undefined,
+        error.code === "rate.limited" ? { retryAfter: 900 } : undefined,
       );
     throw error;
   }
@@ -65,13 +67,25 @@ export class SharingController {
     @Inject(SharingGrants) private readonly grants: SharingGrants,
   ) {}
 
+  @Get("share-proposals/:proposalId")
+  @Access("admitted")
+  proposal(
+    @CurrentSession() session: SessionContext,
+    @Param("proposalId", { schema: idSchema }) proposalId: string,
+  ) {
+    return sharingCall(() => this.grants.proposal(session.userId, proposalId));
+  }
+
   @Get("tasks/:taskId/artifacts")
   @Access("admitted")
   list(
     @CurrentSession() session: SessionContext,
     @Param("taskId", { schema: idSchema }) taskId: string,
+    @Query({ schema: sharingListQuerySchema }) query: SharingListQuery,
   ) {
-    return sharingCall(() => this.repo.list({ kind: "user", userId: session.userId }, taskId));
+    return sharingCall(() =>
+      this.repo.list({ kind: "user", userId: session.userId }, taskId, query),
+    );
   }
   @Post("tasks/:taskId/artifacts")
   @Access("admitted", { fresh: true })

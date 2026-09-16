@@ -3,17 +3,22 @@ import { idSchema, sharingPasswordRequestSchema } from "@symplist/contracts";
 import { type ShareReadInput, SharingError, SharingReader } from "@symplist/core/sharing";
 import type { Request, Response } from "express";
 import type { z } from "zod";
+import { ApiError } from "../../common/errors/api-error.ts";
 import { RouteClass } from "../../common/route-classes.ts";
+import { IpFailureLimiter } from "../../infra/limits/ip-failures.ts";
 import { artifactHeaders, artifactPage, artifactUnavailable } from "./artifact-renderer.ts";
 
 @Controller("artifact")
 export class ArtifactController {
-  constructor(@Inject(SharingReader) private readonly reader: SharingReader) {}
+  constructor(
+    @Inject(SharingReader) private readonly reader: SharingReader,
+    @Inject(IpFailureLimiter) private readonly failures: IpFailureLimiter,
+  ) {}
 
   @Get(":id")
   @RouteClass("share_read")
   html(
-    @Param("id", { schema: idSchema }) artifactId: string,
+    @Param("id") artifactId: string,
     @Query("key") key: unknown,
     @Req() req: Request,
     @Res() res: Response,
@@ -27,7 +32,7 @@ export class ArtifactController {
   @Get(":id/raw")
   @RouteClass("share_read")
   raw(
-    @Param("id", { schema: idSchema }) artifactId: string,
+    @Param("id") artifactId: string,
     @Query("key") key: unknown,
     @Req() req: Request,
     @Res() res: Response,
@@ -41,8 +46,8 @@ export class ArtifactController {
   @Get(":id/public/:publicationId")
   @RouteClass("share_read")
   publicHtml(
-    @Param("id", { schema: idSchema }) artifactId: string,
-    @Param("publicationId", { schema: idSchema }) publicationId: string,
+    @Param("id") artifactId: string,
+    @Param("publicationId") publicationId: string,
     @Res() res: Response,
   ) {
     return this.render({ artifactId, publicationId }, res, false);
@@ -50,8 +55,8 @@ export class ArtifactController {
   @Get(":id/public/:publicationId/raw")
   @RouteClass("share_read")
   publicRaw(
-    @Param("id", { schema: idSchema }) artifactId: string,
-    @Param("publicationId", { schema: idSchema }) publicationId: string,
+    @Param("id") artifactId: string,
+    @Param("publicationId") publicationId: string,
     @Res() res: Response,
   ) {
     return this.render({ artifactId, publicationId }, res, true);
@@ -68,6 +73,7 @@ export class ArtifactController {
   ) {
     res.set(artifactHeaders);
     try {
+      this.failures.assertAllowed("share_password_failure", req);
       const session = await this.reader.password({ artifactId, ...body, ip: req.ip ?? "unknown" });
       res.cookie(session.cookieName, session.token, {
         secure: true,
@@ -78,12 +84,18 @@ export class ArtifactController {
       });
       res.redirect(303, `/artifact/${artifactId}?key=${encodeURIComponent(body.key)}`);
     } catch (error) {
-      if (error instanceof SharingError && error.code === "sharing.password_invalid")
+      if (error instanceof SharingError && error.code === "sharing.password_invalid") {
+        this.failures.recordFailure("share_password_failure", req);
         return this.render({ artifactId, key: body.key }, res, false, true);
+      }
+      const limited =
+        (error instanceof SharingError || error instanceof ApiError) &&
+        error.code === "rate.limited";
+      if (limited) res.set("Retry-After", "900");
       res
-        .status(error instanceof SharingError && error.code === "rate.limited" ? 429 : 404)
+        .status(limited ? 429 : 404)
         .type("html")
-        .send(artifactUnavailable(error instanceof SharingError && error.code === "rate.limited"));
+        .send(artifactUnavailable(limited));
     }
   }
   private async render(
@@ -94,6 +106,11 @@ export class ArtifactController {
   ) {
     res.set(artifactHeaders);
     try {
+      if (
+        !idSchema.safeParse(input.artifactId).success ||
+        (input.publicationId && !idSchema.safeParse(input.publicationId).success)
+      )
+        throw new SharingError("sharing.unavailable");
       const result = await this.reader.read(input);
       if (raw && result.kind === "content") {
         res.set("Content-Security-Policy", "sandbox; default-src 'none'");
