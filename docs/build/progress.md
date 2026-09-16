@@ -18,12 +18,14 @@ Checkpoint file for the end-to-end build. Read this first when resuming; update 
 | B | Architecture and contracts: repository layout, D1 schema, API/WebSocket protocol, shared contracts, test conventions | Done ([architecture](architecture.md) revised after 56-issue adversarial review, verified) |
 | C | Foundation: apps and shared packages, configuration, storage/crypto/email adapters, auth guard skeleton, theme tokens, CI | Done (C0, C-a, C-b, C-close, code review c7 fixes; independent verification 39/43 PASS, the other 4 deferred below) |
 | D1 | Feature wave 1: identity/access/admin, workspace/tasks, appearance, documents/Git, keyboard/search core | Done (four branches merged into `feat/symplist-build`; every gate green, see the log) |
-| D2 | Feature wave 2: Simon/executors/Composio/quick chat, scheduling/notifications/calendar, Vault, sharing/handoff, connections/MCP, analytics/consent | In progress — Simon runtime, document tools, HTTP and conversation snapshots integrated; Vault, Scheduling/Resend and Sharing/Analytics ready in isolated worktrees; Connections/MCP, Simon UI and remaining integrations still open |
+| D2 | Feature wave 2: Simon/executors/Composio/quick chat, scheduling/notifications/calendar, Vault, sharing/handoff, connections/MCP, analytics/consent | In progress — Simon runtime/document tools/HTTP/snapshots, Vault, Scheduling/Resend and Sharing/Analytics integrated; Connections/MCP, Simon UI and cross-feature wiring still open |
 | E | Integration, end-to-end flows, visual verification at 1440/1024/390 across themes | Pending |
 | F | Adversarial review and fixes | Pending |
 | G | Documentation, spec updates, self-hosting guide, pull request | Pending |
 
 ## Log
+
+- 2026-09-16: **Sharing/Analytics integrated after Scheduling.** Per-file audit accounts for all 77 branch paths (69 byte-identical, eight intentional integration differences), preserving all appended CSS, implemented shell controls and the stronger analytics queue regression. Frozen install, all 17 typechecks, zero-warning lint over 1,259 files and 165 focused core/HTTP/UI/analytics tests pass. Full combined tests pass (web 1,547; core 526; API 448 with six existing live skips; agent 76; worker 87; remaining packages and 47 scripts). Both builds, local smoke, API deploy with 40 migrations and docs check pass. Combined browser/visual/live evidence is not yet claimed. Connections remains active. A new isolated `wip/e-d1-load` writer builds the actual ten-turn/fifty-reminder D1 load contract from the Scheduling-integrated checkpoint while root finishes integration and Simon.
 
 - 2026-09-16: **Scheduling/Resend integrated after Vault.** Both conflicting shell assertions and full CSS blocks are preserved; reviewed all 81 branch paths (73 byte-identical, eight intentional integrator differences). Frozen install, all 17 typechecks and 95 focused core/API/UI tests pass. Reduced unnecessary Vault list ancestor specificity exposed by combined lint. Native Simon registration, feature cleanup and reminder analytics remain integration work; browser/live/visual evidence is still pending. Next merge Sharing/Analytics separately.
 

@@ -32,6 +32,17 @@ function isArtifactPath(path: string): boolean {
 export function hostSurfaceMiddleware(config: Pick<ApiConfig, "ARTIFACT_ORIGIN">) {
   return (req: Request, res: Response, next: NextFunction): void => {
     const share = isShareHost(req, config);
+    if (share) {
+      // Guard/validation failures precede feature rendering and need the same privacy boundary.
+      res.setHeader("Cache-Control", "private, no-store");
+      res.setHeader("Referrer-Policy", "no-referrer");
+      res.setHeader("X-Robots-Tag", "noindex");
+      res.setHeader("X-Content-Type-Options", "nosniff");
+      res.setHeader(
+        "Content-Security-Policy",
+        "default-src 'none'; style-src 'none'; font-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+      );
+    }
     if (share !== isArtifactPath(req.path)) {
       sendApiError(res, ApiError.notFound(), requestStateOf(req)?.requestId ?? "unknown");
       return;

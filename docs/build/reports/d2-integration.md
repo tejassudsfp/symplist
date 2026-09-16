@@ -17,3 +17,11 @@ Integrator: `feat/symplist-build`. No pushes or live migrations. Branch implemen
 - Combined lint exposed descending specificity from Vault list buttons before calendar buttons. Using `:where(li)` keeps the same matching elements without unnecessary ancestor specificity; selected-state styling remains stronger. This is the only integration CSS adjustment beyond concatenating complete blocks.
 - Frozen install, all 17 typechecks, 52 scheduling core tests, 14 scheduling/Resend HTTP tests and 29 scheduling/shell UI tests pass.
 - Still required: native Simon tool registration, cleanup callbacks, consent-gated reminder analytics, combined browser/live/load/visual evidence.
+
+## Sharing and Analytics — `e2b61f0`
+
+- Sequential `--no-ff` merge. Preserved all three appended feature CSS blocks and all implemented shell-slot assertions; only quick chat and command-palette slots remain empty in that fixture.
+- Audited all 77 branch-changed paths: 69 byte-identical. The eight differences are the two newer Simon topic fixtures, combined shell/CSS, union decisions/root progress, the stronger analytics queue synchronization regression, and merged Temporal/agent-crypto lockfile entries.
+- Combined styles exposed unnecessary calendar header/state specificity ahead of unrelated sharing/consent selectors. `:where(header)` and `:where([data-completed])` retain identical matches and ordering, without the extra specificity; no declarations or feature block was dropped.
+- Frozen install and all 17 typechecks pass. Focused verification: 9 core, 20 HTTP, 31 sharing/consent/shell UI and 105 analytics wrapper tests pass. Combined lint: 1,259 files, zero errors/warnings.
+- Still required: Simon native tools/handoff callback, worker grant-event relay, hourly maintenance wiring, server lifecycle analytics, combined browser/visual/live evidence.
