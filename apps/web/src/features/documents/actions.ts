@@ -1,7 +1,7 @@
 import type { ActionAvailability, AppAction } from "@/actions/types";
 import { activeDocument } from "./controller.ts";
 import { outlineRequestHandler } from "./outline-request.ts";
-import { documentHistoryPath } from "./routes.ts";
+import { documentHistoryPath, taskArtifactsPath } from "./routes.ts";
 
 /**
  * Actions contributed by the documents feature to the command registry (§10.2, note 13). The page's
@@ -29,6 +29,20 @@ export const documentsActions: readonly AppAction[] = [
       const route = services.route;
       if (!route?.taskId) return;
       services.navigate(documentHistoryPath(route.taskId, `/${route.collection}/${route.taskId}`));
+    },
+  },
+  {
+    id: "documents.open_artifacts",
+    label: "Artifacts and links",
+    context: "app",
+    group: "page",
+    keywords: ["share", "shared link", "snapshot", "revoke", "published"],
+    availability: ({ services }) =>
+      services.route?.taskId ? enabled : { enabled: false, reason: "Open a task first" },
+    run: ({ services }) => {
+      const route = services.route;
+      if (!route?.taskId) return;
+      services.navigate(taskArtifactsPath(route.taskId, `/${route.collection}/${route.taskId}`));
     },
   },
   {

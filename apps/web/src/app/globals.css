@@ -2003,6 +2003,36 @@
     font-size: 11px;
     color: var(--sym-faint);
   }
+
+  /* Artifacts and links: the same secondary-surface frame as history, one column. */
+  .sym-doc-artifacts {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    padding: 20px 24px 60px;
+    max-width: 760px;
+  }
+
+  .sym-doc-artifacts-source,
+  .sym-doc-artifacts-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  .sym-doc-artifacts-version {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--sym-muted);
+  }
+
+  .sym-doc-artifacts-version time {
+    color: var(--sym-text);
+    border-bottom: 1px dotted var(--sym-line);
+    cursor: help;
+  }
 }
 
 /* Laptop and phone: the conflict columns stack before they become unreadable. */

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { backToPageHref, documentHistoryPath, safeReturnPath } from "./routes.ts";
+import {
+  backToPageHref,
+  documentHistoryPath,
+  safeReturnPath,
+  taskArtifactsPath,
+} from "./routes.ts";
 
 const taskId = "01929f3e-7c1a-7b2e-9a55-3c2f1d0e9b8a";
 
@@ -56,6 +61,23 @@ describe("documentHistoryPath", () => {
 
   it("escapes the task id", () => {
     expect(documentHistoryPath("a/b")).toBe("/tasks/a%2Fb/history");
+  });
+});
+
+describe("taskArtifactsPath", () => {
+  it("carries a valid entry page so Back returns exactly there", () => {
+    expect(taskArtifactsPath(taskId, `/now/${taskId}`)).toBe(
+      `/tasks/${taskId}/artifacts?from=${encodeURIComponent(`/now/${taskId}`)}`,
+    );
+  });
+
+  it("omits an unusable entry page instead of encoding it", () => {
+    expect(taskArtifactsPath(taskId, "//evil.example")).toBe(`/tasks/${taskId}/artifacts`);
+    expect(taskArtifactsPath(taskId)).toBe(`/tasks/${taskId}/artifacts`);
+  });
+
+  it("escapes the task id", () => {
+    expect(taskArtifactsPath("a/b")).toBe("/tasks/a%2Fb/artifacts");
   });
 });
 

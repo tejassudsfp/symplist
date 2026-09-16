@@ -93,6 +93,31 @@ describe("documents.open_history", () => {
   });
 });
 
+describe("documents.open_artifacts", () => {
+  it("needs an open task and says so", () => {
+    const { env } = environment(null);
+    expect(byId("documents.open_artifacts").availability(env)).toEqual({
+      enabled: false,
+      reason: "Open a task first",
+    });
+  });
+
+  it("opens the task's artifacts carrying the page it was entered from", async () => {
+    const { env, services } = environment({ collection: "now", taskId });
+    expect(byId("documents.open_artifacts").availability(env)).toEqual({ enabled: true });
+    await byId("documents.open_artifacts").run(env);
+    expect(services.navigate).toHaveBeenCalledWith(
+      `/tasks/${taskId}/artifacts?from=${encodeURIComponent(`/now/${taskId}`)}`,
+    );
+  });
+
+  it("does nothing when it is run without a task", async () => {
+    const { env, services } = environment(null);
+    await byId("documents.open_artifacts").run(env);
+    expect(services.navigate).not.toHaveBeenCalled();
+  });
+});
+
 describe("documents.save", () => {
   it("needs a mounted page and says so", () => {
     const { env } = environment({ collection: "now", taskId });

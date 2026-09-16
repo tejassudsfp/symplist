@@ -14,6 +14,13 @@ export function documentHistoryPath(taskId: string, from?: string | null): strin
   return origin ? `${base}?from=${encodeURIComponent(origin)}` : base;
 }
 
+/** `/tasks/:taskId/artifacts`, with the entry page preserved when one is known. */
+export function taskArtifactsPath(taskId: string, from?: string | null): string {
+  const base = `/tasks/${encodeURIComponent(taskId)}/artifacts`;
+  const origin = safeReturnPath(from);
+  return origin ? `${base}?from=${encodeURIComponent(origin)}` : base;
+}
+
 /**
  * A `from` value this app is willing to navigate back to: an in-app task page path and nothing else.
  * Anything absolute, protocol-relative or outside the three collections is refused, so a crafted link
