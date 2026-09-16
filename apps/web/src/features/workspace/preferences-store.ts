@@ -9,6 +9,7 @@ import {
 import { ApiError } from "@/lib/api";
 import type { WorkspaceApi } from "./api.ts";
 import { classifyFailure, type Failure } from "./errors.ts";
+import { reportSavedAppearance } from "./telemetry.ts";
 
 /**
  * How a group's local state relates to the account (§10.3). `previewing` is the honest state after a
@@ -324,6 +325,11 @@ export class PreferencesStore {
       if (this.disposed) return;
       // Drop a response older than one already applied (§10.3 request ordering).
       if (response.clientSeq >= entry.applied) {
+        if (group === "appearance")
+          reportSavedAppearance(
+            parseGroup("appearance", entry.saved),
+            parseGroup("appearance", response.data),
+          );
         entry.applied = response.clientSeq;
         entry.version = response.version;
         entry.saved = parseGroup(group, response.data);

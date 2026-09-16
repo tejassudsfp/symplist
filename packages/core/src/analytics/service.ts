@@ -1,5 +1,10 @@
 import { randomUUID } from "node:crypto";
-import type { AnalyticsSubject, ServerAnalyticsEmitter } from "@symplist/analytics/server";
+import type {
+  AnalyticsEventProperties,
+  AnalyticsSubject,
+  ServerAnalyticsEmitter,
+  ServerAnalyticsEventName,
+} from "@symplist/analytics/server";
 import type {
   AnalyticsConsentRequest,
   AnalyticsSettings,
@@ -89,6 +94,32 @@ export class AnalyticsService {
       await this.options.emitter.captureClient?.({ ...input, subject });
     } catch {
       // Analytics must never make an application action fail, including during provider outages.
+    }
+  }
+
+  async capture<Name extends ServerAnalyticsEventName>(
+    owner: string,
+    event: Name,
+    properties: AnalyticsEventProperties<Name>,
+    eventId: string,
+  ): Promise<void> {
+    if (!this.options.enabled) return;
+    try {
+      const row = await this.options.db.first(
+        sql(
+          `SELECT analytics_consent, analytics_id FROM users WHERE id = :owner AND ${this.guard()}`,
+          { owner },
+        ),
+      );
+      if (row?.analytics_consent !== "granted" || typeof row.analytics_id !== "string") return;
+      await this.options.emitter.capture({
+        subject: { consent: "granted", analyticsId: row.analytics_id },
+        event,
+        properties,
+        eventId,
+      });
+    } catch {
+      // A confirmed product action remains successful during an analytics outage.
     }
   }
 }
