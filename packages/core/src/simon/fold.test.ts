@@ -10,6 +10,7 @@ import { IdempotencyStore } from "../idempotency/store.ts";
 import type { SimonWriteFold } from "./fold.ts";
 import { SimonRepository } from "./repository.ts";
 import { SimonError } from "./types.ts";
+import { SimonUserAsks } from "./user-asks.ts";
 
 let env: DocumentsTestEnvironment;
 let keys: ManagedKeyProvider;
@@ -71,6 +72,127 @@ const send = (key = "first-message", body = input) =>
   repository.acceptMessage(owner, conversation, key, body, fold(key, body));
 
 describe("Simon folded HTTP writes", () => {
+  it("enforces an additional trusted authorization in the deciding batch and on replay", async () => {
+    const authorization = {
+      sql: "EXISTS (SELECT 1 FROM users WHERE id = :simon_auth_owner AND write_id = :simon_auth_generation)",
+      params: { simon_auth_owner: owner, simon_auth_generation: "grant-generation-one" },
+    };
+    await env.db.run(
+      sql("UPDATE users SET write_id = :w WHERE id = :owner", { owner, w: "grant-generation-one" }),
+    );
+    const scopedSend = () =>
+      repository.acceptMessage(owner, conversation, "scoped", input, {
+        ...fold("scoped"),
+        authorization,
+      });
+    const first = await scopedSend();
+    expect(await scopedSend()).toEqual(first);
+    expect(await repository.run(owner, first.runId ?? "", authorization)).not.toBeNull();
+    await env.db.run(
+      sql("UPDATE users SET write_id = :w WHERE id = :owner", { owner, w: "revoked" }),
+    );
+    await expect(scopedSend()).rejects.toMatchObject({ code: "simon.stale" });
+    expect(await repository.run(owner, first.runId ?? "", authorization)).toBeNull();
+    await expect(
+      repository.acceptMessage(owner, conversation, "new-scoped", input, {
+        ...fold("new-scoped"),
+        authorization,
+      }),
+    ).rejects.toMatchObject({ code: "simon.stale" });
+    await expect(
+      repository.createConversation(owner, null, {
+        ...fold("scoped-create", {}, "conversations"),
+        authorization,
+      }),
+    ).rejects.toMatchObject({ code: "not_found" });
+    expect(await env.count("messages")).toBe(1);
+    expect(await env.count("conversations")).toBe(1);
+    expect(await env.count("idempotency_records")).toBe(1);
+  });
+  it("refuses authorization bind names that could shadow the operation's identity", async () => {
+    const authorization = { sql: ":owner = :owner", params: { owner: "another-owner" } };
+    await expect(
+      repository.acceptMessage(owner, conversation, "shadow", input, {
+        ...fold("shadow"),
+        authorization,
+      }),
+    ).rejects.toMatchObject({ code: "internal" });
+    await expect(repository.run(owner, uuidv7(), authorization)).rejects.toMatchObject({
+      code: "internal",
+    });
+    expect(await env.count("idempotency_records")).toBe(0);
+  });
+  it("rolls a question answer and its continuation back if recording the response fails", async () => {
+    const first = await send();
+    const claim = await repository.claim(first.runId ?? "", "local");
+    if (!claim) throw new Error("Expected claim");
+    const asks = new SimonUserAsks(repository);
+    let askId: string;
+    try {
+      askId = await asks.pause(
+        claim.run,
+        claim.key,
+        { question: "Which?", toolCallId: "ask_1" },
+        { text: "Which?", steps: 1 },
+      );
+    } finally {
+      repository.releaseClaim(claim);
+    }
+    const original = fold("answer", { text: "first" }, "answer");
+    await expect(
+      asks.decide(
+        owner,
+        askId,
+        { kind: "answer", text: "first" },
+        {
+          ...original,
+          completion: () => sql("UPDATE table_that_does_not_exist SET value = 1 WHERE 1 = 1"),
+        },
+      ),
+    ).rejects.toThrow();
+    expect((await asks.load(owner, askId)).status).toBe("pending");
+    expect(await env.count("runs")).toBe(1);
+    expect(await env.count("dispatch_intents")).toBe(1);
+    expect(await env.count("idempotency_records")).toBe(1); // only the original message
+  });
+  it("cannot record a question answer after the key is shredded between preparation and commit", async () => {
+    const first = await send();
+    const claim = await repository.claim(first.runId ?? "", "local");
+    if (!claim) throw new Error("Expected claim");
+    const asks = new SimonUserAsks(repository);
+    let askId: string;
+    try {
+      askId = await asks.pause(
+        claim.run,
+        claim.key,
+        { question: "Which?", toolCallId: "ask_1" },
+        { text: "Which?", steps: 1 },
+      );
+    } finally {
+      repository.releaseClaim(claim);
+    }
+    const batch = env.db.batch.bind(env.db);
+    vi.spyOn(env.db, "batch").mockImplementationOnce(async (statements) => {
+      const results = await batch(statements);
+      await env.db.run(sql("DELETE FROM account_keys WHERE owner_id = :owner", { owner }));
+      return results;
+    });
+    await expect(
+      asks.decide(
+        owner,
+        askId,
+        { kind: "answer", text: "first" },
+        fold("answer", { text: "first" }, "answer"),
+      ),
+    ).rejects.toMatchObject({ code: "not_found" });
+    expect(
+      await env.db.first(
+        sql("SELECT status, answer_enc FROM user_asks WHERE id = :id", { id: askId }),
+      ),
+    ).toMatchObject({ status: "pending", answer_enc: null });
+    expect(await env.count("runs")).toBe(1);
+    expect(await env.count("idempotency_records")).toBe(1);
+  });
   it("atomically records acceptance, encrypted response and dispatch in the same batch", async () => {
     const batch = vi.spyOn(env.db, "batch");
     const result = await send();

@@ -8,9 +8,11 @@ The owner's latest instruction authorizes isolated worktrees, superseding the ea
 | B | Vault / `symplist-wt/vault` | Architecture §11 and all five Vault screens | 0700–0799 |
 | C | Scheduling / `symplist-wt/scheduling` | Architecture §12, notifications, calendar, Resend webhook | 0600–0699 |
 | D | Sharing / `symplist-wt/sharing` | Architecture §13 and §15, sharing/handoff, analytics/consent | 0800–0899 and 1000–1099 |
-| E | Connections / next available isolated worktree | Architecture §14, Composio wrappers and incoming MCP | 0901–0999 (0900 already exists) |
+| E | Connections / `symplist-wt/connections` | Architecture §14, Composio wrappers and incoming MCP | 0901–0999 (0900 already exists) |
 
 The suggested 0300–0499 allocations collide with existing Documents/Search ownership and files. Architecture §3.4 and the migration README already reserve independent D2 ranges; preserve those. Migrations remain expand-only and existing migrations are immutable.
+
+Vault finished its implementation/review checkpoints at `f881976` with a clean worktree and passing branch gates; it remains unmerged with browser verification and shared integration hooks pending. Connections started from `8e26f4f` in the freed slot. No agent writes the completed Vault tree.
 
 ## Shared-file rules
 

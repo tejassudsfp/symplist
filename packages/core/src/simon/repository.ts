@@ -14,9 +14,11 @@ import { accessCondition, accessStateFromRow, accessStateSelectList } from "../a
 import { AccountKeyStore } from "../account/keys.ts";
 import type { ExecutorKind } from "../events/execution.ts";
 import {
+  assertAuthorization,
   assertFoldOwner,
   guardedCompletion,
   releaseUnapplied,
+  type SimonAuthorization,
   type SimonWriteFold,
 } from "./fold.ts";
 import { dispatchSimonStatements, releaseSimonStatements } from "./lifecycle.ts";
@@ -125,8 +127,9 @@ export class SimonRepository {
       const id = String(loaded[1]?.results[0]?.id ?? uuidv7(now));
       const authority = sql(
         `${this.access()} AND EXISTS (SELECT 1 FROM account_keys WHERE owner_id = :owner)
-        AND (:task IS NULL OR EXISTS (SELECT 1 FROM tasks WHERE id = :task AND owner_id = :owner AND status = 'active'))`,
-        { owner: ownerId, task: taskId },
+        AND (:task IS NULL OR EXISTS (SELECT 1 FROM tasks WHERE id = :task AND owner_id = :owner AND status = 'active'))
+        ${fold.authorization ? `AND (${fold.authorization.sql})` : ""}`,
+        { owner: ownerId, task: taskId, ...fold.authorization?.params },
       );
       const exists = sql(
         "EXISTS (SELECT 1 FROM conversations WHERE id = :id AND owner_id = :owner)",
@@ -144,7 +147,8 @@ export class SimonRepository {
           SELECT :id, :owner, :kind, :task, :expiry, :now, :now, :id
           WHERE ${this.access()} AND EXISTS (SELECT 1 FROM account_keys WHERE owner_id = :owner)
           AND (:task IS NULL OR EXISTS (SELECT 1 FROM tasks WHERE id = :task AND owner_id = :owner AND status = 'active'))
-          AND ${fold.claim.guard.exists} ON CONFLICT DO NOTHING`,
+          AND ${fold.claim.guard.exists}
+          ${fold.authorization ? `AND (${fold.authorization.sql})` : ""} ON CONFLICT DO NOTHING`,
           {
             id,
             owner: ownerId,
@@ -153,6 +157,7 @@ export class SimonRepository {
             expiry: taskId ? null : int(now + this.options.quickChatTtlHours * 3_600_000),
             now: int(now),
             ...fold.claim.guard.params,
+            ...fold.authorization?.params,
           },
         ),
         releaseUnapplied(fold, applied),
@@ -258,8 +263,14 @@ export class SimonRepository {
         `EXISTS (SELECT 1 FROM conversations c WHERE c.id = :conversation
         AND c.owner_id = :owner AND ${this.access()} AND ${this.activeTask("c")}
         AND (c.expires_at IS NULL OR c.expires_at > :now)
-        AND EXISTS (SELECT 1 FROM account_keys WHERE owner_id = :owner))`,
-        { conversation: conversationId, owner: ownerId, now: int(now) },
+        AND EXISTS (SELECT 1 FROM account_keys WHERE owner_id = :owner))
+        ${fold?.authorization ? `AND (${fold.authorization.sql})` : ""}`,
+        {
+          conversation: conversationId,
+          owner: ownerId,
+          now: int(now),
+          ...fold?.authorization?.params,
+        },
       );
       const completions: Statement[] = [];
       if (fold) {
@@ -327,12 +338,14 @@ export class SimonRepository {
           AND (expires_at IS NULL OR expires_at > :now)
           AND EXISTS (SELECT 1 FROM account_keys WHERE owner_id = :owner)
           ${fold ? `AND ${fold.claim.guard.exists}` : ""}
+          ${fold?.authorization ? `AND (${fold.authorization.sql})` : ""}
           AND EXISTS (SELECT 1 FROM executor_state WHERE id = 1 AND mode IS NOT NULL)
           AND NOT EXISTS (SELECT 1 FROM messages WHERE conversation_id = :conversation AND request_id = :request)
           AND (SELECT COUNT(*) FROM messages WHERE conversation_id = :conversation AND status = 'queued') < 20`,
           {
             ...params,
             ...(fold?.claim.guard.params ?? {}),
+            ...fold?.authorization?.params,
             run: runId,
             now: int(now),
             expiry: int(now + this.options.quickChatTtlHours * 3_600_000),
@@ -809,16 +822,23 @@ export class SimonRepository {
     return releaseSimonStatements(runId, writeId, now, this.options.policy);
   }
 
-  async run(ownerId: string, runId: string): Promise<SimonRun | null> {
+  async run(
+    ownerId: string,
+    runId: string,
+    authorization?: SimonAuthorization,
+  ): Promise<SimonRun | null> {
+    assertAuthorization(authorization);
     const row = await this.options.db.first(
       sql(
         `SELECT * FROM runs WHERE id = :run AND owner_id = :owner AND ${this.access()}
         AND EXISTS (SELECT 1 FROM conversations c WHERE c.id = runs.conversation_id
-          AND (c.expires_at IS NULL OR c.expires_at > :now))`,
+          AND (c.expires_at IS NULL OR c.expires_at > :now))
+        ${authorization ? `AND (${authorization.sql})` : ""}`,
         {
           owner: ownerId,
           run: runId,
           now: int(this.options.now()),
+          ...authorization?.params,
         },
       ),
     );
@@ -846,8 +866,9 @@ export class SimonRepository {
     const guard = "EXISTS (SELECT 1 FROM runs WHERE id = :run AND write_id = :w)";
     const allowed = sql(
       `EXISTS (SELECT 1 FROM runs WHERE id = :run AND owner_id = :owner AND ${this.access()}
-      AND EXISTS (SELECT 1 FROM account_keys WHERE owner_id = :owner))`,
-      { run: runId, owner: ownerId },
+      AND EXISTS (SELECT 1 FROM account_keys WHERE owner_id = :owner))
+      ${fold?.authorization ? `AND (${fold.authorization.sql})` : ""}`,
+      { run: runId, owner: ownerId, ...fold?.authorization?.params },
     );
     const result = await this.options.db.batch([
       ...(fold?.statements ?? []),
@@ -857,13 +878,15 @@ export class SimonRepository {
         status = CASE WHEN status = 'running' THEN 'running' ELSE 'stopped' END
         WHERE id = :run AND owner_id = :owner AND status IN ('queued', 'running', 'awaiting_approval', 'awaiting_user') AND ${this.access()}
         AND EXISTS (SELECT 1 FROM account_keys WHERE owner_id = :owner)
-        ${fold ? `AND ${fold.claim.guard.exists}` : ""}`,
+        ${fold ? `AND ${fold.claim.guard.exists}` : ""}
+        ${fold?.authorization ? `AND (${fold.authorization.sql})` : ""}`,
         {
           run: runId,
           owner: ownerId,
           now: int(now),
           w: writeId,
           ...(fold?.claim.guard.params ?? {}),
+          ...fold?.authorization?.params,
         },
       ),
       ...["approvals", "user_asks"].map((table) =>

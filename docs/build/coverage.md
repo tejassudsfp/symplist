@@ -12,7 +12,7 @@ Maps every specification, screen and required flow to implementation and verific
 | [04_beta_access.md](../notes/files/04_beta_access.md) | Verified | `packages/core/src/access/invites.ts`, `redemption.ts`, `apps/web/src/features/access/admin/` | `access.spec.ts` (an administrator generates a code, the member redeems it, a second code cannot bypass a relock); `apps/api/src/modules/access/admin-invites.test.ts` |
 | [05_vault.md](../notes/files/05_vault.md) | Not started | | |
 | [06_document_tools.md](../notes/files/06_document_tools.md) | Implemented | `packages/docs/`, `packages/core/src/documents/`, `apps/web/src/features/documents/` | 347 component and unit tests; the artifact viewer, share dialog and grant list are the `artifact-surface.ts` seam for D2, and no Playwright coverage was added |
-| [07_architecture.md](../notes/files/07_architecture.md) | In progress | Foundation executors, Simon persistence, lifecycle tracker and approval/ask continuations (`packages/core/src/simon/`); model/tool transports and application integration remain | `repository.test.ts`, `approvals.test.ts`: duplicate submissions, owner/account binding, encryption, stop, queued advancement, generation/reconnect races, crash uncertainty, expiry and restriction/purge |
+| [07_architecture.md](../notes/files/07_architecture.md) | In progress | Shared Simon loop/local/Trigger adapters, document tools, encrypted lifecycle and create/send/Stop/Retry/question HTTP routes; approval HTTP, realtime/UI and remaining tool integrations remain | Core `repository.test.ts`, `approvals.test.ts`, `fold.test.ts`, `retries.test.ts`; agent document parity/marker tests; `simon.api.test.ts` covers HTTP replay, races, owner isolation, question decisions, CSRF and encrypted persistence. Full browser executor parity remains Phase E. |
 | [08_self_hosting.md](../notes/files/08_self_hosting.md) | Not started | | |
 | [09_research.md](../notes/files/09_research.md) | Background only | | |
 | [10_original_list.md](../notes/files/10_original_list.md) | Background only | | |
@@ -23,7 +23,7 @@ Maps every specification, screen and required flow to implementation and verific
 | [15_deadlines_reminders_calendar.md](../notes/files/15_deadlines_reminders_calendar.md) | Not started | | |
 | [16_simon_handoffs_and_artifact_sharing.md](../notes/files/16_simon_handoffs_and_artifact_sharing.md) | Not started | | |
 | [17_analytics.md](../notes/files/17_analytics.md) | Not started | | |
-| Note 18: quick chat (to be written, decision D1 in [decisions](decisions.md)) | Not started | | |
+| Note 18: quick chat (to be written, decision D1 in [decisions](decisions.md)) | In progress | Task-less conversation creation/message HTTP, TTL enforcement and read-only document tool capabilities exist; UI, close/delete, Save as task and cleanup remain | Core conversation/fold tests, agent document-capability tests and HTTP duplicate-create/expiry tests; no browser quick-chat journey yet |
 
 ## Screen briefs
 

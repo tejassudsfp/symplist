@@ -3,8 +3,25 @@ import { type Statement, type StatementResult, sql } from "@symplist/db";
 import type { IdempotencyClaim } from "../idempotency/store.ts";
 import { SimonError } from "./types.ts";
 
+/** Trusted core SQL only. Bind names are namespaced so they cannot shadow operation identity. */
+export interface SimonAuthorization {
+  readonly sql: string;
+  readonly params: Readonly<Record<string, string>>;
+}
+
+export function assertAuthorization(authorization?: SimonAuthorization): void {
+  if (
+    authorization &&
+    Object.keys(authorization.params).some((name) => !name.startsWith("simon_auth_"))
+  )
+    throw new SimonError("internal");
+  // Validate separately before combining: a predicate cannot borrow an operation's named bind.
+  if (authorization) sql(authorization.sql, authorization.params);
+}
+
 /** The HTTP claim, effect and encrypted response commit in one deciding transaction. */
 export interface SimonWriteFold {
+  readonly authorization?: SimonAuthorization;
   readonly claim: IdempotencyClaim;
   readonly statements: readonly Statement[];
   completion(response: { status: number; body: unknown }, key: AccountDataKey): Statement;
@@ -17,6 +34,7 @@ export interface SimonWriteFold {
 
 export function assertFoldOwner(fold: SimonWriteFold | undefined, ownerId: string): void {
   if (fold && fold.claim.userId !== ownerId) throw new SimonError("not_found");
+  assertAuthorization(fold?.authorization);
 }
 
 /** Append only to the store's trusted completion UPDATE, not to arbitrary caller SQL. */

@@ -29,8 +29,9 @@ export class SimonRetries {
         `EXISTS (SELECT 1 FROM runs previous JOIN conversations c ON c.id = previous.conversation_id
         WHERE previous.id = :previous AND previous.owner_id = :owner AND c.owner_id = :owner
         AND ${repo.access()} AND (c.expires_at IS NULL OR c.expires_at > :now)
-        AND EXISTS (SELECT 1 FROM account_keys WHERE owner_id = :owner))`,
-        { previous: previousRunId, owner: ownerId, now: int(now) },
+        AND EXISTS (SELECT 1 FROM account_keys WHERE owner_id = :owner))
+        ${fold?.authorization ? `AND (${fold.authorization.sql})` : ""}`,
+        { previous: previousRunId, owner: ownerId, now: int(now), ...fold?.authorization?.params },
       );
       const applied = sql(
         "EXISTS (SELECT 1 FROM runs WHERE id = :next AND owner_id = :owner AND write_id = :w)",
@@ -48,7 +49,8 @@ export class SimonRetries {
           AND EXISTS (SELECT 1 FROM runs previous WHERE previous.id = :previous AND previous.owner_id = :owner
             AND previous.conversation_id = c.id AND previous.status IN ('stopped', 'interrupted', 'failed'))
           AND NOT EXISTS (SELECT 1 FROM runs WHERE continues_run_id = :previous)
-          ${fold ? `AND ${fold.claim.guard.exists}` : ""}`,
+          ${fold ? `AND ${fold.claim.guard.exists}` : ""}
+          ${fold?.authorization ? `AND (${fold.authorization.sql})` : ""}`,
           {
             next: runId,
             owner: ownerId,
@@ -56,6 +58,7 @@ export class SimonRetries {
             now: int(now),
             w: writeId,
             ...(fold?.claim.guard.params ?? {}),
+            ...fold?.authorization?.params,
           },
         ),
         sql(

@@ -16,6 +16,7 @@ import { OBJECT_STORE } from "../../infra/storage/storage.providers.ts";
 import { TopicHub } from "../realtime/topic-hub.ts";
 import { SimonController } from "./simon.controller.ts";
 import { createLocalSimonHandler } from "./simon.local.ts";
+import { SimonUserAsksController } from "./simon.pauses.controller.ts";
 
 @Injectable()
 export class SimonLifecycle implements OnModuleInit {
@@ -44,7 +45,7 @@ export class SimonLifecycle implements OnModuleInit {
 
 /** The simon feature: controllers, gateway handlers and providers live in this folder (§2.3). */
 @Module({
-  controllers: [SimonController],
+  controllers: [SimonController, SimonUserAsksController],
   providers: [
     {
       provide: DocumentTools,
