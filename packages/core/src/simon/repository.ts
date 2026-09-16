@@ -13,6 +13,12 @@ import { evaluateAccess } from "../access/evaluate.ts";
 import { accessCondition, accessStateFromRow, accessStateSelectList } from "../access/sql.ts";
 import { AccountKeyStore } from "../account/keys.ts";
 import type { ExecutorKind } from "../events/execution.ts";
+import {
+  assertFoldOwner,
+  guardedCompletion,
+  releaseUnapplied,
+  type SimonWriteFold,
+} from "./fold.ts";
 import { dispatchSimonStatements, releaseSimonStatements } from "./lifecycle.ts";
 import {
   type ClaimedSimonRun,
@@ -63,7 +69,13 @@ export class SimonRepository {
     return `(${alias}.task_id IS NULL OR EXISTS (SELECT 1 FROM tasks t WHERE t.id = ${alias}.task_id AND t.owner_id = ${alias}.owner_id AND t.status = 'active'))`;
   }
 
-  async createConversation(ownerId: string, taskId: string | null): Promise<string> {
+  async createConversation(
+    ownerId: string,
+    taskId: string | null,
+    fold?: SimonWriteFold,
+  ): Promise<string> {
+    assertFoldOwner(fold, ownerId);
+    if (fold) return this.createFoldedConversation(ownerId, taskId, fold);
     const now = this.options.now();
     const id = uuidv7(now);
     const result = await this.options.db.batch([
@@ -83,7 +95,7 @@ export class SimonRepository {
         },
       ),
       sql(
-        `SELECT id FROM conversations WHERE owner_id = :owner AND ${this.access()}
+        `SELECT id FROM conversations c WHERE owner_id = :owner AND ${this.access()} AND ${this.activeTask("c")}
         AND (id = :id OR (task_id = :task AND kind = 'task')) LIMIT 1`,
         { owner: ownerId, id, task: taskId },
       ),
@@ -93,7 +105,79 @@ export class SimonRepository {
     return String(row.id);
   }
 
-  async loadConversation(ownerId: string, conversationId: string, write = false) {
+  private async createFoldedConversation(
+    ownerId: string,
+    taskId: string | null,
+    fold: SimonWriteFold,
+  ): Promise<string> {
+    const loaded = await this.options.db.batch([
+      this.accountKeys.selectStatement(ownerId),
+      sql(
+        "SELECT id FROM conversations WHERE owner_id = :owner AND task_id = :task AND kind = 'task'",
+        { owner: ownerId, task: taskId },
+      ),
+    ]);
+    const keyRow = loaded[0]?.results[0];
+    if (!keyRow) throw new SimonError("not_found");
+    const key = this.accountKeys.unwrapRow(keyRow);
+    try {
+      const now = this.options.now();
+      const id = String(loaded[1]?.results[0]?.id ?? uuidv7(now));
+      const authority = sql(
+        `${this.access()} AND EXISTS (SELECT 1 FROM account_keys WHERE owner_id = :owner)
+        AND (:task IS NULL OR EXISTS (SELECT 1 FROM tasks WHERE id = :task AND owner_id = :owner AND status = 'active'))`,
+        { owner: ownerId, task: taskId },
+      );
+      const exists = sql(
+        "EXISTS (SELECT 1 FROM conversations WHERE id = :id AND owner_id = :owner)",
+        { id, owner: ownerId },
+      );
+      const applied = {
+        sql: `(${authority.sql}) AND (${exists.sql})`,
+        params: [...authority.params, ...exists.params],
+      };
+      const response = { conversationId: id };
+      const results = await this.options.db.batch([
+        ...fold.statements,
+        sql(
+          `INSERT INTO conversations (id, owner_id, kind, task_id, expires_at, created_at, updated_at, write_id)
+          SELECT :id, :owner, :kind, :task, :expiry, :now, :now, :id
+          WHERE ${this.access()} AND EXISTS (SELECT 1 FROM account_keys WHERE owner_id = :owner)
+          AND (:task IS NULL OR EXISTS (SELECT 1 FROM tasks WHERE id = :task AND owner_id = :owner AND status = 'active'))
+          AND ${fold.claim.guard.exists} ON CONFLICT DO NOTHING`,
+          {
+            id,
+            owner: ownerId,
+            kind: taskId ? "task" : "quick",
+            task: taskId,
+            expiry: taskId ? null : int(now + this.options.quickChatTtlHours * 3_600_000),
+            now: int(now),
+            ...fold.claim.guard.params,
+          },
+        ),
+        releaseUnapplied(fold, applied),
+        guardedCompletion(fold.completion({ status: 201, body: response }, key), applied),
+        {
+          sql: `SELECT (${authority.sql}) AS allowed, (${exists.sql}) AS applied`,
+          params: [...authority.params, ...exists.params],
+        },
+      ]);
+      if (results.at(-1)?.results[0]?.allowed !== 1) throw new SimonError("not_found");
+      const decision = fold.decide(results, key, 0);
+      if (decision.kind === "replay") return (decision.body as typeof response).conversationId;
+      if (results.at(-1)?.results[0]?.applied !== 1) throw new SimonError("simon.stale");
+      return id;
+    } finally {
+      zeroize(key.key);
+    }
+  }
+
+  async loadConversation(
+    ownerId: string,
+    conversationId: string,
+    write = false,
+    requestId?: string,
+  ) {
     const result = await this.options.db.batch([
       sql(
         `SELECT c.*, t.status AS task_status, ${accessStateSelectList("u", "u_")}
@@ -102,6 +186,14 @@ export class SimonRepository {
         { id: conversationId, owner: ownerId },
       ),
       this.accountKeys.selectStatement(ownerId),
+      ...(requestId === undefined
+        ? []
+        : [
+            sql(
+              `SELECT * FROM messages WHERE conversation_id = :conversation AND owner_id = :owner AND request_id = :request`,
+              { conversation: conversationId, owner: ownerId, request: requestId },
+            ),
+          ]),
     ]);
     const row = result[0]?.results[0];
     if (!row) throw new SimonError("not_found");
@@ -113,7 +205,7 @@ export class SimonRepository {
       throw new SimonError("simon.conversation_expired");
     const keyRow = result[1]?.results[0];
     if (!keyRow) throw new SimonError("not_found");
-    return { row, key: this.accountKeys.unwrapRow(keyRow) };
+    return { row, key: this.accountKeys.unwrapRow(keyRow), existingMessage: result[2]?.results[0] };
   }
 
   /** A repeated request is reconciled by its encrypted fingerprint, never by plaintext content. */
@@ -122,16 +214,33 @@ export class SimonRepository {
     conversationId: string,
     requestId: string,
     input: { text: string; tier: SimonTier },
+    fold?: SimonWriteFold,
   ): Promise<AcceptedMessage> {
+    assertFoldOwner(fold, ownerId);
     const parsed = simonMessageInputSchema.parse(input);
     if (!/^[A-Za-z0-9._:-]{1,128}$/.test(requestId)) throw new SimonError("validation");
-    const loaded = await this.loadConversation(ownerId, conversationId, true);
+    const loaded = await this.loadConversation(
+      ownerId,
+      conversationId,
+      true,
+      fold ? requestId : undefined,
+    );
     try {
       const now = this.options.now();
       const messageId = uuidv7(now);
       const runId = uuidv7(now);
       const writeId = uuidv7(now);
       const fingerprint = createHash("sha256").update(canonicalJson(parsed)).digest("hex");
+      const existing = loaded.existingMessage;
+      if (
+        existing &&
+        decryptFieldText(
+          loaded.key,
+          simonField(ownerId, "messages", String(existing.id), "request_fingerprint_enc"),
+          String(existing.request_fingerprint_enc),
+        ) !== fingerprint
+      )
+        throw new SimonError("idempotency.mismatch");
       const content = encryptFieldText(
         loaded.key,
         simonField(ownerId, "messages", messageId, "content_enc"),
@@ -145,18 +254,85 @@ export class SimonRepository {
       const guard =
         "EXISTS (SELECT 1 FROM conversations WHERE id = :conversation AND owner_id = :owner AND write_id = :w)";
       const params = { owner: ownerId, conversation: conversationId, w: writeId };
+      const authority = sql(
+        `EXISTS (SELECT 1 FROM conversations c WHERE c.id = :conversation
+        AND c.owner_id = :owner AND ${this.access()} AND ${this.activeTask("c")}
+        AND (c.expires_at IS NULL OR c.expires_at > :now)
+        AND EXISTS (SELECT 1 FROM account_keys WHERE owner_id = :owner))`,
+        { conversation: conversationId, owner: ownerId, now: int(now) },
+      );
+      const completions: Statement[] = [];
+      if (fold) {
+        const alternatives: { body: AcceptedMessage; condition: Statement }[] = [
+          {
+            body: { messageId, runId, status: "accepted" },
+            condition: sql(
+              `EXISTS (SELECT 1 FROM messages WHERE id = :id AND write_id = :w AND status = 'accepted')`,
+              { id: messageId, w: writeId },
+            ),
+          },
+          {
+            body: { messageId, runId: null, status: "queued" },
+            condition: sql(
+              `EXISTS (SELECT 1 FROM messages WHERE id = :id AND write_id = :w AND status = 'queued')`,
+              { id: messageId, w: writeId },
+            ),
+          },
+        ];
+        if (existing)
+          alternatives.push({
+            body: {
+              messageId: String(existing.id),
+              runId: existing.run_id as string | null,
+              status: existing.status === "queued" ? "queued" : "accepted",
+            },
+            condition: sql(
+              `EXISTS (SELECT 1 FROM messages WHERE id = :id AND owner_id = :owner
+            AND request_fingerprint_enc = :fingerprint AND run_id IS :run AND status = :status)`,
+              {
+                id: String(existing.id),
+                owner: ownerId,
+                fingerprint: String(existing.request_fingerprint_enc),
+                run: existing.run_id as string | null,
+                status: String(existing.status),
+              },
+            ),
+          });
+        const applied = {
+          sql: `(${alternatives.map(({ condition }) => condition.sql).join(" OR ")}) AND (${authority.sql})`,
+          params: [
+            ...alternatives.flatMap(({ condition }) => condition.params),
+            ...authority.params,
+          ],
+        };
+        completions.push(releaseUnapplied(fold, applied));
+        for (const alternative of alternatives)
+          completions.push(
+            guardedCompletion(
+              fold.completion({ status: 202, body: alternative.body }, loaded.key),
+              {
+                sql: `(${alternative.condition.sql}) AND (${authority.sql})`,
+                params: [...alternative.condition.params, ...authority.params],
+              },
+            ),
+          );
+      }
       const result = await this.options.db.batch([
+        ...(fold?.statements ?? []),
         sql(
           `UPDATE conversations AS c SET active_run_id = COALESCE(active_run_id, :run),
           next_message_seq = next_message_seq + 1, updated_at = :now, write_id = :w,
           expires_at = CASE WHEN kind = 'quick' THEN :expiry ELSE NULL END
           WHERE id = :conversation AND owner_id = :owner AND ${this.access()} AND ${this.activeTask("c")}
           AND (expires_at IS NULL OR expires_at > :now)
+          AND EXISTS (SELECT 1 FROM account_keys WHERE owner_id = :owner)
+          ${fold ? `AND ${fold.claim.guard.exists}` : ""}
           AND EXISTS (SELECT 1 FROM executor_state WHERE id = 1 AND mode IS NOT NULL)
           AND NOT EXISTS (SELECT 1 FROM messages WHERE conversation_id = :conversation AND request_id = :request)
           AND (SELECT COUNT(*) FROM messages WHERE conversation_id = :conversation AND status = 'queued') < 20`,
           {
             ...params,
+            ...(fold?.claim.guard.params ?? {}),
             run: runId,
             now: int(now),
             expiry: int(now + this.options.quickChatTtlHours * 3_600_000),
@@ -193,12 +369,29 @@ export class SimonRepository {
           },
         ),
         ...this.dispatchStatements(runId, now),
+        ...completions,
+        ...(fold
+          ? [
+              sql(
+                `SELECT 1 AS completed FROM idempotency_records WHERE scope = :idem_scope
+          AND user_id = :idem_user AND key = :idem_key AND write_id = :idem_write_id AND status = 'completed'`,
+                fold.claim.guard.params,
+              ),
+            ]
+          : []),
+        { sql: `SELECT (${authority.sql}) AS allowed`, params: authority.params },
         sql(
           `SELECT * FROM messages WHERE conversation_id = :conversation AND owner_id = :owner AND request_id = :request
           AND ${this.access()}`,
           { owner: ownerId, conversation: conversationId, request: requestId },
         ),
       ]);
+      if (result.at(-2)?.results[0]?.allowed !== 1) throw new SimonError("simon.stale");
+      if (fold) {
+        const decision = fold.decide(result, loaded.key, 0);
+        if (decision.kind === "replay") return decision.body as AcceptedMessage;
+        if (result.at(-3)?.results[0]?.completed !== 1) throw new SimonError("simon.stale");
+      }
       const row = result.at(-1)?.results[0];
       if (!row) throw new SimonError("simon.stale");
       if (
@@ -582,7 +775,11 @@ export class SimonRepository {
     const results = await this.options.db.batch([
       sql(
         `UPDATE message_parts SET content_enc = :content, write_id = :w WHERE id = :paused AND owner_id = :owner
-        AND EXISTS (SELECT 1 FROM runs WHERE id = :run AND owner_id = :owner AND continues_run_id = :paused
+        AND EXISTS (SELECT 1 FROM runs WHERE id = :run AND owner_id = :owner
+          AND (EXISTS (SELECT 1 FROM approvals a WHERE a.id = runs.approval_id AND a.run_id = :paused
+            AND a.owner_id = runs.owner_id AND a.conversation_id = runs.conversation_id)
+            OR EXISTS (SELECT 1 FROM user_asks a WHERE a.id = runs.ask_id AND a.run_id = :paused
+            AND a.owner_id = runs.owner_id AND a.conversation_id = runs.conversation_id))
           AND executor_generation = :generation AND ${this.runGuard()})`,
         {
           content: encryptFieldText(
@@ -614,29 +811,59 @@ export class SimonRepository {
 
   async run(ownerId: string, runId: string): Promise<SimonRun | null> {
     const row = await this.options.db.first(
-      sql(`SELECT * FROM runs WHERE id = :run AND owner_id = :owner AND ${this.access()}`, {
-        owner: ownerId,
-        run: runId,
-      }),
+      sql(
+        `SELECT * FROM runs WHERE id = :run AND owner_id = :owner AND ${this.access()}
+        AND EXISTS (SELECT 1 FROM conversations c WHERE c.id = runs.conversation_id
+          AND (c.expires_at IS NULL OR c.expires_at > :now))`,
+        {
+          owner: ownerId,
+          run: runId,
+          now: int(this.options.now()),
+        },
+      ),
     );
     return row ? runFromRow(row) : null;
   }
 
-  async stop(ownerId: string, runId: string): Promise<void> {
+  async stop(ownerId: string, runId: string, fold?: SimonWriteFold): Promise<void> {
+    assertFoldOwner(fold, ownerId);
+    const key = fold ? await this.accountKeys.require(ownerId) : undefined;
+    try {
+      await this.stopWithKey(ownerId, runId, fold, key);
+    } finally {
+      if (key) zeroize(key.key);
+    }
+  }
+
+  private async stopWithKey(
+    ownerId: string,
+    runId: string,
+    fold?: SimonWriteFold,
+    key?: AccountDataKey,
+  ): Promise<void> {
     const now = this.options.now();
     const writeId = uuidv7(now);
     const guard = "EXISTS (SELECT 1 FROM runs WHERE id = :run AND write_id = :w)";
+    const allowed = sql(
+      `EXISTS (SELECT 1 FROM runs WHERE id = :run AND owner_id = :owner AND ${this.access()}
+      AND EXISTS (SELECT 1 FROM account_keys WHERE owner_id = :owner))`,
+      { run: runId, owner: ownerId },
+    );
     const result = await this.options.db.batch([
+      ...(fold?.statements ?? []),
       sql(
         `UPDATE runs SET cancel_requested_at = COALESCE(cancel_requested_at, :now), write_id = :w,
         finished_at = CASE WHEN status = 'running' THEN NULL ELSE :now END,
         status = CASE WHEN status = 'running' THEN 'running' ELSE 'stopped' END
-        WHERE id = :run AND owner_id = :owner AND status IN ('queued', 'running', 'awaiting_approval', 'awaiting_user') AND ${this.access()}`,
+        WHERE id = :run AND owner_id = :owner AND status IN ('queued', 'running', 'awaiting_approval', 'awaiting_user') AND ${this.access()}
+        AND EXISTS (SELECT 1 FROM account_keys WHERE owner_id = :owner)
+        ${fold ? `AND ${fold.claim.guard.exists}` : ""}`,
         {
           run: runId,
           owner: ownerId,
           now: int(now),
           w: writeId,
+          ...(fold?.claim.guard.params ?? {}),
         },
       ),
       ...["approvals", "user_asks"].map((table) =>
@@ -652,11 +879,15 @@ export class SimonRepository {
         { run: runId, now: int(now), w: writeId },
       ),
       ...this.releaseStatements(runId, writeId, now),
-      sql(`SELECT id FROM runs WHERE id = :run AND owner_id = :owner AND ${this.access()}`, {
-        run: runId,
-        owner: ownerId,
-      }),
+      ...(fold && key
+        ? [
+            releaseUnapplied(fold, allowed),
+            guardedCompletion(fold.completion({ status: 200, body: { runId } }, key), allowed),
+          ]
+        : []),
+      { sql: `SELECT (${allowed.sql}) AS allowed`, params: allowed.params },
     ]);
-    if (!result.at(-1)?.results[0]) throw new SimonError("not_found");
+    if (result.at(-1)?.results[0]?.allowed !== 1) throw new SimonError("not_found");
+    if (fold && key) fold.decide(result, key, 0);
   }
 }

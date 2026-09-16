@@ -31,3 +31,18 @@ export const simonApprovalDecisionSchema = z.strictObject({
 });
 export const simonAnswerSchema = z.strictObject({ text: z.string().trim().min(1).max(32_000) });
 export const simonRunPayloadSchema = z.strictObject({ runId: idSchema });
+
+export const simonConversationCreatedSchema = z.strictObject({ conversationId: idSchema });
+export const simonMessageAcceptedSchema = z.strictObject({
+  messageId: idSchema,
+  runId: idSchema.nullable(),
+  status: z.enum(["accepted", "queued"]),
+});
+export const simonRunViewSchema = z.strictObject({
+  runId: idSchema,
+  conversationId: idSchema,
+  taskId: idSchema.nullable(),
+  status: simonRunStatusSchema,
+  tier: simonTierSchema,
+  stopRequested: z.boolean(),
+});
