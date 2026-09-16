@@ -1,6 +1,7 @@
 import { Inject, Injectable, Module, type OnModuleInit } from "@nestjs/common";
 import {
   cleanupHourly,
+  cleanupSharedFeatures,
   NotificationsService,
   ReminderScanner,
   ResendDeliveryEvents,
@@ -10,12 +11,14 @@ import {
 import type { KeyProvider } from "@symplist/crypto";
 import type { DbClient } from "@symplist/db";
 import { createEmailRenderer, type EmailTransport } from "@symplist/email";
+import type { ObjectStore } from "@symplist/storage";
 import { CLOCK, type Clock } from "../../common/clock.ts";
 import { API_CONFIG, type ApiConfig } from "../../infra/config/api-config.ts";
 import { KEY_PROVIDER } from "../../infra/crypto/crypto.providers.ts";
 import { DB_CLIENT } from "../../infra/db/db.providers.ts";
 import { EMAIL_TRANSPORT } from "../../infra/email/email.providers.ts";
 import { LocalScheduler } from "../../infra/scheduler/local-scheduler.ts";
+import { OBJECT_STORE } from "../../infra/storage/storage.providers.ts";
 import { InternalEventHandlerRegistry } from "../internal/internal-event-handlers.ts";
 import { TopicRegistry } from "../realtime/topic-registry.ts";
 import { DeliveryReconciler } from "./delivery-reconciler.ts";
@@ -34,6 +37,7 @@ export class SchedulingLifecycle implements OnModuleInit {
     @Inject(LocalScheduler) private readonly scheduler: LocalScheduler,
     @Inject(InternalEventHandlerRegistry) private readonly internal: InternalEventHandlerRegistry,
     @Inject(TopicRegistry) private readonly topics: TopicRegistry,
+    @Inject(OBJECT_STORE) private readonly objects: ObjectStore,
   ) {}
   onModuleInit() {
     this.topics.registerUserSnapshotContributor({
@@ -85,7 +89,12 @@ export class SchedulingLifecycle implements OnModuleInit {
       minute: 5,
       run: async (context) => {
         await cleanupHourly(
-          { ...this.service.options, quickChatTtlHours: this.config.QUICK_CHAT_TTL_HOURS },
+          {
+            ...this.service.options,
+            quickChatTtlHours: this.config.QUICK_CHAT_TTL_HOURS,
+            cleanupFeatureExpiries: (_input, cleanup) =>
+              cleanupSharedFeatures(cleanup, this.objects),
+          },
           { executor: "local", generation: context.generation, signal: context.signal },
         );
       },
