@@ -40,7 +40,10 @@ import { VaultNotifications } from "./vault-notifications.ts";
           policy: { betaAccessRequired: config.BETA_ACCESS_REQUIRED },
           idleMinutes: config.VAULT_IDLE_LOCK_MINUTES,
           locked: (ownerId, reason) =>
-            hub.publishToUser(ownerId, { type: "vault.locked", data: { reason } }),
+            hub.publishToUser(ownerId, {
+              type: "vault.locked",
+              data: { reason: reason === "reset" ? "reset" : "revoked" },
+            }),
         }),
     },
     {

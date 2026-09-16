@@ -10,11 +10,11 @@ export async function cleanupVault(db: DbClient, now: number, limit = 100) {
     ),
     sql(
       `DELETE FROM vault_sessions WHERE id IN (SELECT id FROM vault_sessions WHERE expires_at<=CAST(:now AS INTEGER) OR revoked_at IS NOT NULL LIMIT :limit)`,
-      params,
+      { now: params.now, limit: params.limit },
     ),
     sql(
       `DELETE FROM vault_reset_authorizations WHERE id IN (SELECT id FROM vault_reset_authorizations WHERE expires_at<=CAST(:now AS INTEGER) LIMIT :limit)`,
-      params,
+      { now: params.now, limit: params.limit },
     ),
   ]);
 }

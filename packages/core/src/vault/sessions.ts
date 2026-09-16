@@ -46,6 +46,7 @@ export class VaultSessions {
     let derived: Uint8Array | undefined;
     try {
       if (context.replay) return { status: "created", token: null };
+      if (context.row) throw new VaultError("vault.already_created");
       const parameters = createArgon2idParameters();
       derived = await deriveArgon2idKey(passphrase, parameters);
       const pass = wrapVaultKeyWithPassphrase(
@@ -260,7 +261,7 @@ export class VaultSessions {
         "vault-session",
         token,
       ).map((d) => d.digest);
-      const guard = repo.guard(actor);
+      const guard = context.guard;
       const params = { ...guard.params, digests, idle: int(repo.idleMs) };
       const condition = `owner_id=:vault_owner AND auth_session_id=:vault_auth AND token_digest IN (:digests) AND revoked_at IS NULL
         AND expires_at>CAST(:vault_now AS INTEGER) AND last_used_at+CAST(:idle AS INTEGER)>CAST(:vault_now AS INTEGER)

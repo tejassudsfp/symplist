@@ -37,16 +37,18 @@ export class VaultItems {
     try {
       const rows = await this.sessions.repository.options.db.all(
         sql(
-          `SELECT * FROM vault_items WHERE owner_id=:vault_owner AND deleted_at IS NULL AND id>:cursor AND ${open.guard.exists} ORDER BY id LIMIT 101`,
+          // A 64k-character note can expand sixfold in JSON before envelope base64.
+          // Sixteen rows (15 + cursor probe) stay below D1's 10 MiB result ceiling.
+          `SELECT * FROM vault_items WHERE owner_id=:vault_owner AND deleted_at IS NULL AND id>:cursor AND ${open.guard.exists} ORDER BY id LIMIT 16`,
           { ...open.guard.params, cursor: cursor ?? "" },
         ),
       );
       return {
-        items: rows.slice(0, 100).map((row) => {
+        items: rows.slice(0, 15).map((row) => {
           const { value: _value, ...summary } = openItem(open, row);
           return summary;
         }),
-        nextCursor: rows.length > 100 ? String(rows[99]?.id) : null,
+        nextCursor: rows.length > 15 ? String(rows[14]?.id) : null,
         idleExpiresAt: open.idleExpiresAt,
       };
     } finally {

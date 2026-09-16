@@ -47,8 +47,10 @@ describe("Vault app API", () => {
     expect(cookie).toContain("Path=/");
     expect(cookie).not.toContain("Domain=");
     expect(result.text).not.toContain(passphrase);
+    expect(app.logs.text()).not.toContain(passphrase);
     const raw = cookie.split(";")[0]?.split("=")[1] ?? "";
     expect(raw).toHaveLength(43);
+    expect(app.logs.text()).not.toContain(raw);
     const tables = await app.db.all(
       sql("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"),
     );
@@ -146,6 +148,11 @@ describe("Vault app API", () => {
     ).toBeNull();
     await app.post("/v1/vault/lock", { session: user.session, headers: { cookie } });
     expect((await app.post("/v1/vault/items", options)).status).toBe(403);
+    expect(app.logs.text()).not.toContain(body.value);
+    expect(app.logs.text()).not.toContain(body.title);
+    expect(
+      JSON.stringify(await app.db.all(sql("SELECT * FROM idempotency_records"))),
+    ).not.toContain(body.value);
   });
   it("uses fresh reset OTP, commits once, sends generic security mail and preserves contents", async () => {
     const app = await boot();
@@ -196,5 +203,10 @@ describe("Vault app API", () => {
     expect(notice?.sender).toBe("security");
     expect(JSON.stringify(notice)).not.toContain("retained contents");
     expect(JSON.stringify(notice)).not.toContain(body.passphrase);
+    expect(app.logs.text()).not.toContain(body.passphrase);
+    expect(app.logs.text()).not.toContain(otp.otp);
+    expect(
+      JSON.stringify(await app.db.all(sql("SELECT * FROM idempotency_records"))),
+    ).not.toContain(body.passphrase);
   });
 });

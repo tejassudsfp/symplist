@@ -1,3 +1,4 @@
+import { VaultScreen } from "@/features/vault/vault-screen";
 export default function UnlockVaultPage() {
-  return <h1>Unlock Vault</h1>;
+  return <VaultScreen initial="unlock" />;
 }

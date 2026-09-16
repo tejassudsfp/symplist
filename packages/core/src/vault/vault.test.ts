@@ -10,6 +10,24 @@ beforeEach(async () => {
 });
 afterEach(() => f.close());
 describe("Vault sessions and encrypted items", () => {
+  it("paginates bounded encrypted-note batches without losing or repeating an item", async () => {
+    const actor = await f.actor();
+    const token = (await f.sessions.setup(actor, passphrase)).token ?? "";
+    for (let index = 0; index < 16; index++)
+      await f.items.save(actor, token, {
+        type: "note",
+        title: `Note ${index}`,
+        value: index === 0 ? "\u0001".repeat(64000) : "content",
+      });
+    const first = await f.items.list(actor, token);
+    expect(first.items).toHaveLength(15);
+    expect(first.nextCursor).toBe(first.items.at(-1)?.id);
+    const last = await f.items.list(actor, token, first.nextCursor ?? undefined);
+    expect(last.items).toHaveLength(1);
+    expect(last.nextCursor).toBeNull();
+    expect(new Set([...first.items, ...last.items].map((item) => item.id)).size).toBe(16);
+    expect(JSON.stringify(first)).not.toContain("value");
+  });
   it("requires a separate key, encrypts all content/wrappers and survives an unlock", async () => {
     const actor = await f.actor();
     expect((await f.sessions.status(actor)).state).toBe("not_created");

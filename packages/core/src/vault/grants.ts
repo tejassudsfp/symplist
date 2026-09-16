@@ -246,29 +246,41 @@ export async function resolveVaultArguments(
       );
     return value;
   };
+  const forms = (value: string) =>
+    [
+      value,
+      Buffer.from(value).toString("base64"),
+      Buffer.from(value).toString("base64url"),
+      encodeURIComponent(value),
+      JSON.stringify(value).slice(1, -1),
+    ].filter(Boolean);
+  const hidden = secrets.flatMap(({ value }) => forms(value));
   const variants = secrets
-    .flatMap(({ value, label }) =>
-      [
-        value,
-        Buffer.from(value).toString("base64"),
-        Buffer.from(value).toString("base64url"),
-        encodeURIComponent(value),
-      ]
-        .filter(Boolean)
-        .map((value) => ({ value, replacement: `[vault:${label}]` })),
-    )
+    .flatMap(({ value, label }) => {
+      // A user can put the credential in its label too. Never reintroduce it through
+      // the replacement text; use a neutral label whenever there is any overlap.
+      const safeLabel = hidden.some((secret) => label.includes(secret)) ? "item" : label;
+      return forms(value).map((value) => ({ value, replacement: `[vault:${safeLabel}]` }));
+    })
     .sort((a, b) => b.value.length - a.value.length);
-  const redact = (value: unknown): unknown => {
+  const redact = (value: unknown, depth = 0, seen = new Set<object>()): unknown => {
+    if (depth > 30) return "[redacted: depth limit]";
     if (typeof value === "string") {
       let text = value;
       for (const variant of variants) text = text.split(variant.value).join(variant.replacement);
       return text;
     }
-    if (Array.isArray(value)) return value.map(redact);
-    if (value && typeof value === "object")
+    if (value && typeof value === "object") {
+      if (seen.has(value)) return "[redacted: circular reference]";
+      const next = new Set(seen).add(value);
+      if (Array.isArray(value)) return value.map((child) => redact(child, depth + 1, next));
       return Object.fromEntries(
-        Object.entries(value).map(([key, child]) => [String(redact(key)), redact(child)]),
+        Object.entries(value).map(([key, child]) => [
+          String(redact(key)),
+          redact(child, depth + 1, next),
+        ]),
       );
+    }
     return value;
   };
   return { arguments: clone(args), redact };

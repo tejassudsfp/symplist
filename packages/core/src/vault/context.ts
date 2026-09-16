@@ -76,11 +76,23 @@ export class VaultRepository {
     const guard = this.guard(actor, now);
     const results = await this.options.db.batch([
       sql(
-        `SELECT a.* FROM account_keys a WHERE a.owner_id = :vault_owner AND ${guard.exists}`,
+        `SELECT a.*, (SELECT access_generation FROM users WHERE id=:vault_owner) AS access_generation FROM account_keys a WHERE a.owner_id = :vault_owner AND ${guard.exists}`,
         guard.params,
       ),
       sql(`SELECT * FROM vaults WHERE owner_id = :vault_owner AND ${guard.exists}`, guard.params),
-      ...(fold?.statements[1] ? [fold.statements[1]] : []),
+      ...(fold
+        ? [
+            sql(
+              `SELECT * FROM idempotency_records WHERE scope=:scope AND user_id=:owner AND key=:key AND expires_at>CAST(:now AS INTEGER)`,
+              {
+                scope: fold.claim.guard.params.idem_scope ?? "",
+                owner: actor.userId,
+                key: fold.claim.guard.params.idem_key ?? "",
+                now: int(now),
+              },
+            ),
+          ]
+        : []),
     ]);
     const row = results[0]?.results[0];
     if (!row) throw new VaultError("vault.locked");
@@ -95,11 +107,23 @@ export class VaultRepository {
       zeroize(key.key);
       throw error;
     }
+    const currentTime = this.options.now;
     return {
       actor,
       key,
       row: results[1]?.results[0] ?? null,
-      guard,
+      guard: {
+        exists: `${guard.exists} AND EXISTS (SELECT 1 FROM users WHERE id=:vault_owner AND access_generation=CAST(:vault_generation AS INTEGER))`,
+        // Argon2 may wait for its semaphore: authority uses commit-time expiry, not the
+        // timestamp at which the request entered the expensive derivation queue.
+        get params() {
+          return {
+            ...guard.params,
+            vault_now: int(currentTime()),
+            vault_generation: int(Number(row.access_generation)),
+          };
+        },
+      },
       now,
       replay,
     };
