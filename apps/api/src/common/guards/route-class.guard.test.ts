@@ -125,9 +125,10 @@ describe("connection_callback and oauth_authorize route classes (§5.3)", () => 
 
 describe("share route classes and host routing (§5.3, §6, §13.2)", () => {
   it("serves share routes only on the share host and app routes only on the api host", async () => {
-    expect((await app.get("/artifact/abc")).status).toBe(404);
+    expect((await app.get("/artifact/_probe/abc")).status).toBe(404);
     expect(
-      (await app.post("/artifact/abc/password", { origin: app.config.ARTIFACT_ORIGIN })).status,
+      (await app.post("/artifact/_probe/abc/password", { origin: app.config.ARTIFACT_ORIGIN }))
+        .status,
     ).toBe(404);
     expect((await app.get("/v1/probe/app", { session, shareHost: true })).status).toBe(404);
     expect((await app.get("/healthz", { shareHost: true })).status).toBe(404);
@@ -135,7 +136,7 @@ describe("share route classes and host routing (§5.3, §6, §13.2)", () => {
   });
 
   it("reads only share session cookies on the share host, never the app session", async () => {
-    const response = await app.get("/artifact/abc", {
+    const response = await app.get("/artifact/_probe/abc", {
       shareHost: true,
       headers: { cookie: `${session.cookie}; ${shareCookie}` },
     });
@@ -150,7 +151,7 @@ describe("share route classes and host routing (§5.3, §6, §13.2)", () => {
 
   it("requires the share Origin, or Sec-Fetch-Site: same-origin when Origin is absent, for the password form", async () => {
     const post = (headers: Record<string, string>, origin: string | null) =>
-      app.request("POST", "/artifact/abc/password", {
+      app.request("POST", "/artifact/_probe/abc/password", {
         shareHost: true,
         origin,
         headers: { cookie: session.cookie, ...headers },
@@ -244,7 +245,7 @@ describe("CORS (§5.3, §6)", () => {
     for (const response of [
       await app.get("/healthz", { origin }),
       await app.request("POST", "/oauth/token", { origin }),
-      await app.get("/artifact/abc", { origin, shareHost: true }),
+      await app.get("/artifact/_probe/abc", { origin, shareHost: true }),
       await app.get("/v1/probe/app", { origin, shareHost: true }),
     ]) {
       expect(response.headers.get("access-control-allow-origin")).toBeNull();
