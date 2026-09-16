@@ -2,6 +2,7 @@ import {
   ComposioSessions,
   ConnectionMutations,
   ConnectionsService,
+  ConnectionWebhooks,
 } from "@symplist/core/connections";
 import { SimonRepository } from "@symplist/core/simon";
 import type { KeyProvider } from "@symplist/crypto";
@@ -23,6 +24,7 @@ export interface ConnectionsRuntime {
   readonly service: ConnectionsService;
   readonly mutations: ConnectionMutations;
   readonly catalogue: Pick<ToolkitCatalogue, "list">;
+  readonly webhooks: ConnectionWebhooks;
   readonly client?: ReturnType<typeof createComposioClient>;
 }
 
@@ -74,5 +76,6 @@ export function createConnectionsRuntime(
       apiOrigin: config.API_ORIGIN,
     }),
     mutations: new ConnectionMutations({ repository, provider, sessions, changed }),
+    webhooks: new ConnectionWebhooks(repository, sessions, changed),
   };
 }

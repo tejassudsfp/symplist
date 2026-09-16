@@ -40,6 +40,10 @@ Status: **in progress; not ready to integrate as a finished feature**. Sole writ
   route classes, fresh admission for mutations, same-session callback, fixed redirects, CSRF and
   folded one-time-secret outcomes. Six real-HTTP tests cover those boundaries and scan every local
   D1/R2/log sink. Missing provider configuration does not prevent native read/disconnect authority.
+- Signed raw-body Composio webhook uses the installed SDK verifier, native account mapping (never
+  payload identity), receipt/effect/approval expiry in one batch, and deduplicated pin refresh.
+  Forged, altered and stale requests fail before any database work without logging their bodies.
+  Migration 0601 is a byte-identical, explicitly authorized dependency copied from merged Scheduling.
 
 ## Simon seam
 
@@ -80,6 +84,8 @@ used for a write. An ambiguous write is surfaced as uncertain, not silently rese
   a pre-D2 route-class probe that occupied the now-real callback route. Moved only that test probe to
   `connections/callback/guard-probe`, preserving its 200/401 guard assertions. Reran the entire API
   suite: 439 passed / 6 existing live skips, and all 47 script tests passed; docs check passed.
+- Webhook checkpoint: eight connection/webhook HTTP tests passed; lint over 1,177 files has zero
+  warnings/errors and all 17 project typechecks passed.
 
 ## Adversarial findings fixed in this checkpoint
 
@@ -103,6 +109,7 @@ diff review. Full feature gates remain required. Root owns progress/coverage and
 
 - `packages/db/migrations/0901_connection_lifecycle.sql`
 - `packages/db/migrations/0902_connection_revocation.sql`
+- `packages/db/migrations/0601_notification_provider_events.sql` (exact Scheduling dependency)
 - `packages/core/src/access/restrict-contributors/connections.ts`
 - `packages/core/src/account/purge-contributors/connections.ts`
 - `packages/core/src/access/session-revoke-contributors/connections.ts` and its registry

@@ -6,12 +6,13 @@ import { API_CONFIG, type ApiConfig } from "../../infra/config/api-config.ts";
 import { KEY_PROVIDER } from "../../infra/crypto/crypto.providers.ts";
 import { DB_CLIENT } from "../../infra/db/db.providers.ts";
 import { TopicHub } from "../realtime/topic-hub.ts";
+import { ComposioWebhookController } from "./composio-webhook.controller.ts";
 import { ConnectionsController } from "./connections.controller.ts";
 import { CONNECTIONS_RUNTIME, createConnectionsRuntime } from "./connections.runtime.ts";
 
 /** The connections feature: controllers, gateway handlers and providers live in this folder (§2.3). */
 @Module({
-  controllers: [ConnectionsController],
+  controllers: [ConnectionsController, ComposioWebhookController],
   providers: [
     {
       provide: CONNECTIONS_RUNTIME,

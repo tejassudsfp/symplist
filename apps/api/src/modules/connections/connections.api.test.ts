@@ -1,8 +1,12 @@
 import { connectionStartResultSchema, errorEnvelopeSchema } from "@symplist/contracts";
-import { ConnectionMutations, ConnectionsService } from "@symplist/core/connections";
+import {
+  ConnectionMutations,
+  ConnectionsService,
+  ConnectionWebhooks,
+} from "@symplist/core/connections";
 import { SimonRepository } from "@symplist/core/simon";
 import { sql, uuidv7 } from "@symplist/db";
-import type { ConnectionLifecycleProvider } from "@symplist/integrations";
+import { type ConnectionLifecycleProvider, createComposioClient } from "@symplist/integrations";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { bootTestApp, type TestApp, type TestSession } from "../../../test/harness.ts";
 import { CONNECTIONS_RUNTIME, type ConnectionsRuntime } from "./connections.runtime.ts";
@@ -11,7 +15,7 @@ const apps: TestApp[] = [];
 afterEach(async () => {
   for (const app of apps.splice(0)) await app.close();
 });
-async function boot(enabled = true) {
+async function boot(enabled = true, webhookSecret?: string) {
   let runtime: ConnectionsRuntime;
   const holder = {
     enabled,
@@ -24,8 +28,17 @@ async function boot(enabled = true) {
     get catalogue() {
       return runtime.catalogue;
     },
+    get client() {
+      return runtime.client;
+    },
+    get webhooks() {
+      return runtime.webhooks;
+    },
   };
-  const app = await bootTestApp({ overrides: [{ token: CONNECTIONS_RUNTIME, value: holder }] });
+  const app = await bootTestApp({
+    env: { COMPOSIO_WEBHOOK_SECRET: webhookSecret },
+    overrides: [{ token: CONNECTIONS_RUNTIME, value: holder }],
+  });
   apps.push(app);
   let sequence = 0;
   let callback = "";
@@ -85,6 +98,8 @@ async function boot(enabled = true) {
     delay: async () => undefined,
   });
   runtime = {
+    ...(webhookSecret ? { client: createComposioClient("test-only-client-key") } : {}),
+    webhooks: new ConnectionWebhooks(repository, sessions),
     enabled,
     service,
     catalogue,
@@ -220,3 +235,82 @@ describe("connections HTTP boundary", () => {
     expect(provider.revoke).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("raw Composio webhook", () => {
+  const secret = "test-only-webhook-secret-never-live";
+  function delivery(accountId: string, receipt = "msg_test", offset = 0) {
+    const timestamp = String(Math.floor(Date.now() / 1000) + offset);
+    const body = {
+      id: receipt,
+      timestamp: new Date().toISOString(),
+      type: "composio.connected_account.expired",
+      metadata: { ignored: "private_metadata_marker" },
+      data: { id: accountId, user_id: "attacker-claimed-owner", private: "private_webhook_marker" },
+    };
+    const signature = createHmac("sha256", secret)
+      .update(`${receipt}.${timestamp}.${JSON.stringify(body)}`)
+      .digest("base64");
+    return {
+      body,
+      headers: {
+        "webhook-id": receipt,
+        "webhook-timestamp": timestamp,
+        "webhook-signature": `v1,${signature}`,
+      },
+    };
+  }
+
+  it("verifies exact raw bytes, uses the native account mapping and deduplicates in the effect batch", async () => {
+    const { app, callback } = await boot(true, secret);
+    const { session } = await app.createSignedInUser();
+    await start(app, session);
+    const url = new URL(callback());
+    url.searchParams.set("session_uri", "attested");
+    await app.get(`${url.pathname}${url.search}`, { session });
+    const input = delivery("ca_1");
+    const first = await app.post("/webhooks/composio", input);
+    expect(first.status, first.text).toBe(200);
+    expect(first.json()).toEqual({ status: "accepted" });
+    const second = await app.post("/webhooks/composio", input);
+    expect(second.status, second.text).toBe(200);
+    expect(second.json()).toEqual({ status: "duplicate" });
+    expect(await app.db.first(sql("SELECT owner_id, status, generation FROM connections"))).toEqual(
+      { owner_id: session.userId, status: "needs_attention", generation: 2 },
+    );
+    expect(await app.db.all(sql("SELECT provider, receipt_id FROM webhook_receipts"))).toEqual([
+      { provider: "composio", receipt_id: "msg_test" },
+    ]);
+    for (const marker of ["private_webhook_marker", "private_metadata_marker"]) {
+      expect(await app.scanDatabaseFor(marker)).toEqual([]);
+      expect(app.scanObjectsFor(marker)).toEqual([]);
+      expect(app.logs.text()).not.toContain(marker);
+    }
+  });
+
+  it("rejects forged, altered and stale bodies with 400 before D1 work, without logging content", async () => {
+    const { app } = await boot(true, secret);
+    const batch = vi.spyOn(app.db, "batch");
+    const valid = delivery("ca_1");
+    const forged = await app.post("/webhooks/composio", {
+      ...valid,
+      headers: { ...valid.headers, "webhook-signature": "v1,bad" },
+    });
+    const changed = await app.post("/webhooks/composio", {
+      ...valid,
+      body: { ...valid.body, metadata: { changed: true } },
+    });
+    const old = await app.post("/webhooks/composio", delivery("ca_1", "msg_old", -301));
+    expect([forged.status, changed.status, old.status]).toEqual([400, 400, 400]);
+    expect(batch).not.toHaveBeenCalled();
+    expect(app.logs.text()).not.toContain("private_webhook_marker");
+    expect(app.logs.text()).not.toContain(secret);
+  });
+
+  it("is unprefixed and returns404 when webhook verification is not configured", async () => {
+    const { app } = await boot();
+    expect((await app.post("/webhooks/composio", delivery("ca_1"))).status).toBe(404);
+    expect((await app.post("/v1/webhooks/composio", delivery("ca_1"))).status).toBe(404);
+  });
+});
+
+import { createHmac } from "node:crypto";
