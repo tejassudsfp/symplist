@@ -2994,3 +2994,15 @@
     bottom: 12px;
   }
 }
+
+/* Phase E visual audit: notification controls live on chrome, not the page surface. */
+.sym-topbar .sym-notification-control {
+  color: var(--sym-chrome-muted);
+}
+.sym-topbar .sym-notification-control:hover {
+  color: var(--sym-chrome-text);
+  background: var(--sym-chrome-hover);
+}
+.sym-topbar .sym-notification-control:focus-visible {
+  outline-color: var(--sym-chrome-accent);
+}
