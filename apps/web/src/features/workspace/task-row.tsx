@@ -24,6 +24,11 @@ export interface TaskRowProps {
   readonly setSize: number;
   /** False for an ancestor kept only so a search result keeps its place in the hierarchy. */
   readonly matched?: boolean;
+  /**
+   * Whether this row is the tree's single tab stop. The list decides, because a tree must always have
+   * exactly one, including before anything in it has been focused (WAI-ARIA tree pattern).
+   */
+  readonly tabStop: boolean;
 }
 
 /**
@@ -42,9 +47,9 @@ export function TaskRow({
   posInSet,
   setSize,
   matched = true,
+  tabStop,
 }: TaskRowProps) {
   const { ui, commands, openTask, openTaskId } = useWorkspace();
-  const active = useWorkspaceUi((state) => state.activeRow[collection] === task.id);
   const renaming = useWorkspaceUi((state) =>
     state.renaming?.taskId === task.id && state.renaming.surface === "list" ? state.renaming : null,
   );
@@ -133,7 +138,7 @@ export function TaskRow({
       aria-selected={selected}
       {...(subtaskCount > 0 ? { "aria-expanded": expanded } : {})}
       aria-busy={pending || undefined}
-      tabIndex={active ? 0 : -1}
+      tabIndex={tabStop ? 0 : -1}
       className="sym-task-row"
       data-selected={selected || undefined}
       data-context={matched ? undefined : "true"}

@@ -60,6 +60,18 @@ export function TaskInbox({ collection }: TaskInboxProps) {
     [snapshot.tasks, expanded, searchOpen, query],
   );
 
+  /**
+   * The tree's single tab stop (roving tabindex). It is the focused row while there is one, and
+   * otherwise the first row shown: a tree with no tabbable node cannot be reached with Tab at all,
+   * which is where the list stood before anything in it had been clicked. A focused row that a
+   * search or a collapsed parent has taken off screen hands the tab stop back to the first row.
+   */
+  const focusedRow = useWorkspaceUi((state) => state.activeRow[collection]);
+  const tabStopId = useMemo(() => {
+    if (focusedRow !== null && rows.some((row) => row.task.id === focusedRow)) return focusedRow;
+    return rows[0]?.task.id ?? null;
+  }, [rows, focusedRow]);
+
   // The list keeps its place per collection, including a return from a task on a phone.
   useLayoutEffect(() => {
     const element = rootRef.current?.closest<HTMLElement>(".sym-panel-body") ?? null;
@@ -179,6 +191,7 @@ export function TaskInbox({ collection }: TaskInboxProps) {
                 key={row.task.id}
                 collection={collection}
                 row={row}
+                tabStop={row.task.id === tabStopId}
                 subDraftFor={subDraft?.parentId === row.task.id ? subDraft.text : null}
               />
             ))}
@@ -197,10 +210,12 @@ function TaskRowWithDraft({
   row,
   collection,
   subDraftFor,
+  tabStop,
 }: {
   readonly row: ReturnType<typeof visibleRows>[number];
   readonly collection: TaskCollection;
   readonly subDraftFor: string | null;
+  readonly tabStop: boolean;
 }) {
   const { ui, commands } = useWorkspace();
   const pending = useWorkspaceUi((state) =>
@@ -223,6 +238,7 @@ function TaskRowWithDraft({
         matched={row.matched}
         posInSet={row.posInSet}
         setSize={row.setSize}
+        tabStop={tabStop}
       />
       {subDraftFor === null ? null : (
         // The draft is a `treeitem`: `role="tree"` owns only treeitems and groups, and a group would

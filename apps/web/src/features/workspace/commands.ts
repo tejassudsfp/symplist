@@ -273,16 +273,23 @@ export class TaskCommands {
     const title = this.titleOf(taskId);
     const node = this.node(taskId);
     const subtasks = node ? subtreeOf(this.listOf(taskId), taskId).slice(1) : [];
-    const openSubtasks = node?.childCount ?? 0;
-    if (plan?.mode === undefined && openSubtasks > 0) {
-      const total = subtasks.length + 1;
+    // The question is asked from the row *and* from the task page header, which can be open while
+    // the list itself was never loaded (a direct link, a list still loading). The task's own detail
+    // answers then, so a parent's subtasks are never archived without asking (decision P1).
+    const openSubtasks = node?.childCount ?? this.deps.tasks.detail(taskId).detail?.task.childCount;
+    if (plan?.mode === undefined && (openSubtasks ?? 0) > 0) {
+      // Only the list knows the whole subtree; the detail knows the direct subtasks alone, so the
+      // question counts nothing it cannot name.
+      const named = subtasks.length > 0;
       this.deps.ui.openDialog({
         kind: "complete-subtasks",
-        title: `Complete ${quoted(title)} and its ${subtasks.length === 1 ? "subtask" : `${subtasks.length} subtasks`}?`,
+        title: named
+          ? `Complete ${quoted(title)} and its ${subtasks.length === 1 ? "subtask" : `${subtasks.length} subtasks`}?`
+          : `Complete ${quoted(title)} and its subtasks?`,
         description:
           "Open subtasks are archived with it. Keep them instead and they become tasks of their own.",
         items: subtasks.map((task) => task.title),
-        confirmLabel: `Complete all ${total}`,
+        confirmLabel: named ? `Complete all ${subtasks.length + 1}` : "Complete all",
         confirm: () => {
           this.deps.ui.closeDialog();
           void this.complete(taskId, { mode: "all" });

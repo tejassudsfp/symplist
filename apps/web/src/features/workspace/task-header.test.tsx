@@ -123,6 +123,31 @@ describe("the task page header", () => {
     expect(navigation.push).toHaveBeenCalledWith("/now");
   });
 
+  it("asks before archiving a parent's subtasks, with no list loaded behind it", async () => {
+    // The header can be the only surface a task is open on (a direct link, the list still loading),
+    // and the subtasks must never go quietly then either (decision P1).
+    navigation.pathname = `/later/${PORTFOLIO}`;
+    const api = seeded();
+    const { user } = renderWorkspace(
+      <>
+        <TaskHeader taskId={PORTFOLIO} />
+        <WorkspaceDialogs />
+      </>,
+      { api },
+    );
+    await screen.findByRole("heading", { name: "Refresh my portfolio" });
+
+    await user.click(screen.getByLabelText("Complete Refresh my portfolio"));
+    const dialog = await screen.findByRole("dialog");
+    expect(
+      within(dialog).getByText("Complete “Refresh my portfolio” and its subtasks?"),
+    ).toBeInTheDocument();
+    expect(api.archivedIds()).toHaveLength(0);
+
+    await user.click(within(dialog).getByRole("button", { name: "Only the parent" }));
+    await waitFor(() => expect(api.archivedIds()).toEqual([PORTFOLIO]));
+  });
+
   it("renames from the header and keeps the text when the save fails", async () => {
     const api = seeded();
     const { user } = renderWorkspace(<TaskHeader taskId={OUTLINE} />, { api });

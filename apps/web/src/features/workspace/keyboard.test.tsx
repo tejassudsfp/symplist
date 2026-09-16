@@ -111,6 +111,37 @@ describe("the list by keyboard alone", () => {
     expect(navigation.push).toHaveBeenCalledWith(`/now/${OUTLINE}`);
   });
 
+  it("can be reached with Tab before anything in it has been focused", async () => {
+    // A tree with no tabbable node is unreachable from the keyboard, so the first row holds the tab
+    // stop until a row takes it (WAI-ARIA tree pattern).
+    const { user } = await listPane();
+    const tree = screen.getByRole("tree", { name: "Now tasks" });
+    const rows = within(tree).getAllByRole("treeitem");
+    expect(rows.filter((row) => row.tabIndex === 0)).toEqual([rows[0]]);
+
+    for (let press = 0; press < 6 && !tree.contains(document.activeElement); press += 1) {
+      await user.tab();
+    }
+    expect(document.activeElement).toBe(rows[0]);
+  });
+
+  it("hands the tab stop back to the first row when the focused one is hidden", async () => {
+    const { user } = await listPane();
+    const tree = screen.getByRole("tree", { name: "Now tasks" });
+    within(tree)
+      .getByRole("treeitem", { name: /Book a bike tune-up/ })
+      .focus();
+    await waitFor(() =>
+      expect(within(tree).getByRole("treeitem", { name: /Book a bike tune-up/ }).tabIndex).toBe(0),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Search Now" }));
+    await user.type(screen.getByLabelText("Search Now"), "outline");
+    await waitFor(() => expect(screen.queryByText("Book a bike tune-up")).not.toBeInTheDocument());
+    const shown = within(screen.getByRole("tree", { name: "Now tasks" })).getAllByRole("treeitem");
+    expect(shown.filter((row) => row.tabIndex === 0)).toEqual([shown[0]]);
+  });
+
   it("is one tab stop, so Tab leaves the tree instead of walking each row's controls", async () => {
     const { user } = await listPane();
     const tree = screen.getByRole("tree", { name: "Now tasks" });
