@@ -1,6 +1,11 @@
 "use client";
 
-import type { ArchivedTaskNode, ArchiveGroup, TaskRestoreResponse } from "@symplist/contracts";
+import type {
+  ArchivedTaskNode,
+  ArchiveGroup,
+  TaskDetailResponse,
+  TaskRestoreResponse,
+} from "@symplist/contracts";
 import { ChevronLeft } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -12,7 +17,7 @@ import { SkeletonLines } from "@/components/ui/skeleton";
 import { collectionLabels, quoted } from "./commands.ts";
 import { classifyFailure, type Failure, loadFailureCopy, writeFailureMessage } from "./errors.ts";
 import { MAX_VISIBLE_DEPTH } from "./task-row.tsx";
-import { useWorkspace } from "./workspace-provider.tsx";
+import { useTaskDetail, useWorkspace } from "./workspace-provider.tsx";
 
 /** The browser's time zone, so completion dates group the way the person experienced them. */
 function localTimeZone(): string | undefined {
@@ -81,6 +86,15 @@ export function ArchiveView({ taskId }: ArchiveViewProps) {
     failure: null,
   });
   const [restore, setRestore] = useState<RestoreState>({ kind: "idle" });
+  /**
+   * The open record once it is known, so it survives what takes it out of the list: a reload after
+   * Restore (it is not archived any more) and a page the listing has not reached. Keyed by task id,
+   * so a different record never shows the previous one for a frame.
+   */
+  const [known, setKnown] = useState<{
+    readonly id: string;
+    readonly node: ArchivedTaskNode;
+  } | null>(null);
   const requestId = useRef(0);
   const timeZone = useMemo(() => localTimeZone(), []);
 
@@ -128,7 +142,27 @@ export function ArchiveView({ taskId }: ArchiveViewProps) {
     () => state.groups.flatMap((group) => group.tasks.map((task) => task)),
     [state.groups],
   );
-  const selected = taskId ? (rows.find((task) => task.id === taskId) ?? null) : null;
+
+  /**
+   * A record opened straight from its address is not in the first page of the listing, so the
+   * archive reads the task itself as well. Without it, a link or a reload after Show more answered
+   * "This task isn't available" for a task that is right there.
+   */
+  const detail = useTaskDetail(taskId ?? null);
+  const listed = taskId ? (rows.find((task) => task.id === taskId) ?? null) : null;
+  useEffect(() => {
+    if (!taskId) return;
+    if (listed) {
+      setKnown((current) => (current?.node === listed ? current : { id: taskId, node: listed }));
+      return;
+    }
+    const task = detail.detail?.task;
+    if (!task || task.id !== taskId || task.status !== "archived") return;
+    setKnown((current) =>
+      current?.id === taskId ? current : { id: taskId, node: archivedNodeOf(task) },
+    );
+  }, [taskId, listed, detail.detail]);
+  const selected = listed ?? (known !== null && known.id === taskId ? known.node : null);
   const today = isoDay();
   const yesterday = isoDay(-1);
 
@@ -253,6 +287,22 @@ export function ArchiveView({ taskId }: ArchiveViewProps) {
       )}
     </div>
   );
+}
+
+/** One archived task read on its own, in the shape the listing returns (its group is not read). */
+function archivedNodeOf(task: TaskDetailResponse["task"]): ArchivedTaskNode {
+  return {
+    id: task.id,
+    parentId: task.parentId,
+    rootId: task.archivedWithRootId ?? task.id,
+    collection: task.collection,
+    depth: 0,
+    title: task.title,
+    preview: task.preview,
+    source: task.source,
+    archivedAt: task.archivedAt ?? task.updatedAt,
+    createdAt: task.createdAt,
+  } as ArchivedTaskNode;
 }
 
 function mergeGroups(

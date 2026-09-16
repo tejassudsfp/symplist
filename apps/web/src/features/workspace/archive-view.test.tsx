@@ -148,6 +148,39 @@ describe("the archive", () => {
     await waitFor(() => expect(api.archivedIds()).not.toContain("bike"));
   });
 
+  it("keeps naming the record after it has been restored out of the listing", async () => {
+    const api = await archived();
+    const { user } = renderWorkspace(<ArchiveView taskId="bike" />, { api });
+    const detail = screen.getByRole("region", { name: "Archived task" });
+    await within(detail).findByRole("heading", { name: "Book a bike tune-up" });
+
+    await user.click(within(detail).getByRole("button", { name: "Restore" }));
+    expect(await within(detail).findByText(/Restored to Now/)).toBeInTheDocument();
+    // The reload that follows no longer lists it, which must not turn the record it just restored
+    // into "This task isn't available" beside the result saying it was.
+    await waitFor(() =>
+      expect(screen.queryByRole("link", { name: /Book a bike tune-up/ })).not.toBeInTheDocument(),
+    );
+    expect(
+      within(detail).getByRole("heading", { name: "Book a bike tune-up" }),
+    ).toBeInTheDocument();
+    expect(within(detail).queryByText("This task isn't available")).not.toBeInTheDocument();
+  });
+
+  it("opens a record the listing has not reached, read on its own", async () => {
+    const api = await archived();
+    // A page the listing never returns stands in for anything past the first page: the record is
+    // opened from its address, so the archive reads the task itself.
+    api.fail("listArchive", undefined, true);
+    renderWorkspace(<ArchiveView taskId="bike" />, { api });
+    const detail = screen.getByRole("region", { name: "Archived task" });
+    expect(
+      await within(detail).findByRole("heading", { name: "Book a bike tune-up" }),
+    ).toBeInTheDocument();
+    expect(within(detail).getByText(/kept from Now/)).toBeInTheDocument();
+    expect(within(detail).getByRole("button", { name: "Restore" })).toBeInTheDocument();
+  });
+
   it("says so calmly when the record is not in the archive any more", async () => {
     renderWorkspace(<ArchiveView taskId="gone" />, { api: await archived() });
     const detail = screen.getByRole("region", { name: "Archived task" });
