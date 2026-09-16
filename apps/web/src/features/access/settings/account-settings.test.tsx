@@ -11,6 +11,7 @@ import {
   stubNavigation,
 } from "../test-support.tsx";
 import { AccountSettings } from "./account-settings.tsx";
+import { SettingsFrame } from "./settings-frame.tsx";
 
 const navigation = vi.hoisted(() => ({
   pathname: "/settings/account",
@@ -40,6 +41,15 @@ vi.mock("next/link", () => ({
   ),
 }));
 
+/** The Account section inside the Settings shell its route layout provides. */
+function accountScreen() {
+  return (
+    <SettingsFrame>
+      <AccountSettings />
+    </SettingsFrame>
+  );
+}
+
 let location = stubNavigation("/settings/account");
 
 beforeEach(() => {
@@ -55,7 +65,7 @@ afterEach(() => {
 
 describe("Settings → Account (settings_account.md)", () => {
   it("shows the settings sections, the name, the read-only email and the access indicator", async () => {
-    renderAccess(<AccountSettings />, { me: mayaMe() });
+    renderAccess(accountScreen(), { me: mayaMe() });
     expect(await screen.findByRole("heading", { level: 1, name: "Account" })).toBeInTheDocument();
     const nav = screen.getByRole("navigation", { name: "Settings" });
     expect(within(nav).getByRole("link", { name: "Account" })).toHaveAttribute(
@@ -76,7 +86,7 @@ describe("Settings → Account (settings_account.md)", () => {
   });
 
   it("leaves a named slot for the analytics feature's Privacy section", async () => {
-    const { container } = renderAccess(<AccountSettings />, { me: mayaMe() });
+    const { container } = renderAccess(accountScreen(), { me: mayaMe() });
     await screen.findByRole("heading", { level: 1, name: "Account" });
     expect(container.querySelector('[data-slot="account-privacy"]')).not.toBeNull();
   });
@@ -85,7 +95,7 @@ describe("Settings → Account (settings_account.md)", () => {
     const user = userEvent.setup();
     const saved = mayaMe({ user: { displayName: "Maya R." } as never });
     const api = createFakeAccessApi({ updateDisplayName: vi.fn(async () => saved) });
-    renderAccess(<AccountSettings />, { api, me: mayaMe() });
+    renderAccess(accountScreen(), { api, me: mayaMe() });
     const field = await screen.findByLabelText("Name");
     await user.clear(field);
     await user.type(field, "Maya R.");
@@ -102,7 +112,7 @@ describe("Settings → Account (settings_account.md)", () => {
         throw new ApiNetworkError();
       }),
     });
-    renderAccess(<AccountSettings />, { api, me: mayaMe() });
+    renderAccess(accountScreen(), { api, me: mayaMe() });
     const field = await screen.findByLabelText("Name");
     await user.clear(field);
     await user.type(field, "Maya Rao II");
@@ -119,7 +129,7 @@ describe("Settings → Account (settings_account.md)", () => {
   it("refuses an empty name without calling the api", async () => {
     const user = userEvent.setup();
     const api = createFakeAccessApi({ updateDisplayName: vi.fn() });
-    renderAccess(<AccountSettings />, { api, me: mayaMe() });
+    renderAccess(accountScreen(), { api, me: mayaMe() });
     const field = await screen.findByLabelText("Name");
     await user.clear(field);
     await user.click(screen.getByRole("button", { name: "Save name" }));
@@ -131,7 +141,7 @@ describe("Settings → Account (settings_account.md)", () => {
 
   it("asks before leaving with an unsaved name, and lets the person stay", async () => {
     const user = userEvent.setup();
-    renderAccess(<AccountSettings />, { me: mayaMe() });
+    renderAccess(accountScreen(), { me: mayaMe() });
     const field = await screen.findByLabelText("Name");
     await user.clear(field);
     await user.type(field, "Maya R.");
@@ -146,7 +156,7 @@ describe("Settings → Account (settings_account.md)", () => {
 
   it("navigates after the person discards the unsaved name", async () => {
     const user = userEvent.setup();
-    renderAccess(<AccountSettings />, { me: mayaMe() });
+    renderAccess(accountScreen(), { me: mayaMe() });
     const field = await screen.findByLabelText("Name");
     await user.clear(field);
     await user.type(field, "Maya R.");
@@ -157,7 +167,7 @@ describe("Settings → Account (settings_account.md)", () => {
   });
 
   it("keeps deletion in its own area, away from the ordinary save action", async () => {
-    renderAccess(<AccountSettings />, { me: mayaMe() });
+    renderAccess(accountScreen(), { me: mayaMe() });
     const danger = (await screen.findByRole("heading", { name: "Delete this account" })).closest(
       "[data-slot='danger-zone']",
     );
@@ -173,13 +183,13 @@ describe("Settings → Account (settings_account.md)", () => {
   it("signs out from the account section", async () => {
     const user = userEvent.setup();
     const api = createFakeAccessApi({ logout: vi.fn(async () => undefined) });
-    renderAccess(<AccountSettings />, { api, me: mayaMe() });
+    renderAccess(accountScreen(), { api, me: mayaMe() });
     await user.click(await screen.findByRole("button", { name: "Sign out" }));
     await waitFor(() => expect(location.assign).toHaveBeenCalledWith("/signin"));
   });
 
   it("names the state of an account that is not admitted", async () => {
-    renderAccess(<AccountSettings />, {
+    renderAccess(accountScreen(), {
       me: mayaMe({ access: { ...admittedAccess, betaState: "relocked" } }),
     });
     expect(await screen.findByText("Paused")).toBeInTheDocument();

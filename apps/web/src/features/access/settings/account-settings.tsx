@@ -13,12 +13,12 @@ import { useSessionControls } from "../session.tsx";
 import { TextField } from "../ui/field.tsx";
 import { useNavigationGuard } from "../ui/navigation-guard.tsx";
 import { Notice } from "../ui/notice.tsx";
-import { SettingsFrame } from "./settings-frame.tsx";
 
 /**
  * Settings → Account (settings_account.md): the display name, the verified email as read-only text, a
  * restrained beta-access indicator, sign-out, the analytics feature's Privacy section, and account
- * deletion kept in its own danger area with a fresh emailed confirmation.
+ * deletion kept in its own danger area with a fresh emailed confirmation. The settings shell around
+ * it comes from the route layout, so this renders the Account section alone.
  */
 export function AccountSettings() {
   const api = useAccessApi();
@@ -48,11 +48,9 @@ export function AccountSettings() {
 
   if (!me) {
     return (
-      <SettingsFrame>
-        <p role="status" className="text-[13.5px] text-sym-muted">
-          Loading your account…
-        </p>
-      </SettingsFrame>
+      <p role="status" className="text-[13.5px] text-sym-muted">
+        Loading your account…
+      </p>
     );
   }
 
@@ -100,7 +98,7 @@ export function AccountSettings() {
   };
 
   return (
-    <SettingsFrame>
+    <>
       <header className="flex flex-col gap-1">
         <h1 className="m-0 font-heading font-semibold text-[20px] tracking-[-0.01em]">Account</h1>
         <p className="m-0 text-[13.5px] text-sym-muted">
@@ -175,6 +173,6 @@ export function AccountSettings() {
 
       <DeleteAccount me={me} />
       {guard.dialog}
-    </SettingsFrame>
+    </>
   );
 }
