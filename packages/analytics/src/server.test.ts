@@ -424,11 +424,13 @@ describe("server analytics emitter (§15)", () => {
       });
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
+    // The SDK compresses an in-flight batch asynchronously. Drain that attempt while still
+    // offline, so recovery cannot accept both its older snapshot and the bounded newest queue.
+    await instance.flush();
+    expect(sent).toEqual([]);
     reachable = true;
     await instance.flush();
-    expect(sent.length).toBeGreaterThan(0);
-    expect(sent.length).toBeLessThanOrEqual(3);
-    expect(sent).toEqual(ids.slice(10 - sent.length));
+    expect(sent).toEqual(ids.slice(-3));
     await instance.shutdown();
   });
 

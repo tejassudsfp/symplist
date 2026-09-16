@@ -19,6 +19,7 @@ import {
   type RealtimeEvent,
   type RealtimePublisher,
   RUN_CHUNK_EVENT_TYPE,
+  TopicAccessDeniedError,
 } from "@symplist/core/events";
 import { uuidv7 } from "@symplist/db";
 import type { z } from "zod";
@@ -413,6 +414,10 @@ export class TopicHub implements RealtimePublisher {
       try {
         data = await provider.snapshot(this.identity(record), parsed, live);
       } catch (error) {
+        if (error instanceof TopicAccessDeniedError) {
+          if (this.stillSubscribed(record, subscription)) this.unsubscribe(record, topic);
+          return "not_found";
+        }
         this.options.log.warn("realtime.snapshot_failed", {
           socketId: record.id,
           kind: "conversation",

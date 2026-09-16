@@ -14,6 +14,8 @@ The suggested 0300–0499 allocations collide with existing Documents/Search own
 
 Vault finished its implementation/review checkpoints at `f881976` with a clean worktree and passing branch gates; it remains unmerged with browser verification and shared integration hooks pending. Connections started from `8e26f4f` in the freed slot. No agent writes the completed Vault tree.
 
+Scheduling/Resend is ready at `1792f5f`; Sharing/Analytics is ready at `e2b61f0`. Both worktrees are clean with passing branch gates and reports under `docs/build/reports/` in their trees. Their browser specifications are authored but unrun. Connections remains the active feature writer; completed-stream agents may perform explicitly assigned read-only reviews of integration work, never edit the integration checkout.
+
 ## Shared-file rules
 
 - Each stream appends exactly one clearly labelled feature block to `apps/web/src/app/globals.css`; never reorder existing CSS.

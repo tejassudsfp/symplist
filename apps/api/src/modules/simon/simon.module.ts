@@ -18,6 +18,7 @@ import { SimonApprovalsController } from "./simon.approvals.controller.ts";
 import { SimonController } from "./simon.controller.ts";
 import { createLocalSimonHandler } from "./simon.local.ts";
 import { SimonUserAsksController } from "./simon.pauses.controller.ts";
+import { SimonTopics } from "./simon.realtime.ts";
 
 @Injectable()
 export class SimonLifecycle implements OnModuleInit {
@@ -109,6 +110,7 @@ export class SimonLifecycle implements OnModuleInit {
         }),
     },
     SimonLifecycle,
+    SimonTopics,
   ],
   exports: [SimonRepository],
 })

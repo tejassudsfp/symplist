@@ -1,11 +1,12 @@
 import {
   errorEnvelopeSchema,
   simonConversationCreatedSchema,
+  simonConversationViewSchema,
   simonMessageAcceptedSchema,
   simonRunViewSchema,
   taskCreateResponseSchema,
 } from "@symplist/contracts";
-import { SimonApprovals, SimonRepository, SimonUserAsks } from "@symplist/core/simon";
+import { SimonApprovals, SimonRepository, SimonUserAsks, SimonViews } from "@symplist/core/simon";
 import { zeroize } from "@symplist/crypto";
 import { int, sql, uuidv7 } from "@symplist/db";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -15,12 +16,138 @@ import {
   type TestApp,
   type TestSession,
 } from "../../../test/harness.ts";
+import { WsTestClient } from "../../../test/ws-client.ts";
 import { ExecutionDispatcher } from "../../infra/executors/dispatcher.ts";
+import { TopicHub } from "../realtime/topic-hub.ts";
 
 const apps: TestApp[] = [];
+const sockets: WsTestClient[] = [];
 afterEach(async () => {
+  for (const socket of sockets.splice(0)) socket.close();
   for (const app of apps.splice(0)) await app.close();
   vi.restoreAllMocks();
+});
+
+describe("Simon conversation history and realtime", () => {
+  it("detaches if a quick chat expires between authorization and snapshot loading", async () => {
+    const app = await boot();
+    const { session } = await app.createSignedInUser();
+    const { conversationId, runId } = await question(app, session);
+    const hub = app.app.get(TopicHub);
+    const read = SimonViews.prototype.conversation;
+    vi.spyOn(SimonViews.prototype, "conversation").mockImplementationOnce(async function (
+      this: SimonViews,
+      ...args
+    ) {
+      await hub.publishToConversation(
+        { ownerId: session.userId, conversationId },
+        {
+          type: "chunk",
+          data: {
+            runId,
+            chunk: { type: "text-delta", id: "text", delta: "expired-private-marker" },
+          },
+        },
+      );
+      await app.db.run(
+        sql("UPDATE conversations SET expires_at = :now WHERE id = :id", {
+          id: conversationId,
+          now: int(app.clock.now()),
+        }),
+      );
+      return read.apply(this, args);
+    });
+    const socket = await WsTestClient.connect(app.wsUrl, {
+      origin: app.config.WEB_ORIGIN,
+      cookie: session.cookie,
+    });
+    sockets.push(socket);
+    socket.send({ t: "sub", topic: `conversation:${conversationId}`, cursor: null });
+    expect(await socket.waitFor((frame) => frame.t === "err")).toMatchObject({ code: "not_found" });
+    await socket.settle();
+    expect(socket.frames.filter((frame) => frame.t === "ev" || frame.t === "snapshot")).toEqual([]);
+    expect(JSON.stringify(socket.frames)).not.toContain("expired-private-marker");
+  });
+  it("reads owner history, pending questions and strict history cursors", async () => {
+    const app = await boot();
+    const { session } = await app.createSignedInUser();
+    const { session: stranger } = await app.createSignedInUser();
+    const { conversationId, askId, runId } = await question(app, session);
+    const response = await app.get(`/v1/conversations/${conversationId}`, { session });
+    expect(response.status).toBe(200);
+    const view = simonConversationViewSchema.parse(response.json());
+    expect(view).toMatchObject({
+      pendingAskId: askId,
+      activeRun: { runId, status: "awaiting_user" },
+    });
+    expect(view.messages).toHaveLength(2);
+    const older = await app.get(`/v1/conversations/${conversationId}?beforeSeq=2`, { session });
+    expect(
+      simonConversationViewSchema.parse(older.json()).messages.map((message) => message.seq),
+    ).toEqual([1]);
+    expect(
+      (await app.get(`/v1/conversations/${conversationId}?beforeSeq=-1`, { session })).status,
+    ).toBe(400);
+    expect(
+      (await app.get(`/v1/conversations/${conversationId}?ownerId=${session.userId}`, { session }))
+        .status,
+    ).toBe(400);
+    expect(
+      (await app.get(`/v1/conversations/${conversationId}`, { session: stranger })).status,
+    ).toBe(404);
+  });
+
+  it("authorizes real conversations, snapshots the active run tail and replays only newer frames", async () => {
+    const app = await boot();
+    const { session } = await app.createSignedInUser();
+    const { session: stranger } = await app.createSignedInUser();
+    const { conversationId, runId } = await question(app, session);
+    const hub = app.app.get(TopicHub);
+    const audience = { ownerId: session.userId, conversationId };
+    const publish = (delta: string, id = runId) =>
+      hub.publishToConversation(audience, {
+        type: "chunk",
+        data: { runId: id, chunk: { type: "text-delta", id: "text_1", delta } },
+      });
+    await publish("unrelated-old-run", uuidv7());
+    await publish("live-marker-one");
+    const connect = async (identity: TestSession) => {
+      const socket = await WsTestClient.connect(app.wsUrl, {
+        origin: app.config.WEB_ORIGIN,
+        cookie: identity.cookie,
+      });
+      sockets.push(socket);
+      return socket;
+    };
+    const topic = `conversation:${conversationId}`;
+    const foreign = await connect(stranger);
+    foreign.send({ t: "sub", topic, cursor: null });
+    expect(await foreign.waitFor((frame) => frame.t === "err")).toMatchObject({
+      code: "not_found",
+    });
+    const socket = await connect(session);
+    socket.send({ t: "sub", topic, cursor: null });
+    const snapshot = await socket.waitFor((frame) => frame.t === "snapshot");
+    expect(snapshot).toMatchObject({
+      data: {
+        conversationId,
+        activeRun: { runId },
+        live: [{ type: "chunk", data: { runId, chunk: { delta: "live-marker-one" } } }],
+      },
+    });
+    expect(JSON.stringify(snapshot)).not.toContain("unrelated-old-run");
+    await publish("live-marker-two");
+    const event = await socket.waitFor((frame) => frame.t === "ev");
+    expect(event).toMatchObject({ data: { chunk: { delta: "live-marker-two" } } });
+    const reconnect = await connect(session);
+    reconnect.send({ t: "sub", topic, cursor: snapshot.seq });
+    expect(await reconnect.waitFor((frame) => frame.t === "ev")).toMatchObject({
+      seq: event.seq,
+      data: event.data,
+    });
+    expect(reconnect.frames.filter((frame) => frame.t === "ev")).toHaveLength(1);
+    expect(app.logs.text()).not.toContain("live-marker");
+  });
 });
 async function boot() {
   const app = await bootTestApp();

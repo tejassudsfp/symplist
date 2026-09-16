@@ -18,6 +18,7 @@ import { ExecutionDispatcher } from "../src/infra/executors/dispatcher.ts";
 import { ExecutionRegistry } from "../src/infra/executors/execution-registry.ts";
 import { InternalEventHandlerRegistry } from "../src/modules/internal/internal-event-handlers.ts";
 import { TopicRegistry } from "../src/modules/realtime/topic-registry.ts";
+import { SimonTopics } from "../src/modules/simon/simon.realtime.ts";
 import { FakeTracker } from "./executors/memory-tracker.ts";
 import { bootTestApp, generatedSecret, type TestApp, type TestSession } from "./harness.ts";
 import { WsTestClient } from "./ws-client.ts";
@@ -77,7 +78,11 @@ class ProbeRuns implements RunRelaySource {
 }
 
 async function boot(runs = new ProbeRuns()): Promise<{ app: TestApp; runs: ProbeRuns }> {
-  const app = await bootTestApp({ runtime: { eventsContributors: [runs.contributor()] } });
+  const app = await bootTestApp({
+    runtime: { eventsContributors: [runs.contributor()] },
+    // Synthetic relay ownership below intentionally replaces real D1 conversation ownership.
+    overrides: [{ token: SimonTopics, value: { onModuleInit() {} } }],
+  });
   apps.push(app);
   return { app, runs };
 }

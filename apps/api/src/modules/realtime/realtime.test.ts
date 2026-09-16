@@ -1,6 +1,6 @@
 import { type ConversationId, conversationTopic } from "@symplist/contracts";
 import type { SessionContext } from "@symplist/core/access";
-import type { BufferedTopicEvent } from "@symplist/core/events";
+import { type BufferedTopicEvent, TopicAccessDeniedError } from "@symplist/core/events";
 import { int, sql, uuidv7 } from "@symplist/db";
 import { FakeClock } from "@symplist/testing";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -16,6 +16,7 @@ import { rawUpgrade, WsTestClient } from "../../../test/ws-client.ts";
 import { ACCESS_SERVICE } from "../../common/access/access.providers.ts";
 import { REALTIME_ACCESS_NOTIFIER, REALTIME_SHUTDOWN } from "../../common/seams.ts";
 import type { OperationalLog, OperationalLogFields } from "../../infra/scheduler/runtime.ts";
+import { SimonTopics } from "../simon/simon.realtime.ts";
 import { AccessSweep } from "./access-sweep.ts";
 import { REALTIME_PUBLISHER, type RealtimeDependencies } from "./realtime.tokens.ts";
 import { RingBuffer } from "./ring-buffer.ts";
@@ -81,6 +82,9 @@ async function start(
   options: Pick<TestAppOptions, "env"> & { readonly backgroundLoops?: boolean } = {},
 ): Promise<Harness> {
   const app = await bootTestApp({
+    // These infrastructure tests install deliberately synthetic owners/providers below. Production
+    // Simon topic registration is covered by its real-conversation HTTP/WebSocket tests instead.
+    overrides: [{ token: SimonTopics, value: { onModuleInit() {} } }],
     ...(options.env ? { env: options.env } : {}),
     runtime: {
       ...(options.backgroundLoops === undefined
@@ -524,6 +528,44 @@ describe("conversation topics (§7)", () => {
     expect(h.app.logs.events("realtime.owner_mismatch")).toHaveLength(1);
 
     expect(h.app.logs.text()).not.toContain(MARKER);
+  });
+
+  it("detaches when a fresh snapshot denies access and discards queued plaintext", async () => {
+    const h = await start();
+    const alice = await h.user();
+    const conversation = uuidv7() as ConversationId;
+    const topic = conversationTopic(conversation);
+    h.registry.registerAuthorizer(ownedConversations(new Map([[conversation, alice.id]])));
+    let deny: (reason: unknown) => void = () => undefined;
+    let entered: () => void = () => undefined;
+    const building = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    h.registry.registerSnapshotProvider({
+      kind: "conversation",
+      snapshot: () =>
+        new Promise((_resolve, reject) => {
+          deny = reject;
+          entered();
+        }),
+    });
+    const client = await h.connect(alice.session);
+    client.send({ t: "sub", topic, cursor: null });
+    await building;
+    await h.hub.publishToConversation(
+      { ownerId: alice.id, conversationId: conversation },
+      { type: "run.progress", data: { step: 1 } },
+    );
+    deny(new TopicAccessDeniedError());
+    expect(await client.waitFor((frame) => frame.t === "err")).toMatchObject({ code: "not_found" });
+    await h.hub.publishToConversation(
+      { ownerId: alice.id, conversationId: conversation },
+      { type: "run.progress", data: { step: 2 } },
+    );
+    await client.settle();
+    expect(client.frames.filter((frame) => frame.t !== "pong").map((frame) => frame.t)).toEqual([
+      "err",
+    ]);
   });
 
   it("sends resync when no snapshot provider exists and queues events published while a snapshot is built", async () => {

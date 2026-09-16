@@ -1,12 +1,13 @@
-import { Body, Controller, Get, HttpCode, Inject, Param, Post, Req } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, Inject, Param, Post, Query, Req } from "@nestjs/common";
 import {
   conversationIdSchema,
   runIdSchema,
   simonConversationInputSchema,
+  simonHistoryQuerySchema,
   simonMessageInputSchema,
 } from "@symplist/contracts";
 import type { SessionContext } from "@symplist/core/access";
-import { SimonRepository, SimonRetries } from "@symplist/core/simon";
+import { SimonRepository, SimonRetries, SimonViews } from "@symplist/core/simon";
 import type { Request } from "express";
 import { Access, CurrentSession } from "../../common/access.decorator.ts";
 import { ApiError } from "../../common/errors/api-error.ts";
@@ -25,6 +26,18 @@ export class SimonController {
     @Inject(ExecutionDispatcher) private readonly dispatcher: ExecutionDispatcher,
     private readonly logger: AppLogger,
   ) {}
+
+  @Get("conversations/:id")
+  @Access("admitted")
+  conversation(
+    @CurrentSession() session: SessionContext,
+    @Param("id", { schema: conversationIdSchema }) conversationId: string,
+    @Query({ schema: simonHistoryQuerySchema }) query: typeof simonHistoryQuerySchema._output,
+  ) {
+    return simonCall(() =>
+      new SimonViews(this.repository).conversation(session.userId, conversationId, query.beforeSeq),
+    );
+  }
 
   @Post("conversations")
   @Access("admitted")
