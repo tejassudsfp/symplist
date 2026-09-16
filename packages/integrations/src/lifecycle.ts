@@ -38,6 +38,22 @@ export interface ConnectionLifecycleProvider {
   revoke(id: string): Promise<void>;
 }
 
+/** Native reads/revocation remain available when an operator removes provider configuration. */
+export function unavailableConnectionProvider(): ConnectionLifecycleProvider {
+  const unavailable = async (): Promise<never> => {
+    throw new IntegrationError("integration.unavailable");
+  };
+  return {
+    authConfigs: unavailable,
+    createAuthConfig: unavailable,
+    link: unavailable,
+    complete: unavailable,
+    account: unavailable,
+    accounts: unavailable,
+    revoke: unavailable,
+  };
+}
+
 /** All account creation uses hosted Connect Links; credentials never enter this process. */
 export class ComposioLifecycleProvider implements ConnectionLifecycleProvider {
   constructor(

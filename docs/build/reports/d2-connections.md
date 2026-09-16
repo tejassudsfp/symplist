@@ -36,6 +36,10 @@ Status: **in progress; not ready to integrate as a finished feature**. Sole writ
   durable ids-only provider revocation, and set-based approval expiry/continuations in the deciding
   connection batch. Expiry has five statements regardless of approval count, tested with 100 pauses;
   it does not permanently block disconnect behind a small preflight limit. HTTP/event wiring remains.
+- Connection HTTP routes now mount the live catalogue/list/start/callback/disconnect surface, with
+  route classes, fresh admission for mutations, same-session callback, fixed redirects, CSRF and
+  folded one-time-secret outcomes. Six real-HTTP tests cover those boundaries and scan every local
+  D1/R2/log sink. Missing provider configuration does not prevent native read/disconnect authority.
 
 ## Simon seam
 
@@ -72,6 +76,10 @@ used for a write. An ambiguous write is surfaced as uncertain, not silently rese
   core/integrations typechecks pass. These services are not yet HTTP-mounted.
 - Third checkpoint: 63 connection tests pass, database 164 pass / 2 credential-gated skips; full
   lint over 1,171 files has zero warnings/errors and all 17 project typechecks pass.
+- HTTP checkpoint: lint 1,174 files and all typechecks pass. Full tests passed every package except
+  a pre-D2 route-class probe that occupied the now-real callback route. Moved only that test probe to
+  `connections/callback/guard-probe`, preserving its 200/401 guard assertions. Reran the entire API
+  suite: 439 passed / 6 existing live skips, and all 47 script tests passed; docs check passed.
 
 ## Adversarial findings fixed in this checkpoint
 
@@ -98,6 +106,8 @@ diff review. Full feature gates remain required. Root owns progress/coverage and
 - `packages/core/src/access/restrict-contributors/connections.ts`
 - `packages/core/src/account/purge-contributors/connections.ts`
 - `packages/core/src/access/session-revoke-contributors/connections.ts` and its registry
+- `apps/api/src/common/guards/route-class.guard.test.ts` and
+  `apps/api/test/probes/route-classes.probe.ts` (pre-D2 probe route collision, assertions preserved)
 - `docs/build/decisions.md`
 - This report.
 

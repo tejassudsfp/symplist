@@ -40,7 +40,7 @@ export class RouteClassProbeController {
     return seen(req);
   }
 
-  @Get("connections/callback")
+  @Get("connections/callback/guard-probe")
   @RouteClass("connection_callback")
   @Access("identity")
   callback(@Req() req: Request) {

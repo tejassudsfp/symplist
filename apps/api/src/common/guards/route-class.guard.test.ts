@@ -105,8 +105,8 @@ describe("pre_session route class (§5.3)", () => {
 
 describe("connection_callback and oauth_authorize route classes (§5.3)", () => {
   it("accepts the callback's top-level GET without Origin but only with a session", async () => {
-    expect((await app.get("/v1/connections/callback", { session })).status).toBe(200);
-    expect((await app.get("/v1/connections/callback")).status).toBe(401);
+    expect((await app.get("/v1/connections/callback/guard-probe", { session })).status).toBe(200);
+    expect((await app.get("/v1/connections/callback/guard-probe")).status).toBe(401);
   });
 
   it("lets /oauth/authorize read only the session cookie", async () => {
