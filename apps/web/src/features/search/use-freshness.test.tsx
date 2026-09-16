@@ -11,14 +11,22 @@ function Watcher({
   pending = 2,
   status = "partial" as const,
   active = true,
+  rebuildExpected = false,
 }: {
   readonly api: SearchApi;
   readonly shownGeneration?: number;
   readonly pending?: number;
   readonly status?: "ready" | "partial" | "rebuilding";
   readonly active?: boolean;
+  readonly rebuildExpected?: boolean;
 }) {
-  const watch = useFreshnessWatch(api, { active, shownGeneration, pending, status });
+  const watch = useFreshnessWatch(api, {
+    active,
+    shownGeneration,
+    pending,
+    status,
+    rebuildExpected,
+  });
   return (
     <button type="button" onClick={watch.acknowledge}>
       {watch.newerAvailable ? "newer" : "current"}
@@ -59,6 +67,53 @@ describe("watching index freshness", () => {
     });
     expect(freshness).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("button")).toHaveTextContent("current");
+  });
+
+  it("never polls for a partial result no publication can change", async () => {
+    // `partial` also means the account is past the index size limit or the query had more matches
+    // than one ranking pass keeps. Nothing the writer publishes clears either, so a poll on the
+    // status alone would run for as long as the screen is open and never learn anything.
+    const freshness = vi.fn();
+    render(<Watcher api={stubSearchApi({ freshness })} status="partial" pending={0} />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(FRESHNESS_POLL_MS * 4);
+    });
+    expect(freshness).not.toHaveBeenCalled();
+  });
+
+  it("polls a partial result while the chat rebuild it is waiting for is still coming", async () => {
+    const freshness = vi.fn(async () => ({
+      status: "ready" as const,
+      indexGeneration: 9,
+      pendingIntents: 0,
+    }));
+    render(
+      <Watcher
+        api={stubSearchApi({ freshness })}
+        status="partial"
+        pending={0}
+        rebuildExpected
+        shownGeneration={8}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(FRESHNESS_POLL_MS);
+    });
+    expect(freshness).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button")).toHaveTextContent("newer");
+  });
+
+  it("polls while the index is rebuilding, even with nothing pending", async () => {
+    const freshness = vi.fn(async () => ({
+      status: "ready" as const,
+      indexGeneration: 3,
+      pendingIntents: 0,
+    }));
+    render(<Watcher api={stubSearchApi({ freshness })} status="rebuilding" pending={0} />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(FRESHNESS_POLL_MS);
+    });
+    expect(freshness).toHaveBeenCalledTimes(1);
   });
 
   it("takes a search.freshness event from the app's socket without polling", async () => {

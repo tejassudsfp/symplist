@@ -21,6 +21,11 @@ export interface FreshnessWatchInput {
   readonly shownGeneration: number;
   readonly pending: number;
   readonly status: SearchIndexStatus;
+  /**
+   * A rebuild has been asked for and is still coming, so a new generation is expected even with no
+   * pending change: the chat opt-in turned on before chat entered the index (`chat_indexing`).
+   */
+  readonly rebuildExpected?: boolean;
 }
 
 export interface FreshnessWatch {
@@ -33,7 +38,11 @@ export interface FreshnessWatch {
 export function useFreshnessWatch(api: SearchApi, input: FreshnessWatchInput): FreshnessWatch {
   const signal = useSearchFreshnessSignal();
   const [acknowledged, setAcknowledged] = useState(0);
-  const behind = input.status !== "ready" || input.pending > 0;
+  // Only what a later publication can actually change keeps the poll running. `partial` also covers
+  // conditions no publication will ever clear — an account past the index size limit, a query with
+  // more matches than one ranking pass keeps — so polling on the status alone would never stop.
+  const behind =
+    input.status === "rebuilding" || input.pending > 0 || input.rebuildExpected === true;
   const polling = input.active && behind;
 
   useEffect(() => {

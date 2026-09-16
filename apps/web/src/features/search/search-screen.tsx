@@ -176,6 +176,8 @@ export function SearchScreen() {
     shownGeneration: data?.indexGeneration ?? 0,
     pending: data?.pendingIntents ?? 0,
     status: data?.status ?? "ready",
+    // The only `partial` result a later publication changes: chat was opted into but is not indexed.
+    rebuildExpected: data?.notices.includes("chat_indexing") ?? false,
   });
 
   // One report per settled search, with counts only (decision C5.3).
