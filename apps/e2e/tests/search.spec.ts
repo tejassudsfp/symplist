@@ -560,7 +560,7 @@ test.describe("the shortcut help overlay", () => {
     await stubApi(page);
     await openApp(page, "/now");
     await page.getByRole("button", { name: /Account menu/ }).click();
-    await page.getByRole("menuitem", { name: /Keyboard shortcuts/ }).click();
+    await page.getByRole("menuitem", { name: /Shortcut help/ }).click();
     const dialog = page.getByRole("dialog", { name: "Keyboard shortcuts" });
     await expect(dialog).toBeVisible();
     await evidence(page, testInfo, "shortcut-help-menu");

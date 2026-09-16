@@ -243,6 +243,29 @@ describe("keyboard actions through the shell", () => {
     unmount();
   });
 
+  it("keeps both shortcut surfaces in the profile menu", async () => {
+    // keyboard_shortcuts.md asks for two surfaces: the help overlay (opened by `?` or the menu) and
+    // Settings → Keyboard shortcuts for remapping. The overlay entry is additional to the settings
+    // link, never a replacement for it — dropping the link would strand the remapping page.
+    const user = userEvent.setup();
+    const { unmount } = renderShell({ path: "/now" });
+    screen.getByRole("button", { name: "Account menu" }).focus();
+    await user.keyboard("{Enter}");
+    const menu = await screen.findByRole("menu");
+    expect(within(menu).getByRole("menuitem", { name: /Keyboard shortcuts/ })).toHaveAttribute(
+      "href",
+      "/settings/shortcuts",
+    );
+    const help = within(menu).getByRole("menuitem", { name: /Shortcut help/ });
+    expect(help).not.toHaveAttribute("href");
+    expect(help).not.toHaveAttribute("aria-disabled", "true");
+    await act(async () => {
+      await user.keyboard("{Escape}");
+    });
+    await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
+    unmount();
+  });
+
   it("signs out through the access feature's action and shows administration to admins", async () => {
     const user = userEvent.setup();
     const signOut = vi.fn();

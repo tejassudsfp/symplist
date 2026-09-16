@@ -28,6 +28,7 @@ const menuLinks: readonly MenuLink[] = [
   { label: "Connections", href: "/settings/connections" },
   { label: "Calendar", href: "/calendar" },
   { label: "Archive", href: "/archive", actionId: "shell.go_archive" },
+  { label: "Keyboard shortcuts", href: "/settings/shortcuts" },
   { label: "About", href: "/settings/about" },
 ];
 
@@ -75,7 +76,7 @@ function ProfileMenu() {
             void actions?.invoke(SHORTCUT_HELP_ACTION_ID, "menu");
           }}
         >
-          <span>Keyboard shortcuts</span>
+          <span>Shortcut help</span>
           {shortcutHelpBinding ? (
             <DropdownMenuShortcut spoken={shortcutHelpBinding.spoken}>
               {shortcutHelpBinding.display}

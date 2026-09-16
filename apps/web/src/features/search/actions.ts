@@ -59,10 +59,12 @@ export const searchActions: readonly AppAction[] = [
   },
   {
     id: SHORTCUT_HELP_ACTION_ID,
-    label: "Keyboard shortcuts",
+    // "Shortcut help" names the overlay, so it never reads as the Settings → Keyboard shortcuts
+    // page that remaps them; both are reachable from the profile menu (keyboard_shortcuts.md).
+    label: "Shortcut help",
     context: "app",
     group: "general",
-    keywords: ["help", "shortcut reference", "keys", "bindings"],
+    keywords: ["help", "shortcut reference", "keys", "bindings", "keyboard shortcuts"],
     defaultBinding: "?",
     availability: () => enabled,
     run: () => searchOverlay.openHelp(),
