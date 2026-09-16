@@ -12,6 +12,7 @@ import { evaluateAccess } from "../access/evaluate.ts";
 import { accessCondition, accessStateFromRow, accessStateSelectList } from "../access/sql.ts";
 import { AccountKeyStore } from "../account/keys.ts";
 import type { ExecutorKind } from "../events/execution.ts";
+import { dispatchSimonStatements, releaseSimonStatements } from "./lifecycle.ts";
 import {
   type ClaimedSimonRun,
   runFromRow,
@@ -211,18 +212,7 @@ export class SimonRepository {
   }
 
   dispatchStatements(runId: string, now: number): Statement[] {
-    return [
-      sql(
-        `INSERT INTO dispatch_intents (id, owner_id, kind, subject_id, executor_generation, created_at, updated_at, write_id)
-      SELECT :intent, owner_id, 'simon_run', id, executor_generation, :now, :now, :intent FROM runs
-      WHERE id = :run AND status = 'queued' ON CONFLICT (kind, subject_id) DO NOTHING`,
-        {
-          intent: uuidv7(now),
-          run: runId,
-          now: int(now),
-        },
-      ),
-    ];
+    return dispatchSimonStatements(runId, now);
   }
 
   /** Conditional queued → running is the only entry to execution. A duplicate delivery does nothing. */
@@ -328,28 +318,63 @@ export class SimonRepository {
     steps: number,
     status: SimonRunStatus = "running",
   ): Promise<boolean> {
+    const result = await this.options.db.batch(
+      this.checkpointStatements(run, key, text, steps, status),
+    );
+    return Boolean(result.at(-1)?.results[0]);
+  }
+
+  /** Pause services fold the pending approval/question into the same checkpoint batch. */
+  checkpointStatements(
+    run: SimonRun,
+    key: AccountDataKey,
+    text: string,
+    steps: number,
+    status: SimonRunStatus,
+    extra?: {
+      readonly writeId: string;
+      readonly now: number;
+      readonly guard?: { readonly sql: string; readonly params: Readonly<Record<string, string>> };
+      readonly statements: readonly Statement[];
+    },
+  ): Statement[] {
     if (
       !Number.isSafeInteger(steps) ||
       steps < 0 ||
       steps > 10 ||
-      !["running", "completed", "failed", "stopped", "interrupted"].includes(status)
+      ![
+        "running",
+        "completed",
+        "failed",
+        "stopped",
+        "interrupted",
+        "awaiting_approval",
+        "awaiting_user",
+      ].includes(status)
     )
       throw new SimonError("validation");
-    const now = this.options.now();
-    const writeId = uuidv7(now);
+    if (
+      (status === "awaiting_approval" || status === "awaiting_user") &&
+      !extra?.statements.length
+    ) {
+      throw new SimonError("validation");
+    }
+    const now = extra?.now ?? this.options.now();
+    const writeId = extra?.writeId ?? uuidv7(now);
     const messageId = run.id;
-    const terminal = status !== "running";
+    const terminal = ["completed", "failed", "stopped", "interrupted"].includes(status);
     const guard = "EXISTS (SELECT 1 FROM runs WHERE id = :run AND write_id = :w)";
     const params = { run: run.id, w: writeId };
     const stopGuard =
       status === "stopped"
         ? this.runGuard().replace("cancel_requested_at IS NULL", "cancel_requested_at IS NOT NULL")
         : this.runGuard();
-    const result = await this.options.db.batch([
+    return [
       sql(
         `UPDATE runs SET status = :status, steps = :steps, heartbeat_at = :now,
         finished_at = CASE WHEN :status = 'running' THEN NULL ELSE :now END, write_id = :w
-        WHERE id = :run AND owner_id = :owner AND executor_generation = :generation AND ${stopGuard}`,
+        WHERE id = :run AND owner_id = :owner AND executor_generation = :generation AND ${stopGuard}
+        ${extra?.guard ? `AND ${extra.guard.sql}` : ""}`,
         {
           ...params,
           owner: run.ownerId,
@@ -357,6 +382,7 @@ export class SimonRepository {
           status,
           steps: int(steps),
           now: int(now),
+          ...extra?.guard?.params,
         },
       ),
       sql(
@@ -394,47 +420,15 @@ export class SimonRepository {
           ),
         },
       ),
+      ...(extra?.statements ?? []),
       ...(terminal ? this.releaseStatements(run.id, writeId, now) : []),
       sql("SELECT id FROM runs WHERE id = :run AND write_id = :w", params),
-    ]);
-    return Boolean(result.at(-1)?.results[0]);
+    ];
   }
 
   /** Release and advance the oldest queued message atomically; queue order uses seq, never ids. */
   releaseStatements(runId: string, writeId: string, now: number): Statement[] {
-    const nextRun = uuidv7(now);
-    return [
-      sql(
-        `UPDATE conversations SET active_run_id = NULL, write_id = :w WHERE active_run_id = :run
-        AND EXISTS (SELECT 1 FROM runs WHERE id = :run AND write_id = :w AND status IN ('completed', 'stopped', 'interrupted', 'failed'))`,
-        { run: runId, w: writeId },
-      ),
-      sql(
-        `UPDATE conversations AS c SET active_run_id = :next WHERE write_id = :w AND active_run_id IS NULL
-        AND ${this.activeTask("c")} AND ${this.access("simon_owner").replaceAll(":simon_owner", "c.owner_id")}
-        AND (expires_at IS NULL OR expires_at > :now) AND EXISTS
-        (SELECT 1 FROM messages WHERE conversation_id = c.id AND status = 'queued')`,
-        { next: nextRun, w: writeId, now: int(now) },
-      ),
-      sql(
-        `INSERT INTO runs (id, owner_id, conversation_id, task_id, kind, executor, executor_generation, tier, created_at, write_id)
-        SELECT :next, c.owner_id, c.id, c.task_id, 'turn', CASE e.mode WHEN 'durable' THEN 'trigger' ELSE 'local' END,
-        e.generation, (SELECT tier FROM messages WHERE conversation_id = c.id AND status = 'queued' ORDER BY seq LIMIT 1), :now, :w
-        FROM conversations c CROSS JOIN executor_state e WHERE c.active_run_id = :next AND c.write_id = :w AND e.id = 1`,
-        {
-          next: nextRun,
-          w: writeId,
-          now: int(now),
-        },
-      ),
-      sql(
-        `UPDATE messages SET status = 'accepted', run_id = :next, write_id = :w
-        WHERE id = (SELECT m.id FROM messages m JOIN conversations c ON c.id = m.conversation_id
-          WHERE c.active_run_id = :next AND c.write_id = :w AND m.status = 'queued' ORDER BY m.seq LIMIT 1)`,
-        { next: nextRun, w: writeId },
-      ),
-      ...this.dispatchStatements(nextRun, now),
-    ];
+    return releaseSimonStatements(runId, writeId, now, this.options.policy);
   }
 
   async run(ownerId: string, runId: string): Promise<SimonRun | null> {

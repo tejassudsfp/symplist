@@ -121,7 +121,8 @@ describe("execution contributors (§8.1)", () => {
 
   it("builds at most one run relay source", () => {
     const db = {} as never;
-    expect(createRunRelaySource({ db })).toBeNull();
+    expect(createRunRelaySource({ db }, [])).toBeNull();
+    expect(createRunRelaySource({ db })?.constructor.name).toBe("SimonRunRelaySource");
     const source = { ownership: async () => null, state: async () => null };
     const withSource: EventsContributor = {
       domain: "simon",

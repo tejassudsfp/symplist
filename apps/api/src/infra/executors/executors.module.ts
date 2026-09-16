@@ -32,6 +32,7 @@ import { TriggerExecutor } from "./trigger-executor.ts";
 
 export interface ExecutorsDependencies {
   readonly db: DbClient;
+  readonly betaAccessRequired?: boolean;
   /** `DURABLE`. */
   readonly durable: boolean;
   /** The Trigger client; required when `durable` and never used otherwise. */
@@ -135,6 +136,7 @@ export class ExecutorsModule {
             new ExecutionRegistry(
               collectExecutionKinds(dependencies.contributors ?? eventsContributors),
               dependencies.db,
+              dependencies.betaAccessRequired ?? true,
             ),
         },
         {

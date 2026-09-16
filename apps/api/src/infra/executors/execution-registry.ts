@@ -16,6 +16,7 @@ export class ExecutionRegistry {
   constructor(
     private readonly definitions: ReadonlyMap<string, ExecutionKindDefinition>,
     private readonly db: DbClient,
+    private readonly betaAccessRequired = true,
   ) {}
 
   kinds(): readonly string[] {
@@ -31,7 +32,10 @@ export class ExecutionRegistry {
     const existing = this.trackers.get(kind);
     if (existing) return existing;
     const definition = this.definitions.get(kind);
-    const tracker = definition?.tracker?.({ db: this.db });
+    const tracker = definition?.tracker?.({
+      db: this.db,
+      betaAccessRequired: this.betaAccessRequired,
+    });
     if (tracker) this.trackers.set(kind, tracker);
     return tracker;
   }

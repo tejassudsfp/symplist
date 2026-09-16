@@ -73,6 +73,7 @@ export function runtimeModules(options: RuntimeOptions = {}): DynamicModule[] {
         logger: AppLogger,
       ): ExecutorsDependencies => ({
         db,
+        betaAccessRequired: config.BETA_ACCESS_REQUIRED,
         durable: config.DURABLE,
         trigger,
         timers,

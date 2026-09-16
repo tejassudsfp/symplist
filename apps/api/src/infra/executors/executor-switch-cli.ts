@@ -95,7 +95,9 @@ export async function runExecutorSwitchCli(
     const db = (io.createDb ?? defaultDb)(config);
     const secretKey = config.TRIGGER_SECRET_KEY;
     const trigger = secretKey && io.createTrigger ? io.createTrigger(secretKey) : null;
-    const registry = io.registry?.(db) ?? new ExecutionRegistry(collectExecutionKinds(), db);
+    const registry =
+      io.registry?.(db) ??
+      new ExecutionRegistry(collectExecutionKinds(), db, config.BETA_ACCESS_REQUIRED);
     const report = await new ExecutorSwitch({
       db,
       registry,

@@ -133,6 +133,7 @@ export interface ExecutionTracker {
 /** Dependencies a tracker or relay source is built with. */
 export interface ExecutionSeamDependencies {
   readonly db: DbClient;
+  readonly betaAccessRequired?: boolean;
 }
 
 /** A dispatch intent kind: how it runs durably and how its subjects are reconciled (§8.1, §8.8). */

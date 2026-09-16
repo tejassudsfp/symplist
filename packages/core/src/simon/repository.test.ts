@@ -8,6 +8,7 @@ import {
   type DocumentsTestEnvironment,
 } from "../documents/test-support.ts";
 import { simonArchiveContributor } from "../tasks/archive-contributors/simon.ts";
+import { SimonExecutionTracker, SimonRunRelaySource } from "./lifecycle.ts";
 import { SimonRepository, simonField } from "./repository.ts";
 
 let env: DocumentsTestEnvironment;
@@ -477,5 +478,174 @@ describe("cross-domain stop and deletion", () => {
     await env.db.run(sql("DELETE FROM account_keys WHERE owner_id = :owner", { owner }));
     expect(await repository.claim(accepted.runId ?? "", "local")).toBeNull();
     expect((await repository.run(owner, accepted.runId ?? ""))?.status).toBe("queued");
+  });
+});
+
+describe("executor lifecycle and relay", () => {
+  it("relays only persisted run identity and current lifecycle state", async () => {
+    const accepted = await send();
+    const relay = new SimonRunRelaySource(env.db);
+    expect(await relay.ownership(accepted.runId ?? "")).toEqual({
+      runId: accepted.runId,
+      ownerId: owner,
+      conversationId: conversation,
+    });
+    expect(await relay.state(accepted.runId ?? "")).toEqual({
+      status: "queued",
+      executorGeneration: 1,
+    });
+    expect(await relay.ownership(uuidv7())).toBeNull();
+    expect(await relay.state(uuidv7())).toBeNull();
+  });
+  it("records dispatch idempotently without claiming or starting the model", async () => {
+    const accepted = await send();
+    const tracker = new SimonExecutionTracker(env.db);
+    const dispatch = {
+      executor: "local" as const,
+      triggerRunId: null,
+      generation: 1,
+      now: env.clock,
+    };
+    await tracker.recordDispatch(accepted.runId ?? "", dispatch);
+    await tracker.recordDispatch(accepted.runId ?? "", dispatch);
+    expect((await repository.run(owner, accepted.runId ?? ""))?.status).toBe("queued");
+    expect(await tracker.listActive({ executor: "local", limit: 20 })).toMatchObject([
+      { subjectId: accepted.runId, ownerId: owner, heartbeatAt: env.clock },
+    ]);
+    expect(await tracker.listActive({ executor: "trigger", limit: 20 })).toEqual([]);
+    expect(
+      await tracker.listActive({ executor: "local", limit: 20, ownerId: await env.createUser() }),
+    ).toEqual([]);
+    expect(
+      await tracker.listActive({ executor: "local", limit: 20, after: accepted.runId ?? "" }),
+    ).toEqual([]);
+  });
+  it("chunks heartbeats below D1's parameter limit and ignores retired generations", async () => {
+    const active = await claim();
+    try {
+      const tracker = new SimonExecutionTracker(env.db);
+      env.clock += 20_000;
+      await tracker.recordHeartbeat(
+        [active.run.id, ...Array.from({ length: 200 }, () => uuidv7())],
+        env.clock,
+      );
+      expect(
+        (
+          await env.db.first(
+            sql("SELECT heartbeat_at FROM runs WHERE id = :id", { id: active.run.id }),
+          )
+        )?.heartbeat_at,
+      ).toBe(env.clock);
+      await env.db.run(sql("UPDATE executor_state SET generation = generation + 1"));
+      await tracker.recordHeartbeat([active.run.id], env.clock + 20_000);
+      expect(
+        (
+          await env.db.first(
+            sql("SELECT heartbeat_at FROM runs WHERE id = :id", { id: active.run.id }),
+          )
+        )?.heartbeat_at,
+      ).toBe(env.clock);
+      await tracker.recordDispatch(active.run.id, {
+        executor: "local",
+        triggerRunId: null,
+        generation: 2,
+        now: env.clock,
+      });
+      expect((await repository.run(owner, active.run.id))?.generation).toBe(1);
+    } finally {
+      zeroize(active.key.key);
+    }
+  });
+  it("interrupts process loss and advances queued work in one batch", async () => {
+    const active = await claim();
+    try {
+      await repository.checkpoint(active.run, active.key, "keep this partial response", 1);
+      await send("follow-up");
+      const tracker = new SimonExecutionTracker(env.db);
+      expect(
+        await tracker.markInterrupted(active.run.id, {
+          outcomeCode: "executor_lost",
+          now: env.clock,
+        }),
+      ).toBe(true);
+      expect(
+        await tracker.markInterrupted(active.run.id, {
+          outcomeCode: "executor_lost",
+          now: env.clock,
+        }),
+      ).toBe(false);
+      expect((await repository.run(owner, active.run.id))?.status).toBe("interrupted");
+      expect(await env.count("runs")).toBe(2);
+      expect(
+        (await repository.history(owner, conversation)).find(
+          (message) => message.role === "assistant",
+        )?.text,
+      ).toBe("keep this partial response");
+      expect(
+        (
+          await env.db.first(
+            sql("SELECT status FROM dispatch_intents WHERE subject_id = :id", {
+              id: active.run.id,
+            }),
+          )
+        )?.status,
+      ).toBe("cancelled");
+    } finally {
+      zeroize(active.key.key);
+    }
+  });
+  it("does not override a completed checkpoint and requires a stop request", async () => {
+    const active = await claim();
+    try {
+      const tracker = new SimonExecutionTracker(env.db);
+      expect(await tracker.markStopped(active.run.id, { now: env.clock })).toBe(false);
+      await repository.checkpoint(active.run, active.key, "finished", 1, "completed");
+      expect(
+        await tracker.markInterrupted(active.run.id, {
+          outcomeCode: "executor_failed",
+          now: env.clock,
+        }),
+      ).toBe(false);
+      expect((await repository.run(owner, active.run.id))?.status).toBe("completed");
+    } finally {
+      zeroize(active.key.key);
+    }
+  });
+  it("reports an interrupted cancellation as stopped after the local process dies", async () => {
+    const active = await claim();
+    try {
+      await repository.stop(owner, active.run.id);
+      const tracker = new SimonExecutionTracker(env.db);
+      expect(
+        await tracker.markInterrupted(active.run.id, {
+          outcomeCode: "executor_lost",
+          now: env.clock,
+        }),
+      ).toBe(true);
+      expect((await repository.run(owner, active.run.id))?.status).toBe("stopped");
+    } finally {
+      zeroize(active.key.key);
+    }
+  });
+  it("honors self-hosted beta policy when advancing a queue", async () => {
+    repository = new SimonRepository({
+      ...repository.options,
+      policy: { betaAccessRequired: false },
+    });
+    await env.db.run(sql("UPDATE users SET beta_state = 'locked' WHERE id = :owner", { owner }));
+    const active = await claim();
+    try {
+      await send("next");
+      const tracker = new SimonExecutionTracker(env.db, { betaAccessRequired: false });
+      expect(
+        await tracker.markInterrupted(active.run.id, {
+          outcomeCode: "executor_lost",
+          now: env.clock,
+        }),
+      ).toBe(true);
+      expect(await env.count("runs")).toBe(2);
+    } finally {
+      zeroize(active.key.key);
+    }
   });
 });
