@@ -1,9 +1,7 @@
 /// <reference lib="dom" />
 // Callbacks passed to page.evaluate run in the browser, so this spec needs the DOM types.
 
-import { spawn } from "node:child_process";
-import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,12 +14,8 @@ import {
   type TestInfo,
   test,
 } from "@playwright/test";
-import {
-  generatedSecretBytes,
-  generatedSecretFamilies,
-  secretFamilyInventory,
-} from "../../../packages/config/src/secrets.ts";
 import { expectNoAxeViolations } from "../src/helpers/index.ts";
+import { E2E_ADMIN_EMAIL } from "../src/helpers/local-api.ts";
 
 /*
  * The access flows end to end (§5, notes 03 and 04): explicit signup consent, an emailed code, the
@@ -31,15 +25,13 @@ import { expectNoAxeViolations } from "../src/helpers/index.ts";
  * instead of a mailbox; codes still never appear in a response to anyone else.
  */
 
-const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
-const apiEntry = join(repoRoot, "apps", "api", "dist", "main.js");
 const evidenceDir = fileURLToPath(new URL("../evidence/access/", import.meta.url));
 
 const webOrigin = process.env.E2E_WEB_URL ?? `http://127.0.0.1:${process.env.E2E_WEB_PORT ?? 3000}`;
 const apiOrigin = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:4000";
-const adminEmail = "operator@example.test";
+const adminEmail = E2E_ADMIN_EMAIL;
 
-/** One api and one admin session per Playwright run, shared by every project's worker. */
+/** One admin session per Playwright run, shared by every project's worker. */
 const runRoot = join(tmpdir(), `symplist-e2e-access-${process.ppid}`);
 const adminStatePath = join(runRoot, "admin-state.json");
 
@@ -58,90 +50,22 @@ async function healthy(): Promise<boolean> {
   }
 }
 
-/** A throwaway api environment: local drivers, generated secrets, data under the run directory. */
-function apiEnvironment(dataDir: string): Record<string, string> {
-  const families = Object.fromEntries(
-    generatedSecretFamilies
-      .filter((family) => secretFamilyInventory[family].api === "yes")
-      .flatMap((family) => [
-        [`${family}_1`, randomBytes(generatedSecretBytes).toString("base64url")],
-        [`${family}_CURRENT`, "1"],
-      ]),
-  );
-  const port = new URL(apiOrigin).port;
-  return {
-    PATH: process.env.PATH ?? "",
-    NODE_ENV: "test",
-    PORT: port,
-    WEB_ORIGIN: webOrigin,
-    API_ORIGIN: apiOrigin,
-    WS_ORIGIN: apiOrigin.replace(/^http/, "ws"),
-    // A different hostname from the api and web origins, as the share host must be (§16.3).
-    ARTIFACT_ORIGIN: `http://localhost:${port}`,
-    TRUST_PROXY_HOPS: "0",
-    DATA_DRIVER: "local",
-    EMAIL_DRIVER: "log",
-    DURABLE: "false",
-    KEY_PROVIDER: "env",
-    BETA_ACCESS_REQUIRED: "true",
-    ADMIN_BOOTSTRAP_EMAIL: adminEmail,
-    EMAIL_FROM_SECURITY: "Symplist <security@example.test>",
-    EMAIL_FROM_REMINDERS: "Symplist <reminders@example.test>",
-    LOCAL_DATA_DIR: join(dataDir, ".local-data"),
-    ...families,
-  };
-}
-
 /**
- * Starts the api once per run. The first worker to take the lock spawns it through a supervisor that
- * stops it when the Playwright runner exits, so later workers find it already answering.
+ * Waits for the api Playwright starts (`playwright.config.ts`, second `webServer` entry). This spec
+ * used to spawn an api of its own with an environment written out beside it; once the workspace
+ * feature gave the whole suite one, two environments had to agree about `NODE_ENV`, the data
+ * directory and `ADMIN_BOOTSTRAP_EMAIL` — and they stopped agreeing, which is why every access
+ * journey failed at the first emailed code. `helpers/local-api.ts` now owns that environment alone.
  */
 async function ensureApi(): Promise<void> {
-  if (await healthy()) return;
-  if (!existsSync(apiEntry)) {
-    throw new Error(`Missing ${apiEntry}. Run "pnpm build" before the end-to-end suite.`);
-  }
-  mkdirSync(runRoot, { recursive: true });
-  let owner = false;
-  try {
-    mkdirSync(join(runRoot, "api.lock"));
-    owner = true;
-  } catch {
-    owner = false;
-  }
-  if (owner) {
-    const dataDir = mkdtempSync(join(runRoot, "api-"));
-    const supervisor = join(dataDir, "supervise.mjs");
-    writeFileSync(
-      supervisor,
-      [
-        "import { spawn } from 'node:child_process';",
-        "const [entry, runner] = process.argv.slice(2);",
-        "const api = spawn(process.execPath, [entry], { stdio: 'inherit' });",
-        "const timer = setInterval(() => {",
-        "  try { process.kill(Number(runner), 0); } catch {",
-        "    clearInterval(timer);",
-        "    api.kill('SIGTERM');",
-        "    setTimeout(() => process.exit(0), 3000);",
-        "  }",
-        "}, 1000);",
-        "api.on('exit', (code) => { clearInterval(timer); process.exit(code ?? 0); });",
-      ].join("\n"),
-    );
-    const child = spawn(process.execPath, [supervisor, apiEntry, String(process.ppid)], {
-      cwd: dataDir,
-      env: apiEnvironment(dataDir),
-      detached: true,
-      stdio: ["ignore", "ignore", "ignore"],
-    });
-    child.unref();
-  }
   const deadline = Date.now() + 90_000;
   while (Date.now() < deadline) {
     if (await healthy()) return;
     await sleep(250);
   }
-  throw new Error(`The api did not answer at ${apiOrigin}/healthz`);
+  throw new Error(
+    `No api answered at ${apiOrigin}/healthz. Run this suite with \`pnpm e2e\`, which builds the repository and starts the api, rather than against E2E_WEB_URL.`,
+  );
 }
 
 /** The pre-session headers the api's `pre_session` route class requires (§5.3). */
@@ -204,6 +128,29 @@ async function ensureAdminSession(request: APIRequestContext): Promise<string> {
   const me = (await verify.json()) as { user: { role: string } };
   // Bootstrap promotes exactly this address on its first verification (§5.7).
   expect(me.user.role).toBe("admin");
+
+  // Bootstrap admits the account but does not finish its onboarding, and every administration route
+  // sits behind the `admin` level, which needs a destination of "app" (§5.4) — so an operator who
+  // never answered "What should we call you?" is sent back to onboarding instead. The operator
+  // answers it here, through the same two calls the onboarding screens make.
+  const csrf = await request.get(`${apiOrigin}/v1/auth/csrf`, { headers: { Origin: webOrigin } });
+  expect(csrf.status(), await csrf.text()).toBe(200);
+  const sessionHeaders = {
+    Origin: webOrigin,
+    "X-Symplist-CSRF": ((await csrf.json()) as { token: string }).token,
+  };
+  const named = await request.put(`${apiOrigin}/v1/me/name`, {
+    headers: sessionHeaders,
+    data: { displayName: "Operator" },
+  });
+  expect(named.status(), await named.text()).toBe(200);
+  const onboarded = await request.post(`${apiOrigin}/v1/me/onboarding/complete`, {
+    headers: sessionHeaders,
+    data: {},
+  });
+  expect(onboarded.status(), await onboarded.text()).toBe(200);
+  expect(((await onboarded.json()) as { destination: string }).destination).toBe("app");
+
   await request.storageState({ path: adminStatePath });
   return adminStatePath;
 }
@@ -259,6 +206,15 @@ async function openMember(browser: Browser, testInfo: TestInfo): Promise<Page> {
 function signedInMember(): Page {
   if (!member) throw new Error("The member's browser was never opened");
   return member;
+}
+
+/** Opens an account's administration screen by searching for its address. */
+async function openAccountDetail(admin: Page, email: string): Promise<void> {
+  await admin.goto("/admin/accounts");
+  await admin.getByLabel(/Search accounts/).fill(email);
+  await admin.getByRole("button", { name: "Search" }).click();
+  await admin.getByRole("link", { name: "Maya Rao" }).first().click();
+  await expect(admin.getByRole("heading", { name: "Maya Rao" })).toBeVisible();
 }
 
 /** Generates one invite code through the administration screens and returns it. */
@@ -373,11 +329,7 @@ test.describe("beta access, end to end", () => {
     const admin = await openAdmin(browser, request, testInfo);
     await expect(page).toHaveURL(/\/now$/);
 
-    await admin.goto("/admin/accounts");
-    await admin.getByLabel(/Search accounts/).fill(email);
-    await admin.getByRole("button", { name: "Search" }).click();
-    await admin.getByRole("link", { name: "Maya Rao" }).first().click();
-    await expect(admin.getByRole("heading", { name: "Maya Rao" })).toBeVisible();
+    await openAccountDetail(admin, email);
     await expectNoAxeViolations(admin, testInfo, { label: "admin-account" });
     await evidence(admin, testInfo, "admin-account");
 
@@ -406,7 +358,9 @@ test.describe("beta access, end to end", () => {
     await expect(page.getByLabel("Invite code")).toHaveCount(0);
     expect(second).toMatch(/^SYM-/);
 
-    await admin.reload();
+    // Generating the bypass code above left the administrator on the invite screens, so the account
+    // has to be opened again before it can be restored.
+    await openAccountDetail(admin, email);
     await admin.getByRole("button", { name: "Restore access" }).click();
     const restore = admin.getByRole("dialog");
     await restore.getByLabel("Reason").fill("End-to-end check of the restore path");
@@ -427,7 +381,12 @@ test.describe("beta access, end to end", () => {
     await admin.context().close();
   });
 
-  test("the profile menu signs out and returns to the email entry", async (_fixtures, testInfo) => {
+  // This case drives the member page the suite already signed in, not a fresh fixture page. It took
+  // no fixture and named `testInfo` second, which Playwright refuses at load ("first argument must
+  // use the object destructuring pattern") — and that refusal failed the whole file before a single
+  // case ran. A case that wants no fixture declares no parameters and asks for its info instead.
+  test("the profile menu signs out and returns to the email entry", async () => {
+    const testInfo = test.info();
     test.slow();
     const page = signedInMember();
     await expect(page).toHaveURL(/\/now$/);

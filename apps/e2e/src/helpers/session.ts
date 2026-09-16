@@ -5,6 +5,7 @@ import { access } from "@symplist/core";
 import { AccountKeyStore } from "@symplist/core/account";
 import { createEnvKeyProvider } from "@symplist/crypto";
 import { createLocalSqliteClient, int, sql, uuidv7 } from "@symplist/db";
+import { SESSION_HINT_COOKIE } from "./identity.ts";
 import { readRunEnv } from "./local-api.ts";
 
 /**
@@ -30,8 +31,9 @@ export async function signIn(context: BrowserContext): Promise<SignedIn> {
   const env = readRunEnv();
   const now = Date.now();
   const db = createLocalSqliteClient({
+    // The same environment the api was started with, so the seeder never diverges from it.
     path: localDataPaths(env.LOCAL_DATA_DIR as string).database,
-    env: { NODE_ENV: "development" },
+    env: { NODE_ENV: env.NODE_ENV ?? "test" },
   });
   const keys = createEnvKeyProvider(env, { families: apiSecretFamilies });
   try {
@@ -60,7 +62,7 @@ export async function signIn(context: BrowserContext): Promise<SignedIn> {
       },
       // The web proxy reads this non-secret cookie to decide whether to redirect a visitor to
       // sign-in (§5.1); without it the signed-in pages bounce before the api is ever called.
-      { name: "sym_hint", value: "1", url: env.WEB_ORIGIN as string, sameSite: "Lax" },
+      { name: SESSION_HINT_COOKIE, value: "1", url: env.WEB_ORIGIN as string, sameSite: "Lax" },
     ]);
     return { userId, email };
   } finally {

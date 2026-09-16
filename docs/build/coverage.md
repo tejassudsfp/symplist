@@ -6,20 +6,20 @@ Maps every specification, screen and required flow to implementation and verific
 
 | Note | Status | Implementation | Evidence |
 | --- | --- | --- | --- |
-| [01_product.md](../notes/files/01_product.md) | Not started | | |
-| [02_themes.md](../notes/files/02_themes.md) | Not started | | |
-| [03_access_and_billing.md](../notes/files/03_access_and_billing.md) | Not started | | |
-| [04_beta_access.md](../notes/files/04_beta_access.md) | Not started | | |
+| [01_product.md](../notes/files/01_product.md) | In progress | Tasks, their pages and the shell (D1); Simon, Vault, scheduling, sharing and connections are D2 | `apps/e2e/evidence/workspace/`, `apps/e2e/evidence/shell/` |
+| [02_themes.md](../notes/files/02_themes.md) | Verified | `apps/web/src/theme/`, `apps/web/src/features/workspace/appearance-settings.tsx` | `shell.spec.ts` renders all six themes in light and dark on first paint and checks each with axe (`apps/e2e/evidence/shell/desktop-theme-*.png`); `workspace.spec.ts` "changes appearance and keeps it, without touching the list" |
+| [03_access_and_billing.md](../notes/files/03_access_and_billing.md) | Verified | `apps/web/src/features/access/`, `apps/api/src/modules/access/`, `packages/core/src/access/` | `access.spec.ts` (signup consent, emailed code, gate, onboarding, relock, restore, sign out) with `apps/e2e/evidence/access/`; `packages/core/src/access/*.test.ts` |
+| [04_beta_access.md](../notes/files/04_beta_access.md) | Verified | `packages/core/src/access/invites.ts`, `redemption.ts`, `apps/web/src/features/access/admin/` | `access.spec.ts` (an administrator generates a code, the member redeems it, a second code cannot bypass a relock); `apps/api/src/modules/access/admin-invites.test.ts` |
 | [05_vault.md](../notes/files/05_vault.md) | Not started | | |
-| [06_document_tools.md](../notes/files/06_document_tools.md) | Not started | | |
+| [06_document_tools.md](../notes/files/06_document_tools.md) | Implemented | `packages/docs/`, `packages/core/src/documents/`, `apps/web/src/features/documents/` | 347 component and unit tests; the artifact viewer, share dialog and grant list are the `artifact-surface.ts` seam for D2, and no Playwright coverage was added |
 | [07_architecture.md](../notes/files/07_architecture.md) | Not started | | |
 | [08_self_hosting.md](../notes/files/08_self_hosting.md) | Not started | | |
 | [09_research.md](../notes/files/09_research.md) | Background only | | |
 | [10_original_list.md](../notes/files/10_original_list.md) | Background only | | |
-| [11_document_versioning.md](../notes/files/11_document_versioning.md) | Not started | | |
+| [11_document_versioning.md](../notes/files/11_document_versioning.md) | Implemented | `packages/docs/src/git/`, `apps/web/src/features/documents/history/` | `packages/docs/src/**/*.test.ts`, `apps/web/src/features/documents/**/*.test.tsx`; history, compare, restore and conflict review are covered at component level only |
 | [12_simon_meta_tools.md](../notes/files/12_simon_meta_tools.md) | Not started | | |
-| [13_keyboard_shortcuts.md](../notes/files/13_keyboard_shortcuts.md) | Not started | | |
-| [14_search.md](../notes/files/14_search.md) | Not started | | |
+| [13_keyboard_shortcuts.md](../notes/files/13_keyboard_shortcuts.md) | Verified | `apps/web/src/actions/`, `apps/web/src/features/workspace/shortcuts-settings.tsx`, `apps/web/src/features/search/shortcut-help.tsx` | `workspace.spec.ts` "runs the whole list from the keyboard, with no pointer at all" and "remaps a shortcut and shows the new key in the menu that runs it"; `shell.spec.ts` focus order and key sequences; `app/(app)/layout.test.tsx` proves a remap reaches the dispatcher end to end |
+| [14_search.md](../notes/files/14_search.md) | Implemented | `packages/search/`, `packages/core/src/search/`, `apps/api/src/modules/search/`, `apps/web/src/features/search/` | `search.spec.ts` at three viewports with axe (`apps/e2e/evidence/search/`), against contract-shaped `/v1/*` fixtures rather than a live index (decision S16); documents, chat, preferences and scheduling source contributors are still empty stubs, so only task titles are indexed |
 | [15_deadlines_reminders_calendar.md](../notes/files/15_deadlines_reminders_calendar.md) | Not started | | |
 | [16_simon_handoffs_and_artifact_sharing.md](../notes/files/16_simon_handoffs_and_artifact_sharing.md) | Not started | | |
 | [17_analytics.md](../notes/files/17_analytics.md) | Not started | | |
@@ -30,39 +30,39 @@ Maps every specification, screen and required flow to implementation and verific
 | Screen | Status | Implementation | Evidence |
 | --- | --- | --- | --- |
 | [about](../../design/mockups/about.md) | Not started | | |
-| [access_revoked](../../design/mockups/access_revoked.md) | Not started | | |
-| [admin_accounts](../../design/mockups/admin_accounts.md) | Not started | | |
-| [admin_activity](../../design/mockups/admin_activity.md) | Not started | | |
-| [admin_invite_create](../../design/mockups/admin_invite_create.md) | Not started | | |
-| [admin_invites](../../design/mockups/admin_invites.md) | Not started | | |
+| [access_revoked](../../design/mockups/access_revoked.md) | Verified | `apps/web/src/features/access/gate/access-paused.tsx` | `access.spec.ts` "an administrator relocks access…" with axe; `apps/e2e/evidence/access/*-access-paused.png` |
+| [admin_accounts](../../design/mockups/admin_accounts.md) | Verified | `apps/web/src/features/access/admin/accounts/` | `access.spec.ts` (search, open, relock, restore) with axe; `apps/e2e/evidence/access/*-admin-account.png` |
+| [admin_activity](../../design/mockups/admin_activity.md) | Verified | `apps/web/src/features/access/admin/activity/` | `access.spec.ts` (both decisions recorded, newest first); `apps/e2e/evidence/access/*-admin-activity.png` |
+| [admin_invite_create](../../design/mockups/admin_invite_create.md) | Verified | `apps/web/src/features/access/admin/invites/generate-invites.tsx` | `access.spec.ts` (a code generated and shown once); `apps/e2e/evidence/access/*-admin-invite-created.png` |
+| [admin_invites](../../design/mockups/admin_invites.md) | Verified | `apps/web/src/features/access/admin/invites/invite-inventory.tsx` | `access.spec.ts` with axe; `apps/api/src/modules/access/admin-invites.test.ts`; `apps/e2e/evidence/access/*-admin-invites.png` |
 | [agent_approval](../../design/mockups/agent_approval.md) | Not started | | |
 | [agent_connections](../../design/mockups/agent_connections.md) | Not started | | |
-| [archive](../../design/mockups/archive.md) | Not started | | |
+| [archive](../../design/mockups/archive.md) | Verified | `apps/web/src/features/workspace/archive-view.tsx` | `workspace.spec.ts` "completes a task, finds it in the archive and restores it"; `apps/e2e/evidence/workspace/archive--record-open--*.png` |
 | [artifact_share](../../design/mockups/artifact_share.md) | Not started | | |
-| [artifact_shares](../../design/mockups/artifact_shares.md) | Not started | | |
+| [artifact_shares](../../design/mockups/artifact_shares.md) | In progress | `apps/web/src/app/(app)/tasks/[taskId]/artifacts/page.tsx` | The frame and `setArtifactSurface(renderer)` seam exist with `artifacts-screen.test.tsx`; the list needs the D2 sharing contracts |
 | [artifact_viewer](../../design/mockups/artifact_viewer.md) | Not started | | |
-| [beta_gate](../../design/mockups/beta_gate.md) | Not started | | |
+| [beta_gate](../../design/mockups/beta_gate.md) | Verified | `apps/web/src/app/(gate)/access/page.tsx` | `access.spec.ts` (a wrong code, then the real one) with axe; `apps/e2e/evidence/access/*-beta-gate.png` |
 | [calendar](../../design/mockups/calendar.md) | Not started | | |
-| [command_palette](../../design/mockups/command_palette.md) | Not started | | |
+| [command_palette](../../design/mockups/command_palette.md) | Verified | `apps/web/src/features/search/command-palette.tsx` | `search.spec.ts` (keyboard-only open, find, open, run an action) with axe; `apps/e2e/evidence/search/*-palette-*.png` |
 | [connections](../../design/mockups/connections.md) | Not started | | |
-| [document_history](../../design/mockups/document_history.md) | Not started | | |
-| [email_entry](../../design/mockups/email_entry.md) | Not started | | |
-| [email_otp](../../design/mockups/email_otp.md) | Not started | | |
+| [document_history](../../design/mockups/document_history.md) | Implemented | `apps/web/src/features/documents/history/` | `history-screen.test.tsx` and the documents component suite; no Playwright coverage |
+| [email_entry](../../design/mockups/email_entry.md) | Verified | `apps/web/src/app/(auth)/signin/page.tsx` | `access.spec.ts` with axe; `apps/e2e/evidence/access/*-email-entry.png` |
+| [email_otp](../../design/mockups/email_otp.md) | Verified | `apps/web/src/app/(auth)/signin/verify/page.tsx` | `access.spec.ts` with axe; `apps/e2e/evidence/access/*-email-otp.png` |
 | [handoff](../../design/mockups/handoff.md) | Not started | | |
-| [keyboard_shortcuts](../../design/mockups/keyboard_shortcuts.md) | Not started | | |
+| [keyboard_shortcuts](../../design/mockups/keyboard_shortcuts.md) | Verified | `apps/web/src/features/workspace/shortcuts-settings.tsx`, `apps/web/src/features/search/shortcut-help.tsx` | `workspace.spec.ts` remap journey; `search.spec.ts` help overlay with focus restored; `apps/e2e/evidence/search/*-shortcut-help*.png` |
 | [notifications](../../design/mockups/notifications.md) | Not started | | |
-| [onboarding_connections](../../design/mockups/onboarding_connections.md) | Not started | | |
-| [onboarding_name](../../design/mockups/onboarding_name.md) | Not started | | |
-| [profile_menu](../../design/mockups/profile_menu.md) | Not started | | |
-| [search](../../design/mockups/search.md) | Not started | | |
-| [settings_account](../../design/mockups/settings_account.md) | Not started | | |
-| [settings_appearance](../../design/mockups/settings_appearance.md) | Not started | | |
+| [onboarding_connections](../../design/mockups/onboarding_connections.md) | Verified | `apps/web/src/app/(onboarding)/welcome/connections/page.tsx` | `access.spec.ts` with axe; `apps/e2e/evidence/access/*-onboarding-connections.png` — the connector catalogue itself is a seam for D2 |
+| [onboarding_name](../../design/mockups/onboarding_name.md) | Verified | `apps/web/src/app/(onboarding)/welcome/page.tsx` | `access.spec.ts` with axe; `apps/e2e/evidence/access/*-onboarding-name.png` |
+| [profile_menu](../../design/mockups/profile_menu.md) | Verified | `apps/web/src/components/shell/top-bar.tsx`, `apps/web/src/features/access/actions.ts` | `access.spec.ts` "the profile menu signs out and returns to the email entry"; `shell.spec.ts`; `apps/e2e/evidence/access/*-profile-menu.png` |
+| [search](../../design/mockups/search.md) | Verified | `apps/web/src/app/(app)/search/page.tsx`, `apps/web/src/features/search/search-screen.tsx` | `search.spec.ts` (filters, archive opt-in, paging, empty, failure and rebuilding states) with axe at three viewports; `apps/e2e/evidence/search/` |
+| [settings_account](../../design/mockups/settings_account.md) | Implemented | `apps/web/src/app/(app)/settings/account/page.tsx`, `apps/web/src/features/access/account/` | `apps/web/src/features/access/account/*.test.tsx`; the Privacy section is an empty slot for the analytics feature (decision D5) |
+| [settings_appearance](../../design/mockups/settings_appearance.md) | Verified | `apps/web/src/features/workspace/appearance-settings.tsx` | `workspace.spec.ts` "changes appearance and keeps it, without touching the list"; `apps/e2e/evidence/workspace/settings_appearance--*.png` |
 | [settings_notifications](../../design/mockups/settings_notifications.md) | Not started | | |
-| [signup_confirmation](../../design/mockups/signup_confirmation.md) | Not started | | |
+| [signup_confirmation](../../design/mockups/signup_confirmation.md) | Verified | `apps/web/src/app/(auth)/signin/create/page.tsx` | `access.spec.ts` with axe; `apps/e2e/evidence/access/*-signup-confirmation.png` |
 | [system_states](../../design/mockups/system_states.md) | Not started | | |
-| [task_actions](../../design/mockups/task_actions.md) | Not started | | |
+| [task_actions](../../design/mockups/task_actions.md) | Verified | `apps/web/src/features/workspace/task-menu.tsx`, `commands.ts` | `workspace.spec.ts` (complete, undo, move, rename, subtasks); `apps/e2e/evidence/workspace/task_actions*`, `workspace_now--completed-undo--*.png` |
 | [task_chat](../../design/mockups/task_chat.md) | Not started | | |
-| [task_document](../../design/mockups/task_document.md) | Not started | | |
+| [task_document](../../design/mockups/task_document.md) | Implemented | `apps/web/src/features/documents/document-pane.tsx` | documents component suite; the task page header is the shell/workspace feature's `taskHeader` slot and the two halves are composed in `shell.spec.ts` |
 | [task_schedule](../../design/mockups/task_schedule.md) | Not started | | |
 | [transactional_emails](../../design/mockups/transactional_emails.md) | Not started | | |
 | [vault_item_editor](../../design/mockups/vault_item_editor.md) | Not started | | |
@@ -70,9 +70,9 @@ Maps every specification, screen and required flow to implementation and verific
 | [vault_reset](../../design/mockups/vault_reset.md) | Not started | | |
 | [vault_setup](../../design/mockups/vault_setup.md) | Not started | | |
 | [vault_unlock](../../design/mockups/vault_unlock.md) | Not started | | |
-| [workspace_later](../../design/mockups/workspace_later.md) | Not started | | |
-| [workspace_now](../../design/mockups/workspace_now.md) | Not started | | |
-| [workspace_unclassified](../../design/mockups/workspace_unclassified.md) | Not started | | |
+| [workspace_later](../../design/mockups/workspace_later.md) | Verified | `apps/web/src/app/(app)/later/` | `workspace.spec.ts` "moves a task from Now to Later and back with Undo"; `apps/e2e/evidence/workspace/workspace_later--moved-in--*.png` |
+| [workspace_now](../../design/mockups/workspace_now.md) | Verified | `apps/web/src/app/(app)/now/`, `apps/web/src/features/workspace/task-inbox.tsx` | `workspace.spec.ts` with axe and a screen-reader tree check; `apps/e2e/evidence/workspace/workspace_now--*.png` |
+| [workspace_unclassified](../../design/mockups/workspace_unclassified.md) | Verified | `apps/web/src/app/(app)/unclassified/` | `workspace.spec.ts` shares the collection surface; `shell.spec.ts` rail navigation |
 | quick_chat (new brief, decision D1) | Not started | | |
 | cookie_consent (decision D5) | Not started | | |
 | mcp_oauth_consent (decision D4) | Not started | | |
@@ -81,23 +81,23 @@ Maps every specification, screen and required flow to implementation and verific
 
 | Flow | Status | Test | Evidence |
 | --- | --- | --- | --- |
-| Signup consent → OTP → locked gate → manual invite → onboarding → first task | Not started | | |
-| Existing account OTP login and access-state routing (unlocked, locked, relocked, suspended) | Not started | | |
-| Edit page → saved → history → compare → restore as new commit | Not started | | |
-| Concurrent edit conflict → review → keep draft | Not started | | |
+| Signup consent → OTP → locked gate → manual invite → onboarding → first task | Verified | `apps/e2e/tests/access.spec.ts` "signs up, verifies, unlocks with an invite and reaches the workspace" | `apps/e2e/evidence/access/` at 1440, 1024 and 390, each screen axe-checked |
+| Existing account OTP login and access-state routing (unlocked, locked, relocked, suspended) | In progress | `access.spec.ts` (relocked and restored); `packages/core/src/access/evaluate.test.ts` and `apps/web/src/features/access/session*.test.*` for every state | `apps/e2e/evidence/access/*-access-paused.png`; a returning-account login journey is not yet driven end to end |
+| Edit page → saved → history → compare → restore as new commit | Implemented | `apps/web/src/features/documents/**/*.test.tsx`, `packages/docs/src/**/*.test.ts` | Component level only; no Playwright journey |
+| Concurrent edit conflict → review → keep draft | Implemented | `apps/web/src/features/documents/conflict-review.test.tsx` | Component level only |
 | Simon reads a section → edits a section → page updates | Not started | | |
 | Simon connector action → exact-argument approval → per-action outcome | Not started | | |
 | Quick chat → save as task → end → 24-hour expiry | Not started | | |
-| Drag Now → Later with Undo; keyboard Move to | Not started | | |
-| Complete → archive → restore to original collection | Not started | | |
-| Keyboard-only journey (note 13 acceptance) | Not started | | |
-| Command palette and full search (scopes, archive/chat opt-in, jump to section) | Not started | | |
-| Style × accent × mode switching preserves drafts and running chat | Not started | | |
+| Drag Now → Later with Undo; keyboard Move to | Verified | `workspace.spec.ts` "moves a task from Now to Later and back with Undo" | `apps/e2e/evidence/workspace/workspace_later--moved-in--*.png` |
+| Complete → archive → restore to original collection | Verified | `workspace.spec.ts` "completes a task, finds it in the archive and restores it" | `apps/e2e/evidence/workspace/archive--record-open--*.png` |
+| Keyboard-only journey (note 13 acceptance) | Verified | `workspace.spec.ts` "runs the whole list from the keyboard, with no pointer at all"; `shell.spec.ts` focus order and sequences | `apps/e2e/evidence/workspace/keyboard_shortcuts--list-journey--*.png` (desktop and laptop; the phone run is skipped, it has no keyboard) |
+| Command palette and full search (scopes, archive/chat opt-in, jump to section) | Implemented | `search.spec.ts` at three viewports | `apps/e2e/evidence/search/`; it runs against contract-shaped `/v1/*` fixtures, not a live index (decision S16), and chat search stays inert until the Simon and preferences contributors land |
+| Style × accent × mode switching preserves drafts and running chat | In progress | `workspace.spec.ts` appearance journey; `shell.spec.ts` per-theme first paint | Switching is verified; that it preserves a document draft and a running chat needs the documents and Simon surfaces in one journey (D2) |
 | Vault setup → unlock → item → reset via OTP → re-unlock | Not started | | |
 | Deadline → calendar reschedule → reminder at top of hour → notification → snooze → complete | Not started | | |
 | Handoff prompt → snapshot review → expiring link → signed-out HTML and raw read → revoke/expire | Not started | | |
 | Password and public share variants; relock disables grants | Not started | | |
-| Admin generates invites → copy once → redemption → relock → restore | Not started | | |
+| Admin generates invites → copy once → redemption → relock → restore | Verified | `access.spec.ts` (both administration tests) | `apps/e2e/evidence/access/*-admin-*.png`, `*-workspace-restored.png` |
 | Incoming MCP via bearer key and OAuth 2.1; relock blocks calls | Not started | | |
 | Cookie consent → analytics events allowlisted; decline sends nothing | Not started | | |
 | Both executors (Nest local and Trigger) pass the same agent, tool and scheduling contracts | Not started | | |
@@ -106,13 +106,13 @@ Maps every specification, screen and required flow to implementation and verific
 
 | Check | Status | Evidence |
 | --- | --- | --- |
-| Typecheck, lint, production builds, clean install | Verified | Local run on 2026-09-16:<br>• `pnpm lint` (`biome ci`, 714 files, zero warnings) and `pnpm typecheck` for every project.<br>• `pnpm build` (`next build`, then `tsc -b tsconfig.build.json`), and `pnpm build:web:clean` (clean-clone web build with no package `dist`, decision F5).<br>• `pnpm install --frozen-lockfile`.<br>• `node scripts/check-api-deploy.mjs`: a production `pnpm deploy` of the api boots, applies every migration and stops cleanly.<br>Structural tests:<br>• `packages/testing/src/package-manifests.test.ts` (§2.2 point 1)<br>• `packages/testing/src/workspace-resolution.test.ts`<br>• `packages/testing/src/import-specifiers.test.ts`<br>• `packages/testing/src/browser-safe.test.ts` |
-| D1 migrations apply cleanly; atomic conditional batch behavior | Verified (local stand-in) | Migrations:<br>• `packages/db/src/migrations.test.ts` ("applies every foundation migration once, one request per file, and is idempotent")<br>• `packages/db/src/schema.test.ts`<br>• `packages/db/src/check-migrations.test.ts`<br>• `scripts/check-api-deploy.mjs` (18 migrations applied on boot)<br>Batch semantics:<br>• the DbClient contract suite (`packages/testing/src/contracts/db/db-client-contract.ts`, "rolls back statement 1 when statement 2 fails (batch atomicity)"), run by `packages/db/src/local-sqlite-client.test.ts` and, over the fake D1 API, by `packages/db/src/d1-rest-client.test.ts`<br>• write-id verification in `packages/db/src/write-id.test.ts`<br>The live D1 suite (`packages/db/src/live-d1.test.ts`: rollback, `RETURNING`, rate-limit scope) waits for credentials; see Live integration checks. |
+| Typecheck, lint, production builds, clean install | Verified | Local run on 2026-09-16, after the Phase D1 merge:<br>• `pnpm lint` (`biome ci`, 1,102 files, zero warnings) and `pnpm typecheck` for every project.<br>• `pnpm build` (`next build`, then `tsc -b tsconfig.build.json`), and `pnpm build:web:clean` (clean-clone web build with no package `dist`, decision F5).<br>• `pnpm install --frozen-lockfile`.<br>• `pnpm test`: 3,634 Vitest tests across 16 projects plus 47 script tests, 9 skipped for missing credentials.<br>• `pnpm e2e`: 92 passed, 19 skipped (the smoke spec, and cases that run only at other viewports).<br>• `node scripts/check-api-deploy.mjs`: a production `pnpm deploy` of the api boots, applies every migration and stops cleanly.<br>Structural tests:<br>• `packages/testing/src/package-manifests.test.ts` (§2.2 point 1)<br>• `packages/testing/src/workspace-resolution.test.ts`<br>• `packages/testing/src/import-specifiers.test.ts`<br>• `packages/testing/src/browser-safe.test.ts` |
+| D1 migrations apply cleanly; atomic conditional batch behavior | Verified (local stand-in) | Migrations:<br>• `packages/db/src/migrations.test.ts` ("applies every foundation migration once, one request per file, and is idempotent")<br>• `packages/db/src/schema.test.ts`<br>• `packages/db/src/check-migrations.test.ts`<br>• `scripts/check-api-deploy.mjs` (30 migrations applied on boot: the foundation's 0001–0018 plus access 0100–0102, workspace 0200–0202, documents 0300–0304 and search 0400)<br>Batch semantics:<br>• the DbClient contract suite (`packages/testing/src/contracts/db/db-client-contract.ts`, "rolls back statement 1 when statement 2 fails (batch atomicity)"), run by `packages/db/src/local-sqlite-client.test.ts` and, over the fake D1 API, by `packages/db/src/d1-rest-client.test.ts`<br>• write-id verification in `packages/db/src/write-id.test.ts`<br>The live D1 suite (`packages/db/src/live-d1.test.ts`: rollback, `RETURNING`, rate-limit scope) waits for credentials; see Live integration checks. |
 | Encryption: AES-256-GCM with AAD, nonce/key versioning, wrong-key and tamper failures | Verified | • Frozen vectors for account key wraps, field and object envelopes and Vault: `packages/crypto/src/vectors.test.ts`<br>• Layout, fresh IVs, wrong key and bit-flip tamper failures: `packages/crypto/src/envelopes.test.ts`<br>• AAD shapes and binding: `packages/crypto/src/aad.test.ts`<br>• Key versions and rotation: `packages/crypto/src/key-provider.test.ts`<br>• HKDF, digests and passwords: `hkdf.test.ts`, `digests.test.ts`, `passwords.test.ts`<br>• Zeroization: `zeroization.test.ts` |
-| Cross-user access, relock bypass, replay, stale revision rejection | Not started | |
+| Cross-user access, relock bypass, replay, stale revision rejection | In progress | Relock bypass: `access.spec.ts` (a second invite cannot reopen a paused account) and `packages/core/src/access/restrict.test.ts`. Replay: the folded idempotency claim in `apps/api/src/modules/workspace/tasks.api.test.ts` ("replays exact retries, refuses reused keys and requires a key") and the access controllers' `@Idempotent()` routes. Stale revisions: the task tree-version lock (`packages/core/src/tasks/service.test.ts`), the document `expectedRevision` 409 path and the admin `expectedGeneration` guard. Cross-user access needs its own adversarial pass (Phase F). |
 | Secret, token and content leakage (logs, analytics, caches, referrers) | Not started | |
 | Interrupted execution and uncertain external outcomes | Not started | |
 | Missing configuration handled at startup | Verified | • Per-runtime schemas, cross-field rules and forbidden secrets: `packages/config/src/api.test.ts`, `worker.test.ts`, `web.test.ts`, `secrets.test.ts`, `variables.test.ts`<br>• The api exits before Nest boots, naming variables without values: `apps/api/src/app.test.ts` ("fails fast on invalid configuration, naming variables without echoing values")<br>• The worker maps problems to `config.invalid` without echoing values: `apps/worker/src/infra/clients.test.ts` |
-| Accessibility: focus order, dialogs, contrast, reduced motion, screen-reader labels | Not started | |
-| Responsive rendering at 1440, 1024 and 390 px compared with the UI sample | Not started | |
+| Accessibility: focus order, dialogs, contrast, reduced motion, screen-reader labels | In progress | axe WCAG 2.2 AA (`wcag2a`, `wcag2aa`, `wcag21a`, `wcag21aa`, `wcag22aa`) passes on every shell, workspace, search and access screen at 1440, 1024 and 390 (`apps/e2e/src/helpers/axe.ts`). Focus order is pinned per viewport in `shell.spec.ts`; the task tree is checked for a valid structure and a tab stop in `workspace.spec.ts` and `keyboard.test.tsx`; dialogs restore focus in the palette, the shortcut overlay and the admin actions. Reduced motion and a screen-reader pass are still open. One real defect was found and fixed by this run: the paused screen's account link had 1.06:1 contrast against its surrounding text and no underline (WCAG 1.4.1). |
+| Responsive rendering at 1440, 1024 and 390 px compared with the UI sample | In progress | Every D1 surface renders at all three viewports in `apps/e2e/`, with evidence under `apps/e2e/evidence/{shell,workspace,search,access}/`; `shell.spec.ts` pins the sample's panel widths (task list 280 px, chat 340 px) inside every theme's frame. A frame-by-frame comparison against the UI sample has not been done. |
 | Live integration checks (D1, R2, Resend, OpenAI, Composio, Trigger, PostHog) run with credentials | Not started | |

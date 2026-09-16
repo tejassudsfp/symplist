@@ -204,7 +204,12 @@ describe("documents api (§9.2, §9.3)", () => {
     expect(app.logs.text()).not.toContain(marker);
     expect(await app.scanDatabaseFor(marker)).toEqual([]);
     expect(app.scanObjectsFor(marker)).toEqual([]);
-  });
+    // One journey through the whole document surface: it boots the api, signs a user in, and does
+    // real Argon2, AES-GCM and Git-object work for every save, publication, restore and scan, which
+    // runs a little over Vitest's 5 s default on its own and well over it while `pnpm test` has
+    // every other project on the machine. The budget is generous rather than tight so a busy
+    // machine does not turn a passing suite red; nothing here waits on a timer.
+  }, 60_000);
 
   it("bounds Git reconstructions and registers hourly maintenance in local mode", async () => {
     const app = await boot();

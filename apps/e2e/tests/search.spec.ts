@@ -4,6 +4,7 @@ import { mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { AxeBuilder } from "@axe-core/playwright";
 import { expect, type Page, type Route, type TestInfo, test } from "@playwright/test";
+import { admittedIdentity, grantSessionHint } from "../src/helpers/identity.ts";
 
 /*
  * Search end to end (note 14, search.md, command_palette.md, keyboard_shortcuts.md): the palette's
@@ -17,6 +18,7 @@ import { expect, type Page, type Route, type TestInfo, test } from "@playwright/
  */
 
 const evidenceDir = fileURLToPath(new URL("../evidence/search/", import.meta.url));
+const webOrigin = process.env.E2E_WEB_URL ?? `http://127.0.0.1:${process.env.E2E_WEB_PORT ?? 3000}`;
 mkdirSync(evidenceDir, { recursive: true });
 
 type ProjectName = "desktop" | "laptop" | "mobile";
@@ -176,6 +178,9 @@ async function stubApi(page: Page) {
         },
         body: JSON.stringify(body),
       });
+    // The app shell renders only for an admitted account (§5.4); the rest of this spec is the
+    // search surface, so the identity is one more fixture.
+    if (url.pathname === "/v1/me") return send(admittedIdentity());
     if (url.pathname === "/v1/preferences/recent") {
       return send({
         group: "recent",
@@ -261,6 +266,9 @@ async function showFilters(page: Page, testInfo: TestInfo) {
 }
 
 async function openApp(page: Page, path: string) {
+  // The api is stubbed from fixtures here (decision S16), so this spec never signs in. Without the
+  // web proxy's session hint every page it opens redirects to the email entry (§5.1).
+  await grantSessionHint(page.context(), webOrigin);
   const failures: string[] = [];
   page.on("pageerror", (error) => failures.push(error.message));
   await page.goto(path);
@@ -465,6 +473,16 @@ test.describe("full search", () => {
         "access-control-allow-origin": origin,
         "access-control-allow-credentials": "true",
       };
+      // The app shell renders only for an admitted account (§5.4); everything else this case
+      // touches is deliberately absent, which is what it is about.
+      if (url.pathname === "/v1/me") {
+        return route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          headers,
+          body: JSON.stringify(admittedIdentity()),
+        });
+      }
       if (url.pathname !== "/v1/search") {
         return route.fulfill({
           status: 404,

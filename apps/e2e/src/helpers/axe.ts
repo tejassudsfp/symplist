@@ -26,6 +26,16 @@ export async function analyzeAccessibility(
   page: Page,
   options: AxeCheckOptions = {},
 ): Promise<AxeResults> {
+  // Audit the page a person ends up on, not one still assembling itself. A screen reached by a
+  // document navigation can have its heading on screen — which is what a spec waits for — while the
+  // rest of the stream is still arriving, and React re-attaches the document's metadata as it
+  // hydrates, so an audit run at that instant can fall between the server's <title> and the
+  // client's. Both waits are bounded and neither hides a real defect: a page that genuinely has no
+  // title still reaches axe, which reports it.
+  await page.waitForLoadState("load");
+  await page
+    .waitForFunction(() => document.title.length > 0, undefined, { timeout: 2_000 })
+    .catch(() => undefined);
   const builder = new AxeBuilder({ page }).withTags([...wcagTags]);
   for (const selector of options.include ?? []) builder.include(selector);
   for (const selector of options.exclude ?? []) builder.exclude(selector);

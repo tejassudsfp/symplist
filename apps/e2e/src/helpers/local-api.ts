@@ -18,8 +18,21 @@ const ENV_FILE = join(RUN_DIR, "env.json");
 export type RunEnv = Record<string, string>;
 
 /**
+ * The address the api promotes on its first verification (§5.7, `ADMIN_BOOTSTRAP_EMAIL`).
+ * `access.spec.ts` signs this account in and administers the beta with it, so it belongs to the one
+ * environment every spec shares rather than to the spec that happens to use it.
+ */
+export const E2E_ADMIN_EMAIL = "operator@example.test";
+
+/**
  * A throwaway api environment for `DATA_DRIVER=local`, `EMAIL_DRIVER=log` and `DURABLE=false`
  * (§16.1), with a fresh value for every generated secret family the api holds (§4.5).
+ *
+ * `NODE_ENV=test` because `access.spec.ts` signs in the way a person does, through an emailed code,
+ * and the api only keeps delivered codes for `POST /v1/auth/test/otp` in that environment (decision
+ * AC12); with `development` the route answers `not_found` and no access journey can start. Nothing
+ * else in the api reads `NODE_ENV` except to ask whether it is `production`, so the cookies,
+ * drivers and startup migrations are the same as before.
  *
  * The origins are `127.0.0.1`, not `localhost`: the web build bakes `NEXT_PUBLIC_API_URL` in, and the
  * browser will only send the session cookie to the host the web app calls. The two ports are the
@@ -34,7 +47,7 @@ export function e2eApiEnv(options: { readonly apiPort: number; readonly webPort:
   }
   return {
     PATH: process.env.PATH ?? "",
-    NODE_ENV: "development",
+    NODE_ENV: "test",
     PORT: String(options.apiPort),
     WEB_ORIGIN: `http://127.0.0.1:${options.webPort}`,
     API_ORIGIN: `http://127.0.0.1:${options.apiPort}`,
@@ -45,6 +58,7 @@ export function e2eApiEnv(options: { readonly apiPort: number; readonly webPort:
     EMAIL_DRIVER: "log",
     DURABLE: "false",
     KEY_PROVIDER: "env",
+    ADMIN_BOOTSTRAP_EMAIL: E2E_ADMIN_EMAIL,
     EMAIL_FROM_SECURITY: "Symplist <security@example.test>",
     EMAIL_FROM_REMINDERS: "Symplist <reminders@example.test>",
     LOCAL_DATA_DIR: join(RUN_DIR, ".local-data"),

@@ -4,11 +4,13 @@ import { mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { AxeBuilder } from "@axe-core/playwright";
 import { expect, type Page, type TestInfo, test } from "@playwright/test";
+import { stubAdmittedIdentity } from "../src/helpers/identity.ts";
 
 const taskId = "01929f3e-7c1a-7b2e-9a55-3c2f1d0e9b8a";
 const taskPath = `/now/${taskId}`;
 const axeTags = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 const evidenceDir = fileURLToPath(new URL("../evidence/shell/", import.meta.url));
+const webOrigin = process.env.E2E_WEB_URL ?? `http://127.0.0.1:${process.env.E2E_WEB_PORT ?? 3000}`;
 const themeIds = ["studio", "paper", "pebble", "postcard", "meadow", "tide"] as const;
 
 mkdirSync(evidenceDir, { recursive: true });
@@ -90,6 +92,17 @@ async function openShell(page: Page, path: string) {
   await page.waitForLoadState("networkidle");
 }
 
+/*
+ * This spec asserts the shell with the api refusing every read, so it never signs in — but the
+ * access feature's gate replaces the shell with sign-in unless the caller is admitted, and the web
+ * proxy sends a visitor with no session hint to the email entry before that (§5.1, §5.4). The
+ * identity alone is stubbed, for every test rather than only the ones that go through `openShell`;
+ * every other read still fails, which is the state under test. `access.spec.ts` owns both gates.
+ */
+test.beforeEach(async ({ page }) => {
+  await stubAdmittedIdentity(page, webOrigin);
+});
+
 test.describe("app shell", () => {
   test("renders the workspace landmarks on /now", async ({ page }, testInfo) => {
     await openShell(page, "/now");
@@ -133,7 +146,7 @@ test.describe("app shell", () => {
     const expectedNow: Record<ProjectName, string[]> = {
       desktop: [
         "a:Skip to content",
-        "button:Account menu",
+        "button:Account menu, Maya Rao",
         "a:Vault",
         "a:Now",
         "a:Later",
@@ -146,7 +159,7 @@ test.describe("app shell", () => {
       ],
       laptop: [
         "a:Skip to content",
-        "button:Account menu",
+        "button:Account menu, Maya Rao",
         "a:Vault",
         "a:Now",
         "a:Later",
@@ -158,7 +171,7 @@ test.describe("app shell", () => {
       ],
       mobile: [
         "a:Skip to content",
-        "button:Account menu",
+        "button:Account menu, Maya Rao",
         "a:Vault",
         "a:Now",
         "a:Later",
@@ -172,10 +185,13 @@ test.describe("app shell", () => {
     expect(await tabSequence(page, nowOrder.length)).toEqual(nowOrder);
 
     await openShell(page, taskPath);
+    // A task route adds the page region's own controls between the list and the chat: the documents
+    // feature's view switch, the link to the document's history, and that pane's failed-load retry
+    // (this spec runs with no api, so the document never loads either).
     const expectedTask: Record<ProjectName, string[]> = {
       desktop: [
         "a:Skip to content",
-        "button:Account menu",
+        "button:Account menu, Maya Rao",
         "a:Vault",
         "a:Now",
         "a:Later",
@@ -185,25 +201,37 @@ test.describe("app shell", () => {
         "button:Search Now",
         "button:Try again",
         "separator:Resize task list",
+        "button:Page",
+        "button:Markdown",
+        "a:Document history",
+        "button:Try again",
         "separator:Resize chat",
         "button:Hide chat",
       ],
       laptop: [
         "a:Skip to content",
-        "button:Account menu",
+        "button:Account menu, Maya Rao",
         "a:Vault",
         "a:Now",
         "a:Later",
         "a:Unclassified",
         "button:Show task list",
+        "button:Page",
+        "button:Markdown",
+        "a:Document history",
+        "button:Try again",
         "button:Hide chat",
       ],
       mobile: [
         "a:Skip to content",
-        "button:Account menu",
+        "button:Account menu, Maya Rao",
         "a:Vault",
         "a:Back to Now",
         "button:Chat",
+        "button:Page",
+        "button:Markdown",
+        "a:Document history",
+        "button:Try again",
       ],
     };
     const taskOrder = expectedTask[project(testInfo)];

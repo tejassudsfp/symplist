@@ -110,7 +110,10 @@ export function AccessPaused() {
         <p className="m-0 [text-wrap:pretty]">
           An invite code can't reopen a paused account. You can still{" "}
           <Link
-            className="text-sym-link underline-offset-2 hover:underline"
+            // Underlined at rest, not only on hover: this link sits inside a sentence of muted text,
+            // and its color alone is 1.06:1 against that text — far under WCAG 1.4.1's 3:1, so color
+            // cannot be the only thing that marks it as a link.
+            className="text-sym-link underline underline-offset-2"
             href={RESTRICTED_ACCOUNT_PATH}
           >
             manage or delete your account
