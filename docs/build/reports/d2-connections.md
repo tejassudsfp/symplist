@@ -49,6 +49,12 @@ Status: **in progress; not ready to integrate as a finished feature**. Sole writ
   Batches cap connection mutations at eight and provider revocation claims at twenty. Active pending
   callback attempts are protected until their bounded expiry. Provider purge removes all account
   statuses in bounded shrinking-page passes, then the known session, after crypto-shredding.
+- MCP grants/API-key foundation: migration 0910, encrypted client names, 32-byte single-reveal
+  credentials, fresh admission/session/selected-task guards inside mint/revoke transactions and replay,
+  versioned timing-safe digest verification, bounded negative cache and last-used writes. The trusted
+  UI routes `/v1/mcp/grants` list/mint/revoke; bearer MCP and OAuth exchanges are not mounted yet.
+  Restriction revokes grants and expires OAuth rows atomically; logout expires same-session requests;
+  purge removes owner rows in bounded dependency order.
 
 ## Simon seam
 
@@ -99,6 +105,11 @@ used for a write. An ambiguous write is surfaced as uncertain, not silently rese
 - Adversarial follow-up bounds provider revocation to five concurrent calls with a fresh executor
   check between groups and a ten-second no-retry transport deadline. A mode-switch test proves no
   new group starts and the retired executor cannot acknowledge already-deleted jobs.
+- MCP grants checkpoint: ten core security tests and three real-HTTP tests pass, including full
+  D1/R2/log secret scans for key minting. All 17 typechecks, lint over 1,192 files and full repository
+  tests pass. OAuth claim-binding validation has an additional focused regression. The docs check
+  needed the exact `d2-integration.md` report referenced by the root task-authorization cherry-pick;
+  copied its tracked version from 7d0a77d and the docs check now passes.
 
 ## Adversarial findings fixed in this checkpoint
 
@@ -123,6 +134,7 @@ remain required. Root owns progress/coverage and combined E work.
 
 - `packages/db/migrations/0901_connection_lifecycle.sql`
 - `packages/db/migrations/0902_connection_revocation.sql`
+- `packages/db/migrations/0910_mcp_grants.sql`
 - `packages/db/migrations/0601_notification_provider_events.sql` (exact Scheduling dependency)
 - `packages/core/src/access/restrict-contributors/connections.ts`
 - `packages/core/src/account/purge-contributors/connections.ts`
@@ -130,9 +142,13 @@ remain required. Root owns progress/coverage and combined E work.
 - `apps/api/src/infra/account/account-purge.module.ts`
 - `apps/worker/src/infra/account-purge.ts` and `apps/worker/src/trigger/account-purge.ts`
 - `packages/core/src/access/session-revoke-contributors/connections.ts` and its registry
+- `packages/core/src/access/session-revoke-contributors/mcp.ts`
+- `packages/core/src/access/restrict-contributors/mcp.ts` and `packages/core/src/account/purge-contributors/mcp.ts`
+- `packages/contracts/src/index.ts` (exports for the Connections-owned MCP contracts)
 - `apps/api/src/common/guards/route-class.guard.test.ts` and
   `apps/api/test/probes/route-classes.probe.ts` (pre-D2 probe route collision, assertions preserved)
 - `docs/build/decisions.md`
 - This report.
+- `docs/build/reports/d2-integration.md` (exact 7d0a77d documentation dependency, no content edits).
 
 `packages/integrations/src/*` and `packages/core/src/connections/*` are owned by this stream.

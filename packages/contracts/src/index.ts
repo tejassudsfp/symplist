@@ -21,6 +21,7 @@ export * from "./common/ws.ts";
 export * from "./connections/dto.ts";
 export * from "./connections/errors.ts";
 export * from "./connections/events.ts";
+export * from "./connections/mcp.ts";
 export * from "./connections/tools.ts";
 export * from "./documents/dto.ts";
 export * from "./documents/errors.ts";
