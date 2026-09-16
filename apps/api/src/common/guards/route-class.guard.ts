@@ -53,7 +53,8 @@ function scopeCookies(req: Request, access: CookieAccess, config: ApiConfig): vo
     const allowed =
       (access === "session" && name === names.session) ||
       (access === "session_and_vault" && (name === names.session || name === names.vault)) ||
-      (access === "share_session" && name.startsWith(names.sharePrefix));
+      (access === "share_session" &&
+        (name.startsWith(names.sharePrefix) || name.startsWith("__Host-sym_share_")));
     if (allowed) kept[name] = value;
   }
   req.cookies = kept;
