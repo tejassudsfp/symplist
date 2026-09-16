@@ -203,7 +203,8 @@ export class SharingRepository {
             createdAt: now,
             kind: handoff ? "handoff" : "document",
           };
-      const deciding = this.guards(guard, fold?.guard, {
+      // Refresh trusted actor guards after object I/O: expiry may cross during upload.
+      const deciding = this.guards(this.active(owner, taskId), ...actorGuards(actor), fold?.guard, {
         sql: "EXISTS (SELECT 1 FROM doc_repos WHERE owner_id = :snapshot_owner AND task_id = :snapshot_task AND head_commit_id = :snapshot_head)",
         params: {
           snapshot_owner: owner,
@@ -281,7 +282,7 @@ export class SharingRepository {
     query: SharingListQuery = {},
   ): Promise<SharingList> {
     authorizeActor(actor, taskId, "read");
-    const guard = this.access(actor.userId);
+    const guard = this.guards(this.access(actor.userId), ...actorGuards(actor));
     const results = await this.options.db.batch([
       sql(
         `SELECT k.* FROM account_keys k WHERE k.owner_id = :owner AND ${guard.sql} AND EXISTS (SELECT 1 FROM tasks WHERE id = :task AND owner_id = :owner)`,
@@ -328,8 +329,13 @@ export class SharingRepository {
     }
   }
 
-  async loadArtifact(owner: string, id: string, extra: readonly Statement[] = []) {
-    const guard = this.access(owner);
+  async loadArtifact(
+    owner: string,
+    id: string,
+    extra: readonly Statement[] = [],
+    actorConditions: readonly SqlGuard[] = [],
+  ) {
+    const guard = this.guards(this.access(owner), ...actorConditions);
     const results = await this.options.db.batch([
       sql(
         `SELECT a.*, r.head_commit_id AS current_head, k.kek_version, k.wrapped_key FROM artifacts a
