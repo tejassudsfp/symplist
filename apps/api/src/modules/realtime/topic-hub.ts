@@ -260,8 +260,27 @@ export class TopicHub implements RealtimePublisher {
   }
 
   /** Removes the socket and closes its connection with `code`. */
-  close(socket: RealtimeSocketState, code: number, reason: string): void {
+  close(
+    socket: RealtimeSocketState,
+    code: number,
+    reason: string,
+    vaultReason: "idle" | "logout" | "revoked" = "revoked",
+  ): void {
     const record = socket as SocketRecord;
+    if (
+      this.isConnected(record) &&
+      (code === wsCloseCodes.sessionEnded || code === wsCloseCodes.accessLost)
+    ) {
+      // A security invalidation is socket-targeted, not an owner broadcast: ending one login must
+      // not lock another login's Vault. Bypass snapshot queues so the content-free frame precedes
+      // the close even while an authorized snapshot is in flight (which disconnect discards).
+      const state = this.topicState(userKey(record.userId), userTopic, false);
+      state.seq = this.nextSeq(state.seq);
+      this.sendNow(
+        record,
+        this.frame(userTopic, state.seq, "vault.locked", { reason: vaultReason }).frame,
+      );
+    }
     this.disconnect(record);
     try {
       record.connection.close(code, reason);
