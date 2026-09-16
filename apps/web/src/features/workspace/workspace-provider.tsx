@@ -267,9 +267,11 @@ export function useTaskDetail(taskId: string | null): DetailSnapshot {
     () => (taskId ? tasks.detail(taskId) : idleDetail),
     () => idleDetail,
   );
+  // The status is read, not just watched: the store bounds how many details it keeps, so a pane
+  // still showing one that was dropped sees it go idle and loads it again instead of staying blank.
   useEffect(() => {
-    if (taskId) tasks.ensureDetail(taskId);
-  }, [tasks, taskId]);
+    if (taskId && snapshot.status === "idle") tasks.ensureDetail(taskId);
+  }, [tasks, taskId, snapshot.status]);
   return snapshot;
 }
 

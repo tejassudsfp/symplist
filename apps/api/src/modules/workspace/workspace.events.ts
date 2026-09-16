@@ -29,6 +29,17 @@ import { TASK_TREE_CACHE } from "./workspace.providers.ts";
 /** The internal event type the worker announces after it changed an owner's tasks (§3.3, §6.2). */
 export const TASKS_CHANGED_INTERNAL_EVENT = TASK_TREE_CHANGED_EVENT;
 
+/** Task ids one ownership statement binds, inside D1's 100 parameters per statement (§3.2). */
+const OWNED_ID_CHUNK = 80;
+
+function chunk<Item>(items: readonly Item[], size: number): Item[][] {
+  const chunks: Item[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
+}
+
 /**
  * The workspace's realtime and analytics side (§3.3, §7, §15):
  *
@@ -112,21 +123,30 @@ export class WorkspaceEvents implements OnModuleInit, OnApplicationShutdown {
   }
 
   private async workerChanged(event: InternalEvent<string, InternalEventPayload>): Promise<void> {
-    const hinted = Array.isArray(event.payload.taskIds)
-      ? event.payload.taskIds.filter((id) => taskIdSchema.safeParse(id).success)
-      : [];
+    const hinted = (
+      Array.isArray(event.payload.taskIds)
+        ? event.payload.taskIds.filter((id) => taskIdSchema.safeParse(id).success)
+        : []
+    ).slice(0, TASKS_CHANGED_MAX_IDS);
+    // One statement can bind at most 100 parameters (§3.2), and the hint may name up to
+    // `TASKS_CHANGED_MAX_IDS`, so the ownership read is split across statements of one batch rather
+    // than sent as a single `IN` list the D1 client would refuse.
+    const idChunks = chunk(hinted, OWNED_ID_CHUNK);
     const results = await this.db.batch([
       taskTreeVersionStatement(event.ownerId),
-      sql(`SELECT id FROM tasks WHERE owner_id = :owner AND id IN (:ids)`, {
-        owner: event.ownerId,
-        ids: hinted.slice(0, TASKS_CHANGED_MAX_IDS),
-      }),
+      ...idChunks.map((ids) =>
+        sql(`SELECT id FROM tasks WHERE owner_id = :owner AND id IN (:ids)`, {
+          owner: event.ownerId,
+          ids,
+        }),
+      ),
     ]);
     const version = taskTreeVersionFromRow(results[0]?.results[0]);
     if (version === null) return;
     const cached = this.cache.get(event.ownerId);
     if (cached && cached.version < version) this.cache.delete(event.ownerId);
-    const owned = (results[1]?.results ?? [])
+    const owned = idChunks
+      .flatMap((_ids, index) => results[index + 1]?.results ?? [])
       .map((row) => row.id)
       .filter((id): id is string => typeof id === "string");
     this.publishTasksChanged(event.ownerId, version, owned);

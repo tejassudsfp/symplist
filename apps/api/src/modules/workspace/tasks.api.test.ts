@@ -526,6 +526,48 @@ describe("D1 requests and the tree cache (§3.1, §3.3)", () => {
     expect(await onB.tree("later")).toEqual(["From A"]);
   });
 
+  it("reads ownership of a worker hint too long for one statement's parameters", async () => {
+    // An internal payload carries up to 100 ids, which with the owner is one parameter more than a
+    // statement may bind (§3.2); the ownership read is split across a batch rather than refused.
+    const app = await boot();
+    const maya = await signedIn(app);
+    const mine = await created(maya, { title: "Mine", collection: "now" });
+    const socket = await WsTestClient.connect(app.wsUrl, {
+      origin: app.config.WEB_ORIGIN,
+      cookie: maya.session.cookie,
+    });
+    sockets.push(socket);
+    socket.send({ t: "sub", topic: "user", cursor: null, openTasks: [] });
+    await socket.waitFor((frame) => frame.t === "snapshot");
+
+    const strangers = Array.from(
+      { length: 99 },
+      (_value, index) => `0192f0a0-0000-7000-8000-${(index + 1).toString(16).padStart(12, "0")}`,
+    );
+    const worker = new InternalEventClient({
+      keys: app.keys,
+      apiOrigin: app.baseUrl,
+      logger: createWorkerLogger({
+        info: () => undefined,
+        warn: () => undefined,
+        error: () => undefined,
+      }),
+      timers: app.clock,
+    });
+    expect(
+      await worker.announce({
+        type: TASK_TREE_CHANGED_EVENT,
+        ownerId: maya.id,
+        payload: { taskTreeVersion: 1, taskIds: [...strangers, mine] },
+      }),
+    ).toBe("delivered");
+    const event = await socket.waitFor((frame) => frame.t === "ev");
+    expect(event).toMatchObject({
+      type: "tasks.changed",
+      data: { taskTreeVersion: 1, taskIds: [mine] },
+    });
+  });
+
   it("publishes tasks.changed to the owner's sockets only", async () => {
     const app = await boot();
     const maya = await signedIn(app);

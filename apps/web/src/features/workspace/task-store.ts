@@ -84,6 +84,14 @@ interface DetailEntry {
 const idleDetail: DetailSnapshot = Object.freeze({ status: "idle", detail: null, failure: null });
 
 /**
+ * Task details kept before the least recently loaded one is dropped. Without a bound the map grows
+ * with every task opened in a session, and a reconnect refetches all of them at once — a request per
+ * task the person has long since moved on from (§3 D1 budget). A detail a pane is still showing is
+ * loaded again by that pane, so dropping one costs at most one request.
+ */
+const MAX_DETAILS = 20;
+
+/**
  * The owner's task trees and open task details for the web client (§2.1, §3.3). Writes show at once
  * as local changes; a confirmed change stays applied until a tree fetched after the confirmation
  * replaces it, and a refused one is removed so the list reverts. `tasks.changed` events and every
@@ -271,8 +279,11 @@ export class TaskStore {
         again: false,
         snapshot: null,
       };
-      this.details.set(taskId, entry);
     }
+    // Re-inserted, so the map stays in least-recently-loaded order for `trimDetails`.
+    this.details.delete(taskId);
+    this.details.set(taskId, entry);
+    this.trimDetails();
     if (entry.inFlight) {
       entry.again = true;
       return;
@@ -320,7 +331,9 @@ export class TaskStore {
       const entry = this.entry(collection);
       if (entry.status !== "idle" && entry.version < taskTreeVersion) void this.refresh(collection);
     }
-    for (const [taskId, entry] of this.details) {
+    // Over a copy: `refreshDetail` re-inserts its entry to keep the map in recency order, and a Map
+    // visits an entry added during iteration again, which would never end.
+    for (const [taskId, entry] of [...this.details]) {
       if (entry.status === "idle") continue;
       if (taskIds.length === 0 || taskIds.includes(taskId)) void this.refreshDetail(taskId);
     }
@@ -331,7 +344,7 @@ export class TaskStore {
     for (const collection of taskCollections) {
       if (this.entry(collection).status !== "idle") void this.refresh(collection);
     }
-    for (const [taskId, entry] of this.details) {
+    for (const [taskId, entry] of [...this.details]) {
       if (entry.status !== "idle") void this.refreshDetail(taskId);
     }
   }
@@ -581,6 +594,15 @@ export class TaskStore {
     if (kept.length !== this.changes.length) {
       this.changes = kept;
       this.touchAll();
+    }
+  }
+
+  /** Drops the least recently loaded details past {@link MAX_DETAILS}, never one mid-request. */
+  private trimDetails(): void {
+    if (this.details.size <= MAX_DETAILS) return;
+    for (const [taskId, entry] of this.details) {
+      if (this.details.size <= MAX_DETAILS) return;
+      if (!entry.inFlight) this.details.delete(taskId);
     }
   }
 

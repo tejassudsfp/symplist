@@ -163,4 +163,20 @@ describe("TaskStore", () => {
     expect(missing.failure?.kind).toBe("not_found");
     expect(missing.detail).toBeNull();
   });
+
+  it("keeps only the recently loaded details, so a reconnect is not a request per task opened", async () => {
+    const { store, api } = seeded();
+    for (let index = 0; index < 40; index += 1) {
+      api.seed({ id: `task-${index}`, title: `Task ${index}` });
+      await store.refreshDetail(`task-${index}`);
+    }
+    // The first task opened is long gone; the last is still there.
+    expect(store.detail("task-0").status).toBe("idle");
+    expect(store.detail("task-39").detail?.task.title).toBe("Task 39");
+
+    api.calls.length = 0;
+    store.refreshAll();
+    await vi.waitFor(() => expect(store.detail("task-39").status).toBe("ready"));
+    expect(api.calls.filter((call) => call.method === "getTask").length).toBeLessThanOrEqual(20);
+  });
 });
