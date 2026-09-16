@@ -27,7 +27,7 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/componen
 import { HintTooltip } from "@/components/ui/tooltip";
 import { DEFAULT_THEME_ID, isThemeId, type ThemeId, themes } from "@/theme/registry";
 import { ChatIcon, ChevronIcon, CollectionIcon, PanelToggleIcon } from "./collection-icons.tsx";
-import { collectionMeta, collections } from "./routes.ts";
+import { type CollectionId, collectionMeta, collections } from "./routes.ts";
 import {
   INBOX_SIZE,
   initialShellState,
@@ -45,6 +45,16 @@ export const INBOX_TITLE_ID = "sym-inbox-title";
 export const CHAT_TITLE_ID = "sym-chat-title";
 export const MAIN_ID = "main";
 export const SHOW_LIST_ID = "sym-show-task-list";
+
+/**
+ * How another feature finds a collection's rail item — the drag-and-drop layer marks it as a drop
+ * destination (workspace_later.md). It is a function rather than a class name written out at each
+ * call site so that renaming the markup here is a compile error there, not a silently dead selector.
+ * `shell/app-shell.test.tsx` requires the rail to keep matching it.
+ */
+export function railItemSelector(collection: CollectionId): string {
+  return `.sym-rail-item[data-collection="${collection}"]`;
+}
 
 function focusById(id: string) {
   requestAnimationFrame(() => {

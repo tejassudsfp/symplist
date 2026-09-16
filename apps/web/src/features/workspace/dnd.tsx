@@ -21,6 +21,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { railItemSelector } from "@/components/shell/workspace";
 import { collectionLabels, quoted } from "./commands.ts";
 import { type DropEdge, dropPlacement } from "./tree.ts";
 import { useWorkspace } from "./workspace-provider.tsx";
@@ -246,9 +247,10 @@ function RailDropTargets({ collection }: { readonly collection: TaskCollection }
 
 function RailDropTarget({ collection }: { readonly collection: TaskCollection }) {
   const [element, setElement] = useState<Element | null>(null);
+  const [rect, setRect] = useState<DOMRect | null>(null);
   const { draggingId } = useTaskDragState();
   useEffect(() => {
-    setElement(document.querySelector(`.sym-rail-item[data-collection="${collection}"]`));
+    setElement(document.querySelector(railItemSelector(collection)));
   }, [collection]);
   const { isDropTarget } = useDroppable({
     id: railDroppableId(collection),
@@ -258,6 +260,25 @@ function RailDropTarget({ collection }: { readonly collection: TaskCollection })
     ...(element ? { element } : {}),
     disabled: element === null,
   });
+
+  /**
+   * The label is positioned in viewport coordinates, so its anchor has to be re-read while it is
+   * shown: a rect taken once at render stays behind when the page scrolls or the window resizes.
+   */
+  useEffect(() => {
+    if (!isDropTarget || !(element instanceof HTMLElement)) {
+      setRect(null);
+      return;
+    }
+    const measure = () => setRect(element.getBoundingClientRect());
+    measure();
+    window.addEventListener("scroll", measure, { passive: true, capture: true });
+    window.addEventListener("resize", measure, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", measure, { capture: true });
+      window.removeEventListener("resize", measure);
+    };
+  }, [element, isDropTarget]);
 
   // The destination is named and outlined, never marked by color alone (workspace_later.md).
   useEffect(() => {
@@ -269,12 +290,14 @@ function RailDropTarget({ collection }: { readonly collection: TaskCollection })
     };
   }, [element, isDropTarget]);
 
-  if (!isDropTarget || !draggingId || !(element instanceof HTMLElement)) return null;
-  const rect = element.getBoundingClientRect();
+  if (!isDropTarget || !draggingId || !(element instanceof HTMLElement) || !rect) return null;
   return (
+    // The label is the visible half of what the drag layer announces: the `Accessibility` plugin
+    // already says "Move to <collection>" on `dragover`, and a live region here would have a screen
+    // reader read the same destination twice.
     <div
+      aria-hidden="true"
       className="sym-drop-label"
-      role="status"
       style={{ top: `${rect.top + rect.height / 2}px`, left: `${rect.right + 8}px` }}
     >
       {`Move to ${collectionLabels[collection]}`}
