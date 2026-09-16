@@ -4,6 +4,7 @@
  */
 import { idSchema } from "../common/ids.ts";
 import { z } from "../common/zod.ts";
+import { taskCollectionSchema, taskTitleInputSchema } from "../workspace/dto.ts";
 
 export const simonTierSchema = z.enum(["fast", "smart"]);
 export const simonRunStatusSchema = z.enum([
@@ -31,6 +32,15 @@ export const simonApprovalDecisionSchema = z.strictObject({
 });
 export const simonAnswerSchema = z.strictObject({ text: z.string().trim().min(1).max(32_000) });
 export const simonRunPayloadSchema = z.strictObject({ runId: idSchema });
+export const simonQuickSaveInputSchema = z.strictObject({
+  title: taskTitleInputSchema,
+  collection: taskCollectionSchema.default("now"),
+});
+export const simonQuickSavedSchema = z.strictObject({
+  conversationId: idSchema,
+  taskId: idSchema,
+  collection: taskCollectionSchema,
+});
 
 export const simonConversationCreatedSchema = z.strictObject({ conversationId: idSchema });
 export const simonMessageAcceptedSchema = z.strictObject({

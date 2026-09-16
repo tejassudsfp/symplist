@@ -400,6 +400,8 @@ export class TaskService {
     readonly taskId?: string;
     readonly authorization?: TaskAuthorization;
     readonly fold?: TaskWriteFold;
+    /** Trusted cross-feature effects in the same transaction, guarded by the task write marker. */
+    readonly attach?: (context: PlanContext) => readonly Statement[];
   }): Promise<TaskWriteResult<TaskCreateResponse>> {
     const source = taskSourceOf(input.actor);
     const taskId = input.taskId ?? uuidv7(this.now());
@@ -412,8 +414,8 @@ export class TaskService {
       // `task_create` cost two D1 requests. The insert's `requires` is the authority on the id being
       // free, and `planCreate` recognizes an id a *freshly read* state already holds (§3, WS18).
       probe: input.parentId === undefined ? [] : [input.parentId],
-      plan: (state, ctx) =>
-        planCreate(state, ctx, {
+      plan: (state, ctx) => {
+        const plan = planCreate(state, ctx, {
           taskId,
           title: input.title,
           source,
@@ -421,7 +423,9 @@ export class TaskService {
           ...(input.parentId === undefined ? {} : { parentId: input.parentId }),
           ...(input.afterId === undefined ? {} : { afterId: input.afterId }),
           ...(input.placement === undefined ? {} : { placement: input.placement }),
-        }),
+        });
+        return input.attach ? { ...plan, effects: [...plan.effects, ...input.attach(ctx)] } : plan;
+      },
     });
   }
 

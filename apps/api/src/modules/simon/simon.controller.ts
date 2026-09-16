@@ -5,9 +5,10 @@ import {
   simonConversationInputSchema,
   simonHistoryQuerySchema,
   simonMessageInputSchema,
+  simonQuickSaveInputSchema,
 } from "@symplist/contracts";
 import type { SessionContext } from "@symplist/core/access";
-import { SimonRepository, SimonRetries, SimonViews } from "@symplist/core/simon";
+import { SimonQuickChats, SimonRepository, SimonRetries, SimonViews } from "@symplist/core/simon";
 import type { Request } from "express";
 import { Access, CurrentSession } from "../../common/access.decorator.ts";
 import { ApiError } from "../../common/errors/api-error.ts";
@@ -23,6 +24,7 @@ import { simonCall, simonWriteFold } from "./simon.http.ts";
 export class SimonController {
   constructor(
     @Inject(SimonRepository) private readonly repository: SimonRepository,
+    @Inject(SimonQuickChats) private readonly quickChats: SimonQuickChats,
     @Inject(ExecutionDispatcher) private readonly dispatcher: ExecutionDispatcher,
     private readonly logger: AppLogger,
   ) {}
@@ -79,6 +81,20 @@ export class SimonController {
       this.dispatcher.kick();
       return accepted;
     });
+  }
+
+  @Post("conversations/:id/save-as-task")
+  @Access("admitted")
+  @Idempotent({ folded: true })
+  saveQuickChat(
+    @Req() req: Request,
+    @CurrentSession() session: SessionContext,
+    @Param("id", { schema: conversationIdSchema }) conversationId: string,
+    @Body({ schema: simonQuickSaveInputSchema }) body: typeof simonQuickSaveInputSchema._output,
+  ) {
+    return simonCall(() =>
+      this.quickChats.save(session.userId, conversationId, body, simonWriteFold(req)),
+    );
   }
 
   @Get("runs/:id")

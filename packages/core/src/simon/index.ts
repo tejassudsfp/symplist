@@ -7,6 +7,7 @@ export * from "./invocations.ts";
 export * from "./lifecycle.ts";
 export * from "./maintenance.ts";
 export * from "./native.ts";
+export * from "./quick.ts";
 export * from "./repository.ts";
 export * from "./retries.ts";
 export * from "./types.ts";
