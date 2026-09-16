@@ -1,7 +1,7 @@
-import { z } from "zod";
 import { taskIdSchema } from "../common/ids.ts";
 import { counterSchema } from "../common/primitives.ts";
 import { defineEvents } from "../common/ws.ts";
+import { z } from "../common/zod.ts";
 import { preferenceGroupSchema, TASKS_CHANGED_MAX_IDS } from "./dto.ts";
 
 /**

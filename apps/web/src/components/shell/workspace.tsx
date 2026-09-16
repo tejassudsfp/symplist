@@ -4,6 +4,7 @@ import Link from "next/link";
 import {
   type ReactNode,
   type PointerEvent as ReactPointerEvent,
+  type RefObject,
   useCallback,
   useEffect,
   useMemo,
@@ -14,6 +15,7 @@ import {
 import {
   type Layout,
   type LayoutChangedMeta,
+  type PanelImperativeHandle,
   type PanelSize,
   usePanelRef,
 } from "react-resizable-panels";
@@ -268,6 +270,56 @@ function PageFrame({
   );
 }
 
+/**
+ * Whether a panel's group has registered it yet. The imperative handle is attached when the panel
+ * renders, but its constraints are registered by the group in a layout effect, and every method on
+ * the handle throws until then. `getSize` is the cheapest way to ask.
+ */
+function panelIsRegistered(panel: PanelImperativeHandle): boolean {
+  try {
+    panel.getSize();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** A panel's width in pixels, or 0 while its group has not registered it (and it has no size yet). */
+function panelSizeOf(panel: PanelImperativeHandle | null): number {
+  if (!panel || !panelIsRegistered(panel)) return 0;
+  return panel.getSize().inPixels;
+}
+
+/**
+ * Runs `apply` against a panel once its group has registered it, and returns a cleanup that cancels
+ * the wait. A panel mounted by the render this effect belongs to — the chat panel, the moment a task
+ * is opened — is not addressable yet, and calling it threw, which took down the whole app on the
+ * first navigation into a task. The attempt is repeated on following frames while the panel is still
+ * there, and given up quietly if it never registers.
+ */
+function whenPanelReady(
+  ref: RefObject<PanelImperativeHandle | null>,
+  apply: (panel: PanelImperativeHandle) => void,
+): () => void {
+  let frame: number | null = null;
+  let attemptsLeft = 10;
+  const attempt = () => {
+    frame = null;
+    const panel = ref.current;
+    if (!panel) return;
+    if (panelIsRegistered(panel)) {
+      apply(panel);
+      return;
+    }
+    attemptsLeft -= 1;
+    if (attemptsLeft > 0) frame = requestAnimationFrame(attempt);
+  };
+  attempt();
+  return () => {
+    if (frame !== null) cancelAnimationFrame(frame);
+  };
+}
+
 function ChatFrame({
   taskId,
   onHide,
@@ -389,18 +441,18 @@ export function Workspace({
   // Keep the resizable panels in step with shell state whenever the desktop layout is active.
   useEffect(() => {
     if (mode !== "desktop") return;
-    const panel = inboxPanel.current;
-    if (!panel) return;
-    if (state.inboxCollapsed && !panel.isCollapsed()) panel.collapse();
-    if (!state.inboxCollapsed && panel.isCollapsed()) panel.expand();
+    return whenPanelReady(inboxPanel, (panel) => {
+      if (state.inboxCollapsed && !panel.isCollapsed()) panel.collapse();
+      if (!state.inboxCollapsed && panel.isCollapsed()) panel.expand();
+    });
   }, [mode, state.inboxCollapsed, inboxPanel]);
 
   useEffect(() => {
     if (mode !== "desktop" || route.taskId === null) return;
-    const panel = chatPanel.current;
-    if (!panel) return;
-    if (state.chatCollapsed && !panel.isCollapsed()) panel.collapse();
-    if (!state.chatCollapsed && panel.isCollapsed()) panel.expand();
+    return whenPanelReady(chatPanel, (panel) => {
+      if (state.chatCollapsed && !panel.isCollapsed()) panel.collapse();
+      if (!state.chatCollapsed && panel.isCollapsed()) panel.expand();
+    });
   }, [mode, state.chatCollapsed, chatPanel, route.taskId]);
 
   const onInboxResize = useCallback((size: PanelSize) => {
@@ -537,8 +589,8 @@ export function Workspace({
   const onLayoutChanged = useCallback(
     (_layout: Layout, meta: LayoutChangedMeta) => {
       if (!meta.isUserInteraction || modeRef.current !== "desktop") return;
-      const inboxSize = inboxPanel.current?.getSize().inPixels ?? 0;
-      const chatSize = chatPanel.current?.getSize().inPixels ?? 0;
+      const inboxSize = panelSizeOf(inboxPanel.current);
+      const chatSize = panelSizeOf(chatPanel.current);
       if (inboxSize > 1) storedWidths.current.inbox = Math.round(inboxSize - inset);
       if (chatSize > 1) storedWidths.current.chat = Math.round(chatSize - inset);
       reportLayout();
@@ -557,12 +609,18 @@ export function Workspace({
     dispatch({ type: "set-inbox-collapsed", collapsed: storedLayout.inboxCollapsed });
     dispatch({ type: "set-chat-collapsed", collapsed: storedLayout.chatCollapsed });
     if (modeRef.current !== "desktop") return;
+    const cancels: Array<() => void> = [];
     if (storedLayout.inboxWidth !== null && !storedLayout.inboxCollapsed) {
-      inboxPanel.current?.resize(storedLayout.inboxWidth + inset);
+      const width = storedLayout.inboxWidth + inset;
+      cancels.push(whenPanelReady(inboxPanel, (panel) => panel.resize(width)));
     }
     if (storedLayout.chatWidth !== null && !storedLayout.chatCollapsed) {
-      chatPanel.current?.resize(storedLayout.chatWidth + inset);
+      const width = storedLayout.chatWidth + inset;
+      cancels.push(whenPanelReady(chatPanel, (panel) => panel.resize(width)));
     }
+    return () => {
+      for (const cancel of cancels) cancel();
+    };
   }, [storedLayout, inset, inboxPanel, chatPanel]);
 
   // Collapsing or showing a panel is part of the stored layout too.

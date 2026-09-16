@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "./zod.ts";
 
 /** UTC epoch milliseconds, the timestamp format used everywhere (architecture conventions). */
 export const epochMillisSchema = z

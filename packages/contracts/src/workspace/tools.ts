@@ -1,6 +1,6 @@
-import { z } from "zod";
 import { taskIdSchema } from "../common/ids.ts";
 import { defineTools } from "../common/tools.ts";
+import { z } from "../common/zod.ts";
 import { taskCollectionSchema, taskTitleInputSchema } from "./dto.ts";
 
 /**

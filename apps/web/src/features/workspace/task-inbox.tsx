@@ -225,11 +225,21 @@ function TaskRowWithDraft({
         setSize={row.setSize}
       />
       {subDraftFor === null ? null : (
-        // A `fieldset` is the tree's `group`: `role="tree"` only admits treeitems and groups, so the
-        // draft field has to sit inside one to keep the list's ARIA structure valid.
-        <fieldset
-          className="sym-subtask-group"
+        // The draft is a `treeitem`: `role="tree"` owns only treeitems and groups, and a group would
+        // have to own treeitems of its own, so anything else here (a `fieldset`, a bare `div`) leaves
+        // the list structurally invalid for a screen reader. It sits one level under its parent, at
+        // the end of that parent's children, and reports an unknown set size because it is not in the
+        // set until it is saved.
+        <div
+          role="treeitem"
+          aria-level={row.task.depth + 2}
+          aria-posinset={row.task.childCount + 1}
+          aria-setsize={-1}
           aria-label={`Add a subtask under ${row.task.title}`}
+          // Every treeitem is focusable; this one is never the tree's tab stop, because the field
+          // inside it takes focus the moment it opens.
+          tabIndex={-1}
+          className="sym-subtask-group"
         >
           <form
             className="sym-subtask-add"
@@ -263,7 +273,7 @@ function TaskRowWithDraft({
             />
             {pending ? <Spinner size={12} label="Adding" /> : null}
           </form>
-        </fieldset>
+        </div>
       )}
     </>
   );

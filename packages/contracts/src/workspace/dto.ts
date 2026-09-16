@@ -2,10 +2,11 @@
  * REST request and response schemas owned by the workspace feature (§2.1 and §10.3).
  * Export Zod schemas with a `workspace`-specific name so the contracts index stays collision free.
  */
-import { z } from "zod";
+
 import { taskIdSchema } from "../common/ids.ts";
 import { cursorSchema, pageLimitSchema } from "../common/pagination.ts";
 import { counterSchema, epochMillisSchema, stableCodePattern } from "../common/primitives.ts";
+import { z } from "../common/zod.ts";
 
 /* ------------------------------------------------------------------------------------------------
  * Collections, sources and limits (§2.1)

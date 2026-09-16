@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "./zod.ts";
 
 /**
  * The canonical text form of a UUIDv7: lowercase hexadecimal with hyphens, version nibble 7 and an

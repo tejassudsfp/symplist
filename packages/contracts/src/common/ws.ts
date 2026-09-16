@@ -1,4 +1,3 @@
-import { z } from "zod";
 import type { FeatureId } from "../features.ts";
 import { errorCodeSchema } from "./envelope.ts";
 import {
@@ -9,6 +8,7 @@ import {
   taskIdSchema,
 } from "./ids.ts";
 import { counterSchema, stableCodeSchema } from "./primitives.ts";
+import { z } from "./zod.ts";
 
 /* ------------------------------------------------------------------------------------------------
  * Protocol limits (§7)

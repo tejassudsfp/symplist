@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "./zod.ts";
 
 /** The longest email address accepted after normalization (RFC 5321 path limit minus brackets). */
 export const emailAddressMaxLength = 254;

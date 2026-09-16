@@ -271,6 +271,19 @@ describe("the task list", () => {
     await waitFor(() => expect(api.titles("now")).toContain("Book a bike tune-up"));
   });
 
+  it("names the task in the Undo of a move, even out of a list this browser never loaded", async () => {
+    const { user, api } = await loaded();
+    await user.click(screen.getByRole("button", { name: "Task menu for Book a bike tune-up" }));
+    await user.click(await screen.findByRole("menuitem", { name: /Move to…/ }));
+    await user.click(await screen.findByRole("menuitem", { name: "Unclassified" }));
+    await waitFor(() => expect(api.titles("unclassified")).toContain("Book a bike tune-up"));
+
+    // Unclassified was never fetched, so the task is in no loaded list when Undo runs.
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    expect(await screen.findByText(/Moved “Book a bike tune-up” back to Now/)).toBeInTheDocument();
+    await waitFor(() => expect(api.titles("now")).toContain("Book a bike tune-up"));
+  });
+
   it("puts a task back where it was when a move fails, and offers Try again", async () => {
     const { user, api } = await loaded();
     api.fail("moveTask");

@@ -1,5 +1,5 @@
-import { z } from "zod";
 import { isStableCode, stableCodeSchema } from "./primitives.ts";
+import { z } from "./zod.ts";
 
 /** The maximum length of an error message; messages are safe, fixed texts. */
 export const errorMessageMaxLength = 500;

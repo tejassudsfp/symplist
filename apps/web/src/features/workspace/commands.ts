@@ -177,8 +177,14 @@ export class TaskCommands {
     request: TaskMoveRequest,
     placement: InsertPlacement,
     describe: string,
+    /**
+     * The task's title, for a caller that already knows it. Undo needs this: by the time it runs the
+     * task is in the collection it was moved to, which this browser may never have loaded, so looking
+     * the title up again would name it "this task".
+     */
+    knownTitle?: string,
   ): Promise<void> {
-    const title = this.titleOf(taskId);
+    const title = knownTitle ?? this.titleOf(taskId);
     const scope = `move:${taskId}:${JSON.stringify(request)}`;
     if (this.deps.ui.isPending(taskId)) return;
     this.deps.ui.setPending(taskId, true);
@@ -197,7 +203,7 @@ export class TaskCommands {
         action: {
           label: "Undo",
           onAction: () => {
-            void this.undoMove(taskId, response.previous);
+            void this.undoMove(taskId, response.previous, title);
           },
         },
       });
@@ -209,7 +215,7 @@ export class TaskCommands {
           ? {
               action: {
                 label: "Try again",
-                onAction: () => void this.move(taskId, request, placement, describe),
+                onAction: () => void this.move(taskId, request, placement, describe, title),
               },
             }
           : {}),
@@ -223,6 +229,7 @@ export class TaskCommands {
   private async undoMove(
     taskId: string,
     previous: { collection: TaskCollection; parentId: string | null; afterId: string | null },
+    title: string,
   ): Promise<void> {
     const list = this.deps.tasks.collection(previous.collection).tasks;
     const siblings = list.filter(
@@ -247,7 +254,13 @@ export class TaskCommands {
           ? { beforeId: siblings[0].id }
           : {}),
     };
-    await this.move(taskId, request, placement, `back to ${collectionLabels[previous.collection]}`);
+    await this.move(
+      taskId,
+      request,
+      placement,
+      `back to ${collectionLabels[previous.collection]}`,
+      title,
+    );
   }
 
   /**

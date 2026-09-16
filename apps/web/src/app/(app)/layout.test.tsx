@@ -104,14 +104,17 @@ describe("the (app) layout with the feature placeholders", () => {
     slot("consent-banner");
   });
 
-  it("gives the inbox pane the workspace's own list, on every route", async () => {
-    await renderAppLayout("/now");
+  it("gives the inbox pane the workspace's own list", async () => {
+    const { unmount } = await renderAppLayout("/now");
     const inbox = await screen.findByRole("tree", { name: "Now tasks" });
     expect(within(inbox).getByText("Refresh my portfolio")).toBeInTheDocument();
     expect(screen.getByLabelText("Add task to Now")).toBeInTheDocument();
+    unmount();
 
-    // A settings route keeps the list mounted beside it, so the shortcuts keep working there.
+    // A route outside the collections is not the workspace, so the shell shows it on its own: the
+    // provider stays mounted (`FeatureSlots` wraps the whole group) but the panels do not.
     await renderAppLayout("/settings/account", <h1>Account settings</h1>);
-    expect(await screen.findByRole("tree", { name: "Now tasks" })).toBeInTheDocument();
+    await screen.findByRole("heading", { name: "Account settings" });
+    expect(screen.queryByRole("tree", { name: "Now tasks" })).not.toBeInTheDocument();
   });
 });
