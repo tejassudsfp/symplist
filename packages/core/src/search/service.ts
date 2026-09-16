@@ -785,7 +785,10 @@ export class SearchQueryService {
     if (filters.archive === "only" && !task.archived) return null;
     if (!filters.collections.has(task.collection)) return null;
     if (filters.taskScope && !filters.taskScope.has(task.id)) return null;
-    const parent = task.parentId ? fresh.get(task.parentId) : undefined;
+    const parent =
+      task.parentId && (!filters.taskScope || filters.taskScope.has(task.parentId))
+        ? fresh.get(task.parentId)
+        : undefined;
     const title = task.title.slice(0, MAX_TITLE_CHARS);
     return {
       task: {

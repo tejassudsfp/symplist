@@ -176,3 +176,26 @@ credential. Incoming MCP transport/tools and their client contract suites remain
 Additional shared files: `apps/api/src/common/http/global-prefix.ts`, `apps/api/src/app.test.ts`,
 `apps/api/test/probes/bootstrap.probe.ts`; all changes are OAuth routing or preservation of existing
 guard/parser probes. No live suites or browsers were run.
+
+### MCP transport checkpoint
+
+The SDK v2 stateless transport, resource/authorization metadata, strict origin/host handling,
+bearer challenge and failure throttling are mounted. Task, search, document and Simon message/run
+tools use grant-scoped core services. Auto and legacy SDK clients exercise discovery and real
+HTTP calls. Task create/move replay is encrypted and generation-fenced; move authorization covers
+the complete affected subtree. Search suppresses out-of-scope parent metadata. Document reads
+record grant-specific section receipts, and writes use the actual encrypted Git repository.
+Simon admission only dispatches through the existing executor; MCP cannot approve, stop, retry
+or answer app-owned questions. MCP cleanup is bounded and executor-generation fenced.
+
+Checkpoint verification: all 17 projects typechecked; lint checked 1,215 files with no warnings;
+9 focused core task/maintenance tests and 22 API transport/guard tests passed. Earlier search
+tests also passed. Full final gates remain pending. Scheduling and artifact MCP extensions are
+not wired yet: the next step is merging the root's committed services and testing those concrete
+paths. The root's dirty Simon UI is deliberately excluded.
+
+Additional shared files: `packages/core/src/search/{index,service,request-signal}.ts`,
+`apps/api/src/modules/search/search.module.ts`. Search requests feed the existing coalesced index
+coordinator, not another writer. `packages/core/src/search/sources/tasks.ts` is byte-identical to
+the owner's committed 4d67768 AAD fix, copied as an explicit dependency. The pre-D2 `/mcp` guard
+probe moved to `/mcp/guard-probe`; original security assertions remain intact.

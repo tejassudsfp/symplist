@@ -192,7 +192,7 @@ describe("credential-free route classes (§5.2, §5.3)", () => {
 
   it("keeps bearer credentials on /mcp and refuses a present Origin that is not allowlisted", async () => {
     const headers = { cookie: session.cookie, authorization: "Bearer sym_grant_secret" };
-    const ok = await app.request("POST", "/mcp", { headers, origin: null });
+    const ok = await app.request("POST", "/mcp/guard-probe", { headers, origin: null });
     expect(ok.json()).toEqual({
       cookies: [],
       rawCookieHeader: null,
@@ -200,9 +200,13 @@ describe("credential-free route classes (§5.2, §5.3)", () => {
       rawHeaderNames: ["authorization"],
     });
     expect(
-      (await app.request("POST", "/mcp", { headers, origin: app.config.WEB_ORIGIN })).status,
+      (await app.request("POST", "/mcp/guard-probe", { headers, origin: app.config.WEB_ORIGIN }))
+        .status,
     ).toBe(200);
-    const evil = await app.request("POST", "/mcp", { headers, origin: "https://evil.example" });
+    const evil = await app.request("POST", "/mcp/guard-probe", {
+      headers,
+      origin: "https://evil.example",
+    });
     expect(evil.status).toBe(403);
     expect(code(evil)).toBe("auth.origin_forbidden");
   });

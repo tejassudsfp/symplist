@@ -71,7 +71,7 @@ export class RouteClassProbeController {
     return seen(req);
   }
 
-  @All("mcp")
+  @All("mcp/guard-probe")
   @RouteClass("mcp")
   mcp(@Req() req: Request) {
     return seen(req);
