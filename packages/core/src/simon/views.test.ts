@@ -71,6 +71,29 @@ async function turn(request: string, output = "Visible answer") {
 }
 
 describe("public Simon history", () => {
+  it.each(["ai.unavailable", "ai.provider_failed", "private-provider-message"])(
+    "exposes the latest terminal run with only an allowlisted outcome: %s",
+    async (outcome) => {
+      const sent = await turn("terminal");
+      await env.db.run(
+        sql("UPDATE runs SET status='failed',outcome_code=:outcome WHERE id=:id", {
+          outcome,
+          id: sent.runId ?? "",
+        }),
+      );
+      const result = await views.conversation(owner, conversation);
+      expect(result.activeRun).toBeNull();
+      expect(result.latestRun).toMatchObject({
+        runId: sent.runId,
+        status: "failed",
+        outcomeCode: outcome === "private-provider-message" ? null : outcome,
+      });
+      expect(JSON.stringify(result)).not.toContain("private-provider-message");
+    },
+  );
+  it("has no latest run before the first message", async () => {
+    expect((await views.conversation(owner, conversation)).latestRun).toBeNull();
+  });
   it("restores persisted question resolution cards without hidden provider fields", async () => {
     const sent = await repository.acceptMessage(owner, conversation, "question", {
       text: "Ask me",

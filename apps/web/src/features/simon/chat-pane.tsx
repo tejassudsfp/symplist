@@ -1,19 +1,16 @@
 "use client";
-
 import { EmptyState } from "@/components/ui/empty-state";
+import { SimonConversation } from "./conversation.tsx";
+import { useSimon } from "./provider.tsx";
 
 export interface ChatPaneProps {
-  /** The selected task. The shell mounts a fresh pane for each task. */
   readonly taskId: string;
 }
-
-/**
- * The selected task's conversation with Simon, shown in the shell's chat frame (§2.3). PLACEHOLDER:
- * the Simon feature replaces this body with the messages and composer (§8); until then it shows the
- * chat frame's empty state.
- */
-export function ChatPane(_props: ChatPaneProps) {
-  return (
+export function ChatPane({ taskId }: ChatPaneProps) {
+  const store = useSimon();
+  return store ? (
+    <SimonConversation store={store} taskId={taskId} />
+  ) : (
     <EmptyState
       align="center"
       title="No messages yet"

@@ -59,6 +59,7 @@ export const simonRunViewSchema = z.strictObject({
   status: simonRunStatusSchema,
   tier: simonTierSchema,
   stopRequested: z.boolean(),
+  outcomeCode: z.enum(["ai.unavailable", "ai.provider_failed"]).nullable().default(null),
 });
 
 export const simonHistoryQuerySchema = z.strictObject({
@@ -103,8 +104,35 @@ export const simonConversationViewSchema = z.strictObject({
   kind: z.enum(["task", "quick"]),
   taskId: idSchema.nullable(),
   activeRun: simonRunViewSchema.nullable(),
+  latestRun: simonRunViewSchema.nullable().default(null),
   pendingApprovalId: idSchema.nullable(),
   pendingAskId: idSchema.nullable(),
   messages: z.array(simonHistoryMessageSchema),
   nextBeforeSeq: z.number().int().positive().nullable(),
 });
+
+export const simonApprovalViewSchema = z.strictObject({
+  id: idSchema,
+  runId: idSchema,
+  toolCallId: z.string(),
+  toolSlug: z.string(),
+  connectionId: idSchema,
+  connectedAccountId: z.string(),
+  connectionGeneration: z.number().int(),
+  status: z.enum(["pending", "approved", "denied", "dismissed", "expired", "superseded"]),
+  argDigest: z.string(),
+  arguments: z.record(z.string(), z.unknown()),
+  preview: z.record(z.string(), z.unknown()),
+  expiresAt: z.number(),
+  policyVersion: z.string(),
+});
+export const simonAskViewSchema = z.strictObject({
+  id: idSchema,
+  runId: idSchema,
+  toolCallId: z.string(),
+  status: z.enum(["pending", "answered", "dismissed", "expired"]),
+  expiresAt: z.number(),
+  question: z.string(),
+  answer: z.string().nullable(),
+});
+export const simonRunCommandResultSchema = z.strictObject({ runId: idSchema });

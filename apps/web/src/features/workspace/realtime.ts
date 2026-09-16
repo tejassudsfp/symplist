@@ -34,13 +34,8 @@ let sharedClient: RealtimeClient | null = null;
  * second feature needs it; it lives here because the workspace is the first (§7, decision W7).
  */
 export function workspaceRealtimeSource(): WorkspaceRealtimeSource | null {
-  if (typeof window === "undefined") return null;
-  if (!sharedClient) {
-    const url = realtimeUrl();
-    if (!url) return null;
-    sharedClient = new RealtimeClient({ url });
-  }
-  const client = sharedClient;
+  const client = workspaceRealtimeClient();
+  if (!client) return null;
   return {
     subscribeUser(handlers) {
       const subscription = client.subscribeUser([], handlers);
@@ -48,6 +43,17 @@ export function workspaceRealtimeSource(): WorkspaceRealtimeSource | null {
       return () => subscription.unsubscribe();
     },
   };
+}
+
+/** Conversation listeners share the owner's existing socket; never another connection per chat. */
+export function workspaceRealtimeClient(): RealtimeClient | null {
+  if (typeof window === "undefined") return null;
+  if (!sharedClient) {
+    const url = realtimeUrl();
+    if (!url) return null;
+    sharedClient = new RealtimeClient({ url });
+  }
+  return sharedClient;
 }
 
 /**
