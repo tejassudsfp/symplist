@@ -1,4 +1,9 @@
-import { createSimonModels, runSimonTurn, simonNativeTools } from "@symplist/agent";
+import {
+  createSimonModels,
+  runSimonTurn,
+  simonNativeTools,
+  simonSharingTools,
+} from "@symplist/agent";
 import { simonRunPayloadSchema } from "@symplist/contracts";
 import { DocumentRepository, DocumentTools, DurableDocumentGit } from "@symplist/core/documents";
 import { SimonRepository } from "@symplist/core/simon";
@@ -37,8 +42,8 @@ export async function runDurableSimon(
         ? AbortSignal.any([signal, AbortSignal.timeout(890_000)])
         : AbortSignal.timeout(890_000),
       telemetryEnabled: runtime.config.AI_TELEMETRY_ENABLED,
-      tools: async (context) =>
-        simonNativeTools(context, {
+      tools: async (context) => ({
+        ...simonNativeTools(context, {
           scheduling: {
             remindersEnabled: runtime.config.REMINDERS_ENABLED,
             emailEnabled: runtime.config.REMINDER_EMAIL_ENABLED,
@@ -52,6 +57,19 @@ export async function runDurableSimon(
             });
           },
         }),
+        ...simonSharingTools(context, {
+          objects: runtime.objects,
+          privateOrigins: [runtime.config.WEB_ORIGIN, runtime.config.API_ORIGIN],
+          maxBytes: runtime.config.DOC_MAX_BYTES,
+          onGrantChanged: async (ownerId, taskId, artifactId) => {
+            await runtime.events.announce({
+              type: "share_grant.changed",
+              ownerId,
+              payload: { taskId, artifactId },
+            });
+          },
+        }),
+      }),
       documents: () => {
         const documents = new DocumentRepository({
           db: runtime.db,

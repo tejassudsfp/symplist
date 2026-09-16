@@ -7,4 +7,5 @@ export * from "./native.ts";
 export * from "./policy.ts";
 export * from "./providers.ts";
 export * from "./rules.ts";
+export * from "./sharing.ts";
 export * from "./turn.ts";

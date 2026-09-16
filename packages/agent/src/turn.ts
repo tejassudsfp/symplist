@@ -23,6 +23,7 @@ export interface SimonToolContext {
   readonly claim: ClaimedSimonRun;
   readonly repository: SimonRepository;
   readonly signal: AbortSignal;
+  readonly documents?: SimonDocumentSession;
   requestApproval(proposal: ApprovalProposal): { status: "awaiting_approval"; approvalId: string };
 }
 export interface SimonTurnDependencies {
@@ -156,8 +157,13 @@ export async function runSimonTurn(
       return { status: "awaiting_approval", approvalId: id };
     };
     const extraTools =
-      (await deps.tools?.({ claim: owned, repository, signal: deps.signal, requestApproval })) ??
-      {};
+      (await deps.tools?.({
+        claim: owned,
+        repository,
+        signal: deps.signal,
+        requestApproval,
+        ...(documents ? { documents } : {}),
+      })) ?? {};
     const tools: ToolSet = {
       ...(documents ? simonDocumentTools(documents) : {}),
       ...extraTools,
