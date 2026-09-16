@@ -193,10 +193,13 @@ export function DocumentHistoryScreen({
         idempotencyKey: keys.current.acquire(`restore:${selected}:${preview.headRevision}`),
       });
       keys.current.release(`restore:${selected}:${preview.headRevision}`);
-      setRestore({ kind: "restored", revision: result.revision ?? selected });
       announce("Restored. The page now shows this version, and every earlier revision is kept.");
+      const restored = result.revision ?? selected;
       await loadHistory();
-      await openRevision(result.revision ?? selected);
+      await openRevision(restored);
+      // After the reload, not before: opening a revision clears the restore state, which would
+      // otherwise wipe the confirmation before anyone could read it.
+      setRestore({ kind: "restored", revision: restored });
     } catch (error) {
       const failure = describeFailure(error);
       keys.current.release(`restore:${selected}:${preview.headRevision}`);

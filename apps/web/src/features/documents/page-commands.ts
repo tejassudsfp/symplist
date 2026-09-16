@@ -10,6 +10,8 @@ import {
   wrapInBulletListCommand,
   wrapInHeadingCommand,
 } from "@milkdown/kit/preset/commonmark";
+import { Mark } from "@milkdown/kit/prose/model";
+import type { EditorState } from "@milkdown/kit/prose/state";
 import type { EditorView as ProseView } from "@milkdown/kit/prose/view";
 import { callCommand } from "@milkdown/kit/utils";
 
@@ -95,40 +97,70 @@ function toggleChecklist(view: ProseView): boolean {
   return true;
 }
 
+function dispatch(editor: Editor, name: ToolbarCommand): void {
+  switch (name) {
+    case "bold":
+      editor.action(callCommand(toggleStrongCommand.key));
+      return;
+    case "italic":
+      editor.action(callCommand(toggleEmphasisCommand.key));
+      return;
+    case "code":
+      editor.action(callCommand(toggleInlineCodeCommand.key));
+      return;
+    case "heading":
+      editor.action(
+        callCommand(
+          wrapInHeadingCommand.key,
+          activeCommands(editor).includes("heading") ? 0 : TOOLBAR_HEADING_LEVEL,
+        ),
+      );
+      return;
+    case "bullet_list":
+      editor.action(callCommand(wrapInBulletListCommand.key));
+      return;
+    case "quote":
+      editor.action(callCommand(wrapInBlockquoteCommand.key));
+      return;
+    case "checklist": {
+      const view = viewOf(editor);
+      if (!view) return;
+      if (listItemsInSelection(view).length === 0) {
+        editor.action(callCommand(wrapInBulletListCommand.key));
+      }
+      const after = viewOf(editor);
+      if (after) toggleChecklist(after);
+      return;
+    }
+  }
+}
+
+/**
+ * Whether a command actually changed anything. The editor's own command dispatch reports `false` for
+ * commands it did apply, so the only trustworthy answer is the document itself: a new document, or —
+ * for an inline mark toggled with nothing selected — a new set of stored marks.
+ */
+function changed(before: EditorState, after: EditorState): boolean {
+  if (before.doc !== after.doc) return true;
+  const beforeMarks = before.storedMarks;
+  const afterMarks = after.storedMarks;
+  if (!beforeMarks && !afterMarks) return false;
+  if (!beforeMarks || !afterMarks) return true;
+  return !Mark.sameSet(beforeMarks, afterMarks);
+}
+
 /** Runs one toolbar command. Returns false when it does not apply where the caret is. */
 export function runToolbarCommand(editor: Editor, name: ToolbarCommand): boolean {
+  const view = viewOf(editor);
+  if (!view) return false;
+  const before = view.state;
   try {
-    switch (name) {
-      case "bold":
-        return editor.action(callCommand(toggleStrongCommand.key));
-      case "italic":
-        return editor.action(callCommand(toggleEmphasisCommand.key));
-      case "code":
-        return editor.action(callCommand(toggleInlineCodeCommand.key));
-      case "heading":
-        return editor.action(
-          callCommand(
-            wrapInHeadingCommand.key,
-            activeCommands(editor).includes("heading") ? 0 : TOOLBAR_HEADING_LEVEL,
-          ),
-        );
-      case "bullet_list":
-        return editor.action(callCommand(wrapInBulletListCommand.key));
-      case "quote":
-        return editor.action(callCommand(wrapInBlockquoteCommand.key));
-      case "checklist": {
-        const view = viewOf(editor);
-        if (!view) return false;
-        if (listItemsInSelection(view).length === 0) {
-          editor.action(callCommand(wrapInBulletListCommand.key));
-        }
-        const after = viewOf(editor);
-        return after ? toggleChecklist(after) : false;
-      }
-    }
+    dispatch(editor, name);
   } catch {
-    return false;
+    // A command can apply and still throw on the way out — scrolling the new selection into view
+    // needs layout the environment may not have. The document is the answer, not the exception.
   }
+  return changed(before, viewOf(editor)?.state ?? before);
 }
 
 function activeCommands(editor: Editor): ToolbarCommand[] {
