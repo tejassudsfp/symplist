@@ -14,6 +14,18 @@ export const ONBOARDING_CONNECTIONS_PATH = "/welcome/connections";
 /** The application opens in the task workspace (overall.md). */
 export const APP_HOME_PATH = "/now";
 
+/** Keep the fixed provider callback's result when the app gate resumes optional onboarding. */
+export function preserveConnectionCallback(destination: string, current: string): string {
+  if (destination !== ONBOARDING_CONNECTIONS_PATH) return destination;
+  const url = new URL(current, "https://symplist.invalid");
+  if (url.origin !== "https://symplist.invalid" || url.pathname !== "/settings/connections")
+    return destination;
+  const result = url.searchParams.get("result");
+  return result && ["connected", "failed", "cancelled"].includes(result)
+    ? `${destination}?result=${result}`
+    : destination;
+}
+
 /** The query parameter carrying a same-origin return path through sign-in (§14.5). */
 export const NEXT_PARAM = "next";
 

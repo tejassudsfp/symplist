@@ -22,7 +22,11 @@ function parse(value: unknown): ReturnTask | null {
 }
 
 /** Only owner-scoped navigation ids survive the provider handoff — never catalogue or credentials. */
-export function ConnectionReturnTask() {
+export function ConnectionReturnTask({
+  label = "Return to task — review the pending action there",
+}: {
+  label?: string;
+}) {
   const { user, access } = useSession();
   const task = useQueryParam("task");
   const collection = useQueryParam("collection");
@@ -55,7 +59,7 @@ export function ConnectionReturnTask() {
         }
       }}
     >
-      Return to task — review the pending action there
+      {label}
     </Link>
   );
 }

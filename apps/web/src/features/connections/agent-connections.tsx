@@ -18,6 +18,7 @@ import { useNavigationGuard } from "@/features/access/ui/navigation-guard";
 import { Notice } from "@/features/access/ui/notice";
 import { type KeyResult, useConnectionsEnvironment } from "./api.tsx";
 import { useConnectionResource } from "./resource.ts";
+import { ConnectionReturnTask } from "./return-context.tsx";
 import { TaskScope } from "./task-scope.tsx";
 import { useIntent } from "./use-intent.ts";
 
@@ -152,6 +153,7 @@ function Agents() {
           </ul>
         </>
       )}
+      <ConnectionReturnTask label="Return to task" />
       {adding && (
         <CreateAgentKey
           finalFocus={addButton}

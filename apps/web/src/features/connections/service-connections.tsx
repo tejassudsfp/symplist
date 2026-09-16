@@ -125,6 +125,7 @@ function Services({ compact }: { compact: boolean }) {
                     {connection.status === "active" ? "Connected" : "Needs attention"}
                   </span>
                   <span>Simon can use this account's authorized capabilities.</span>
+                  <span>Account {connection.id.slice(-8)}</span>
                 </div>
                 <Button
                   aria-label={`Manage ${connection.alias || connection.toolkit}`}

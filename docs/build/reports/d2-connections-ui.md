@@ -25,7 +25,7 @@ No backend implementation, migration, secret or environment file is changed.
 
 ## Decisions
 
-Recorded append-only as `D2UI.1` and `D2UI.2` in decisions.md. Provider authorization is a full
+Recorded append-only as `D2UI.1`–`D2UI.3` in decisions.md. Provider authorization is a full
 navigation, never an imitation login form or popup. Only validated task/collection ids survive
 the fixed callback in owner-and-generation-scoped session storage; no credential, arbitrary URL
 or catalogue is stored. Task-scoped grant choices do not implicitly include descendants.
@@ -50,6 +50,8 @@ or catalogue is stored. Task-scoped grant choices do not implicitly include desc
 - `apps/web/src/app/(consent)/oauth/consent/page.tsx`
 - `apps/web/src/app/(consent)/oauth/authorize/page.tsx` (new)
 - `apps/web/src/app/globals.css`: exactly one appended Connections block; existing CSS untouched.
+- `apps/web/src/features/access/navigation.ts` and `session.tsx`: preserve only the allowlisted
+  callback outcome when the app gate resumes the optional connections onboarding step.
 - `docs/build/decisions.md`: two appended rulings only.
 - `docs/build/reports/d2-connections-ui.md`: this report.
 - Contracts-only cherry-pick: `packages/contracts/src/connections/oauth.ts` and
@@ -58,11 +60,14 @@ or catalogue is stored. Task-scoped grant choices do not implicitly include desc
 ## Verification
 
 - Frozen install passed in this isolated worktree; no shared node_modules link.
-- Repository lint passed with zero errors/warnings; repository-wide typecheck passed.
-- Focused web contracts/component/lifecycle tests: 60 passed before the final return-context tests.
-- Full web suite: 95 files / 1,537 tests passed at the initial 53-test feature checkpoint.
+- Repository lint: 1,212 files, zero errors/warnings; repository-wide typecheck passed.
+- Focused web contracts/component/lifecycle tests: 9 files / 68 tests passed; the combined
+  Connections/access-navigation/session regression pass also passed, 11 files / 93 tests.
+- Full web suite: 98 files / 1,552 tests passed.
 - Production web build passed, including both OAuth routes and both settings screens.
-- Final verification and adversarial-review completion are recorded in the follow-up checkpoint.
+- Local Markdown links and all 44 screen briefs passed the docs check; `git diff --check` passed.
+- The branch diff was reviewed for authority boundaries, CSRF, lost-response retry, stale effects,
+  bounded fetching, credential persistence, focus, and loading/error states. Review fixes are below.
 - Browser/e2e and visual evidence were not run concurrently with the integrator. No live-provider
   authorization or external account mutation was performed; those belong to combined Phase E.
 
@@ -76,6 +81,9 @@ or catalogue is stored. Task-scoped grant choices do not implicitly include desc
 - Explicit accessible names distinguish account buttons without depending on hidden text layout.
 - Component state remounts on account/access-generation changes, removing a displayed key at once.
 - Full task-page selection avoids the original first-page-only trap; fetching remains user-driven.
+- The app gate used to discard cancelled/failed callback outcomes on onboarding return. It now
+  preserves only that allowlisted enum for the exact Connections-to-onboarding transition, with
+  real gate regression tests and no propagation of arbitrary callback query data.
 
 ## Integration follow-up
 

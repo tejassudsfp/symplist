@@ -23,7 +23,13 @@ import {
   SignOutFeedback,
   useSignOutState,
 } from "./gate/session-states.tsx";
-import { destinationPath, navigateAcrossGroups, PAUSED_PATH, signInPathFor } from "./navigation.ts";
+import {
+  destinationPath,
+  navigateAcrossGroups,
+  PAUSED_PATH,
+  preserveConnectionCallback,
+  signInPathFor,
+} from "./navigation.ts";
 import { connectAccessRealtime, getSharedSessionStore } from "./session-runtime.ts";
 import { destinationFor, type SessionSnapshot, type SessionStore } from "./session-store.ts";
 import { signOut as runSignOut } from "./sign-out.ts";
@@ -317,7 +323,7 @@ export function SessionGate({ children, require }: SessionGateProps) {
 
   const redirectHref =
     decision.kind === "redirect"
-      ? decision.href
+      ? preserveConnectionCallback(decision.href, currentLocation(pathname))
       : decision.kind === "sign_in"
         ? signInPathFor(currentLocation(pathname))
         : null;
