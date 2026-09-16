@@ -4,6 +4,11 @@ Maps every specification, screen and required flow to implementation and verific
 
 ## Specifications
 
+Development lifecycle regression evidence: `workspace-provider.test.tsx` and scheduling's
+`provider.test.tsx` render actual providers under React Strict Mode. Store suites cover cleanup,
+reopen, abandoned responses and resumed preference saves. `core/search/task-writer-boundary.test.ts`
+creates through TaskService before search decryption, checking the real encryption AAD boundary.
+
 | Note | Status | Implementation | Evidence |
 | --- | --- | --- | --- |
 | [01_product.md](../notes/files/01_product.md) | In progress | Tasks, their pages and the shell (D1); Simon, Vault, scheduling, sharing and connections are D2 | `apps/e2e/evidence/workspace/`, `apps/e2e/evidence/shell/` |

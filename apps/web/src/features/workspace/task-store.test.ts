@@ -18,6 +18,41 @@ const titles = (store: TaskStore, collection: "now" | "later" | "unclassified" =
   store.collection(collection).tasks.map((task) => task.title);
 
 describe("TaskStore", () => {
+  it("restarts list and detail reads that settled while disposed", async () => {
+    const { store, api } = seeded();
+    const list = store.refresh("now");
+    const detail = store.refreshDetail("portfolio");
+    store.dispose();
+    await Promise.all([list, detail]);
+    expect(store.collection("now").status).toBe("loading");
+    expect(store.detail("portfolio").status).toBe("loading");
+    store.reopen();
+    expect(store.collection("now").status).toBe("idle");
+    expect(store.detail("portfolio").status).toBe("idle");
+    store.ensureCollection("now");
+    store.ensureDetail("portfolio");
+    await vi.waitFor(() => {
+      expect(store.collection("now").status).toBe("ready");
+      expect(store.detail("portfolio").status).toBe("ready");
+    });
+    expect(titles(store)).toContain("Refresh my portfolio");
+    expect(api.calls.filter((call) => call.method === "listTasks")).toHaveLength(2);
+    expect(api.calls.filter((call) => call.method === "getTask")).toHaveLength(2);
+  });
+
+  it("delivers pending reads to new subscribers after immediate reopen", async () => {
+    const { store } = seeded();
+    const list = store.refresh("now");
+    store.dispose();
+    store.reopen();
+    const listener = vi.fn();
+    store.subscribe(listener);
+    await list;
+    expect(store.collection("now").status).toBe("ready");
+    expect(titles(store)).toContain("Refresh my portfolio");
+    expect(listener).toHaveBeenCalled();
+  });
+
   it("loads a collection once and reports its status", async () => {
     const { store, api } = seeded();
     expect(store.collection("now").status).toBe("idle");

@@ -16,6 +16,7 @@ export class DeadlineStore {
   private readonly pending = new Set<string>();
   private queued = false;
   private generation = 0;
+  private disposed = false;
   constructor(readonly api: SchedulingApi) {}
   get(id: string) {
     return this.entries.get(id)?.value ?? null;
@@ -31,7 +32,7 @@ export class DeadlineStore {
     entry.listeners.add(listener);
     return () => {
       entry.listeners.delete(listener);
-      if (!entry.listeners.size) {
+      if (!entry.listeners.size && this.entries.get(id) === entry) {
         this.entries.delete(id);
         this.pending.delete(id);
       }
@@ -49,31 +50,46 @@ export class DeadlineStore {
     this.schedule();
   }
   dispose() {
+    this.disposed = true;
     this.generation++;
+    this.queued = false;
     this.entries.clear();
     this.pending.clear();
   }
+  /** The provider retains this instance through Strict Mode's effect cleanup/restart. */
+  reopen() {
+    if (!this.disposed) return;
+    this.disposed = false;
+    this.schedule();
+  }
   private schedule() {
-    if (this.queued) return;
+    if (this.disposed || this.queued || !this.pending.size) return;
     this.queued = true;
+    const generation = this.generation;
     queueMicrotask(() => {
-      void this.flush();
+      if (!this.disposed && generation === this.generation) void this.flush(generation);
     });
   }
-  private async flush() {
-    const generation = this.generation;
-    while (this.pending.size && generation === this.generation) {
-      const ids = [...this.pending].slice(0, 50);
-      for (const id of ids) this.pending.delete(id);
-      try {
-        const values = await this.api.summaries(ids);
-        if (generation !== this.generation) return;
-        for (const value of values) this.set(value);
-      } catch {
-        /* The editor exposes a retry/error state; a failed optional chip must not block the task list. */
+  private async flush(generation: number) {
+    try {
+      while (this.pending.size && generation === this.generation && !this.disposed) {
+        const ids = [...this.pending].slice(0, 50);
+        for (const id of ids) this.pending.delete(id);
+        try {
+          const values = await this.api.summaries(ids);
+          if (generation !== this.generation) return;
+          for (const value of values) this.set(value);
+        } catch {
+          /* The editor exposes retry/errors; optional chips do not block the task list. */
+        }
+      }
+    } finally {
+      // An old request must neither strand the reopened store nor unlock its newer queue.
+      if (generation === this.generation) {
+        this.queued = false;
+        this.schedule();
       }
     }
-    this.queued = false;
   }
 }
 type Overlay = { taskId: string; addReminder: boolean } | null;

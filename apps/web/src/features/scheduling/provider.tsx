@@ -33,8 +33,9 @@ export function SchedulingProvider({
   }, [api, userId]);
   const overlay = useSyncExternalStore(scheduleOverlay.subscribe, scheduleOverlay.get, () => null);
   useEffect(() => {
+    deadlines.reopen();
     scheduleOverlay.close();
-    if (!userId) return;
+    if (!userId) return () => deadlines.dispose();
     let current = true;
     // First admitted workspace follows onboarding. Detect once; travel never rewrites stored prefs.
     void Promise.resolve()

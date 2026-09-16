@@ -149,8 +149,15 @@ export class PreferencesStore {
    * `ensureLoaded()` starts a real load.
    */
   reopen(): void {
+    if (!this.disposed) return;
     this.disposed = false;
     if (this.statusValue === "loading" && this.loading === null) this.statusValue = "idle";
+    for (const [group, entry] of this.entries) {
+      if (entry.state === "saving" && !entry.inFlight && entry.timer === null) {
+        entry.again = false;
+        this.schedule(group, false);
+      }
+    }
   }
 
   get status(): PreferencesStatus {
