@@ -5,7 +5,8 @@ import {
   simonRunViewSchema,
   taskCreateResponseSchema,
 } from "@symplist/contracts";
-import { SimonRepository } from "@symplist/core/simon";
+import { SimonRepository, SimonUserAsks } from "@symplist/core/simon";
+import { zeroize } from "@symplist/crypto";
 import { sql, uuidv7 } from "@symplist/db";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -48,6 +49,143 @@ async function quick(app: TestApp, session: TestSession) {
 }
 const code = (response: { json(): unknown }) =>
   errorEnvelopeSchema.parse(response.json()).error.code;
+
+async function question(app: TestApp, session: TestSession) {
+  const conversationId = await quick(app, session);
+  const response = await post(app, session, `/v1/conversations/${conversationId}/messages`, {
+    text: "Please ask",
+  });
+  const runId = simonMessageAcceptedSchema.parse(response.json()).runId;
+  const repository = app.app.get(SimonRepository);
+  const claim = await repository.claim(runId ?? "", "local");
+  if (!claim) throw new Error("Expected local claim");
+  try {
+    const askId = await new SimonUserAsks(repository).pause(
+      claim.run,
+      claim.key,
+      { question: "private-question-marker", toolCallId: "ask_1" },
+      { text: "A question", steps: 1 },
+    );
+    return { askId, runId, conversationId };
+  } finally {
+    zeroize(claim.key.key);
+  }
+}
+
+describe("Simon user questions", () => {
+  it("queues an ordinary reply and answers only through the explicit idempotent endpoint", async () => {
+    const app = await boot();
+    const { session } = await app.createSignedInUser();
+    const { askId, runId, conversationId } = await question(app, session);
+    const queued = await post(app, session, `/v1/conversations/${conversationId}/messages`, {
+      text: "ordinary reply",
+    });
+    expect(simonMessageAcceptedSchema.parse(queued.json())).toMatchObject({
+      status: "queued",
+      runId: null,
+    });
+    const before = await app.get(`/v1/user-asks/${askId}`, { session });
+    expect(before.status).toBe(200);
+    expect(before.json()).toMatchObject({
+      status: "pending",
+      question: "private-question-marker",
+      answer: null,
+    });
+    const answerKey = key();
+    const send = () =>
+      post(
+        app,
+        session,
+        `/v1/user-asks/${askId}/answer`,
+        { text: "private-answer-marker" },
+        { idempotencyKey: answerKey },
+      );
+    const responses = await Promise.all([send(), send(), send()]);
+    for (const response of responses) {
+      expect(response.status, response.text).toBe(200);
+      expect(response.json()).toEqual(responses[0]?.json());
+    }
+    const next = responses[0]?.json<{ runId: string }>().runId;
+    expect(next).not.toBe(runId);
+    expect(
+      (
+        await app.db.first(
+          sql("SELECT active_run_id FROM conversations WHERE id = :id", { id: conversationId }),
+        )
+      )?.active_run_id,
+    ).toBe(next);
+    expect(await app.db.all(sql("SELECT id FROM runs"))).toHaveLength(2);
+    expect(await app.db.all(sql("SELECT id FROM messages WHERE status = 'queued'"))).toHaveLength(
+      1,
+    );
+    const replay = await send();
+    expect(replay.headers.get("idempotency-replayed")).toBe("true");
+    const mismatch = await post(
+      app,
+      session,
+      `/v1/user-asks/${askId}/answer`,
+      { text: "changed answer" },
+      { idempotencyKey: answerKey },
+    );
+    expect(code(mismatch)).toBe("idempotency.mismatch");
+    expect((await app.get(`/v1/user-asks/${askId}`, { session })).json()).toMatchObject({
+      status: "answered",
+      answer: "private-answer-marker",
+    });
+    for (const marker of ["private-question-marker", "private-answer-marker"]) {
+      expect(app.logs.text()).not.toContain(marker);
+      expect(JSON.stringify(await app.db.all(sql("SELECT * FROM user_asks")))).not.toContain(
+        marker,
+      );
+      expect(
+        JSON.stringify(await app.db.all(sql("SELECT * FROM idempotency_records"))),
+      ).not.toContain(marker);
+    }
+  });
+  it("dismisses once, refuses a later answer, and keeps foreign and expired questions private", async () => {
+    const app = await boot();
+    const { session } = await app.createSignedInUser();
+    const { askId, conversationId } = await question(app, session);
+    const stranger = await app.createSignedInUser();
+    expect(code(await app.get(`/v1/user-asks/${askId}`, { session: stranger.session }))).toBe(
+      "not_found",
+    );
+    expect(code(await post(app, stranger.session, `/v1/user-asks/${askId}/dismiss`))).toBe(
+      "not_found",
+    );
+    expect(
+      code(
+        await post(
+          app,
+          session,
+          `/v1/user-asks/${askId}/answer`,
+          { text: "answer" },
+          { csrf: null },
+        ),
+      ),
+    ).toBe("auth.csrf_invalid");
+    const dismissKey = key();
+    const dismissed = await post(app, session, `/v1/user-asks/${askId}/dismiss`, undefined, {
+      idempotencyKey: dismissKey,
+    });
+    expect(dismissed.status, dismissed.text).toBe(200);
+    expect(
+      (
+        await post(app, session, `/v1/user-asks/${askId}/dismiss`, undefined, {
+          idempotencyKey: dismissKey,
+        })
+      ).json(),
+    ).toEqual(dismissed.json());
+    expect(
+      code(await post(app, session, `/v1/user-asks/${askId}/answer`, { text: "too late" })),
+    ).toBe("user_ask.stale");
+    expect(await app.db.all(sql("SELECT id FROM runs"))).toHaveLength(2);
+    await app.db.run(
+      sql("UPDATE conversations SET expires_at = 1 WHERE id = :id", { id: conversationId }),
+    );
+    expect(code(await app.get(`/v1/user-asks/${askId}`, { session }))).toBe("not_found");
+  });
+});
 
 describe("Simon conversation commands", () => {
   it("creates a quick chat, accepts and queues messages, stops, and exposes only the public run view", async () => {
