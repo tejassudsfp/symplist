@@ -88,11 +88,13 @@ beforeEach(async () => {
  * the matching assertion; where each seam mounts is covered by `components/shell/feature-slots.test.tsx`.
  */
 describe("the (app) layout with the feature placeholders", () => {
-  it("shows a selected task's empty page and chat", async () => {
+  it("shows a selected task's page and chat", async () => {
     await renderAppLayout(`/now/${taskId}`);
     const main = screen.getByRole("main");
     expect(within(main).getByRole("heading", { level: 1, name: "Task page" })).toBeInTheDocument();
-    expect(within(main).getByText("Nothing on this page yet")).toBeInTheDocument();
+    // The documents feature owns the page: with no API origin in this build it says so in plain
+    // language rather than throwing inside the shell (system_states.md).
+    expect(await within(main).findByText("This page isn't available here")).toBeInTheDocument();
     const chat = screen.getByRole("complementary", { name: "Simon" });
     expect(within(chat).getByText("No messages yet")).toBeInTheDocument();
     // The quick chat launcher belongs to the no-selection view.

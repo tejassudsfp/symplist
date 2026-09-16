@@ -31,6 +31,7 @@ minimumReleaseAgeExclude:
   - posthog-js@1.433.4 # published 2026-09-15T07:10Z
   - posthog-node@5.52.3 # published 2026-09-15T07:02Z
   - vitest@5.0.1 # published 2026-09-15T08:49Z
+  - '@codemirror/commands@6.11.1' # raw document view history and editing keymap; published 2026-09-15T16:54Z
 
 # @nestjs/throttler 6.5.0 declares peers up to Nest 11; Nest 12 support is merged upstream but unreleased.
 # Remove once @nestjs/throttler 6.6.0 (or later) is pinned.

@@ -39,6 +39,7 @@
   },
   "devDependencies": {
     "@symplist/testing": "workspace:*",
+    "@types/mdast": "4.0.4",
     "@types/node": "24.13.4",
     "typescript": "7.0.2",
     "vitest": "5.0.1"
