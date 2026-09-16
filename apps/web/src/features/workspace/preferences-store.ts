@@ -137,6 +137,22 @@ export class PreferencesStore {
     this.listeners.clear();
   }
 
+  /**
+   * Undoes a `dispose()` for a store that is mounted again rather than replaced.
+   *
+   * React's development Strict Mode mounts, unmounts and remounts, while the provider keeps this
+   * instance in a `useMemo` whose dependencies did not change. Without this the store came back
+   * permanently dead: the first mount's load resolved into `if (this.disposed) return`, so the
+   * status stayed `loading`, `ensureLoaded()` (which only acts on `idle` or `error`) never asked
+   * again, and the account's preferences never arrived — skeletons forever, with no second request
+   * and nothing in the console. A status stranded that way is reset here so the next
+   * `ensureLoaded()` starts a real load.
+   */
+  reopen(): void {
+    this.disposed = false;
+    if (this.statusValue === "loading" && this.loading === null) this.statusValue = "idle";
+  }
+
   get status(): PreferencesStatus {
     return this.statusValue;
   }
