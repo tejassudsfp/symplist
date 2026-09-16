@@ -453,6 +453,8 @@ export class TaskService {
     readonly parentId?: string | null;
     readonly afterId?: string;
     readonly beforeId?: string;
+    /** Tool collection moves preserve position when the task is already top-level there. */
+    readonly collectionOnly?: boolean;
     readonly authorization?: TaskAuthorization;
     readonly fold?: TaskWriteFold;
   }): Promise<TaskWriteResult<TaskMoveResponse>> {
@@ -467,6 +469,7 @@ export class TaskService {
         planMove(state, ctx, {
           taskId: input.taskId,
           actor: sourceKind(taskSourceOf(input.actor)),
+          ...(input.collectionOnly ? { collectionOnly: true } : {}),
           ...(input.collection === undefined ? {} : { collection: input.collection }),
           ...(input.parentId === undefined ? {} : { parentId: input.parentId }),
           ...(input.afterId === undefined ? {} : { afterId: input.afterId }),
@@ -636,6 +639,10 @@ export class TaskService {
         ),
       );
     } else if (plan.lock === "none") {
+      if (plan.requires) {
+        conditions.push(plan.requires.sql);
+        Object.assign(conditionParams, plan.requires.params);
+      }
       // Nothing changes (restoring an active task), but the batch records a response, so it still
       // decides on access, the account key and the claim exactly as a write does: a relock or
       // suspension that landed after the session was cached refuses it here (§5.4, §5.5). The write
@@ -775,7 +782,8 @@ export class TaskService {
     const decision = evaluateAccess(accessStateFromRow(usersRow), "admitted", this.policy);
     if (!decision.allowed) return { kind: "refused", error: new TaskOperationError(decision.code) };
     const currentVersion = numberOf(usersRow.task_tree_version);
-    if (plan.lock === "tree" && currentVersion !== state.version) return { kind: "stale" };
+    if ((plan.lock === "tree" || plan.requires) && currentVersion !== state.version)
+      return { kind: "stale" };
     if (plan.blocking) {
       const blockedRow = rows(readsAt + 2)[0];
       if (blockedRow && Number(blockedRow.blocked) === 1) {

@@ -62,3 +62,30 @@ At the reviewed commit, the executor adapters install the native create/move/sch
 - Preserve desired assertions; do not invert them to bless the observed defects, mark them skipped, or change existing tests.
 - Keep production fixes with the parent, as requested; report the clock-refresh and durable move-receipt seams rather than expanding ownership.
 - Use deterministic fake-clock/database interleavings with real core services and no provider calls or credentials.
+
+## Resolution after delegated implementation
+
+The parent subsequently authorized this branch to fix all four findings. The initially red review evidence above is retained as the review record; the current tests now pass.
+
+- Quick-save authorization and native task/schedule authorization expose freshly generated parameter maps, so every deciding transaction and exact-replay authorization constructs its clock predicate after preliminary awaited work.
+- Native create/move fold the existing encrypted idempotency store into the task transaction, binding run id, call id, tool name and exact arguments. A replay returns the saved response, not a second move. Create argument mismatches now reject instead of falling back to the old task by stable ID.
+- Native-only receipts do not inherit the HTTP 24-hour expiry contract. Decision D2M3 records the run-lifetime receipt sentinel and deletion boundaries. No migration was needed.
+- Folded collection moves preserve a first-time no-op's task position/version, but still record the receipt under a tree-version witness. An intervening owner move before that first transaction makes the operation replan; an owner move after its confirmed effect is preserved on exact replay.
+- Test fixtures supply a generated `IDEMPOTENCY_SECRET` alongside their existing generated content KEK. No credential is read or committed.
+
+The two planning-delay regressions now inject expiry when the real tree read returns, before transaction construction. The earlier diagnostic intercepted `db.batch` after all SQL parameters had already been compiled; no application-clock refresh can retroactively change an already-constructed database request. The revised interleaving tests exactly the requested transaction-construction boundary and retains rejection/no-write assertions. The schedule case now asserts the earlier fresh-read `not_found` rejection instead of the initially hypothesized later `schedule.conflict`; it still requires zero schedule rows. No existing test assertion or timeout was relaxed.
+
+Additional regressions cover mismatched create/move arguments and cross-tool call-ID reuse, encrypted receipts, newly constructed native sessions, concurrent duplicate effects, no-op position/version preservation, no-op planning races, expiry during exact replay, replay beyond 24 hours, and receipt removal on quick close.
+
+### Exact implementation files
+
+- Simon: `native.ts`, `quick.ts` (save authorization only), `quick-delete.ts` (native receipt deletion), `review-regressions.test.ts`.
+- Outside Simon: `packages/core/src/tasks/tools.ts` (optional fold adapters), `packages/core/src/tasks/service.ts` (collection-only plan option and no-op witness), `packages/core/src/tasks/plans.ts` (guarded collection no-op), `packages/core/src/documents/test-support.ts` (generated test key family), `docs/build/decisions.md` (append-only D2M3), and this report.
+- No views, contracts, UI, provider adapters, migrations or production credentials changed.
+
+### Final verification
+
+- Focused core suites: 97 tests passed across all task tests plus native, quick lifecycle and 14 adversarial regression tests. Native receipt deletion explicitly preserves an exact owner HTTP close replay.
+- Both scripted executor/native-tool contracts: 2 passed.
+- Final lint: 1,288 files, zero errors/warnings. All 17 projects typechecked successfully.
+- No full build or browser suite was run while the visual stream was active.

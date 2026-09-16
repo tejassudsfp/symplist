@@ -5,10 +5,11 @@ import type {
   TaskScheduleToolInput,
 } from "@symplist/contracts";
 import { int } from "@symplist/db";
+import { IdempotencyStore } from "../idempotency/store.ts";
 import { type SchedulingOptions, SchedulingService } from "../scheduling/service.ts";
 import { taskScheduleTool } from "../scheduling/tools.ts";
 import type { TaskAuthorization } from "../tasks/authorization.ts";
-import { TaskService } from "../tasks/service.ts";
+import { TaskService, type TaskWriteFold } from "../tasks/service.ts";
 import { taskCreateTool, taskMoveTool } from "../tasks/tools.ts";
 import type { SimonRepository } from "./repository.ts";
 import { type ClaimedSimonRun, SimonError } from "./types.ts";
@@ -38,13 +39,56 @@ export class SimonNativeSession {
 
   authorization(): TaskAuthorization {
     const { run } = this.claim;
+    const now = this.repository.options.now;
     return {
       sql: `EXISTS (SELECT 1 FROM runs WHERE id=:task_auth_run AND owner_id=:task_auth_run_owner AND executor_generation=CAST(:task_auth_generation AS INTEGER) AND ${this.repository.runGuard().replaceAll(":now", ":task_auth_now")})`,
-      params: {
-        task_auth_run: run.id,
-        task_auth_run_owner: run.ownerId,
-        task_auth_generation: int(run.generation),
-        task_auth_now: int(this.repository.options.now()),
+      get params() {
+        return {
+          task_auth_run: run.id,
+          task_auth_run_owner: run.ownerId,
+          task_auth_generation: int(run.generation),
+          task_auth_now: int(now()),
+        };
+      },
+    };
+  }
+
+  private fold(
+    tool: "task_create" | "task_move",
+    input: unknown,
+    toolCallId: string,
+  ): TaskWriteFold {
+    const now = this.repository.options.now();
+    // Native receipts belong to the retained run, not the HTTP client's 24-hour replay window.
+    // Quick-chat deletion and account purge remove them with that authority/history.
+    const store = new IdempotencyStore({
+      ...this.repository.options,
+      ttlMs: Number.MAX_SAFE_INTEGER - now,
+    });
+    const request = {
+      scope: "simon.native.task",
+      userId: this.claim.run.ownerId,
+      key: this.callId(toolCallId),
+      input: { tool, arguments: input },
+      now,
+    };
+    const folded = store.foldedClaim(request);
+    return {
+      ...folded,
+      completion: (response, accountKey) =>
+        store.completeStatement({
+          claim: folded.claim,
+          response,
+          accountKey,
+          now: this.repository.options.now(),
+        }),
+      decide: (results, accountKey, offset) => {
+        const decision = store.decideFoldedClaim({ request, folded, results, accountKey, offset });
+        if (decision.kind === "mismatch") throw new SimonError("idempotency.mismatch");
+        if (decision.kind === "in_progress") throw new SimonError("idempotency.in_progress");
+        return decision.kind === "replay"
+          ? { kind: "replay", body: decision.response.body }
+          : decision;
       },
     };
   }
@@ -65,6 +109,7 @@ export class SimonNativeSession {
       arguments: input,
       taskId,
       authorization: this.authorization(),
+      fold: this.fold("task_create", input, toolCallId),
     });
   }
 
@@ -75,6 +120,7 @@ export class SimonNativeSession {
       actor: { kind: "simon" },
       arguments: input,
       authorization: this.authorization(),
+      fold: this.fold("task_move", input, toolCallId),
     });
   }
 

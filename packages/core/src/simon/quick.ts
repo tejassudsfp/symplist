@@ -116,10 +116,12 @@ export class SimonQuickChats {
         ...(taskFold ? { fold: taskFold } : {}),
         authorization: {
           sql: `EXISTS (SELECT 1 FROM conversations WHERE id=:task_auth_conversation AND owner_id=:task_auth_quick_owner AND ((kind='quick' AND active_run_id IS NULL AND expires_at>CAST(:task_auth_now AS INTEGER)) OR (kind='task' AND task_id=:task_auth_conversation)))`,
-          params: {
-            task_auth_conversation: conversationId,
-            task_auth_quick_owner: ownerId,
-            task_auth_now: int(repo.options.now()),
+          get params() {
+            return {
+              task_auth_conversation: conversationId,
+              task_auth_quick_owner: ownerId,
+              task_auth_now: int(repo.options.now()),
+            };
           },
         },
         attach: (context) => [
