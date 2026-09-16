@@ -1,5 +1,6 @@
 import {
   cleanupHourly,
+  cleanupSharedFeatures,
   ReminderScanner,
   reminderPayloadFactory,
   SchedulingService,
@@ -48,13 +49,17 @@ export async function runScheduledWork(
       {
         ...options,
         quickChatTtlHours: config.QUICK_CHAT_TTL_HOURS,
-        requeueSearch: async (db, now) => {
+        cleanupFeatureExpiries: (_input, context) =>
+          cleanupSharedFeatures(context, runtime.objects),
+        requeueSearch: async (db, now, context) => {
           for (const owner of await staleSearchOwners(db, {
             now,
             olderThanMs: SEARCH_STALE_INTENT_MS,
-            limit: 25,
-          }))
-            await enqueueSearchIndex({ tasks }, owner, now);
+            limit: 5,
+          })) {
+            if (!(await context.fence.current())) break;
+            await enqueueSearchIndex({ tasks }, owner, context.now());
+          }
         },
       },
       execution,

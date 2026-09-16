@@ -641,6 +641,18 @@ describe("session and access freshness (§5.5)", () => {
     expect((await clients.revoked.closed).code).toBe(4401);
     expect((await clients.expiring.closed).code).toBe(4401);
     expect((await clients.relocked.closed).code).toBe(4403);
+    expect(clients.revoked.frames.at(-1)).toMatchObject({
+      type: "vault.locked",
+      data: { reason: "revoked" },
+    });
+    expect(clients.expiring.frames.at(-1)).toMatchObject({
+      type: "vault.locked",
+      data: { reason: "idle" },
+    });
+    expect(clients.relocked.frames.at(-1)).toMatchObject({
+      type: "vault.locked",
+      data: { reason: "revoked" },
+    });
     await clients.locked.settle();
     expect(h.hub.socketsOfUser(locked.id)[0]?.access.suspendedAt).toBe(1);
   });
@@ -886,11 +898,20 @@ describe("session and access freshness (§5.5)", () => {
       reason: "logout",
     });
     expect((await aliceA.closed).code).toBe(4401);
+    expect(aliceA.frames.filter((frame) => frame.type === "vault.locked")).toEqual([
+      expect.objectContaining({ topic: "user", data: { reason: "logout" } }),
+    ]);
     await aliceB.settle();
     await bobClient.settle();
+    expect(aliceB.frames.some((frame) => frame.type === "vault.locked")).toBe(false);
+    expect(bobClient.frames.some((frame) => frame.type === "vault.locked")).toBe(false);
 
     await h.control.accessRestricted({ userId: alice.id, reason: "relocked", accessGeneration: 1 });
     expect((await aliceB.closed).code).toBe(4403);
+    expect(aliceB.frames.at(-1)).toMatchObject({
+      type: "vault.locked",
+      data: { reason: "revoked" },
+    });
 
     // A socket that was only at identity level stays open on suspension and is refreshed from D1.
     await h.control.accessRestricted({
@@ -911,11 +932,49 @@ describe("session and access freshness (§5.5)", () => {
       reason: "revoked",
     });
     expect((await bobClient.closed).code).toBe(4401);
+    expect(bobClient.frames.at(-1)).toMatchObject({
+      type: "vault.locked",
+      data: { reason: "revoked" },
+    });
     expect(h.app.logs.events("realtime.sessions_ended").length).toBeGreaterThan(0);
   });
 });
 
 describe("upgrades racing a post-commit hook", () => {
+  it("sends the Vault invalidation before close without releasing an in-flight user snapshot", async () => {
+    const h = await start();
+    const alice = await h.user();
+    let complete: ((value: { vaultUnlocked: boolean }) => void) | undefined;
+    h.registry.registerUserSnapshotContributor({
+      name: "test-pending-vault",
+      contribute: () =>
+        new Promise((resolve) => {
+          complete = resolve;
+        }),
+    });
+    const client = await h.connect(alice.session);
+    client.send({ t: "sub", topic: "user", cursor: null, openTasks: [] });
+    await vi.waitFor(() => expect(complete).toBeDefined());
+    await h.hub.publishToUser(alice.id, {
+      type: "tasks.changed",
+      data: { taskTreeVersion: 1, taskIds: [] },
+    });
+    await h.control.sessionsEnded({
+      userId: alice.id,
+      sessionIds: [alice.session.sessionId],
+      reason: "logout",
+    });
+    expect((await client.closed).code).toBe(4401);
+    complete?.({ vaultUnlocked: true });
+    expect(client.frames).toEqual([
+      expect.objectContaining({
+        t: "ev",
+        topic: "user",
+        type: "vault.locked",
+        data: { reason: "logout" },
+      }),
+    ]);
+  });
   it("refuses an upgrade whose session lookup was in flight when its session ended or access changed", async () => {
     const h = await start();
     const alice = await h.user();
