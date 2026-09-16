@@ -5,6 +5,11 @@
   "license": "MIT",
   "type": "module",
   "exports": {
+    "./transport": {
+      "source": "./src/transport.ts",
+      "types": "./dist/transport.d.ts",
+      "default": "./dist/transport.js"
+    },
     ".": {
       "source": "./src/index.ts",
       "types": "./dist/index.d.ts",
