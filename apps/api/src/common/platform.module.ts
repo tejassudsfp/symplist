@@ -10,6 +10,7 @@ import {
   EMAIL_TRANSPORT_OVERRIDE,
   emailProviders,
 } from "../infra/email/email.providers.ts";
+import { OTP_SERVICE, OTP_TEST_OUTBOX, otpProviders } from "../infra/email/otp.ts";
 import { DurableCounterService } from "../infra/limits/durable-counter.ts";
 import { IpFailureLimiter } from "../infra/limits/ip-failures.ts";
 import { IpThrottlerGuard, ipThrottlerProviders } from "../infra/limits/ip-throttler.ts";
@@ -126,6 +127,7 @@ export class PlatformModule {
       ...storageProviders,
       ...cryptoProviders,
       ...emailProviders,
+      ...otpProviders,
       ...analyticsProviders,
       SessionService,
       ...accessProviders,
@@ -148,7 +150,7 @@ export class PlatformModule {
       module: PlatformModule,
       global: true,
       providers,
-      exports: [...exported, ...extraTokens],
+      exports: [...exported, OTP_SERVICE, OTP_TEST_OUTBOX, ...extraTokens],
     };
   }
 }

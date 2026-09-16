@@ -4,8 +4,8 @@ import { z } from "zod";
 import { ApiError } from "../../common/errors/api-error.ts";
 import { RouteClass } from "../../common/route-classes.ts";
 import { API_CONFIG, type ApiConfig } from "../../infra/config/api-config.ts";
+import type { OtpTestOutbox } from "../../infra/email/otp.ts";
 import { OTP_TEST_OUTBOX } from "./access.tokens.ts";
-import type { OtpTestOutbox } from "./otp-test-outbox.ts";
 
 const testOtpRequestSchema = z.strictObject({
   email: emailAddressSchema,
