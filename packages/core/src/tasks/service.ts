@@ -31,6 +31,11 @@ import {
 } from "./archive.ts";
 import { archiveContributors as defaultArchiveContributors } from "./archive-contributors/index.ts";
 import type { ArchiveContributor } from "./archive-contributors/types.ts";
+import {
+  type TaskAuthorization,
+  taskAuthority,
+  validateTaskAuthorization,
+} from "./authorization.ts";
 import { TaskOperationError } from "./errors.ts";
 import { sourceKind, type TaskRecord, type TaskSource } from "./model.ts";
 import {
@@ -132,6 +137,7 @@ export interface TaskServiceOptions {
 
 interface WriteRequest<Body> {
   readonly ownerId: string;
+  readonly authorization?: TaskAuthorization;
   readonly fold?: TaskWriteFold;
   /** Task ids the plan reads, loaded even when archived. */
   readonly probe: readonly string[];
@@ -223,11 +229,17 @@ export class TaskService {
    * One task with its breadcrumb (`GET /v1/tasks/:id`). Active tasks come from the tree; archived
    * tasks are read with their ancestors in one request. Unknown and foreign tasks are `not_found`.
    */
-  async getTask(ownerId: string, taskId: string): Promise<TaskDetailResponse> {
-    const cached = this.cache?.get(ownerId);
+  async getTask(
+    ownerId: string,
+    taskId: string,
+    authorization?: TaskAuthorization,
+  ): Promise<TaskDetailResponse> {
+    validateTaskAuthorization(authorization);
+    const cached = authorization ? undefined : this.cache?.get(ownerId);
     const active = cached?.tree.get(taskId);
     if (cached && active) return this.activeDetail(cached, active);
 
+    const authority = taskAuthority(ownerId, this.policy, authorization);
     const results = await this.db.batch([
       this.accountKeys.selectStatement(ownerId),
       sql(
@@ -244,11 +256,13 @@ export class TaskService {
          ORDER BY chain.depth DESC`,
         { task: taskId, owner: ownerId },
       ),
+      { sql: `SELECT (${authority.sql}) AS allowed`, params: authority.params },
     ]);
     const keyRow = results[0]?.results[0];
     const rows = results[1]?.results ?? [];
     const own = rows.find((row) => row.id === taskId);
-    if (!keyRow || !own) throw new TaskOperationError("not_found");
+    if (!keyRow || !own || results[2]?.results[0]?.allowed !== 1)
+      throw new TaskOperationError("not_found");
     const key = this.accountKeys.unwrapRow(keyRow);
     try {
       const records = rows.map((row) => ({
@@ -384,12 +398,14 @@ export class TaskService {
     readonly placement?: TaskPlacement;
     /** A caller-chosen UUIDv7, so a retried tool call creates the task once. */
     readonly taskId?: string;
+    readonly authorization?: TaskAuthorization;
     readonly fold?: TaskWriteFold;
   }): Promise<TaskWriteResult<TaskCreateResponse>> {
     const source = taskSourceOf(input.actor);
     const taskId = input.taskId ?? uuidv7(this.now());
     return this.write({
       ownerId: input.ownerId,
+      ...(input.authorization ? { authorization: input.authorization } : {}),
       ...(input.fold ? { fold: input.fold } : {}),
       // The new id is deliberately not probed. It is never in a cached tree (it does not exist
       // yet), so probing it forced a tree read before every create with a caller-chosen id and made
@@ -433,10 +449,12 @@ export class TaskService {
     readonly parentId?: string | null;
     readonly afterId?: string;
     readonly beforeId?: string;
+    readonly authorization?: TaskAuthorization;
     readonly fold?: TaskWriteFold;
   }): Promise<TaskWriteResult<TaskMoveResponse>> {
     return this.write({
       ownerId: input.ownerId,
+      ...(input.authorization ? { authorization: input.authorization } : {}),
       ...(input.fold ? { fold: input.fold } : {}),
       probe: [input.taskId, input.parentId, input.afterId, input.beforeId].filter(
         (id): id is string => typeof id === "string",
@@ -494,6 +512,9 @@ export class TaskService {
    * ------------------------------------------------------------------------------------------- */
 
   private async write<Body>(request: WriteRequest<Body>): Promise<TaskWriteResult<Body>> {
+    validateTaskAuthorization(request.authorization);
+    if (request.fold && request.fold.claim.userId !== request.ownerId)
+      throw new TaskOperationError("not_found");
     let state: OwnerTreeState | undefined = this.cache?.get(request.ownerId);
     let fromCache = state !== undefined && this.covers(state, request.probe);
     if (!fromCache) state = undefined;
@@ -558,7 +579,7 @@ export class TaskService {
   > {
     const { ownerId, writeId, now } = ctx;
     const fold = request.fold;
-    if (plan.lock === "none" && !fold) {
+    if (plan.lock === "none" && !fold && !request.authorization) {
       return {
         kind: "applied",
         status: plan.status,
@@ -579,6 +600,10 @@ export class TaskService {
       "EXISTS (SELECT 1 FROM account_keys WHERE owner_id = :tree_owner)",
     ];
     const conditionParams: Record<string, string | readonly string[] | null | undefined> = {};
+    if (request.authorization) {
+      conditions.push(`(${request.authorization.sql})`);
+      Object.assign(conditionParams, request.authorization.params);
+    }
     if (fold) {
       conditions.push(fold.claim.guard.exists);
       Object.assign(conditionParams, fold.claim.guard.params);
@@ -672,7 +697,9 @@ export class TaskService {
         }),
       );
     }
+    const authority = taskAuthority(ownerId, this.policy, request.authorization);
     statements.push(
+      { sql: `SELECT (${authority.sql}) AS allowed`, params: authority.params },
       sql(`SELECT task_tree_version FROM users WHERE id = :owner AND task_tree_write_id = :w`, {
         owner: ownerId,
         w: writeId,
@@ -681,6 +708,16 @@ export class TaskService {
 
     const results = await this.db.batch(statements);
     const rows = (index: number): readonly DbRow[] => results[index]?.results ?? [];
+
+    // Recheck inside the deciding transaction before an exact recorded response can escape.
+    if (results.at(-2)?.results[0]?.allowed !== 1) {
+      const user = rows(readsAt + 1)[0];
+      const access = user && evaluateAccess(accessStateFromRow(user), "admitted", this.policy);
+      return {
+        kind: "refused",
+        error: new TaskOperationError(access && !access.allowed ? access.code : "not_found"),
+      };
+    }
 
     if (fold) {
       const decision = fold.decide(results, ctx.key, 0);
@@ -761,13 +798,19 @@ export class TaskService {
     error: TaskOperationError,
   ): Promise<TaskWriteResult<Body>> {
     const fold = request.fold;
-    if (!fold) throw error;
+    if (!fold) {
+      if (request.authorization) await this.authorize(request.ownerId, request.authorization);
+      throw error;
+    }
     const now = this.now();
     const ctx = { ownerId: request.ownerId, writeId: uuidv7(now) };
+    const authority = taskAuthority(request.ownerId, this.policy, request.authorization);
     const results = await this.db.batch([
       ...fold.statements,
       this.releaseStatement(fold.claim, null, ctx),
+      { sql: `SELECT (${authority.sql}) AS allowed`, params: authority.params },
     ]);
+    if (results.at(-1)?.results[0]?.allowed !== 1) throw new TaskOperationError("not_found");
     const decision = fold.decide(results, key, 0);
     if (decision.kind === "replay") return { kind: "replay", body: decision.body };
     throw error;
@@ -797,6 +840,30 @@ export class TaskService {
 
   private remember(state: OwnerTreeState): void {
     this.cache?.set(state);
+  }
+
+  /** Fresh authorization for a tool response which otherwise changes nothing. */
+  async authorize(
+    ownerId: string,
+    authorization?: TaskAuthorization,
+    expectedTreeVersion?: number,
+  ): Promise<void> {
+    const authority = taskAuthority(ownerId, this.policy, authorization);
+    const version =
+      expectedTreeVersion === undefined
+        ? sql("1 = 1")
+        : sql(
+            "EXISTS (SELECT 1 FROM users WHERE id = :owner AND task_tree_version = CAST(:version AS INTEGER))",
+            { owner: ownerId, version: int(expectedTreeVersion) },
+          );
+    const row = await this.db.first({
+      sql: `SELECT (${authority.sql}) AND (${version.sql}) AS allowed`,
+      params: [...authority.params, ...version.params],
+    });
+    if (row?.allowed !== 1) {
+      this.cache?.delete(ownerId);
+      throw new TaskOperationError("not_found");
+    }
   }
 }
 
