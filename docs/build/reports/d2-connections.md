@@ -20,6 +20,13 @@ Status: **in progress; not ready to integrate as a finished feature**. Sole writ
 - Per-user Composio session repository: durable cross-process lease; trusted active pins only;
   update on generation changes; recreate only on upstream 404; refuse stale publication after
   admission/key/generation/lease changes.
+- Metadata-only approval-edit validator with an injected pure policy: live schemas, exact owner,
+  account and generation, fresh access checks, and previews with masked Vault handles. No model,
+  session creation, tool execution or secret resolution. Primitive-schema Vault placeholders need
+  the root/Vault integration adapter; currently they fail closed.
+- OAuth client metadata foundation: DNS-vetted pinned HTTPS transport, no redirects, public-address
+  checks, five-second deadline, 10 KB response cap, exact client identity and bounded memory cache;
+  strict HTTPS redirects and loopback-only variable port matching. Not yet mounted as OAuth routes.
 
 ## Simon seam
 
@@ -50,6 +57,8 @@ used for a write. An ambiguous write is surfaced as uncertain, not silently rese
 - Full repository tests passed (including core 416, integrations 15, API 391, web 1,484,
   worker 82 and 47 script tests; nine pre-existing live skips). Production web build passed.
 - Docs link/screen check and diff whitespace check passed. No browser/e2e run attempted.
+- Follow-up focused tests: approval validation 15 passed; CIMD/redirect security 41 passed. Core
+  and API typechecks passed after the authorized Simon authorization-seam cherry-pick (7a09647).
 
 ## Adversarial findings fixed in this checkpoint
 
