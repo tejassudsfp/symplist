@@ -5,9 +5,9 @@ import {
   simonRunViewSchema,
   taskCreateResponseSchema,
 } from "@symplist/contracts";
-import { SimonRepository, SimonUserAsks } from "@symplist/core/simon";
+import { SimonApprovals, SimonRepository, SimonUserAsks } from "@symplist/core/simon";
 import { zeroize } from "@symplist/crypto";
-import { sql, uuidv7 } from "@symplist/db";
+import { int, sql, uuidv7 } from "@symplist/db";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   bootTestApp,
@@ -71,6 +71,136 @@ async function question(app: TestApp, session: TestSession) {
     zeroize(claim.key.key);
   }
 }
+
+async function approval(app: TestApp, session: TestSession) {
+  const conversationId = await quick(app, session);
+  const sent = await post(app, session, `/v1/conversations/${conversationId}/messages`, {
+    text: "Please send",
+  });
+  const runId = simonMessageAcceptedSchema.parse(sent.json()).runId;
+  const repository = app.app.get(SimonRepository);
+  const claim = await repository.claim(runId ?? "", "local");
+  if (!claim) throw new Error("Expected claim");
+  const connectionId = uuidv7();
+  await app.db.run(
+    sql(
+      `INSERT INTO connections (id, owner_id, toolkit, connected_account_id,
+    status, confirmed_at, created_at, updated_at, write_id)
+    VALUES (:id, :owner, 'gmail', 'ca_http', 'active', :now, :now, :now, :id)`,
+      { id: connectionId, owner: session.userId, now: int(app.clock.now()) },
+    ),
+  );
+  try {
+    const approvals = new SimonApprovals(repository);
+    const id = await approvals.pause(
+      claim.run,
+      claim.key,
+      {
+        toolCallId: "send_1",
+        toolSlug: "GMAIL_SEND_EMAIL",
+        connection: {
+          id: connectionId,
+          ownerId: session.userId,
+          toolkit: "gmail",
+          connectedAccountId: "ca_http",
+          generation: 1,
+        },
+        arguments: { body: "approval-http-private-marker" },
+        preview: { body: "approval-http-private-marker" },
+        policyVersion: "test.1",
+      },
+      { text: "Review the send", steps: 1 },
+    );
+    return { id, conversationId, runId, view: await approvals.load(session.userId, id) };
+  } finally {
+    zeroize(claim.key.key);
+  }
+}
+
+describe("Simon approval HTTP decisions", () => {
+  it("refuses a revoked session even if its ordinary read cache is warm", async () => {
+    const app = await boot();
+    const { session } = await app.createSignedInUser();
+    const { id, view } = await approval(app, session);
+    expect((await app.get(`/v1/approvals/${id}`, { session })).status).toBe(200);
+    await app.db.run(
+      sql("UPDATE auth_sessions SET revoked_at = :now WHERE user_id = :owner", {
+        owner: session.userId,
+        now: int(app.clock.now()),
+      }),
+    );
+    const result = await post(app, session, `/v1/approvals/${id}/decision`, {
+      decision: "approve",
+      argDigest: view.argDigest,
+    });
+    expect(result.status).toBe(401);
+    expect(
+      (await app.db.first(sql("SELECT status FROM approvals WHERE id = :id", { id })))?.status,
+    ).toBe("pending");
+    expect(await app.db.all(sql("SELECT id FROM runs"))).toHaveLength(1);
+  });
+  it.each(["approve", "deny", "dismiss"] as const)(
+    "records and replays %s exactly once",
+    async (decision) => {
+      const app = await boot();
+      const { session } = await app.createSignedInUser();
+      const { id, view, conversationId } = await approval(app, session);
+      const read = await app.get(`/v1/approvals/${id}`, { session });
+      expect(read.status).toBe(200);
+      expect(read.json()).toMatchObject({
+        id,
+        status: "pending",
+        arguments: { body: "approval-http-private-marker" },
+      });
+      const chat = await post(app, session, `/v1/conversations/${conversationId}/messages`, {
+        text: "yes approve",
+      });
+      expect(simonMessageAcceptedSchema.parse(chat.json()).status).toBe("queued");
+      const decisionKey = key();
+      const body = { decision, argDigest: view.argDigest };
+      const first = await post(app, session, `/v1/approvals/${id}/decision`, body, {
+        idempotencyKey: decisionKey,
+      });
+      expect(first.status, first.text).toBe(200);
+      expect(first.json()).toMatchObject({
+        approvalId: id,
+        status: decision === "approve" ? "approved" : decision === "deny" ? "denied" : "dismissed",
+      });
+      const replay = await post(app, session, `/v1/approvals/${id}/decision`, body, {
+        idempotencyKey: decisionKey,
+      });
+      expect(replay.status).toBe(200);
+      expect(replay.json()).toEqual(first.json());
+      const stale = await post(app, session, `/v1/approvals/${id}/decision`, body);
+      expect(stale.status).toBe(409);
+      expect(code(stale)).toBe("approval.stale");
+      expect(app.logs.lines.join("\n")).not.toContain("approval-http-private-marker");
+    },
+  );
+
+  it("enforces owner identity, CSRF, strict arguments and quick-chat expiry", async () => {
+    const app = await boot();
+    const { session } = await app.createSignedInUser();
+    const { session: stranger } = await app.createSignedInUser();
+    const { id, view } = await approval(app, session);
+    const body = { decision: "approve", argDigest: view.argDigest };
+    expect((await app.get(`/v1/approvals/${id}`, { session: stranger })).status).toBe(404);
+    expect((await post(app, stranger, `/v1/approvals/${id}/decision`, body)).status).toBe(404);
+    expect(
+      (await post(app, session, `/v1/approvals/${id}/decision`, body, { csrf: null })).status,
+    ).toBe(403);
+    expect(
+      (
+        await post(app, session, `/v1/approvals/${id}/decision`, {
+          ...body,
+          ownerId: stranger.userId,
+        })
+      ).status,
+    ).toBe(400);
+    await app.clock.advance(24 * 3_600_000);
+    expect((await app.get(`/v1/approvals/${id}`, { session })).status).toBe(404);
+  });
+});
 
 describe("Simon user questions", () => {
   it("queues an ordinary reply and answers only through the explicit idempotent endpoint", async () => {

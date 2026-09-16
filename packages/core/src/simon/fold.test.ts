@@ -1,12 +1,13 @@
 import { randomBytes } from "node:crypto";
-import { createKeyProvider, type ManagedKeyProvider } from "@symplist/crypto";
-import { sql, uuidv7 } from "@symplist/db";
+import { createKeyProvider, type ManagedKeyProvider, zeroize } from "@symplist/crypto";
+import { int, sql, uuidv7 } from "@symplist/db";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createDocumentsTestEnvironment,
   type DocumentsTestEnvironment,
 } from "../documents/test-support.ts";
 import { IdempotencyStore } from "../idempotency/store.ts";
+import { SimonApprovals } from "./approvals.ts";
 import type { SimonWriteFold } from "./fold.ts";
 import { SimonRepository } from "./repository.ts";
 import { SimonError } from "./types.ts";
@@ -70,6 +71,175 @@ function fold(
 }
 const send = (key = "first-message", body = input) =>
   repository.acceptMessage(owner, conversation, key, body, fold(key, body));
+
+async function pendingApproval() {
+  const sent = await repository.acceptMessage(owner, conversation, "approval-message", input);
+  const claimed = await repository.claim(sent.runId ?? "", "local");
+  if (!claimed) throw new Error("expected claim");
+  const connectionId = uuidv7();
+  await env.db.run(
+    sql(
+      `INSERT INTO connections (id, owner_id, toolkit, connected_account_id,
+    status, confirmed_at, created_at, updated_at, write_id)
+    VALUES (:id, :owner, 'gmail', 'ca_fold', 'active', :now, :now, :now, :id)`,
+      { id: connectionId, owner, now: int(env.clock) },
+    ),
+  );
+  const approvals = new SimonApprovals(repository);
+  try {
+    const id = await approvals.pause(
+      claimed.run,
+      claimed.key,
+      {
+        toolCallId: "send_1",
+        toolSlug: "GMAIL_SEND_EMAIL",
+        connection: {
+          id: connectionId,
+          ownerId: owner,
+          toolkit: "gmail",
+          connectedAccountId: "ca_fold",
+          generation: 1,
+        },
+        arguments: { body: "private-approval-marker" },
+        preview: { body: "private-approval-marker" },
+        policyVersion: "test.1",
+      },
+      { text: "Review send", steps: 1 },
+    );
+    const view = await approvals.load(owner, id);
+    return { approvals, id, view, connectionId };
+  } finally {
+    zeroize(claimed.key.key);
+  }
+}
+
+describe("folded approval decisions", () => {
+  it.each(["approve", "deny", "dismiss"] as const)(
+    "replays %s without a second continuation",
+    async (decision) => {
+      const { approvals, id, view } = await pendingApproval();
+      const body = { decision, argDigest: view.argDigest };
+      const decide = () =>
+        approvals.decide(owner, id, body, undefined, fold("decision", body, "approvals"));
+      const batch = vi.spyOn(env.db, "batch");
+      const first = await decide();
+      expect(batch).toHaveBeenCalledTimes(2);
+      expect(await decide()).toEqual(first);
+      expect(await env.count("runs")).toBe(2);
+      expect(await env.count("idempotency_records")).toBe(1);
+      await expect(
+        approvals.decide(
+          owner,
+          id,
+          { ...body, argDigest: "a".repeat(43) },
+          undefined,
+          fold("decision", { changed: true }, "approvals"),
+        ),
+      ).rejects.toMatchObject({ code: "idempotency.mismatch" });
+    },
+  );
+  it("racing different keys have one winner and no dangling claim", async () => {
+    const { approvals, id, view } = await pendingApproval();
+    const body = { decision: "approve" as const, argDigest: view.argDigest };
+    const results = await Promise.allSettled(
+      ["a", "b", "c"].map((key) =>
+        approvals.decide(owner, id, body, undefined, fold(key, body, "approvals")),
+      ),
+    );
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(await env.count("runs")).toBe(2);
+    expect(await env.count("idempotency_records")).toBe(1);
+  });
+  it("an edited draft creates a replayable fresh review and never dispatches", async () => {
+    const { approvals, id, view } = await pendingApproval();
+    const body = {
+      decision: "approve" as const,
+      argDigest: view.argDigest,
+      editedArguments: { body: "edited-private-marker" },
+    };
+    const validator = vi.fn(
+      async ({ editedArguments }: { editedArguments: Readonly<Record<string, unknown>> }) => ({
+        arguments: editedArguments,
+        preview: editedArguments,
+        policyVersion: "test.2",
+      }),
+    );
+    const decide = () =>
+      approvals.decide(owner, id, body, validator, fold("edit", body, "approvals"));
+    const first = await decide();
+    expect(first).toMatchObject({ status: "pending", runId: view.runId });
+    expect(first.approvalId).not.toBe(id);
+    expect(await decide()).toEqual(first);
+    expect(validator).toHaveBeenCalledTimes(1);
+    expect(await env.count("runs")).toBe(1);
+    const fresh = await approvals.load(owner, first.approvalId);
+    expect(fresh.arguments).toEqual(body.editedArguments);
+    expect(fresh.argDigest).not.toBe(view.argDigest);
+    expect((await approvals.load(owner, id)).status).toBe("superseded");
+    const rows = await env.db.all(sql("SELECT arguments_enc, preview_enc FROM approvals"));
+    expect(JSON.stringify(rows)).not.toContain("private-marker");
+  });
+  it("rolls back the decision and continuation when completion fails", async () => {
+    const { approvals, id, view } = await pendingApproval();
+    const body = { decision: "approve" as const, argDigest: view.argDigest };
+    await expect(
+      approvals.decide(owner, id, body, undefined, {
+        ...fold("rollback", body, "approvals"),
+        completion: () => sql("UPDATE missing_table SET value = 1 WHERE 1 = 1"),
+      }),
+    ).rejects.toThrow();
+    expect((await approvals.load(owner, id)).status).toBe("pending");
+    expect(await env.count("runs")).toBe(1);
+    expect(await env.count("idempotency_records")).toBe(0);
+  });
+  it.each(["shred", "disconnect", "reconnect"])(
+    "refuses %s between preparation and decision",
+    async (change) => {
+      const { approvals, id, view, connectionId } = await pendingApproval();
+      const batch = env.db.batch.bind(env.db);
+      vi.spyOn(env.db, "batch").mockImplementationOnce(async (...args) => {
+        const result = await batch(...args);
+        await env.db.run(
+          change === "shred"
+            ? sql("DELETE FROM account_keys WHERE owner_id = :owner", { owner })
+            : sql(
+                `UPDATE connections SET ${change === "disconnect" ? "status = 'disconnected'" : "generation = generation + 1"} WHERE id = :id`,
+                { id: connectionId },
+              ),
+        );
+        return result;
+      });
+      const body = { decision: "approve" as const, argDigest: view.argDigest };
+      await expect(
+        approvals.decide(owner, id, body, undefined, fold("race", body, "approvals")),
+      ).rejects.toThrow();
+      expect(await env.count("runs")).toBe(1);
+      expect(await env.count("idempotency_records")).toBe(0);
+      expect(
+        (await env.db.first(sql("SELECT status FROM approvals WHERE id = :id", { id })))?.status,
+      ).toBe("pending");
+    },
+  );
+  it("refuses a recorded response after owner access is revoked", async () => {
+    const { approvals, id, view } = await pendingApproval();
+    const body = { decision: "approve" as const, argDigest: view.argDigest };
+    await approvals.decide(owner, id, body, undefined, fold("replay", body, "approvals"));
+    await env.relock(owner);
+    await expect(
+      approvals.decide(owner, id, body, undefined, fold("replay", body, "approvals")),
+    ).rejects.toMatchObject({ code: "not_found" });
+  });
+  it("refuses a recorded decision after task archive", async () => {
+    const { approvals, id, view } = await pendingApproval();
+    const body = { decision: "approve" as const, argDigest: view.argDigest };
+    await approvals.decide(owner, id, body, undefined, fold("archive-replay", body, "approvals"));
+    await env.archiveTask(task);
+    await expect(
+      approvals.decide(owner, id, body, undefined, fold("archive-replay", body, "approvals")),
+    ).rejects.toMatchObject({ code: "not_found" });
+    expect(await env.count("runs")).toBe(2);
+  });
+});
 
 describe("Simon folded HTTP writes", () => {
   it("enforces an additional trusted authorization in the deciding batch and on replay", async () => {
