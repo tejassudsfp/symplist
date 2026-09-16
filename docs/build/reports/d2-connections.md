@@ -1,0 +1,80 @@
+# D2 Connections and MCP stream
+
+Status: **in progress; not ready to integrate as a finished feature**. Sole writer at
+`symplist-wt/connections`, branch `wip/d2-connections`, original base `8e26f4f`.
+
+## Implemented checkpoint
+
+- Live connector catalogue pagination, auth-capability filtering, two-minute memory cache,
+  repeated-cursor/page caps; no persistence dependency.
+- Explicit SDK credentials; SDK telemetry/version checks/file transfers disabled. Both core and
+  raw client content logging disabled and tested with the installed SDK.
+- Safe provider error boundary; per-owner discovery, schema validation, explicit confirmed-account
+  selection, generation/admission rechecks, read versus no-retry write execution, native-only
+  manage-connections result. Identity selectors are removed recursively from model input.
+- The resolved action keeps an independent server-owned copy, so changing the returned argument
+  object cannot change what executes. Stored-approval preparation is an explicit separate entry.
+- Migration 0901: connection generation, session/pin leases, connection attempts and auth-config
+  leases. No existing migration changed. Restriction expires attempts; bounded purge removes new
+  owner-scoped rows.
+- Per-user Composio session repository: durable cross-process lease; trusted active pins only;
+  update on generation changes; recreate only on upstream 404; refuse stale publication after
+  admission/key/generation/lease changes.
+
+## Simon seam
+
+`@symplist/integrations` exports `ConnectionTools(client, session, authority)` where authority is
+`{ownerId, check():Promise<boolean>, connections():Promise<ExternalConnection[]>, schema(slug)}`.
+It exposes `searchTools(query)`, `getToolSchemas(slugs)`, `resolveAction(input)`,
+`prepareStoredAction(input)` for a trusted stored approval, `executeResolved(action,{sideEffect})`
+and `manageConnections(toolkit?)`. The caller still owns deterministic approval policy, invocation
+ledger and escaped untrusted-data presentation. `readExternalToolSchema(client,slug)` normalizes
+installed SDK metadata. `ComposioSessions.use(ownerId)` in core owns session creation/pin updates.
+
+The runtime authority adapter, approval validation integration and incoming MCP surface are **not
+yet wired**. Never count these unit tests as a live Composio or executor-parity verification.
+
+## Decisions
+
+See append-only D2E.1–D2E.3: direct per-action execution for exact account selection; durable pin
+leases/generation; silence provider-owned content logs. The provider's own retry machinery is never
+used for a write. An ambiguous write is surfaced as uncertain, not silently resent.
+
+## Verification so far
+
+- Frozen install passed.
+- Lint passed over 1,155 files, zero warnings/errors.
+- All 17 project typechecks passed, including the SDK-log regression test.
+- Integrations: 15 tests passed. Core: 416 tests passed, including 9 session security/race tests.
+- Database: 164 passed; two existing credential-gated live checks skipped.
+- Full repository tests passed (including core 416, integrations 15, API 391, web 1,484,
+  worker 82 and 47 script tests; nine pre-existing live skips). Production web build passed.
+- Docs link/screen check and diff whitespace check passed. No browser/e2e run attempted.
+
+## Adversarial findings fixed in this checkpoint
+
+1. A caller could mutate a prepared action's nested arguments after schema validation. Keep a
+   private structured clone, tested by mutating the public object before execution.
+2. The SDK has two independent content-bearing loggers. Disabling telemetry alone did not disable
+   either. Both are now silent, including raw no-retry clones.
+3. An oversized response after a side effect cannot be called an ordinary validation failure;
+   it is uncertain, preserving the no-resend contract.
+4. A provider response after lease expiry or changed connection pins cannot publish its session;
+   the new session is deleted and the caller retries the ordinary session acquisition explicitly.
+
+## Remaining work
+
+Connection/auth-config lifecycle, callback identity verification, same-batch webhook dedupe and
+approval expiry, generation-fenced reconcile/local scheduler/provider purge, full HTTP and UI,
+incoming MCP grants/API keys/OAuth/CIMD/tools/client suites, secret scans, browser specs and whole
+diff review. Full feature gates remain required. Root owns progress/coverage and combined E work.
+
+## Files outside owned feature directories
+
+- `packages/db/migrations/0901_connection_lifecycle.sql`
+- `packages/core/src/access/restrict-contributors/connections.ts`
+- `packages/core/src/account/purge-contributors/connections.ts`
+- `docs/build/decisions.md`
+- This report.
+
+`packages/integrations/src/*` and `packages/core/src/connections/*` are owned by this stream.

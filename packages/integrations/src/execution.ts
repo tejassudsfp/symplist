@@ -1,0 +1,298 @@
+import { z } from "zod";
+import type { ComposioExecutionClient, ComposioSession } from "./client.ts";
+import { IntegrationError, normalizeIntegrationError } from "./errors.ts";
+
+export interface ExternalConnection {
+  readonly id: string;
+  readonly ownerId: string;
+  readonly toolkit: string;
+  readonly connectedAccountId: string;
+  readonly generation: number;
+}
+
+export interface ExternalToolSchema {
+  readonly slug: string;
+  readonly toolkit: string;
+  readonly description: string;
+  readonly schema: Record<string, unknown>;
+  readonly tags: { readonly readOnlyHint: boolean; readonly destructiveHint: boolean };
+}
+
+export interface ResolvedExternalAction {
+  readonly tool: ExternalToolSchema;
+  readonly connection: ExternalConnection;
+  readonly arguments: Record<string, unknown>;
+}
+
+export interface ConnectionToolAuthority {
+  readonly ownerId: string;
+  /** Fresh owner/access/run/generation check before every upstream operation. */
+  check(): Promise<boolean>;
+  /** Fresh, active, confirmed records only. Never upstream-inferred ownership. */
+  connections(): Promise<readonly ExternalConnection[]>;
+  /** SDK tool metadata, not a model-supplied schema or guessed toolkit prefix. */
+  schema(slug: string): Promise<ExternalToolSchema>;
+}
+
+const reserved = new Set([
+  "session_id",
+  "session",
+  "user_id",
+  "account",
+  "connected_account_id",
+  "__proto__",
+  "constructor",
+  "prototype",
+]);
+const actionSlug = /^[A-Z][A-Z0-9_]{1,127}$/;
+
+function assertAction(slug: string): void {
+  if (!actionSlug.test(slug) || slug.startsWith("COMPOSIO_")) {
+    throw new IntegrationError("integration.tool_unavailable");
+  }
+}
+
+/** Clone untrusted input, stripping identity selectors at every depth without modifying the caller. */
+export function cleanToolArguments(value: unknown): Record<string, unknown> {
+  const clone = (item: unknown, depth: number): unknown => {
+    if (depth > 16) throw new IntegrationError("integration.invalid_arguments");
+    if (item === null || typeof item === "string" || typeof item === "boolean") return item;
+    if (typeof item === "number" && Number.isFinite(item)) return item;
+    if (Array.isArray(item)) return item.map((child) => clone(child, depth + 1));
+    if (typeof item !== "object" || Object.getPrototypeOf(item) !== Object.prototype) {
+      throw new IntegrationError("integration.invalid_arguments");
+    }
+    return Object.fromEntries(
+      Object.entries(item)
+        .filter(([key]) => !reserved.has(key))
+        .map(([key, child]) => [key, clone(child, depth + 1)]),
+    );
+  };
+  if (value === null || typeof value !== "object" || Array.isArray(value))
+    throw new IntegrationError("integration.invalid_arguments");
+  const result = clone(value, 0) as Record<string, unknown>;
+  if (Buffer.byteLength(JSON.stringify(result)) > 64_000)
+    throw new IntegrationError("integration.invalid_arguments");
+  return result;
+}
+
+function boundedResult(value: Record<string, unknown>): Record<string, unknown> {
+  const encoded = JSON.stringify(value);
+  if (Buffer.byteLength(encoded) > 128_000)
+    throw new IntegrationError("integration.invalid_response");
+  return JSON.parse(encoded) as Record<string, unknown>;
+}
+
+/**
+ * Owner-bound discovery/execution. This is not an approval engine: the caller must record its
+ * approval/exemption and invocation before executeResolved. That method rechecks exact authority.
+ */
+export class ConnectionTools {
+  private readonly discovered = new Set<string>();
+  private readonly resolved = new WeakMap<ResolvedExternalAction, ResolvedExternalAction>();
+  constructor(
+    private readonly client: ComposioExecutionClient,
+    private readonly session: ComposioSession,
+    private readonly authority: ConnectionToolAuthority,
+  ) {}
+
+  async searchTools(query: string): Promise<Record<string, unknown>> {
+    if (!query.trim() || query.length > 2000)
+      throw new IntegrationError("integration.invalid_arguments");
+    const result = await this.meta("COMPOSIO_SEARCH_TOOLS", {
+      queries: [{ use_case: query }],
+      session: { id: this.session.sessionId },
+    });
+    // Only explicit provider action references enter the allowlist. Arbitrary prose never does.
+    const results = Array.isArray(result.results) ? result.results : [];
+    for (const entry of results) {
+      if (!entry || typeof entry !== "object") continue;
+      for (const key of ["primary_tool_slugs", "related_tool_slugs"] as const) {
+        const slugs: unknown = (entry as Record<string, unknown>)[key];
+        if (!Array.isArray(slugs)) continue;
+        for (const slug of slugs) {
+          if (
+            typeof slug === "string" &&
+            actionSlug.test(slug) &&
+            !slug.startsWith("COMPOSIO_") &&
+            this.discovered.size < 200
+          )
+            this.discovered.add(slug);
+        }
+      }
+    }
+    return result;
+  }
+
+  async getToolSchemas(slugs: readonly string[]): Promise<readonly ExternalToolSchema[]> {
+    if (slugs.length < 1 || slugs.length > 20)
+      throw new IntegrationError("integration.invalid_arguments");
+    for (const slug of slugs) this.requireDiscovered(slug);
+    await this.meta("COMPOSIO_GET_TOOL_SCHEMAS", {
+      tool_slugs: [...slugs],
+      session_id: this.session.sessionId,
+    });
+    const output: ExternalToolSchema[] = [];
+    for (const slug of slugs) {
+      await this.check();
+      const tool = await this.authority.schema(slug);
+      if (tool.slug !== slug) throw new IntegrationError("integration.invalid_response");
+      output.push(tool);
+    }
+    return output;
+  }
+
+  async resolveAction(input: {
+    slug: string;
+    arguments: unknown;
+    connection?: string;
+  }): Promise<ResolvedExternalAction> {
+    this.requireDiscovered(input.slug);
+    return this.prepare(input);
+  }
+
+  /** Only the continuation/edited-approval adapter calls this with arguments loaded from D1. */
+  async prepareStoredAction(input: {
+    slug: string;
+    arguments: unknown;
+    connection: string;
+  }): Promise<ResolvedExternalAction> {
+    assertAction(input.slug);
+    return this.prepare(input);
+  }
+
+  private async prepare(input: {
+    slug: string;
+    arguments: unknown;
+    connection?: string;
+  }): Promise<ResolvedExternalAction> {
+    await this.check();
+    const tool = await this.authority.schema(input.slug);
+    if (tool.slug !== input.slug) throw new IntegrationError("integration.invalid_response");
+    const args = cleanToolArguments(input.arguments);
+    try {
+      if (!z.fromJSONSchema(tool.schema).safeParse(args).success) throw new Error("invalid");
+    } catch {
+      throw new IntegrationError("integration.invalid_arguments");
+    }
+    const choices = (await this.authority.connections()).filter(
+      (connection) =>
+        connection.ownerId === this.authority.ownerId && connection.toolkit === tool.toolkit,
+    );
+    const connection = input.connection
+      ? choices.find((entry) => entry.id === input.connection)
+      : choices.length === 1
+        ? choices[0]
+        : undefined;
+    if (!connection)
+      throw new IntegrationError(
+        choices.length > 1 && !input.connection
+          ? "integration.account_selection_required"
+          : "integration.connection_required",
+      );
+    const action = Object.freeze({
+      tool,
+      connection: Object.freeze({ ...connection }),
+      arguments: structuredClone(args),
+    });
+    this.resolved.set(action, structuredClone(action));
+    return action;
+  }
+
+  async executeResolved(
+    action: ResolvedExternalAction,
+    options: { sideEffect: boolean },
+  ): Promise<Record<string, unknown>> {
+    const stored = this.resolved.get(action);
+    if (!stored) throw new IntegrationError("integration.tool_unavailable");
+    action = stored;
+    await this.check();
+    const current = (await this.authority.connections()).find(
+      (entry) => entry.id === action.connection.id,
+    );
+    if (
+      !current ||
+      current.ownerId !== this.authority.ownerId ||
+      current.generation !== action.connection.generation ||
+      current.connectedAccountId !== action.connection.connectedAccountId ||
+      current.toolkit !== action.tool.toolkit
+    )
+      throw new IntegrationError("integration.connection_required");
+    // Direct session execution carries a documented explicit account selector. A multi-execute
+    // meta call cannot guarantee its nested actions honor the top-level selector (§14.1).
+    try {
+      const result = options.sideEffect
+        ? await this.client
+            .getClient()
+            .withOptions({ maxRetries: 0 })
+            .toolRouter.session.execute(this.session.sessionId, {
+              tool_slug: action.tool.slug,
+              arguments: action.arguments,
+              account: current.connectedAccountId,
+            })
+        : await this.session.execute(action.tool.slug, action.arguments, {
+            account: current.connectedAccountId,
+          });
+      if (result.error)
+        throw new IntegrationError(
+          options.sideEffect ? "integration.uncertain" : "integration.provider_failed",
+        );
+      return boundedResult(result.data);
+    } catch (error) {
+      if (
+        options.sideEffect &&
+        error instanceof IntegrationError &&
+        error.code === "integration.invalid_response"
+      )
+        throw new IntegrationError("integration.uncertain");
+      throw normalizeIntegrationError(error, options.sideEffect);
+    }
+  }
+
+  async manageConnections(toolkit?: string) {
+    await this.check();
+    const connections = (await this.authority.connections()).filter(
+      (entry) =>
+        entry.ownerId === this.authority.ownerId && (!toolkit || entry.toolkit === toolkit),
+    );
+    return {
+      status: connections.length ? ("connected" as const) : ("connect_required" as const),
+      connections: connections.map(({ id, toolkit: slug }) => ({ id, toolkit: slug })),
+      settingsPath: "/settings/connections",
+    };
+  }
+
+  private requireDiscovered(slug: string): void {
+    assertAction(slug);
+    if (!this.discovered.has(slug)) throw new IntegrationError("integration.tool_unavailable");
+  }
+
+  private async check(): Promise<void> {
+    if (!(await this.authority.check())) throw new IntegrationError("integration.unauthorized");
+  }
+
+  private async meta(
+    slug: string,
+    args: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    await this.check();
+    try {
+      const result = await this.session.execute(slug, args);
+      if (result.error) throw new IntegrationError("integration.provider_failed");
+      // Some provider versions nest the documented meta envelope under session data.
+      const nested = result.data;
+      if (nested.successful === false || nested.error)
+        throw new IntegrationError("integration.provider_failed");
+      return boundedResult(
+        nested.successful === true &&
+          nested.data &&
+          typeof nested.data === "object" &&
+          !Array.isArray(nested.data)
+          ? (nested.data as Record<string, unknown>)
+          : nested,
+      );
+    } catch (error) {
+      throw normalizeIntegrationError(error);
+    }
+  }
+}
