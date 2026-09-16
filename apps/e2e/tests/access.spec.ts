@@ -1,7 +1,8 @@
 /// <reference lib="dom" />
 // Callbacks passed to page.evaluate run in the browser, so this spec needs the DOM types.
-import { randomBytes } from "node:crypto";
+
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -34,8 +35,7 @@ const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
 const apiEntry = join(repoRoot, "apps", "api", "dist", "main.js");
 const evidenceDir = fileURLToPath(new URL("../evidence/access/", import.meta.url));
 
-const webOrigin =
-  process.env.E2E_WEB_URL ?? `http://127.0.0.1:${process.env.E2E_WEB_PORT ?? 3000}`;
+const webOrigin = process.env.E2E_WEB_URL ?? `http://127.0.0.1:${process.env.E2E_WEB_PORT ?? 3000}`;
 const apiOrigin = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:4000";
 const adminEmail = "operator@example.test";
 
@@ -383,7 +383,9 @@ test.describe("beta access, end to end", () => {
 
     await admin.getByRole("button", { name: "Relock access" }).click();
     const relock = admin.getByRole("dialog");
-    await expect(relock).toContainText("Actions already completed outside Symplist can't be undone");
+    await expect(relock).toContainText(
+      "Actions already completed outside Symplist can't be undone",
+    );
     await relock.getByLabel("Reason").fill("End-to-end check of the relock path");
     await relock.getByRole("button", { name: "Relock access" }).click();
     await expect(admin.getByText("Access relocked.")).toBeVisible();
@@ -425,7 +427,7 @@ test.describe("beta access, end to end", () => {
     await admin.context().close();
   });
 
-  test("the profile menu signs out and returns to the email entry", async ({}, testInfo) => {
+  test("the profile menu signs out and returns to the email entry", async (_fixtures, testInfo) => {
     test.slow();
     const page = signedInMember();
     await expect(page).toHaveURL(/\/now$/);
