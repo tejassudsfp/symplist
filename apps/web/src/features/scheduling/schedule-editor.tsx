@@ -424,10 +424,14 @@ function ReminderFields({
       : value.rule.kind === "elapsed"
         ? value.rule.minutesBefore === 0
           ? "at"
-          : "hour"
+          : value.rule.minutesBefore === 60
+            ? "hour"
+            : "offset"
         : value.rule.daysBefore === 0
           ? "day"
-          : "previous";
+          : value.rule.daysBefore === 1
+            ? "previous"
+            : "days";
   return (
     <fieldset className="sym-reminder-fields">
       <legend>Reminder {index + 1}</legend>
@@ -437,6 +441,7 @@ function ReminderFields({
           value={preset}
           onChange={(e) => {
             const selected = e.target.value;
+            if (selected === "offset" || selected === "days") return;
             onChange({
               ...value,
               rule:
@@ -453,6 +458,12 @@ function ReminderFields({
           }}
         >
           <option value="custom">Custom time</option>
+          {value.rule.kind === "elapsed" && preset === "offset" ? (
+            <option value="offset">{value.rule.minutesBefore} minutes before deadline</option>
+          ) : null}
+          {value.rule.kind === "calendar" && preset === "days" ? (
+            <option value="days">{value.rule.daysBefore} days before deadline</option>
+          ) : null}
           {timed ? (
             <>
               <option value="at">At deadline</option>

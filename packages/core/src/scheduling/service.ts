@@ -262,11 +262,11 @@ export class SchedulingService {
     const operation = input.fingerprintInput ?? { task, data };
     const replay = await this.replay({ ...input, fingerprint: operation });
     if (replay) return replay;
-    const [current, preferenceState, key] = await Promise.all([
+    const [current, preferenceState] = await Promise.all([
       this.get(owner, task, input.guards),
       this.preferences(owner),
-      this.accountKeys.require(owner),
     ]);
+    const key = await this.accountKeys.require(owner);
     const now = this.options.now();
     const w = uuidv7(now);
     try {
