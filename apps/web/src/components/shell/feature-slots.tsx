@@ -5,6 +5,7 @@ import { useSession } from "@/features/access/session";
 import { ConsentBanner } from "@/features/analytics/consent-banner";
 import { DocumentPane } from "@/features/documents/document-pane";
 import { NotificationControl } from "@/features/scheduling/notification-control";
+import { SchedulingProvider } from "@/features/scheduling/provider";
 import { CommandPalette } from "@/features/search/command-palette";
 import { ChatPane } from "@/features/simon/chat-pane";
 import { QuickChatLauncher } from "@/features/simon/quick-chat";
@@ -26,15 +27,17 @@ export function FeatureSlots({ children }: { children: ReactNode }) {
   const { status, user } = useSession();
   return (
     <WorkspaceProvider userId={user?.id ?? null}>
-      <MountedSlots
-        identity={
-          status === "signed_in" && user
-            ? { displayName: user.displayName, email: user.email, isAdmin: user.role === "admin" }
-            : null
-        }
-      >
-        {children}
-      </MountedSlots>
+      <SchedulingProvider key={user?.id ?? "signed-out"} userId={user?.id ?? null}>
+        <MountedSlots
+          identity={
+            status === "signed_in" && user
+              ? { displayName: user.displayName, email: user.email, isAdmin: user.role === "admin" }
+              : null
+          }
+        >
+          {children}
+        </MountedSlots>
+      </SchedulingProvider>
     </WorkspaceProvider>
   );
 }

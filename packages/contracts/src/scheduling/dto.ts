@@ -128,6 +128,7 @@ export interface SchedulingNotification {
   readonly count: number;
   readonly readAt: number | null;
   readonly taskActive: boolean;
+  readonly deadline?: SchedulingDeadline | null;
 }
 export const schedulingDefaultPreferences: SchedulingPreferences = {
   zone: "UTC",
@@ -200,6 +201,8 @@ export const schedulingPreferencesResponseSchema = z
     data: schedulingPrefsDataSchema,
     remindersEnabled: z.boolean(),
     emailEnabled: z.boolean(),
+    deliveryTracking: z.boolean().optional(),
+    addressSuppressed: z.boolean().optional(),
   })
   .strict();
 export const schedulingNotificationSchema = z
@@ -215,6 +218,7 @@ export const schedulingNotificationSchema = z
     count: z.number().int().positive(),
     readAt: z.number().int().nullable(),
     taskActive: z.boolean(),
+    deadline: schedulingDeadlineSchema.nullable().optional(),
   })
   .strict();
 export const schedulingNotificationsResponseSchema = z
