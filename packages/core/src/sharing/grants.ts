@@ -57,12 +57,17 @@ export class SharingGrants {
   async propose(actor: DocumentActor, input: SharingProposalRequest, requestId: string) {
     if (actor.kind === "mcp") throw new SharingError("document.read_only");
     const repo = this.repository;
-    const loaded = await repo.loadArtifact(actor.userId, input.artifactId, [
-      sql("SELECT * FROM share_approvals WHERE owner_id = :owner AND request_id = :request", {
-        owner: actor.userId,
-        request: requestId,
-      }),
-    ]);
+    const loaded = await repo.loadArtifact(
+      actor.userId,
+      input.artifactId,
+      [
+        sql("SELECT * FROM share_approvals WHERE owner_id = :owner AND request_id = :request", {
+          owner: actor.userId,
+          request: requestId,
+        }),
+      ],
+      actorGuards(actor),
+    );
     try {
       const taskId = String(loaded.row.task_id);
       authorizeActor(actor, taskId, "write");
@@ -293,12 +298,17 @@ export class SharingGrants {
     fold?: SharingFold,
   ): Promise<SharingGrant> {
     const repo = this.repository;
-    const loaded = await repo.loadArtifact(actor.userId, artifactId, [
-      sql(
-        "SELECT * FROM share_grants WHERE id = :grant AND artifact_id = :artifact AND owner_id = :owner",
-        { grant: grantId, artifact: artifactId, owner: actor.userId },
-      ),
-    ]);
+    const loaded = await repo.loadArtifact(
+      actor.userId,
+      artifactId,
+      [
+        sql(
+          "SELECT * FROM share_grants WHERE id = :grant AND artifact_id = :artifact AND owner_id = :owner",
+          { grant: grantId, artifact: artifactId, owner: actor.userId },
+        ),
+      ],
+      actorGuards(actor),
+    );
     try {
       authorizeActor(actor, String(loaded.row.task_id), "write");
       const previous = loaded.extra[0]?.results[0];
