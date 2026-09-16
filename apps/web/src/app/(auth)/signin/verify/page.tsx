@@ -1,3 +1,5 @@
+import { VerifyCode } from "@/features/access/signin/verify-code";
+
 export default function VerifyEmailPage() {
-  return <h1>Verify email</h1>;
+  return <VerifyCode />;
 }

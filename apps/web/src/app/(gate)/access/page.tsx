@@ -1,3 +1,5 @@
+import { BetaGate } from "@/features/access/gate/beta-gate";
+
 export default function BetaAccessPage() {
-  return <h1>Beta access</h1>;
+  return <BetaGate />;
 }

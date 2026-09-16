@@ -1,3 +1,5 @@
+import { OnboardingName } from "@/features/access/onboarding/name-step";
+
 export default function WelcomePage() {
-  return <h1>Welcome</h1>;
+  return <OnboardingName />;
 }
