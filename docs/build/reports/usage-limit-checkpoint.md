@@ -26,7 +26,7 @@ All trees live under `/Users/tejassuds/projects/symplist-wt/`. Do not touch the 
 | `wip/d2-connections` | Clean, pushed `ed5abf3`; agent stopped | Read final branch report; merge backend first, typecheck and account for every changed path |
 | `wip/d2-maintenance` | Clean, pushed `e61264b`; agent stopped | Read `simon-sharing-checkpoint.md` on branch; snapshot is explicitly unfinished until tests/review pass |
 | `wip/d2-connections-ui` | Clean `5341297` | Merge after Connections backend; preserve both CSS blocks and root shell/UI changes |
-| `wip/e-visual` | Clean `77f73af` | 36 populated-workspace frames inspected; two contrast fixes. Merge after root UI checkpoint |
+| `wip/e-visual` | Clean `77f73af`, merged at `92d4cbd` | 36 populated-workspace frames inspected; two contrast fixes. Merge typecheck/lint/docs pass |
 | `wip/e-d1-load` | Clean `fb6783b` | Work already integrated; retain branch backup |
 | `wip/d2-scheduling` | Clean `1792f5f` | Already integrated; retain branch backup |
 | `wip/d2-sharing` | Clean `e2b61f0` | Already integrated; retain branch backup |
