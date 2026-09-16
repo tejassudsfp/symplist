@@ -2118,3 +2118,149 @@
   gap: 4px;
   flex: none;
 }
+
+/* Connections — live service catalogue, scoped agent setup and excluded OAuth consent. */
+.sym-connections {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.sym-connections h1,
+.sym-connections h2,
+.sym-connections h3,
+.sym-connections p {
+  margin: 0;
+}
+.sym-connections h1 {
+  font-family: var(--sym-head-font);
+  font-size: 23px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+.sym-connections h2 {
+  font-family: var(--sym-head-font);
+  font-size: 16px;
+  font-weight: 600;
+}
+.sym-connections h3 {
+  font-size: 14px;
+  font-weight: 600;
+}
+.sym-connections header p,
+.sym-connection-help {
+  color: var(--sym-muted);
+  font-size: 12.5px;
+}
+.sym-connection-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.sym-connection-list > li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--sym-line);
+}
+.sym-connection-description {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.sym-connection-description strong {
+  font-weight: 500;
+}
+.sym-connection-description span {
+  color: var(--sym-muted);
+  font-size: 12.5px;
+}
+.sym-connection-mark {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--sym-line);
+  border-radius: var(--sym-r);
+  background: var(--sym-surface);
+  font-weight: 500;
+}
+.sym-connection-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.sym-connection-sheet {
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+}
+.sym-connection-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  min-width: 0;
+}
+.sym-connection-fields legend {
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.sym-connection-fields label {
+  font-size: 13.5px;
+}
+.sym-connection-fields input[type="checkbox"],
+.sym-connection-fields input[type="radio"] {
+  accent-color: var(--sym-accent);
+  margin-right: 6px;
+}
+.sym-connection-task-choices {
+  padding: 0;
+  margin: 0 0 12px;
+  list-style: none;
+  max-height: 230px;
+  overflow: auto;
+}
+.sym-connection-task-choices label {
+  display: flex;
+  align-items: start;
+  gap: 6px;
+  padding: 7px 2px;
+  overflow-wrap: anywhere;
+}
+.sym-connections select {
+  border: 1px solid var(--sym-line-strong);
+  background: var(--sym-surface);
+  color: var(--sym-text);
+  border-radius: var(--sym-r);
+  min-height: 36px;
+  padding: 4px 8px;
+}
+@media (max-width: 599px) {
+  .sym-connection-sheet {
+    width: 100vw;
+    max-width: 100vw;
+    max-height: 100dvh;
+    height: 100dvh;
+    border-radius: 0;
+  }
+  .sym-connection-list > li {
+    flex-wrap: wrap;
+  }
+  .sym-connection-description {
+    flex-basis: calc(100% - 52px);
+  }
+  .sym-connection-list > li > button {
+    margin-left: 44px;
+  }
+}

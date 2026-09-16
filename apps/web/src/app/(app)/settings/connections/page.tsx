@@ -1,3 +1,4 @@
+import { ServiceConnections } from "@/features/connections/service-connections";
 export default function ConnectionsPage() {
-  return <h1>Connections</h1>;
+  return <ServiceConnections />;
 }

@@ -1,3 +1,4 @@
+import { OAuthConsent } from "@/features/connections/oauth-consent";
 export default function AuthorizeAccessPage() {
-  return <h1>Authorize access</h1>;
+  return <OAuthConsent />;
 }
