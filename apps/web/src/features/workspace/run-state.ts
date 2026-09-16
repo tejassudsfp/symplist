@@ -27,6 +27,11 @@ export const IDLE_RUN_STATE: TaskRunState = Object.freeze({ status: "idle" });
  * Where run states come from. The workspace ships the idle source: every task reads `idle` until the
  * Simon feature supplies a source backed by `run.status` events on the user topic (§7), which it can
  * do by mounting `TaskRunStateProvider` with its own source — no workspace component changes.
+ *
+ * `TaskRunStateProvider` must be mounted **above** `WorkspaceProvider`. Rows read the source through
+ * `useTaskRunState` and would see one mounted below, but `WorkspaceProvider` reads it once to build
+ * the command layer's `runStatus`, so a source mounted inside the workspace shows the activity marker
+ * while completion still fails to ask before stopping a run.
  */
 export interface TaskRunStateSource {
   /** The current state of a task. Never throws; unknown tasks are idle. */

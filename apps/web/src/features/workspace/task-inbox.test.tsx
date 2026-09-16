@@ -2,7 +2,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/api";
 import { WorkspaceDialogs } from "./dialogs.tsx";
-import { TaskRunStateProvider, type TaskRunStateSource } from "./run-state.ts";
+import type { TaskRunStateSource } from "./run-state.ts";
 import { TaskInbox } from "./task-inbox.tsx";
 import { FakeWorkspaceApi, renderWorkspace } from "./test-support.tsx";
 
@@ -49,6 +49,18 @@ function inbox(options: Parameters<typeof renderWorkspace>[1] = {}) {
   );
 }
 
+/**
+ * The region-level failure. It cannot be found by `findByRole("alert")`: the status announcer keeps
+ * a permanently mounted assertive region, which that query matches first.
+ */
+function findInlineError(): Promise<HTMLElement> {
+  return waitFor(() => {
+    const node = document.querySelector<HTMLElement>('[data-slot="inline-error"]');
+    if (!node) throw new Error("no inline error yet");
+    return node;
+  });
+}
+
 async function loaded(api = seeded()) {
   const result = inbox({ api });
   await screen.findByText("Refresh my portfolio");
@@ -65,19 +77,28 @@ describe("the task list", () => {
   it("shows a loading state that never blocks capture", async () => {
     const api = seeded();
     inbox({ api });
-    expect(screen.getByRole("status", { name: "" })).toBeInTheDocument();
+    // The skeleton replaces only the list region, and says so politely without stealing focus.
+    expect(screen.getByText("Loading Now").closest('[role="status"]')).toHaveAttribute(
+      "aria-busy",
+      "true",
+    );
     expect(screen.getByLabelText("Add task to Now")).toBeEnabled();
     await screen.findByText("Refresh my portfolio");
+    expect(screen.queryByText("Loading Now")).not.toBeInTheDocument();
   });
 
   it("explains a failed load in place, and loads again on Try again", async () => {
     const api = seeded();
     api.fail("listTasks");
-    inbox({ api });
-    const alert = await screen.findByRole("alert");
+    const { user } = inbox({ api });
+    // The failure replaces the list region in place, as an alert, and keeps the collection's name.
+    const alert = await findInlineError();
+    expect(alert).toHaveAttribute("role", "alert");
     expect(within(alert).getByText("Couldn't load Now")).toBeInTheDocument();
-    await screen.getByRole("button", { name: "Try again" }).click();
+    expect(within(alert).getByText(/Symplist is busy/)).toBeInTheDocument();
+    await user.click(within(alert).getByRole("button", { name: "Try again" }));
     await screen.findByText("Refresh my portfolio");
+    expect(document.querySelector('[data-slot="inline-error"]')).toBeNull();
   });
 
   it("invites a first task when the list is empty, in the collection's own words", async () => {
@@ -207,13 +228,7 @@ describe("the task list", () => {
       get: (taskId) => ({ status: taskId === "outline" ? "running" : "idle" }),
       subscribe: () => () => undefined,
     };
-    const { user } = renderWorkspace(
-      <TaskRunStateProvider source={source}>
-        <TaskInbox collection="now" />
-        <WorkspaceDialogs />
-      </TaskRunStateProvider>,
-      { api },
-    );
+    const { user } = inbox({ api, runState: source });
     await screen.findByText("Send the project outline");
     expect(screen.getByText("Simon is working")).toBeInTheDocument();
 

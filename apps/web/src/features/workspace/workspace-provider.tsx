@@ -27,6 +27,7 @@ import {
   PreferencesStore,
 } from "./preferences-store.ts";
 import {
+  closeSharedRealtimeClient,
   useWorkspaceRealtime,
   type WorkspaceRealtimeSource,
   workspaceRealtimeSource,
@@ -170,10 +171,23 @@ export function WorkspaceProvider({ children, userId, api, realtime }: Workspace
     if (ancestors.length > 0) stores.ui.expandAll(ancestors.map((task) => task.id));
   }, [route?.taskId, route?.collection, stores]);
 
-  const source = useMemo(
-    () => (realtime === undefined ? workspaceRealtimeSource() : realtime),
-    [realtime],
-  );
+  /**
+   * The account is part of the identity of the socket this provider subscribes to. An in-document
+   * account change drops the shared socket *before* the new source is taken, so the previous
+   * account's connection never carries into this one (§7, decision W7) — waiting for the server's
+   * 4401 would leave it live until then. The first account of a document has nothing to close, and a
+   * caller-supplied source owns its own lifetime.
+   */
+  const socketAccount = useRef<string | null | undefined>(undefined);
+  const source = useMemo(() => {
+    if (realtime !== undefined) return realtime;
+    const account = userId ?? null;
+    if (socketAccount.current !== undefined && socketAccount.current !== account) {
+      closeSharedRealtimeClient();
+    }
+    socketAccount.current = account;
+    return workspaceRealtimeSource();
+  }, [realtime, userId]);
   useWorkspaceRealtime(
     {
       onTasksChanged: (version, taskIds) => stores.tasks.noteTreeVersion(version, taskIds),

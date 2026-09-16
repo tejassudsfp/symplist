@@ -50,6 +50,18 @@ export function workspaceRealtimeSource(): WorkspaceRealtimeSource | null {
   };
 }
 
+/**
+ * Drops the shared socket, so the next `workspaceRealtimeSource()` opens a fresh one (decision W7).
+ * An in-document account change must do this: the socket carries the *previous* account's admitted
+ * state, and a sign-out that revokes server-side would only close it with 4401 some time later. The
+ * next source builds a new client, which authenticates as whoever is signed in now.
+ */
+export function closeSharedRealtimeClient(): void {
+  const client = sharedClient;
+  sharedClient = null;
+  client?.disconnect();
+}
+
 /** Test seam: replaces the shared client so no test opens a real socket. */
 export function resetSharedRealtimeClient(client: RealtimeClient | null = null): void {
   sharedClient = client;

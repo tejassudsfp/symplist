@@ -1,10 +1,11 @@
 import { userIdSchema } from "@symplist/contracts";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import type { AnchorHTMLAttributes, ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import AppLayout from "@/app/(app)/layout";
 import { AppProviders } from "@/components/app-providers";
 import type { Session } from "@/features/access/session";
+import { FakeWorkspaceApi } from "@/features/workspace/test-support";
 
 /*
  * Where each feature seam mounts (§2.3). Every seam module is replaced by a marker, so this file keeps
@@ -17,7 +18,20 @@ const seams = vi.hoisted(() => ({
   session: { status: "loading" } as Session,
   /** Each entry is one mount, recorded by a state initializer (which never reruns on update). */
   mounts: { document: [] as string[], chat: [] as string[], palette: 0, banner: 0 },
+  /**
+   * `FeatureSlots` mounts `WorkspaceProvider` around the whole `(app)` layout, so every render here
+   * loads tasks and preferences. Without a fake behind it those fetches go nowhere in jsdom and the
+   * shell's inbox and header never leave their loading state.
+   */
+  workspaceApi: { current: null as unknown },
 }));
+
+vi.mock("@/features/workspace/api", async () => {
+  const actual = await vi.importActual<typeof import("@/features/workspace/api")>(
+    "@/features/workspace/api",
+  );
+  return { ...actual, createWorkspaceApi: () => seams.workspaceApi.current };
+});
 
 vi.mock("next/navigation", () => ({
   usePathname: () => navigation.pathname,
@@ -130,6 +144,15 @@ function seam(name: string): HTMLElement[] {
 beforeEach(() => {
   seams.session = { status: "loading" };
   seams.mounts = { document: [], chat: [], palette: 0, banner: 0 };
+  seams.workspaceApi.current = new FakeWorkspaceApi([
+    { id: taskA, title: "Refresh my portfolio" },
+    { id: taskB, title: "Send the project outline" },
+    {
+      id: "0192a000-0000-7000-8000-00000000000c",
+      title: "Plan a quiet weekend",
+      collection: "later",
+    },
+  ]);
 });
 
 describe("feature seams in the app shell", () => {
@@ -196,5 +219,37 @@ describe("feature seams in the app shell", () => {
     expect(seams.mounts.banner).toBe(1);
     expect(within(slot("command-palette")).getByText("Command palette")).toBeInTheDocument();
     expect(within(slot("consent-banner")).getByText("Consent banner")).toBeInTheDocument();
+  });
+
+  /*
+   * The workspace's three shell seams (decision WS17). `FeatureSlots` mounts one `WorkspaceProvider`
+   * around the whole layout, so the list, the page header and the chat subtitle read the same stores.
+   */
+
+  it("fills the inbox slot with the route's own collection", async () => {
+    render(await appTree("/now"));
+    const inbox = await screen.findByRole("tree", { name: "Now tasks" });
+    expect(within(inbox).getByText("Refresh my portfolio")).toBeInTheDocument();
+    expect(within(inbox).queryByText("Plan a quiet weekend")).not.toBeInTheDocument();
+    // The list is inside the shell's inbox pane, which is what the keyboard actions address.
+    expect(inbox.closest('[data-pane="inbox"]')).not.toBeNull();
+  });
+
+  it("switches the inbox to the collection the address names", async () => {
+    render(await appTree("/later"));
+    const inbox = await screen.findByRole("tree", { name: "Later tasks" });
+    expect(within(inbox).getByText("Plan a quiet weekend")).toBeInTheDocument();
+    expect(within(inbox).queryByText("Refresh my portfolio")).not.toBeInTheDocument();
+  });
+
+  it("fills the task header and the chat subtitle for the open task", async () => {
+    render(await appTree(`/now/${taskA}`));
+    // The header is the page frame's own, beside the page pane — not the row in the list.
+    const header = screen.getByRole("main");
+    await waitFor(() =>
+      expect(within(header).getByLabelText("Complete Refresh my portfolio")).toBeInTheDocument(),
+    );
+    const chat = screen.getByRole("complementary", { name: "Simon" });
+    expect(within(chat).getByText("Refresh my portfolio")).toBeInTheDocument();
   });
 });

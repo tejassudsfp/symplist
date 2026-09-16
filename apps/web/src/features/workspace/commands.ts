@@ -190,6 +190,8 @@ export class TaskCommands {
       if (this.deps.openTaskId() === taskId) {
         this.deps.navigate(`/${response.collection}/${taskId}`, { replace: true });
       }
+      // The toast region is itself a polite live region, so it carries the announcement. Announcing
+      // the same sentence again would have a screen reader read the move twice.
       this.deps.toast.show({
         message: `Moved ${quoted(title)} ${describe}${withSubtasks}`,
         action: {
@@ -199,7 +201,6 @@ export class TaskCommands {
           },
         },
       });
-      this.deps.announce(`Moved ${quoted(title)} ${describe}`);
     } catch (error) {
       const failure = classifyFailure(error);
       this.deps.toast.show({
@@ -346,6 +347,7 @@ export class TaskCommands {
         archived > 1
           ? `Completed ${quoted(title)} and ${archived - 1} subtask${archived === 2 ? "" : "s"} · moved to Archive`
           : `Completed ${quoted(title)} · moved to Archive`;
+      // The toast region announces politely already; a second announcement would read it twice.
       this.deps.toast.show({
         message,
         action: {
@@ -355,9 +357,12 @@ export class TaskCommands {
           },
         },
       });
-      this.deps.announce(message);
     } catch (error) {
       if (error instanceof ApiError && error.code === "task.run_active" && !plan.stopRun) {
+        // The retry the question leads to is a different intent (`:stop`), so this key is spent.
+        // Without the release it would be held for the life of the session (nothing ever retries
+        // this scope), which is how the key map grew without bound.
+        this.release(scope);
         this.askToStopRun(taskId, title, plan.mode);
         return;
       }

@@ -111,7 +111,7 @@ export function loadFailureCopy(failure: Failure, subject: string): FailureCopy 
       };
     case "busy":
       return {
-        title: `Couldn't load ${subject} right now`,
+        title: `Couldn't load ${subject}`,
         description:
           failure.retryAfterSeconds !== undefined
             ? `Symplist is busy. Try again in ${failure.retryAfterSeconds} seconds.`

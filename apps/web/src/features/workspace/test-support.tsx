@@ -28,6 +28,7 @@ import { StatusAnnouncerProvider } from "@/components/ui/status-announcer";
 import { ToastProvider } from "@/components/ui/toast";
 import { ApiError } from "@/lib/api";
 import type { WorkspaceApi } from "./api.ts";
+import { idleRunStateSource, TaskRunStateProvider, type TaskRunStateSource } from "./run-state.ts";
 import { WorkspaceProvider } from "./workspace-provider.tsx";
 
 /*
@@ -508,6 +509,11 @@ export class FakeWorkspaceApi implements WorkspaceApi {
 export interface RenderWorkspaceOptions {
   readonly api?: FakeWorkspaceApi;
   readonly userId?: string;
+  /**
+   * A run-state source, mounted *above* `WorkspaceProvider` — the provider reads the source once, so
+   * a `TaskRunStateProvider` rendered as a child of the workspace is invisible to its commands.
+   */
+  readonly runState?: TaskRunStateSource;
 }
 
 export interface RenderWorkspaceResult extends RenderResult {
@@ -521,13 +527,18 @@ export function renderWorkspace(
   options: RenderWorkspaceOptions = {},
 ): RenderWorkspaceResult {
   const api = options.api ?? new FakeWorkspaceApi();
-  const user = userEvent.setup();
+  // `delay: null` types without a timer between keystrokes. These suites type whole sentences into
+  // a tree that re-renders on every character, and the per-key timer alone put them over vitest's
+  // timeout when the suite runs alongside the rest of the app.
+  const user = userEvent.setup({ delay: null });
   const result = render(
     <StatusAnnouncerProvider>
       <ToastProvider>
-        <WorkspaceProvider api={api} realtime={null} userId={options.userId ?? "user-1"}>
-          {node}
-        </WorkspaceProvider>
+        <TaskRunStateProvider source={options.runState ?? idleRunStateSource}>
+          <WorkspaceProvider api={api} realtime={null} userId={options.userId ?? "user-1"}>
+            {node}
+          </WorkspaceProvider>
+        </TaskRunStateProvider>
       </ToastProvider>
     </StatusAnnouncerProvider>,
   );
