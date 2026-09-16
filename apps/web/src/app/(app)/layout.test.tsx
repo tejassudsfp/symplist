@@ -1,10 +1,11 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { AnchorHTMLAttributes, ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppProviders } from "@/components/app-providers";
 import { FakeWorkspaceApi } from "@/features/workspace/test-support";
 
-const navigation = vi.hoisted(() => ({ pathname: "/now" }));
+const navigation = vi.hoisted(() => ({ pathname: "/now", push: vi.fn() }));
 
 /**
  * The `(app)` layout mounts `WorkspaceProvider` (through `FeatureSlots`) around every route, so each
@@ -36,7 +37,7 @@ vi.mock("@/features/access/api", async (importOriginal) => {
 
 vi.mock("next/navigation", () => ({
   usePathname: () => navigation.pathname,
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn(), back: vi.fn() }),
+  useRouter: () => ({ push: navigation.push, replace: vi.fn(), prefetch: vi.fn(), back: vi.fn() }),
 }));
 
 vi.mock("next/headers", () => ({
@@ -76,6 +77,7 @@ function slot(name: string): HTMLElement {
 
 beforeEach(async () => {
   navigation.pathname = "/now";
+  navigation.push.mockReset();
   workspace.api.current = new FakeWorkspaceApi([{ id: taskId, title: "Refresh my portfolio" }]);
   const { mayaMe } = await import("@/features/access/test-support");
   const { resetSharedSessionStoreForTests } = await import("@/features/access/session-runtime");
@@ -141,5 +143,51 @@ describe("the (app) layout with the feature placeholders", () => {
     await renderAppLayout("/settings/account", <h1>Account settings</h1>);
     await screen.findByRole("heading", { name: "Account settings" });
     expect(screen.queryByRole("tree", { name: "Now tasks" })).not.toBeInTheDocument();
+  });
+});
+
+/*
+ * Keyboard remapping only becomes live where the whole chain is assembled, which is here and nowhere
+ * else: the workspace feature reads the account's `keyboard` group and hands it to `FeatureSlots` as
+ * `keyboardPreferences`, `AppShell` passes it to `ActionsProvider`, and the dispatcher resolves
+ * `effectiveBindings` against it on every key event. Each half is unit-tested on its own, and each
+ * half passes with the other missing while every remap silently does nothing -- which is exactly the
+ * state the shell was in before the workspace and search features were merged. This case fails if
+ * any link in that chain is dropped.
+ */
+describe("the account's keyboard preferences through the (app) layout", () => {
+  it("runs a remapped shortcut and leaves its default binding inert", async () => {
+    const api = new FakeWorkspaceApi([{ id: taskId, title: "Refresh my portfolio" }]);
+    api.setPreference("keyboard", {
+      overrides: { "shell.go_later": "g b" },
+      singleKeyShortcuts: true,
+    });
+    workspace.api.current = api;
+    const user = userEvent.setup();
+    await renderAppLayout("/now");
+    await screen.findByRole("tree", { name: "Now tasks" });
+
+    // The preference load is a fetch of its own, so the remap becomes effective a tick after the
+    // list does; retrying the chord is what waits for it.
+    await waitFor(async () => {
+      await user.keyboard("gb");
+      expect(navigation.push).toHaveBeenCalledWith("/later");
+    });
+
+    navigation.push.mockClear();
+    await user.keyboard("gl");
+    expect(navigation.push).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the default binding when the account has no remap", async () => {
+    const user = userEvent.setup();
+    await renderAppLayout("/now");
+    await screen.findByRole("tree", { name: "Now tasks" });
+
+    await user.keyboard("gl");
+    expect(navigation.push).toHaveBeenCalledWith("/later");
+    navigation.push.mockClear();
+    await user.keyboard("gb");
+    expect(navigation.push).not.toHaveBeenCalled();
   });
 });

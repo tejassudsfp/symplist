@@ -100,7 +100,7 @@ describe("the search API calls", () => {
     ).rejects.toMatchObject({ kind: "protocol" });
   });
 
-  it("reads recent tasks from preferences and drops ones that are gone or archived", async () => {
+  it("places recent tasks from one tree page and drops ones that are gone or archived", async () => {
     const ids = [
       "0192f0a0-0000-7000-8000-000000000101",
       "0192f0a0-0000-7000-8000-000000000102",
@@ -111,27 +111,149 @@ describe("the search API calls", () => {
       if (url.pathname === "/v1/preferences/recent") {
         return { body: { group: "recent", version: 4, data: { taskIds: ids }, updatedAt: 1 } };
       }
-      const id = url.pathname.split("/").at(-1) as string;
-      if (id === ids[3]) return errorBody("not_found", 404);
-      const archived = id === ids[2];
+      // The tree holds active tasks only: the archived id (401) and the removed one (999) are
+      // simply not in it, which is how they drop out.
       return {
         body: {
-          task: {
-            id,
-            parentId: id === ids[1] ? ids[0] : null,
-            collection: "now",
-            status: archived ? "archived" : "active",
-            title: archived ? "Choose portfolio photos" : "Refresh my portfolio",
-            version: 3,
-          },
-          ancestors: id === ids[1] ? [{ id: ids[0], title: "Refresh my portfolio" }] : [],
+          collection: url.searchParams.get("collection"),
+          taskTreeVersion: 7,
+          tasks: [
+            {
+              id: ids[0],
+              parentId: null,
+              collection: "now",
+              position: "a0",
+              depth: 0,
+              title: "Refresh my portfolio",
+              preview: null,
+              source: "user",
+              version: 3,
+              childCount: 1,
+              createdAt: 1,
+              updatedAt: 2,
+            },
+            {
+              id: ids[1],
+              parentId: ids[0],
+              collection: "now",
+              position: "a1",
+              depth: 1,
+              title: "Choose portfolio photos",
+              preview: null,
+              source: "user",
+              version: 3,
+              childCount: 0,
+              createdAt: 1,
+              updatedAt: 2,
+            },
+          ],
+          nextCursor: null,
         },
       };
     });
     const recent = await api.recentTasks();
     expect(recent.map((task) => task.id)).toEqual([ids[0], ids[1]]);
     expect(recent[1]?.parentTitle).toBe("Refresh my portfolio");
-    expect(calls).toHaveLength(5);
+    // One preferences read and one tree page, not one request per recent id (§3.1).
+    expect(calls.map((call) => call.url.pathname)).toEqual([
+      "/v1/preferences/recent",
+      "/v1/tasks",
+      "/v1/tasks",
+      "/v1/tasks",
+    ]);
+    expect(calls[1]?.url.searchParams.get("collection")).toBe("now");
+  });
+
+  it("stops walking the tree the moment every recent id is placed", async () => {
+    const id = "0192f0a0-0000-7000-8000-000000000101";
+    const { api, calls } = clientWith(({ url }) => {
+      if (url.pathname === "/v1/preferences/recent") {
+        return { body: { group: "recent", version: 4, data: { taskIds: [id] }, updatedAt: 1 } };
+      }
+      return {
+        body: {
+          collection: url.searchParams.get("collection"),
+          taskTreeVersion: 7,
+          tasks: [
+            {
+              id,
+              parentId: null,
+              collection: "now",
+              position: "a0",
+              depth: 0,
+              title: "Refresh my portfolio",
+              preview: null,
+              source: "user",
+              version: 3,
+              childCount: 0,
+              createdAt: 1,
+              updatedAt: 2,
+            },
+          ],
+          nextCursor: null,
+        },
+      };
+    });
+    await expect(api.recentTasks()).resolves.toHaveLength(1);
+    expect(calls).toHaveLength(2);
+  });
+
+  it("reads no tree at all when the account has no recent tasks", async () => {
+    const { api, calls } = clientWith(() => ({
+      body: { group: "recent", version: 4, data: { taskIds: [] }, updatedAt: 1 },
+    }));
+    await expect(api.recentTasks()).resolves.toEqual([]);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("keeps the tasks one collection placed when another collection fails", async () => {
+    const ids = ["0192f0a0-0000-7000-8000-000000000101", "0192f0a0-0000-7000-8000-000000000201"];
+    const { api } = clientWith(({ url }) => {
+      if (url.pathname === "/v1/preferences/recent") {
+        return { body: { group: "recent", version: 4, data: { taskIds: ids }, updatedAt: 1 } };
+      }
+      if (url.searchParams.get("collection") !== "now") return errorBody("rate.limited", 503);
+      return {
+        body: {
+          collection: "now",
+          taskTreeVersion: 7,
+          tasks: [
+            {
+              id: ids[0],
+              parentId: null,
+              collection: "now",
+              position: "a0",
+              depth: 0,
+              title: "Refresh my portfolio",
+              preview: null,
+              source: "user",
+              version: 3,
+              childCount: 0,
+              createdAt: 1,
+              updatedAt: 2,
+            },
+          ],
+          nextCursor: null,
+        },
+      };
+    });
+    await expect(api.recentTasks()).resolves.toMatchObject([{ id: ids[0] }]);
+  });
+
+  it("raises the failure when no collection could be read at all", async () => {
+    const { api } = clientWith(({ url }) =>
+      url.pathname === "/v1/preferences/recent"
+        ? {
+            body: {
+              group: "recent",
+              version: 4,
+              data: { taskIds: ["0192f0a0-0000-7000-8000-000000000101"] },
+              updatedAt: 1,
+            },
+          }
+        : errorBody("rate.limited", 503),
+    );
+    await expect(api.recentTasks()).rejects.toBeInstanceOf(ApiError);
   });
 
   it("reports a task that is gone as null and keeps other failures", async () => {

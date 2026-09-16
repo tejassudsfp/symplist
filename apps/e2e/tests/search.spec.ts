@@ -184,6 +184,33 @@ async function stubApi(page: Page) {
         updatedAt: 1_756_724_400_000,
       });
     }
+    if (url.pathname === "/v1/tasks") {
+      // The palette places its recent tasks from the owner's tree, one bounded page per collection,
+      // rather than one `GET /v1/tasks/:id` per recent id (§3.1).
+      const collection = url.searchParams.get("collection");
+      const active = Object.values(tasks).filter(
+        (entry) => !entry.archived && entry.collection === collection,
+      );
+      return send({
+        collection,
+        taskTreeVersion: 4,
+        tasks: active.map((entry, index) => ({
+          id: entry.id,
+          parentId: entry.parent ? entry.parent.id : null,
+          collection: entry.collection,
+          position: `a${index}`,
+          depth: entry.parent ? 1 : 0,
+          title: entry.title,
+          preview: null,
+          source: "user",
+          version: 2,
+          childCount: 0,
+          createdAt: 1_756_724_400_000,
+          updatedAt: 1_756_724_400_000,
+        })),
+        nextCursor: null,
+      });
+    }
     if (url.pathname.startsWith("/v1/tasks/")) {
       const id = url.pathname.split("/").at(-1);
       const found = Object.values(tasks).find((entry) => entry.id === id);

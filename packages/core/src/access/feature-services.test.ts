@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { normalizeInviteCode } from "@symplist/contracts";
+import { inviteBatchMax, normalizeInviteCode } from "@symplist/contracts";
 import { createKeyProvider, keyFamilies, type ManagedKeyProvider } from "@symplist/crypto";
 import {
   applyMigrations,
@@ -10,7 +10,7 @@ import {
   sql,
   uuidv7,
 } from "@symplist/db";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountKeyStore } from "../account/keys.ts";
 import { AdminBootstrapService } from "./bootstrap.ts";
 import { AccessFeatureError } from "./feature-error.ts";
@@ -464,5 +464,75 @@ describe("access destinations (§5.4)", () => {
     expect(accessDestination(state({ suspendedAt: 5, betaState: "locked" }), required)).toBe(
       "paused",
     );
+  });
+});
+
+describe("the admin invite list (§3.1)", () => {
+  const policy = { betaAccessRequired: true };
+
+  /** Mints `count` invites in batches of `inviteBatchMax`, newest last. */
+  async function mint(
+    service: InviteAdminService,
+    admin: { id: string },
+    count: number,
+    label?: string,
+  ) {
+    for (let minted = 0; minted < count; minted += inviteBatchMax) {
+      clock += 1;
+      await createInvite(service, admin, {
+        count: Math.min(inviteBatchMax, count - minted),
+        ...(label === undefined ? {} : { label }),
+      });
+    }
+  }
+
+  it("costs a bounded number of D1 requests however many invites there are", async () => {
+    const admin = await createUser(db, { beta: "unlocked", role: "admin" });
+    const invites = new InviteAdminService({ db, keys, policy, now: () => clock });
+    // Past two full scan pages, and every row carries an encrypted label, so the scan has to load
+    // a key ring to decide whether it matches.
+    await mint(invites, admin, 1_200, "September cohort");
+
+    // `all` and `first` are one-statement batches, so batches are the D1 requests (§3.1).
+    const batches = vi.spyOn(db, "batch");
+    const requests = async (work: () => Promise<unknown>) => {
+      batches.mockClear();
+      await work();
+      return batches.mock.calls.length;
+    };
+
+    // A search nothing matches is the worst case: the scan never fills a page and runs to its
+    // budget. It reads the table in 500-row pages and loads one key ring for all of them; reading
+    // 200 rows at a time and loading a ring per page cost about twenty requests for this table.
+    expect(await requests(() => invites.list({ q: "nothing-matches-this" }))).toBeLessThanOrEqual(
+      5,
+    );
+    // An unfiltered page reads once and loads one key ring for it.
+    expect(await requests(() => invites.list({}))).toBeLessThanOrEqual(2);
+    // A search that does match still costs the same bound: a label only matches once it has been
+    // decrypted, so the scan cannot stop before it has read what its budget allows.
+    const matching = await invites.list({ q: "september cohort" });
+    expect(matching.items.length).toBeGreaterThan(0);
+    expect(await requests(() => invites.list({ q: "september cohort" }))).toBeLessThanOrEqual(5);
+
+    batches.mockRestore();
+  });
+
+  it("still reaches an invite past the first scan page, by hint and by encrypted label", async () => {
+    const admin = await createUser(db, { beta: "unlocked", role: "admin" });
+    const invites = new InviteAdminService({ db, keys, policy, now: () => clock });
+    clock += 1;
+    const oldest = await createInvite(invites, admin, { label: "The very first one" });
+    const wanted = oldest.invites[0];
+    await mint(invites, admin, 700);
+
+    // The wanted invite is the oldest of 701, so it sits well past the first 500-row page.
+    expect(
+      (await invites.list({ q: wanted?.hint ?? "" })).items.map((invite) => invite.id),
+    ).toEqual([wanted?.id]);
+    // A label is encrypted, so it can only match after the scan has decrypted what it read.
+    expect(
+      (await invites.list({ q: "the very first one" })).items.map((invite) => invite.id),
+    ).toEqual([wanted?.id]);
   });
 });

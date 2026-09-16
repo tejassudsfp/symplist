@@ -8,10 +8,12 @@ import {
   type SearchResponse,
   type SearchTitleResponse,
   searchCollectionSchema,
+  searchCollections,
   searchFreshnessResponseSchema,
   searchQueryMaxChars,
   searchResponseSchema,
   searchTitleResponseSchema,
+  TASK_TREE_PAGE_LIMIT,
   taskIdSchema,
 } from "@symplist/contracts";
 import { z } from "zod";
@@ -94,6 +96,23 @@ export const taskLocationResponseSchema = z.object({
   ancestors: z.array(z.object({ id: taskIdSchema, title: z.string().max(4096) })).max(64),
 });
 
+/**
+ * The workspace feature's `GET /v1/tasks` page, read with the fields search needs (§2.1). One page
+ * places many recent ids at once, where `GET /v1/tasks/:id` places exactly one.
+ */
+export const taskTreePageSchema = z.object({
+  taskTreeVersion: counterSchema,
+  tasks: z.array(
+    z.object({
+      id: taskIdSchema,
+      parentId: taskIdSchema.nullable(),
+      collection: searchCollectionSchema,
+      title: z.string().max(4096),
+    }),
+  ),
+  nextCursor: z.string().nullable(),
+});
+
 /** Where a task is now, for recent tasks and for resolving a result before opening it. */
 export interface TaskLocation {
   readonly id: string;
@@ -105,6 +124,18 @@ export interface TaskLocation {
 
 /** The most recent tasks the palette shows for an empty query. */
 export const RECENT_TASKS_SHOWN = 5;
+
+/**
+ * Tree pages one palette opening may read to place its recent tasks (§3, "never a query in a loop").
+ * The palette opens on an empty query, so this runs every time it is opened: resolving each id with
+ * its own `GET /v1/tasks/:id` cost one request per recent task, and three openings in ten seconds
+ * spent two dozen against a 2 req/s lane. A page carries `TASK_TREE_PAGE_LIMIT` (500) nodes, the
+ * walk stops the moment every id is placed, and the api serves all of them from the one owner tree
+ * it caches for 60 seconds (§3.3) — so the usual opening is a single request over a single D1 read.
+ * An id still unplaced when the budget runs out drops out of the strip, as archived and removed ones
+ * already do; that needs an account with more than 2,000 active tasks to happen at all.
+ */
+export const RECENT_TREE_PAGE_BUDGET = 4;
 
 /** The browser path that opens a task (archived tasks open from the archive, note 14). */
 export function taskHref(task: {
@@ -184,19 +215,61 @@ export function createSearchApi(client: ApiClient): SearchApi {
       });
       // A few extra ids cover recent tasks that were archived or removed since.
       const ids = entry.data.taskIds.slice(0, RECENT_TASKS_SHOWN + 3);
-      const settled = await Promise.allSettled(ids.map((id) => locateTask(id, signal)));
-      const found: TaskLocation[] = [];
+      if (ids.length === 0) return [];
+
+      const wanted = new Set(ids);
+      const placed = new Map<string, z.infer<typeof taskTreePageSchema>["tasks"][number]>();
+      let budget = RECENT_TREE_PAGE_BUDGET;
       let failure: unknown = null;
-      for (const outcome of settled) {
-        if (outcome.status === "fulfilled") {
-          // Archived and removed tasks never show as recent; archive stays an explicit choice.
-          if (outcome.value && !outcome.value.archived) found.push(outcome.value);
-        } else {
-          failure ??= outcome.reason;
-        }
+      // The tree holds active tasks only, so an archived or removed id is simply never placed:
+      // archive stays an explicit choice (note 14).
+      outer: for (const collection of searchCollections) {
+        let cursor: string | null = null;
+        do {
+          if (budget === 0 || wanted.size === 0) break outer;
+          budget -= 1;
+          let page: z.infer<typeof taskTreePageSchema>;
+          try {
+            page = await client.get("/v1/tasks", {
+              query: {
+                collection,
+                limit: TASK_TREE_PAGE_LIMIT,
+                ...(cursor === null ? {} : { cursor }),
+              },
+              schema: taskTreePageSchema,
+              ...(signal ? { signal } : {}),
+            });
+          } catch (error) {
+            // One collection failing must not lose the tasks another already placed.
+            failure ??= error;
+            continue outer;
+          }
+          for (const task of page.tasks) {
+            // Parents are kept whether or not they are recent themselves: a recent subtask names
+            // the task it sits under, and its parent is always earlier in the same pre-order walk.
+            placed.set(task.id, task);
+            wanted.delete(task.id);
+          }
+          cursor = page.nextCursor;
+        } while (cursor !== null);
+      }
+
+      const found: TaskLocation[] = [];
+      for (const id of ids) {
+        const task = placed.get(id);
+        if (!task) continue;
+        const parent = task.parentId === null ? null : (placed.get(task.parentId) ?? null);
+        found.push({
+          id: task.id,
+          title: task.title,
+          collection: task.collection,
+          archived: false,
+          parentTitle: parent?.title ?? null,
+        });
+        if (found.length === RECENT_TASKS_SHOWN) break;
       }
       if (failure !== null && found.length === 0) throw failure;
-      return found.slice(0, RECENT_TASKS_SHOWN);
+      return found;
     },
   };
 }

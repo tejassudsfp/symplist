@@ -91,6 +91,47 @@ const inviteColumns = `i.id, i.campaign_id, i.mode, i.hint, i.label_enc, i.label
   i.max_redemptions, i.expires_at, i.created_by, i.created_at, i.revoked_at, i.version,
   (SELECT COUNT(*) FROM beta_redemptions r WHERE r.invite_id = i.id) AS used`;
 
+/**
+ * Rows one admin invite search reads per request, and the most it reads in all. A search cannot be
+ * pushed into SQL — an invite's label is encrypted, so it only matches after it is decrypted — so
+ * the scan reads pages and filters them here. It used to read 200 rows at a time and load a key ring
+ * for each page, which made one search up to ten reads and ten key-ring batches: about twenty D1
+ * requests against the api's 2 req/s lane (§3.1, "never a query in a loop"). It now reads at most
+ * four pages and loads one key ring for all of them, so a search costs at most five requests
+ * whatever the table holds, and two for a table that fits in a page. Reach and order are unchanged:
+ * the scan still stops early, and every row it read is decrypted, so a label match among them keeps
+ * its place. `nextCursor` continues a scan that ran out of budget, as before.
+ */
+const INVITE_SEARCH_SCAN_PAGE = 500;
+const INVITE_SEARCH_SCAN_MAX = 2_000;
+
+/** The two forms an invite search takes: a lower-case substring, and a code or hint's last letters. */
+interface InviteSearchTerms {
+  readonly lower: string;
+  readonly letters: string;
+}
+
+function inviteSearchTerms(search: string): InviteSearchTerms {
+  const canonical = normalizeInviteCode(search);
+  let letters = canonical ? canonical.slice(-4) : search.toUpperCase().replace(/[^A-Z2-7]/g, "");
+  // A hint as displayed (`SYM-…-WXYZ`) or typed without the prefix.
+  if (!canonical && letters.startsWith("SYM") && letters.length > 3) letters = letters.slice(3);
+  return { lower: search.toLowerCase(), letters };
+}
+
+/** The half of the match that reads plain columns, so it runs before any key ring is loaded. */
+function matchesUnencrypted(
+  invite: { readonly hint: string; readonly boundEmail: string | null },
+  terms: InviteSearchTerms,
+): boolean {
+  return (
+    (terms.letters.length >= 2 &&
+      terms.letters.length <= 4 &&
+      invite.hint.includes(terms.letters)) ||
+    (invite.boundEmail?.includes(terms.lower) ?? false)
+  );
+}
+
 const statusConditions: Readonly<Record<InviteStatus, string>> = {
   revoked: "i.revoked_at IS NOT NULL",
   expired: "i.revoked_at IS NULL AND i.expires_at <= CAST(:now AS INTEGER)",
@@ -249,13 +290,16 @@ export class InviteAdminService {
     const limit = query.limit ?? pageLimitDefault;
     let cursor = decodeCursor(query.cursor);
     const search = query.q?.trim();
-    const scanPage = search ? 200 : limit + 1;
-    const maxScanned = search ? 2_000 : limit + 1;
-    const matched: AdminInvite[] = [];
+    const terms = search ? inviteSearchTerms(search) : null;
+    const scanPage = search ? INVITE_SEARCH_SCAN_PAGE : limit + 1;
+    const maxScanned = search ? INVITE_SEARCH_SCAN_MAX : limit + 1;
+    const scannedRows: DbRow[] = [];
     let scanned = 0;
     let exhausted = false;
-    let scanCursor = cursor;
-    while (matched.length <= limit && scanned < maxScanned && !exhausted) {
+    // Matches on the fields that need no key. Enough of them ends the scan: they are read in the
+    // page's own order, so a label match past the last one read cannot reach this page either.
+    let unencryptedMatches = 0;
+    while (scanned < maxScanned && !exhausted && unencryptedMatches <= limit) {
       const conditions: string[] = [];
       const params: Record<string, string | null> = {
         now: int(now),
@@ -284,47 +328,56 @@ export class InviteAdminService {
       );
       scanned += rows.length;
       if (rows.length < scanPage) exhausted = true;
-      const ring = await loadKeyRing(
-        this.options.db,
-        this.options.keys,
-        rows.map((row) => nullableTextColumn(row, "label_owner_id")),
-      );
-      try {
-        for (const row of rows) {
-          const invite = this.inviteFromRow(row, ring, now);
-          scanCursor = { t: invite.createdAt, i: invite.id };
-          if (!search || this.matches(invite, search)) {
-            matched.push(invite);
-            if (matched.length > limit) break;
-          }
+      for (const row of rows) {
+        scannedRows.push(row);
+        cursor = { t: integerColumn(row, "created_at"), i: textColumn(row, "id") };
+        if (!terms) continue;
+        if (
+          matchesUnencrypted(
+            { hint: textColumn(row, "hint"), boundEmail: nullableTextColumn(row, "bound_email") },
+            terms,
+          )
+        ) {
+          unencryptedMatches += 1;
+          if (unencryptedMatches > limit) break;
         }
-      } finally {
-        ring.dispose();
       }
-      cursor = scanCursor;
+    }
+
+    // One key ring for the whole scan, not one per page: a ring is a D1 batch of its own (§3.1).
+    const ring = await loadKeyRing(
+      this.options.db,
+      this.options.keys,
+      scannedRows.map((row) => nullableTextColumn(row, "label_owner_id")),
+    );
+    const matched: AdminInvite[] = [];
+    try {
+      for (const row of scannedRows) {
+        const invite = this.inviteFromRow(row, ring, now);
+        if (!terms || this.matches(invite, terms)) {
+          matched.push(invite);
+          if (matched.length > limit) break;
+        }
+      }
+    } finally {
+      ring.dispose();
     }
     const items = matched.slice(0, limit);
     const last = items.at(-1);
     let nextCursor: string | null = null;
     if (matched.length > limit && last) {
       nextCursor = encodeCursor({ t: last.createdAt, i: last.id });
-    } else if (!exhausted && scanCursor) {
+    } else if (!exhausted && cursor) {
       // The search budget ended before the list did: continue scanning from the last row read.
-      nextCursor = encodeCursor(scanCursor);
+      nextCursor = encodeCursor(cursor);
     }
     return { items, nextCursor };
   }
 
-  private matches(invite: AdminInvite, search: string): boolean {
-    const lower = search.toLowerCase();
-    const canonical = normalizeInviteCode(search);
-    let letters = canonical ? canonical.slice(-4) : search.toUpperCase().replace(/[^A-Z2-7]/g, "");
-    // A hint as displayed (`SYM-…-WXYZ`) or typed without the prefix.
-    if (!canonical && letters.startsWith("SYM") && letters.length > 3) letters = letters.slice(3);
+  private matches(invite: AdminInvite, terms: InviteSearchTerms): boolean {
     return (
-      (letters.length >= 2 && letters.length <= 4 && invite.hint.includes(letters)) ||
-      (invite.boundEmail?.includes(lower) ?? false) ||
-      (invite.label?.toLowerCase().includes(lower) ?? false)
+      matchesUnencrypted(invite, terms) ||
+      (invite.label?.toLowerCase().includes(terms.lower) ?? false)
     );
   }
 
