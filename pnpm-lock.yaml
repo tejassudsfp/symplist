@@ -317,6 +317,21 @@ importers:
       '@symplist/api':
         specifier: workspace:*
         version: link:../api
+      '@symplist/config':
+        specifier: workspace:*
+        version: link:../../packages/config
+      '@symplist/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@symplist/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@symplist/crypto':
+        specifier: workspace:*
+        version: link:../../packages/crypto
+      '@symplist/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@symplist/web':
         specifier: workspace:*
         version: link:../web

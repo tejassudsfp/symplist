@@ -7,7 +7,9 @@ import type { AppAction } from "@/actions/types";
 import { StatusAnnouncerProvider } from "@/components/ui/status-announcer";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppShell } from "./app-shell.tsx";
+import { collections } from "./routes.ts";
 import { type ShellSlots, ShellSlotsProvider } from "./slots.tsx";
+import { railItemSelector } from "./workspace.tsx";
 
 const navigation = vi.hoisted(() => ({
   pathname: "/now",
@@ -245,5 +247,16 @@ describe("keyboard actions through the shell", () => {
     await user.click(within(adminMenu).getByRole("menuitem", { name: "Sign out" }));
     await waitFor(() => expect(signOut).toHaveBeenCalledTimes(1));
     expect(signOut.mock.calls[0]?.[0]).toMatchObject({ source: "menu" });
+  });
+
+  it("keeps the rail items other features address as drop destinations", () => {
+    renderShell({ path: "/now" });
+    // `railItemSelector` is how the workspace's drag layer finds a collection to drop a task on
+    // (decision WS22). Renaming the markup without it is a silently dead selector, not an error.
+    for (const { id } of collections) {
+      const item = document.querySelector(railItemSelector(id));
+      expect(item, `no rail item matches ${railItemSelector(id)}`).not.toBeNull();
+      expect(item).toHaveAttribute("href", `/${id}`);
+    }
   });
 });

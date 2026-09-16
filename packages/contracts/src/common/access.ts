@@ -1,5 +1,5 @@
-import { z } from "zod";
 import { counterSchema, epochMillisSchema } from "./primitives.ts";
+import { z } from "./zod.ts";
 
 /**
  * Guard levels (§5.4): `identity` needs a live session and no deletion in progress, `admitted` adds

@@ -2,8 +2,23 @@ import { render, screen, within } from "@testing-library/react";
 import type { AnchorHTMLAttributes, ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppProviders } from "@/components/app-providers";
+import { FakeWorkspaceApi } from "@/features/workspace/test-support";
 
 const navigation = vi.hoisted(() => ({ pathname: "/now" }));
+
+/**
+ * The `(app)` layout mounts `WorkspaceProvider` (through `FeatureSlots`) around every route, so each
+ * render here loads tasks and preferences. An in-memory api stands behind them; without one the
+ * fetches go nowhere in jsdom and the shell never leaves its loading state.
+ */
+const workspace = vi.hoisted(() => ({ api: { current: null as unknown } }));
+
+vi.mock("@/features/workspace/api", async () => {
+  const actual = await vi.importActual<typeof import("@/features/workspace/api")>(
+    "@/features/workspace/api",
+  );
+  return { ...actual, createWorkspaceApi: () => workspace.api.current };
+});
 
 vi.mock("next/navigation", () => ({
   usePathname: () => navigation.pathname,
@@ -44,6 +59,7 @@ function slot(name: string): HTMLElement {
 
 beforeEach(() => {
   navigation.pathname = "/now";
+  workspace.api.current = new FakeWorkspaceApi([{ id: taskId, title: "Refresh my portfolio" }]);
 });
 
 /*
@@ -86,5 +102,19 @@ describe("the (app) layout with the feature placeholders", () => {
     expect(screen.queryByText("Nothing on this page yet")).not.toBeInTheDocument();
     slot("command-palette");
     slot("consent-banner");
+  });
+
+  it("gives the inbox pane the workspace's own list", async () => {
+    const { unmount } = await renderAppLayout("/now");
+    const inbox = await screen.findByRole("tree", { name: "Now tasks" });
+    expect(within(inbox).getByText("Refresh my portfolio")).toBeInTheDocument();
+    expect(screen.getByLabelText("Add task to Now")).toBeInTheDocument();
+    unmount();
+
+    // A route outside the collections is not the workspace, so the shell shows it on its own: the
+    // provider stays mounted (`FeatureSlots` wraps the whole group) but the panels do not.
+    await renderAppLayout("/settings/account", <h1>Account settings</h1>);
+    await screen.findByRole("heading", { name: "Account settings" });
+    expect(screen.queryByRole("tree", { name: "Now tasks" })).not.toBeInTheDocument();
   });
 });

@@ -1,0 +1,182 @@
+import type { TaskId } from "@symplist/contracts";
+import { describe, expect, it, vi } from "vitest";
+import { ApiError } from "@/lib/api";
+import { TaskStore } from "./task-store.ts";
+import { FakeWorkspaceApi } from "./test-support.tsx";
+
+function seeded() {
+  const api = new FakeWorkspaceApi([
+    { id: "portfolio", title: "Refresh my portfolio" },
+    { id: "pick", title: "Pick five projects to feature", parentId: "portfolio" },
+    { id: "outline", title: "Send the project outline" },
+    { id: "weekend", title: "Plan a quiet weekend", collection: "later" },
+  ]);
+  return { api, store: new TaskStore(api) };
+}
+
+const titles = (store: TaskStore, collection: "now" | "later" | "unclassified" = "now") =>
+  store.collection(collection).tasks.map((task) => task.title);
+
+describe("TaskStore", () => {
+  it("loads a collection once and reports its status", async () => {
+    const { store, api } = seeded();
+    expect(store.collection("now").status).toBe("idle");
+    store.ensureCollection("now");
+    store.ensureCollection("now");
+    await vi.waitFor(() => expect(store.collection("now").status).toBe("ready"));
+    expect(titles(store)).toEqual([
+      "Refresh my portfolio",
+      "Pick five projects to feature",
+      "Send the project outline",
+    ]);
+    expect(api.calls.filter((call) => call.method === "listTasks")).toHaveLength(1);
+  });
+
+  it("follows the pages of a collection the route bounds (§3 D1 budget)", async () => {
+    const { store, api } = seeded();
+    api.pageSize = 2;
+    await store.refresh("now");
+    // The list is whole even though the route answered it two nodes at a time.
+    expect(titles(store)).toEqual([
+      "Refresh my portfolio",
+      "Pick five projects to feature",
+      "Send the project outline",
+    ]);
+    const pages = api.calls.filter((call) => call.method === "listTasks");
+    expect(pages).toHaveLength(2);
+    expect(pages[0]?.detail).toMatchObject({ cursor: null });
+    expect(pages[1]?.detail).toMatchObject({ cursor: "p:2" });
+  });
+
+  it("starts a collection again when a later page reports a tree that moved", async () => {
+    const { store, api } = seeded();
+    api.pageSize = 2;
+    const pageOne = api.listTasks.bind(api);
+    let served = 0;
+    api.listTasks = async (collection, options) => {
+      const page = await pageOne(collection, options);
+      served += 1;
+      // The second page of the first walk is read against a newer tree.
+      return served === 2 ? { ...page, taskTreeVersion: page.taskTreeVersion + 1 } : page;
+    };
+    await store.refresh("now");
+    expect(titles(store)).toEqual([
+      "Refresh my portfolio",
+      "Pick five projects to feature",
+      "Send the project outline",
+    ]);
+    // Two pages for the abandoned walk, two for the one that completed.
+    expect(served).toBe(4);
+  });
+
+  it("keeps a failed load explained, and recovers on retry", async () => {
+    const { store, api } = seeded();
+    api.fail("listTasks");
+    await store.refresh("now");
+    expect(store.collection("now").status).toBe("error");
+    expect(store.collection("now").failure?.kind).toBe("busy");
+    await store.refresh("now");
+    expect(store.collection("now").status).toBe("ready");
+  });
+
+  it("shows a created task, a rename and a move at once and keeps them until the tree catches up", async () => {
+    const { store } = seeded();
+    await store.refresh("now");
+    await store.create({ title: "Book a bike tune-up", collection: "now" }, "key-create");
+    expect(titles(store)).toContain("Book a bike tune-up");
+
+    await store.rename("outline", "Send the outline", "key-rename");
+    expect(titles(store)).toContain("Send the outline");
+
+    await store.refresh("later");
+    await store.move(
+      "outline",
+      { collection: "later" },
+      { collection: "later", parentId: null },
+      "key-move",
+    );
+    expect(titles(store)).not.toContain("Send the outline");
+    expect(titles(store, "later")).toContain("Send the outline");
+  });
+
+  it("puts a task back when the write is refused", async () => {
+    const { store, api } = seeded();
+    await store.refresh("now");
+    api.fail("moveTask");
+    await expect(
+      store.move(
+        "outline",
+        { collection: "later" },
+        { collection: "later", parentId: null },
+        "key-move",
+      ),
+    ).rejects.toBeInstanceOf(ApiError);
+    expect(titles(store)).toContain("Send the project outline");
+  });
+
+  it("hides a completed task and its subtasks, and brings them back on Undo", async () => {
+    const { store } = seeded();
+    await store.refresh("now");
+    const subtree = store.collection("now").tasks.filter((task) => task.id === "portfolio");
+    const response = await store.complete(
+      "portfolio",
+      { mode: "all", stopRun: false },
+      "key-complete",
+    );
+    expect(response.archivedTaskIds).toHaveLength(2);
+    expect(titles(store)).toEqual(["Send the project outline"]);
+
+    await store.restore("portfolio", "key-restore", {
+      subtree,
+      placement: { collection: "now", parentId: null },
+    });
+    await vi.waitFor(() => expect(titles(store)).toContain("Refresh my portfolio"));
+  });
+
+  it("promotes the subtasks of a parent completed on its own", async () => {
+    const { store } = seeded();
+    await store.refresh("now");
+    await store.complete("portfolio", { mode: "parent_only", stopRun: false }, "key-parent-only");
+    await vi.waitFor(() =>
+      expect(titles(store)).toEqual(["Pick five projects to feature", "Send the project outline"]),
+    );
+  });
+
+  it("refetches the lists a newer tree version touched", async () => {
+    const { store, api } = seeded();
+    await store.refresh("now");
+    api.seed({ id: "walk", title: "Take a long walk" });
+    store.noteTreeVersion(999);
+    await vi.waitFor(() => expect(titles(store)).toContain("Take a long walk"));
+  });
+
+  it("loads a task's detail and forgets it when the task is gone", async () => {
+    const { store } = seeded();
+    await store.refreshDetail("pick");
+    expect(store.detail("pick").detail?.task.title).toBe("Pick five projects to feature");
+    expect(store.detail("pick").detail?.ancestors.map((task) => task.title)).toEqual([
+      "Refresh my portfolio",
+    ]);
+    await store.refreshDetail("01929f3e-7c1a-7b2e-9a55-3c2f1d0e9b8a" as TaskId);
+    const missing = store.detail("01929f3e-7c1a-7b2e-9a55-3c2f1d0e9b8a");
+    expect(missing.status).toBe("error");
+    expect(missing.failure?.kind).toBe("not_found");
+    expect(missing.detail).toBeNull();
+  });
+
+  it("keeps only the recently loaded details, so a reconnect is not a request per task opened", async () => {
+    const { store, api } = seeded();
+    for (let index = 0; index < 40; index += 1) {
+      api.seed({ id: `task-${index}`, title: `Task ${index}` });
+      await store.refreshDetail(`task-${index}`);
+    }
+    // The first task opened is long gone; the last is still there.
+    expect(store.detail("task-0").status).toBe("idle");
+    expect(store.detail("task-39").detail?.task.title).toBe("Task 39");
+
+    api.calls.length = 0;
+    store.refreshAll();
+    await vi.waitFor(() => expect(store.detail("task-39").status).toBe("ready"));
+    expect(api.calls.filter((call) => call.method === "getTask").length).toBeLessThanOrEqual(20);
+  });
+});

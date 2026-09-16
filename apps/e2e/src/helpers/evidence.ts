@@ -1,3 +1,5 @@
+import { copyFileSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
 import type { Locator, Page, TestInfo } from "@playwright/test";
 
 /**
@@ -20,6 +22,11 @@ export interface EvidenceOptions {
   readonly fullPage?: boolean;
   /** Regions that change between runs (clocks, relative times) to cover in the image. */
   readonly mask?: readonly Locator[];
+  /**
+   * A directory to keep the frame in as well as the run's own output, for evidence that belongs with
+   * the repository (`apps/e2e/evidence/<screen group>/`) rather than only with the CI run.
+   */
+  readonly keepIn?: string;
 }
 
 const segmentPattern = /^[a-z0-9]+(?:[-_][a-z0-9]+)*$/;
@@ -67,5 +74,9 @@ export async function captureEvidence(
     ...(options.mask === undefined ? {} : { mask: [...options.mask] }),
   });
   await testInfo.attach(fileName, { path, contentType: "image/png" });
+  if (options.keepIn !== undefined) {
+    mkdirSync(options.keepIn, { recursive: true });
+    copyFileSync(path, join(options.keepIn, fileName));
+  }
   return path;
 }

@@ -1,5 +1,5 @@
-import { z } from "zod";
 import { epochMillisSchema } from "./primitives.ts";
+import { z } from "./zod.ts";
 
 /**
  * Analytics consent on `users.analytics_consent` (§15, decision D5). Nothing loads or is stored

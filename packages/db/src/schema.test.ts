@@ -137,14 +137,17 @@ afterAll(() => {
 });
 
 describe("foundation schema (§3.4)", () => {
-  it("creates every foundation table as STRICT", async () => {
+  it("creates every foundation table, and every table any migration adds, as STRICT", async () => {
     const tables = await db.all<{ name: string; strict: number }>(
       sql(
         `SELECT name, strict FROM pragma_table_list WHERE schema = 'main' AND type = 'table' AND name NOT LIKE 'sqlite_%' AND name <> 'd1_migrations' ORDER BY name`,
       ),
     );
-    expect(tables.map((table) => table.name)).toEqual(foundationTables);
-    expect(tables.every((table) => table.strict === 1)).toBe(true);
+    const names = tables.map((table) => table.name);
+    // Feature ranges add their own tables (§3.4), so the foundation set is a subset, not the whole
+    // list; every table in the database, whoever added it, is STRICT.
+    expect(names).toEqual(expect.arrayContaining(foundationTables));
+    expect(tables.filter((table) => table.strict !== 1)).toEqual([]);
   });
 
   it("gives every mutable foundation table a write_id column", async () => {

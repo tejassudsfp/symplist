@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, type ReactNode, useContext } from "react";
+import type { KeyboardPreferences } from "@/actions/bindings";
 import type { CollectionId } from "./routes.ts";
 
 /** The signed-in person shown in the profile control, supplied by the access feature. */
@@ -10,6 +11,26 @@ export interface ShellIdentity {
   readonly isAdmin: boolean;
 }
 
+/** The desktop panel layout the workspace persists per account (§10.3, `panels` group). */
+export interface ShellPanelLayout {
+  /** Task list width in CSS pixels, or null for the theme's default. */
+  readonly inboxWidth: number | null;
+  readonly chatWidth: number | null;
+  readonly inboxCollapsed: boolean;
+  readonly chatCollapsed: boolean;
+}
+
+/**
+ * Panel persistence seam (workspace feature). The shell owns the panels; the feature owns the stored
+ * preference, so it hands the shell the account's layout once it is known and hears about changes.
+ */
+export interface ShellPanelSeam {
+  /** The account's layout, or null while it is still loading (the shell keeps its defaults). */
+  readonly layout: ShellPanelLayout | null;
+  /** Called when a panel is resized or collapsed, with the layout to store. */
+  readonly onLayoutChange: (layout: ShellPanelLayout) => void;
+}
+
 /**
  * Content features plug into the shell frame. Every slot is optional: a missing slot leaves its area
  * empty, except the task list, which shows its empty state. In the app, `FeatureSlots`
@@ -17,6 +38,14 @@ export interface ShellIdentity {
  */
 export interface ShellSlots {
   readonly identity?: ShellIdentity | null;
+  /**
+   * The account's keyboard remaps and the disable-single-key toggle (§10.2, `keyboard` group),
+   * supplied by the workspace feature; the shell hands them to the action registry so every binding,
+   * label and menu hint follows the account (note 13).
+   */
+  readonly keyboardPreferences?: KeyboardPreferences;
+  /** Desktop panel widths and collapse, persisted per account by the workspace feature. */
+  readonly panels?: ShellPanelSeam;
   /** Top bar, beside the Vault link: the Vault's lock status (vault feature). */
   readonly vaultStatus?: ReactNode;
   /** Top bar, right side: the notification control (scheduling feature). */

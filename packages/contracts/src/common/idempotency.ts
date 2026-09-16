@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "./zod.ts";
 
 /**
  * Required on every mutation with side effects (§6.1). Header names are case-insensitive; Node

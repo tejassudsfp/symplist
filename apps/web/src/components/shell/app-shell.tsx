@@ -49,7 +49,7 @@ export function AppShell({ children, actions = actionRegistry, themeId }: AppShe
   const pathname = usePathname();
   const router = useRouter();
   const { announce } = useAnnouncer();
-  const { commandPalette, consentBanner } = useShellSlots();
+  const { commandPalette, consentBanner, keyboardPreferences } = useShellSlots();
   const controllerRef = useRef<ShellController | null>(null);
 
   const route = useMemo(() => parseWorkspaceRoute(pathname), [pathname]);
@@ -82,7 +82,11 @@ export function AppShell({ children, actions = actionRegistry, themeId }: AppShe
   );
 
   return (
-    <ActionsProvider actions={actions} services={services}>
+    <ActionsProvider
+      actions={actions}
+      services={services}
+      {...(keyboardPreferences ? { preferences: keyboardPreferences } : {})}
+    >
       <div className="sym-app">
         <a className="sym-skip-link" href={`#${MAIN_ID}`} onClick={skipToContent}>
           Skip to content

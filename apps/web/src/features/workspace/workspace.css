@@ -1,0 +1,1030 @@
+/*
+ * Workspace surfaces: the task list and its rows, the task page header, the archive, and the
+ * appearance and keyboard settings. Geometry, color and type come from the active theme's tokens
+ * (`theme/css.ts`), so every theme and accent renders these without a second definition.
+ */
+
+.sym-inbox-content {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.sym-inbox-tools {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 0 8px;
+  background: var(--sym-panel);
+}
+
+.sym-quick-add {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 34px;
+  padding: 0 8px 0 10px;
+  border: 1px solid var(--sym-input-border);
+  border-radius: var(--sym-r);
+  background: var(--sym-surface);
+}
+
+.sym-quick-add:focus-within {
+  border-color: var(--sym-accent);
+  box-shadow: 0 0 0 3px var(--sym-accent-soft);
+}
+
+.sym-quick-add-input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: none;
+  background: transparent;
+}
+
+.sym-inbox-search {
+  flex: none;
+  padding-bottom: 8px;
+}
+
+.sym-search-input {
+  width: 100%;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--sym-line-strong);
+  border-radius: var(--sym-r);
+  background: var(--sym-surface);
+  outline: none;
+}
+
+.sym-search-input:focus {
+  border-color: var(--sym-accent);
+  box-shadow: 0 0 0 3px var(--sym-accent-soft);
+}
+
+.sym-inbox-note {
+  margin: 0;
+  padding: 18px 8px;
+  color: var(--sym-muted);
+  font-size: 13.5px;
+}
+
+.sym-task-tree {
+  flex: 1;
+  min-height: 0;
+}
+
+.sym-task-row {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 1px 0;
+  padding: var(--sym-row-pad) 6px;
+  border-radius: var(--sym-r);
+  cursor: default;
+}
+
+.sym-task-row:hover {
+  background: var(--sym-hover);
+}
+
+.sym-task-row[data-selected] {
+  background: var(--sym-selection);
+}
+
+.sym-task-row[data-selected]::before {
+  content: "";
+  position: absolute;
+  left: var(--sym-marker-left);
+  top: var(--sym-marker-inset);
+  bottom: var(--sym-marker-inset);
+  width: var(--sym-marker-w);
+  border-radius: var(--sym-marker-r);
+  background: var(--sym-accent);
+}
+
+.sym-task-row:focus-visible {
+  outline: 2px solid var(--sym-focus);
+  outline-offset: -2px;
+}
+
+.sym-task-row[data-dragging] {
+  opacity: 0.45;
+}
+
+.sym-task-row[data-drop-edge]::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--sym-accent);
+}
+
+.sym-task-row[data-drop-edge="before"]::after {
+  top: -1px;
+}
+
+.sym-task-row[data-drop-edge="after"]::after {
+  bottom: -1px;
+}
+
+.sym-task-twisty {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 20px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--sym-faint);
+  cursor: pointer;
+}
+
+.sym-task-twisty[data-hidden] {
+  visibility: hidden;
+}
+
+.sym-task-twisty:hover {
+  color: var(--sym-text);
+}
+
+/* The completion control is a real checkbox (never a selection control), drawn to the sample. */
+.sym-task-check {
+  position: relative;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  border: 1.5px solid var(--sym-line-strong);
+  border-radius: var(--sym-rc);
+  background: var(--sym-surface);
+  appearance: none;
+  cursor: pointer;
+}
+
+.sym-task-check::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 7px;
+  height: 4px;
+  margin: auto;
+  border: 1.8px solid transparent;
+  border-top: 0;
+  border-right: 0;
+  transform: translateY(-1px) rotate(-45deg);
+}
+
+.sym-task-check:hover:not(:disabled) {
+  border-color: var(--sym-text);
+}
+
+.sym-task-check:hover:not(:disabled)::after {
+  border-color: var(--sym-faint);
+}
+
+.sym-task-check:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.sym-task-check:focus-visible {
+  outline: 2px solid var(--sym-focus);
+  outline-offset: 2px;
+}
+
+.sym-task-check--header {
+  width: 18px;
+  height: 18px;
+  margin-top: 0;
+}
+
+.sym-task-check--header::after {
+  width: 8px;
+  height: 4.5px;
+}
+
+.sym-task-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.sym-task-title {
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+
+.sym-task-row[data-selected] .sym-task-title {
+  font-weight: 500;
+}
+
+/* An ancestor kept so a search result reads in its place in the list, without matching itself. */
+.sym-task-row[data-context] .sym-task-title {
+  color: var(--sym-muted);
+}
+
+.sym-task-preview {
+  overflow: hidden;
+  color: var(--sym-muted);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sym-task-meta,
+.sym-task-header-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px 8px;
+  color: var(--sym-muted);
+  font-size: 12px;
+}
+
+.sym-task-meta:empty,
+.sym-task-header-meta:empty {
+  display: none;
+}
+
+.sym-task-activity {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.sym-task-dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--sym-warn);
+}
+
+.sym-task-tools {
+  display: flex;
+  flex: none;
+  align-items: center;
+  visibility: hidden;
+}
+
+.sym-task-row:hover .sym-task-tools,
+.sym-task-row:focus-within .sym-task-tools,
+.sym-task-row[data-selected] .sym-task-tools {
+  visibility: visible;
+}
+
+@media (pointer: coarse) {
+  .sym-task-tools {
+    visibility: visible;
+  }
+}
+
+.sym-task-grip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 20px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--sym-faint);
+  cursor: grab;
+}
+
+.sym-task-grip:hover {
+  color: var(--sym-text);
+}
+
+.sym-task-tool {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 20px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--sym-muted);
+  cursor: pointer;
+}
+
+.sym-task-tool:hover,
+.sym-task-tool[data-popup-open] {
+  background: var(--sym-line);
+  color: var(--sym-text);
+}
+
+.sym-rename-input {
+  width: 100%;
+  margin: -2px -6px;
+  padding: 1px 5px;
+  border: 1px solid var(--sym-accent);
+  border-radius: 4px;
+  background: var(--sym-surface);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--sym-accent-soft);
+}
+
+.sym-rename-input--header {
+  max-width: 420px;
+  margin: 0;
+  font-family: var(--sym-head-font);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.sym-task-error {
+  margin: 0;
+  color: var(--sym-danger);
+  font-size: 12px;
+}
+
+/* The tree's `group` around a subtask draft: a fieldset with none of its default chrome. */
+.sym-subtask-group {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.sym-subtask-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  margin: 2px 6px;
+  padding: 0 8px 0 10px;
+  border: 1px solid var(--sym-accent);
+  border-radius: var(--sym-r);
+  background: var(--sym-surface);
+  box-shadow: 0 0 0 3px var(--sym-accent-soft);
+  font-size: 13.5px;
+}
+
+/* Drag destinations: the rail collection is outlined and named, never marked by color alone. */
+.sym-rail-item[data-drop-target] {
+  border: 1.5px dashed var(--sym-chrome-accent);
+  background: var(--sym-accent-soft);
+  color: var(--sym-text);
+}
+
+.sym-drop-label {
+  position: fixed;
+  z-index: 60;
+  padding: 5px 9px;
+  border-radius: var(--sym-r);
+  background: var(--sym-ink);
+  color: var(--sym-on-ink);
+  font-size: 12px;
+  font-weight: 500;
+  transform: translateY(-50%);
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 15%);
+}
+
+.sym-dialog-list {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--sym-text);
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+
+/* The task page header inside the shell's page frame. */
+.sym-task-header {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.sym-task-header-title {
+  flex: none;
+  max-width: 100%;
+  margin: 0;
+  overflow: hidden;
+  font-family: var(--sym-head-font);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sym-task-header-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.sym-task-chip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 8px 1px 6px;
+  border: 1px solid var(--sym-line);
+  border-radius: 999px;
+  background: var(--sym-panel);
+  font-size: 12px;
+}
+
+.sym-task-chip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--sym-faint);
+}
+
+.sym-task-parent {
+  overflow: hidden;
+  max-width: 220px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 767.98px) {
+  .sym-task-header-title {
+    font-size: 16px;
+  }
+
+  .sym-task-header-meta {
+    display: none;
+  }
+}
+
+/* ------------------------------------------------------------------------------------------------
+ * Archive (archive.md)
+ * --------------------------------------------------------------------------------------------- */
+
+.sym-archive {
+  display: grid;
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+  gap: 0;
+  height: 100%;
+  min-height: 0;
+}
+
+.sym-archive-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  padding: 18px 16px 24px;
+  overflow: auto;
+  border-right: 1px solid var(--sym-line);
+  background: var(--sym-panel);
+}
+
+.sym-archive-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.sym-archive-title {
+  margin: 0;
+  font-family: var(--sym-head-font);
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+}
+
+.sym-archive-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sym-archive-day {
+  margin: 8px 0 0;
+  color: var(--sym-muted);
+  font-family: var(--sym-font);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.sym-archive-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sym-archive-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: var(--sym-r);
+  color: var(--sym-text);
+  text-decoration: none;
+}
+
+.sym-archive-row:hover {
+  background: var(--sym-hover);
+}
+
+.sym-archive-row[aria-current] {
+  background: var(--sym-selection);
+  font-weight: 500;
+}
+
+.sym-archive-row-title {
+  overflow-wrap: anywhere;
+}
+
+.sym-archive-row-meta {
+  flex: none;
+  color: var(--sym-muted);
+  font-size: 12px;
+}
+
+.sym-archive-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  min-height: 0;
+  padding: 18px 20px 24px;
+  overflow: auto;
+}
+
+.sym-archive-detail-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sym-archive-detail-title {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--sym-head-font);
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.sym-archive-detail-meta,
+.sym-archive-note,
+.sym-archive-readonly {
+  margin: 0;
+  color: var(--sym-muted);
+  font-size: 12.5px;
+}
+
+.sym-archive-result {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--sym-line);
+  border-radius: var(--sym-r);
+  background: var(--sym-ok-soft);
+  font-size: 13px;
+}
+
+.sym-archive-panes {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 320px);
+  gap: 14px;
+  min-height: 0;
+}
+
+.sym-archive-page,
+.sym-archive-chat {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--sym-line);
+  border-radius: var(--sym-rl);
+  background: var(--sym-surface);
+}
+
+@media (max-width: 1023.98px) {
+  .sym-archive-panes {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 767.98px) {
+  .sym-archive {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sym-archive-list {
+    border-right: 0;
+  }
+
+  .sym-archive[data-detail="open"] .sym-archive-list,
+  .sym-archive[data-detail="closed"] .sym-archive-detail--empty {
+    display: none;
+  }
+}
+
+/* ------------------------------------------------------------------------------------------------
+ * Settings (settings_appearance.md, keyboard_shortcuts.md)
+ * --------------------------------------------------------------------------------------------- */
+
+.sym-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 24px 20px 60px;
+}
+
+.sym-settings-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.sym-settings-title {
+  margin: 0;
+  font-family: var(--sym-head-font);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.014em;
+}
+
+.sym-settings-intro,
+.sym-settings-hint,
+.sym-settings-note {
+  margin: 0;
+  color: var(--sym-muted);
+  font-size: 13px;
+  text-wrap: pretty;
+}
+
+.sym-settings-note {
+  padding: 8px 10px;
+  border: 1px solid var(--sym-line);
+  border-radius: var(--sym-r);
+  background: var(--sym-warn-soft);
+  color: var(--sym-text);
+}
+
+.sym-settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sym-settings-heading {
+  margin: 0;
+  font-family: var(--sym-head-font);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.sym-field-label {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.sym-theme-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.sym-theme-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  border: 1.5px solid var(--sym-line);
+  border-radius: var(--sym-rl);
+  background: var(--sym-surface);
+  cursor: pointer;
+}
+
+.sym-theme-card[data-selected] {
+  border-color: var(--sym-accent);
+  box-shadow: 0 0 0 3px var(--sym-accent-soft);
+}
+
+.sym-theme-card:has(input:focus-visible) {
+  outline: 2px solid var(--sym-focus);
+  outline-offset: 2px;
+}
+
+.sym-theme-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sym-theme-card-name {
+  font-weight: 500;
+}
+
+.sym-theme-card-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--sym-muted);
+  font-size: 12px;
+}
+
+.sym-theme-card[data-selected] .sym-theme-card-state {
+  color: var(--sym-text);
+  font-weight: 500;
+}
+
+/* The miniature workspace inside a style card: the theme's own tokens, at a small scale. */
+.sym-theme-mini {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) minmax(0, 1fr) minmax(0, 0.8fr);
+  gap: 4px;
+  height: 108px;
+  padding: 6px;
+  overflow: hidden;
+  border: var(--sym-card-border);
+  border-radius: var(--sym-rl);
+  background: var(--sym-bg);
+  color: var(--sym-text);
+  font-family: var(--sym-font);
+  font-size: 6.5px;
+  line-height: 1.5;
+}
+
+.sym-theme-mini-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding-top: 4px;
+  border-radius: var(--sym-r);
+  background: var(--sym-chrome-bg);
+}
+
+.sym-theme-mini-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--sym-line-strong);
+}
+
+.sym-theme-mini-dot[data-active="true"] {
+  background: var(--sym-chrome-accent);
+}
+
+.sym-theme-mini-list,
+.sym-theme-mini-page,
+.sym-theme-mini-chat {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 4px;
+  border: var(--sym-panel-border);
+  border-radius: var(--sym-panel-radius, var(--sym-r));
+  background: var(--sym-panel);
+}
+
+.sym-theme-mini-page {
+  background: var(--sym-sheet-bg, var(--sym-bg));
+}
+
+.sym-theme-mini-row {
+  overflow: hidden;
+  padding: 2px 3px;
+  border-radius: var(--sym-rc);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sym-theme-mini-row[data-selected="true"] {
+  background: var(--sym-selection);
+  font-weight: 500;
+}
+
+.sym-theme-mini-heading {
+  font-family: var(--sym-head-font);
+  font-size: 8px;
+  font-weight: 600;
+}
+
+.sym-theme-mini-line {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--sym-line);
+}
+
+.sym-theme-mini-line[data-short="true"] {
+  width: 60%;
+}
+
+.sym-theme-mini-button {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 1px 5px;
+  border-radius: var(--sym-r);
+  background: var(--sym-accent);
+  color: var(--sym-on-accent);
+}
+
+.sym-theme-mini-bubble {
+  padding: 2px 4px;
+  border-radius: var(--sym-bubble);
+  background: var(--sym-code-bg);
+}
+
+.sym-theme-mini-reply {
+  height: 3px;
+  width: 70%;
+  border-radius: 2px;
+  background: var(--sym-line-strong);
+}
+
+.sym-accent-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+
+.sym-accent-swatch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 4px 4px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.sym-accent-swatch[data-selected] {
+  border-color: var(--sym-line-strong);
+  background: var(--sym-hover);
+  font-weight: 500;
+}
+
+.sym-accent-swatch:has(input:focus-visible) {
+  outline: 2px solid var(--sym-focus);
+  outline-offset: 2px;
+}
+
+.sym-accent-dot {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid rgb(0 0 0 / 15%);
+}
+
+.sym-accent-custom {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sym-accent-custom-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sym-accent-input {
+  width: 140px;
+  font-family: var(--sym-mono);
+}
+
+.sym-accent-picker {
+  width: 36px;
+  height: 32px;
+  padding: 2px;
+  border: 1px solid var(--sym-line-strong);
+  border-radius: var(--sym-r);
+  background: var(--sym-surface);
+}
+
+.sym-segmented-item:has(input:focus-visible) {
+  outline: 2px solid var(--sym-focus);
+  outline-offset: -2px;
+}
+
+.sym-segmented-item[data-selected] {
+  background: var(--sym-surface);
+  color: var(--sym-text);
+  font-weight: 500;
+}
+
+.sym-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+}
+
+.sym-shortcut-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sym-shortcut-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: var(--sym-r);
+}
+
+.sym-shortcut-row:hover {
+  background: var(--sym-hover);
+}
+
+.sym-shortcut-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.sym-shortcut-note {
+  color: var(--sym-muted);
+  font-size: 12px;
+}
+
+.sym-shortcut-note[data-state="unsaved"] {
+  color: var(--sym-danger);
+}
+
+.sym-shortcut-keys {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sym-kbd-group {
+  padding: 2px 7px;
+  border: 1px solid var(--sym-line);
+  border-radius: 5px;
+  background: var(--sym-surface);
+  font-family: var(--sym-mono);
+  font-size: 11.5px;
+}
+
+.sym-shortcut-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sym-shortcut-message {
+  grid-column: 1 / -1;
+  color: var(--sym-danger);
+  font-size: 12.5px;
+}
+
+.sym-shortcut-recording {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 3px 8px;
+  border: 1px dashed var(--sym-accent);
+  border-radius: var(--sym-r);
+  background: var(--sym-accent-soft);
+  font-size: 12.5px;
+}
+
+@media (max-width: 767.98px) {
+  .sym-shortcut-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

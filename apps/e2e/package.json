@@ -12,6 +12,11 @@
     "@axe-core/playwright": "4.13.0",
     "@playwright/test": "1.63.0",
     "@symplist/api": "workspace:*",
+    "@symplist/config": "workspace:*",
+    "@symplist/contracts": "workspace:*",
+    "@symplist/core": "workspace:*",
+    "@symplist/crypto": "workspace:*",
+    "@symplist/db": "workspace:*",
     "@symplist/web": "workspace:*",
     "@types/node": "24.13.4",
     "typescript": "7.0.2"

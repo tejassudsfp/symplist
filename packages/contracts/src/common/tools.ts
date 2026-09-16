@@ -1,4 +1,4 @@
-import type { z } from "zod";
+import type { z } from "./zod.ts";
 
 /** Input and output schemas of one Simon or MCP tool (§8.7, §14.6). */
 export interface ToolContract<
