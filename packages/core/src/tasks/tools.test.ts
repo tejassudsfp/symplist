@@ -9,7 +9,7 @@ import {
   uuidv7,
   verifiedRow,
 } from "@symplist/db";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountKeyStore } from "../account/keys.ts";
 import { AccountPurgeRunner } from "../account/purge.ts";
 import { accountPurgeContributor } from "../account/purge-contributors/account.ts";
@@ -68,11 +68,139 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   db.close();
   keys.destroy();
 });
 
 describe("task_create and task_move for Simon and MCP (§8.7, §14.6)", () => {
+  it("does not claim a no-op when the task moves between detail and subtree reads", async () => {
+    const owner = await insertUser();
+    const tasks = new TaskService({
+      db,
+      keys,
+      now,
+      policy: { betaAccessRequired: true },
+      archiveContributors: [],
+    });
+    const taskId = uuidv7(clock);
+    await tasks.create({
+      ownerId: owner,
+      actor: { kind: "user" },
+      taskId,
+      title: "Concurrent move",
+      collection: "now",
+    });
+    const original = tasks.getTask.bind(tasks);
+    vi.spyOn(tasks, "getTask").mockImplementationOnce(async (...args) => {
+      const detail = await original(...args);
+      await service().move({
+        ownerId: owner,
+        actor: { kind: "user" },
+        taskId,
+        collection: "later",
+      });
+      return detail;
+    });
+    await expect(
+      taskMoveTool(tasks, {
+        ownerId: owner,
+        actor: { kind: "simon" },
+        arguments: { taskId, collection: "now" },
+        authorization: { sql: "1 = 1", params: {} },
+      }),
+    ).rejects.toMatchObject({ code: "task.conflict" });
+    expect(await db.all(sql("SELECT collection FROM tasks"))).toEqual([{ collection: "later" }]);
+  });
+  it("returns the whole no-op subtree beyond a public list page and rejects stale cache versions", async () => {
+    const owner = await insertUser();
+    const tasks = service();
+    const parent = uuidv7(clock);
+    await tasks.create({
+      ownerId: owner,
+      actor: { kind: "user" },
+      title: "Parent",
+      collection: "now",
+      taskId: parent,
+    });
+    const children: string[] = [];
+    for (let index = 0; index < 55; index++) {
+      const id = uuidv7(clock);
+      children.push(id);
+      await tasks.create({
+        ownerId: owner,
+        actor: { kind: "user" },
+        title: `Child ${index}`,
+        parentId: parent,
+        taskId: id,
+      });
+    }
+    const input = {
+      ownerId: owner,
+      actor: { kind: "simon" as const },
+      arguments: { taskId: parent, collection: "now" as const },
+    };
+    expect((await taskMoveTool(tasks, input)).movedTaskIds).toEqual([parent, ...children]);
+    const child = children[0];
+    if (!child) throw new Error("expected seeded child");
+    await service().move({
+      ownerId: owner,
+      actor: { kind: "simon" },
+      taskId: child,
+      collection: "later",
+    });
+    await expect(taskMoveTool(tasks, input)).rejects.toMatchObject({ code: "not_found" });
+    expect((await taskMoveTool(tasks, input)).movedTaskIds).toEqual([parent, ...children.slice(1)]);
+  });
+  it("refuses an already-created tool result after its grant or run is revoked", async () => {
+    const owner = await insertUser();
+    const tasks = service();
+    const input = {
+      ownerId: owner,
+      actor: { kind: "simon" as const },
+      taskId: uuidv7(clock),
+      arguments: { title: "Existing result" },
+      authorization: {
+        sql: "EXISTS (SELECT 1 FROM executor_state WHERE id = 1 AND generation = CAST(:task_auth_generation AS INTEGER))",
+        params: { task_auth_generation: "1" },
+      },
+    };
+    expect((await taskCreateTool(tasks, input)).created).toBe(true);
+    expect((await taskCreateTool(tasks, input)).created).toBe(false);
+    await db.run(sql("UPDATE executor_state SET generation = 2 WHERE id = 1"));
+    await expect(taskCreateTool(tasks, input)).rejects.toBeInstanceOf(TaskOperationError);
+    expect(await db.all(sql("SELECT COUNT(*) AS n FROM tasks"))).toEqual([{ n: 1 }]);
+  });
+
+  it("rechecks authority after a no-op move reads its cached subtree", async () => {
+    const owner = await insertUser();
+    const tasks = service();
+    const taskId = uuidv7(clock);
+    await taskCreateTool(tasks, {
+      ownerId: owner,
+      actor: { kind: "simon" },
+      taskId,
+      arguments: { title: "Keep here", collection: "now" },
+    });
+    const original = tasks.state.bind(tasks);
+    vi.spyOn(tasks, "state").mockImplementationOnce(async (...args) => {
+      const result = await original(...args);
+      await db.run(sql("UPDATE executor_state SET generation = 2 WHERE id = 1"));
+      return result;
+    });
+    await expect(
+      taskMoveTool(tasks, {
+        ownerId: owner,
+        actor: { kind: "simon" },
+        arguments: { taskId, collection: "now" },
+        authorization: {
+          sql: "EXISTS (SELECT 1 FROM executor_state WHERE id = 1 AND generation = CAST(:task_auth_generation AS INTEGER))",
+          params: { task_auth_generation: "1" },
+        },
+      }),
+    ).rejects.toMatchObject({ code: "not_found" });
+    expect(await db.all(sql("SELECT collection FROM tasks"))).toEqual([{ collection: "now" }]);
+  });
   it("lands a connected agent's task in Unclassified with its grant as source, once per call", async () => {
     const owner = await insertUser();
     const tasks = service();

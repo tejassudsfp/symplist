@@ -2,6 +2,7 @@
 export * from "./archive.ts";
 export * from "./archive-contributors/index.ts";
 export * from "./archive-runner.ts";
+export type { TaskAuthorization } from "./authorization.ts";
 export * from "./errors.ts";
 export * from "./fractional-index.ts";
 export * from "./model.ts";
