@@ -5,6 +5,7 @@
     "moduleResolution": "bundler",
     "types": ["node"],
     "noEmit": true,
+    "jsx": "react-jsx",
     "declaration": false,
     "declarationMap": false,
     "customConditions": ["source"],

@@ -105,15 +105,13 @@ describe("the (app) layout with the feature placeholders", () => {
 
   it("leaves the slots of features that render nothing yet empty", async () => {
     await renderAppLayout("/now");
-    for (const name of [
-      "notification-control",
-      "quick-chat",
-      "command-palette",
-      "consent-banner",
-    ]) {
+    for (const name of ["quick-chat", "command-palette", "consent-banner"]) {
       expect(slot(name)).toBeEmptyDOMElement();
     }
     expect(slot("vault-status")).toHaveTextContent("Vault uses a separate key");
+    expect(
+      within(slot("notification-control")).getByRole("button", { name: "Notifications" }),
+    ).toBeInTheDocument();
     // The access feature resolved the session, so the profile control names the account.
     expect(
       await screen.findByRole("button", { name: "Account menu, Maya Rao" }),

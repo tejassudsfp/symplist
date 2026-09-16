@@ -376,7 +376,10 @@ describe("user topic (§7)", () => {
     const h = await start();
     const locked = await h.user("locked");
     const contributor = vi.fn(async () => ({ unreadCount: 99 }));
-    h.registry.registerUserSnapshotContributor({ name: "scheduling", contribute: contributor });
+    h.registry.registerUserSnapshotContributor({
+      name: "test-private-unread",
+      contribute: contributor,
+    });
     const client = await h.connect(locked.session);
     client.send({ t: "sub", topic: "user", cursor: null, openTasks: [] });
     const snapshot = await client.waitFor((frame) => frame.t === "snapshot");
