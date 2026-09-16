@@ -27,6 +27,11 @@ Status: **in progress; not ready to integrate as a finished feature**. Sole writ
 - OAuth client metadata foundation: DNS-vetted pinned HTTPS transport, no redirects, public-address
   checks, five-second deadline, 10 KB response cap, exact client identity and bounded memory cache;
   strict HTTPS redirects and loopback-only variable port matching. Not yet mounted as OAuth routes.
+- Hosted-link provider adapter and toolkit auth-config find/create lease, including pagination past
+  fifty records, managed/custom capability checks and no retry on creation. Native start/callback
+  service binds an expiring nonce to user and login session, attests through `complete_auth`, checks
+  exact account/toolkit/ACTIVE status, and encrypts aliases with row-specific AAD. A late relock,
+  logout, shred or expiry refuses publication. Logout expires pending attempts in its batch.
 
 ## Simon seam
 
@@ -59,6 +64,8 @@ used for a write. An ambiguous write is surfaced as uncertain, not silently rese
 - Docs link/screen check and diff whitespace check passed. No browser/e2e run attempted.
 - Follow-up focused tests: approval validation 15 passed; CIMD/redirect security 41 passed. Core
   and API typechecks passed after the authorized Simon authorization-seam cherry-pick (7a09647).
+- Next checkpoint: 58 selected core connection/session tests and all 18 integration tests pass;
+  core/integrations typechecks pass. These services are not yet HTTP-mounted.
 
 ## Adversarial findings fixed in this checkpoint
 
@@ -83,6 +90,7 @@ diff review. Full feature gates remain required. Root owns progress/coverage and
 - `packages/db/migrations/0901_connection_lifecycle.sql`
 - `packages/core/src/access/restrict-contributors/connections.ts`
 - `packages/core/src/account/purge-contributors/connections.ts`
+- `packages/core/src/access/session-revoke-contributors/connections.ts` and its registry
 - `docs/build/decisions.md`
 - This report.
 
