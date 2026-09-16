@@ -60,7 +60,7 @@ export class BootstrapProbeController {
     return bodySize(req);
   }
 
-  @Post("oauth/token")
+  @Post("oauth/token/body-probe")
   @RouteClass("oauth_public")
   oauthForm(@Req() req: RawBodyRequest<Request>) {
     return bodySize(req);

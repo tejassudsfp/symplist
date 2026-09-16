@@ -59,13 +59,13 @@ export class RouteClassProbeController {
     return seen(req);
   }
 
-  @Post("oauth/token")
+  @Post("oauth/token/guard-probe")
   @RouteClass("oauth_public")
   token(@Req() req: Request) {
     return seen(req);
   }
 
-  @Get("oauth/authorize")
+  @Get("oauth/authorize/guard-probe")
   @RouteClass("oauth_authorize")
   authorize(@Req() req: Request) {
     return seen(req);

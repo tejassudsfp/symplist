@@ -156,3 +156,23 @@ remain required. Root owns progress/coverage and combined E work.
 - `docs/build/reports/d2-integration.md` (exact 7d0a77d documentation dependency, no content edits).
 
 `packages/integrations/src/*` and `packages/core/src/connections/*` are owned by this stream.
+
+### OAuth checkpoint
+
+Core consent requests, encrypted labels/state, session-bound decisions, one-time code issuance,
+PKCE exchange, 60-second expiry, refresh rotation/reuse revocation and 30-day absolute grants are
+implemented. Public registration, authorize/login bridge, token/revoke and trusted consent HTTP
+routes are mounted. Dynamic registration uses the existing five-per-hour IP bucket (503 and
+Retry-After, per C6.7); CIMD uses the already-tested pinned-DNS loader. The UI agent owns the web
+consent/bridge and settings surfaces against the committed contracts.
+
+Verification: whole core suite passed (535 tests); 9 new real HTTP OAuth tests pass; the existing
+route-class and parser probes pass after moving their collision-prone pre-D2 OAuth URLs to explicit
+guard/body-probe suffixes. No assertions were removed. HTTP mint/decision tests scan D1, R2 and logs
+for codes, state, access tokens, refresh tokens and full redirect URLs. Scope validation was moved
+before single-use token consumption during review, preventing an invalid scope from burning a valid
+credential. Incoming MCP transport/tools and their client contract suites remain unfinished.
+
+Additional shared files: `apps/api/src/common/http/global-prefix.ts`, `apps/api/src/app.test.ts`,
+`apps/api/test/probes/bootstrap.probe.ts`; all changes are OAuth routing or preservation of existing
+guard/parser probes. No live suites or browsers were run.

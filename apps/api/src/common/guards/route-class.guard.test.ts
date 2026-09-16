@@ -110,7 +110,7 @@ describe("connection_callback and oauth_authorize route classes (§5.3)", () => 
   });
 
   it("lets /oauth/authorize read only the session cookie", async () => {
-    const response = await app.get("/oauth/authorize", {
+    const response = await app.get("/oauth/authorize/guard-probe", {
       session,
       headers: { cookie: "sym_vault=v", authorization: "Bearer x" },
     });
@@ -176,7 +176,7 @@ describe("credential-free route classes (§5.2, §5.3)", () => {
   it("strips cookies from oauth_public, signed and public_read routes and bearer from all but mcp", async () => {
     const headers = { cookie: session.cookie, authorization: "Bearer sym_grant_secret" };
     for (const [method, path] of [
-      ["POST", "/oauth/token"],
+      ["POST", "/oauth/token/guard-probe"],
       ["POST", "/internal/v1/probe"],
       ["GET", "/.well-known/probe"],
     ] as const) {
@@ -243,14 +243,14 @@ describe("CORS (§5.3, §6)", () => {
     const origin = app.config.WEB_ORIGIN;
     for (const response of [
       await app.get("/healthz", { origin }),
-      await app.request("POST", "/oauth/token", { origin }),
+      await app.request("POST", "/oauth/token/guard-probe", { origin }),
       await app.get("/artifact/abc", { origin, shareHost: true }),
       await app.get("/v1/probe/app", { origin, shareHost: true }),
     ]) {
       expect(response.headers.get("access-control-allow-origin")).toBeNull();
       expect(response.headers.get("access-control-allow-credentials")).toBeNull();
     }
-    const preflight = await fetch(`${app.baseUrl}/oauth/token`, {
+    const preflight = await fetch(`${app.baseUrl}/oauth/token/guard-probe`, {
       method: "OPTIONS",
       headers: { origin, "access-control-request-method": "POST" },
     });

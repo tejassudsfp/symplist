@@ -5,6 +5,7 @@ export const globalPrefix = "v1";
 export const unprefixedRoutes = [
   "mcp",
   "oauth{/*path}",
+  "v1/oauth/requests{/*path}",
   ".well-known{/*path}",
   "artifact{/*path}",
   "webhooks{/*path}",
@@ -30,6 +31,8 @@ export function normalizeRoutePath(path: string): string {
 /** Whether a controller path (without the prefix) is excluded from `/v1`, as `unprefixedRoutes` says. */
 export function isUnprefixedPath(path: string): boolean {
   const normalized = normalizeRoutePath(path);
+  if (normalized === "/v1/oauth/requests" || normalized.startsWith("/v1/oauth/requests/"))
+    return true;
   const [first = ""] = normalized.slice(1).split("/");
   if (exactUnprefixed.has(first)) return normalized === `/${first}`;
   return unprefixedTrees.has(first);
