@@ -2,7 +2,14 @@
 import { NextRequest } from "next/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildContentSecurityPolicy, createNonce } from "./lib/security/headers.ts";
-import { config, proxy } from "./proxy.ts";
+import { config, proxy, SESSION_HINT_COOKIE } from "./proxy.ts";
+
+/** A request from a browser that holds the api's non-secret presence cookie (§5.1). */
+function signedInRequest(url: string): NextRequest {
+  const request = new NextRequest(url);
+  request.cookies.set(SESSION_HINT_COOKIE, "1");
+  return request;
+}
 
 function directives(policy: string): Map<string, string[]> {
   return new Map(
@@ -23,7 +30,7 @@ describe("Content Security Policy (§10.4)", () => {
     vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.symplist.test");
     vi.stubEnv("NEXT_PUBLIC_WS_URL", "wss://api.symplist.test");
     vi.stubEnv("NEXT_PUBLIC_POSTHOG_HOST", "https://us.i.posthog.com");
-    const response = proxy(new NextRequest("https://app.symplist.test/now"));
+    const response = proxy(signedInRequest("https://app.symplist.test/now"));
     const policy = response.headers.get("content-security-policy") ?? "";
     const forwarded = response.headers.get("x-middleware-request-content-security-policy");
     const nonce = response.headers.get("x-middleware-request-x-nonce") ?? "";
@@ -53,7 +60,7 @@ describe("Content Security Policy (§10.4)", () => {
   it("issues a fresh nonce for every request", () => {
     const nonces = new Set(
       Array.from({ length: 20 }, () =>
-        proxy(new NextRequest("https://app.symplist.test/now")).headers.get(
+        proxy(signedInRequest("https://app.symplist.test/now")).headers.get(
           "x-middleware-request-x-nonce",
         ),
       ),
@@ -66,7 +73,7 @@ describe("Content Security Policy (§10.4)", () => {
     vi.stubEnv("NEXT_PUBLIC_API_URL", "javascript:alert(1)");
     vi.stubEnv("NEXT_PUBLIC_WS_URL", "");
     vi.stubEnv("NEXT_PUBLIC_POSTHOG_HOST", "http://insecure.test");
-    const policy = proxy(new NextRequest("https://app.symplist.test/")).headers.get(
+    const policy = proxy(signedInRequest("https://app.symplist.test/")).headers.get(
       "content-security-policy",
     );
     const csp = directives(policy ?? "");
@@ -110,5 +117,47 @@ describe("Content Security Policy (§10.4)", () => {
     expect(matcher.test("/oauth/consent")).toBe(true);
     expect(matcher.test("/_next/static/chunks/app.js")).toBe(false);
     expect(matcher.test("/licenses/fonts.txt")).toBe(false);
+  });
+});
+
+describe("the session hint redirect (§5.1)", () => {
+  it("sends a visitor without the hint cookie to the email entry, keeping where they were going", () => {
+    const response = proxy(new NextRequest("https://app.symplist.test/settings/account?tab=name"));
+    expect(response.status).toBe(307);
+    const location = new URL(response.headers.get("location") ?? "");
+    expect(location.pathname).toBe("/signin");
+    expect(location.searchParams.get("next")).toBe("/settings/account?tab=name");
+    // The policy is still set, so the redirect page renders under the same rules.
+    expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");
+  });
+
+  it("adds no return path for the workspace home", () => {
+    const location = new URL(
+      proxy(new NextRequest("https://app.symplist.test/now")).headers.get("location") ?? "",
+    );
+    expect(location.pathname).toBe("/signin");
+    expect(location.searchParams.get("next")).toBeNull();
+  });
+
+  it("never redirects the sign-in screens themselves", () => {
+    for (const path of ["/signin", "/signin/create", "/signin/verify"]) {
+      const response = proxy(new NextRequest(`https://app.symplist.test${path}`));
+      expect(response.headers.get("location")).toBeNull();
+      expect(response.headers.get("x-middleware-request-x-nonce")).toMatch(/^[A-Za-z0-9+/]{24}$/);
+    }
+  });
+
+  it("lets a request with the hint cookie through to the gate, which is the real check", () => {
+    for (const path of ["/now", "/access", "/welcome", "/admin/invites", "/vault"]) {
+      const response = proxy(signedInRequest(`https://app.symplist.test${path}`));
+      expect(response.headers.get("location")).toBeNull();
+    }
+  });
+
+  it("redirects every protected route group when the hint is missing", () => {
+    for (const path of ["/", "/access", "/welcome", "/admin/invites", "/vault", "/oauth/consent"]) {
+      const response = proxy(new NextRequest(`https://app.symplist.test${path}`));
+      expect(new URL(response.headers.get("location") ?? "").pathname).toBe("/signin");
+    }
   });
 });

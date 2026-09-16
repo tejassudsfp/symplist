@@ -1,3 +1,5 @@
+import { EmailEntry } from "@/features/access/signin/email-entry";
+
 export default function SignInPage() {
-  return <h1>Sign in</h1>;
+  return <EmailEntry />;
 }

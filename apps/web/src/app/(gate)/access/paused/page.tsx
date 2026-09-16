@@ -1,3 +1,5 @@
+import { AccessPaused } from "@/features/access/gate/access-paused";
+
 export default function AccessPausedPage() {
-  return <h1>Access paused</h1>;
+  return <AccessPaused />;
 }

@@ -20,6 +20,20 @@ vi.mock("@/features/workspace/api", async () => {
   return { ...actual, createWorkspaceApi: () => workspace.api.current };
 });
 
+/*
+ * The access feature resolves the session from `GET /v1/me`; the layout's gate renders the shell only
+ * for an admitted account, so the identity is stubbed at the transport.
+ */
+const session = vi.hoisted(() => ({ me: null as unknown }));
+
+vi.mock("@/features/access/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/features/access/api")>();
+  return {
+    ...actual,
+    getAccessApi: () => ({ me: async () => session.me }),
+  };
+});
+
 vi.mock("next/navigation", () => ({
   usePathname: () => navigation.pathname,
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn(), back: vi.fn() }),
@@ -48,7 +62,10 @@ async function renderAppLayout(path: string, page: ReactNode = null) {
   navigation.pathname = path;
   const { default: AppLayout } = await import("./layout.tsx");
   const tree = await AppLayout({ children: page });
-  return render(<AppProviders nonce={undefined}>{tree}</AppProviders>);
+  const result = render(<AppProviders nonce={undefined}>{tree}</AppProviders>);
+  // The gate renders the shell once the identity has resolved.
+  await screen.findByRole("banner");
+  return result;
 }
 
 function slot(name: string): HTMLElement {
@@ -57,9 +74,13 @@ function slot(name: string): HTMLElement {
   return elements[0] as HTMLElement;
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   navigation.pathname = "/now";
   workspace.api.current = new FakeWorkspaceApi([{ id: taskId, title: "Refresh my portfolio" }]);
+  const { mayaMe } = await import("@/features/access/test-support");
+  const { resetSharedSessionStoreForTests } = await import("@/features/access/session-runtime");
+  session.me = mayaMe();
+  resetSharedSessionStoreForTests();
 });
 
 /*
@@ -89,8 +110,10 @@ describe("the (app) layout with the feature placeholders", () => {
     ]) {
       expect(slot(name)).toBeEmptyDOMElement();
     }
-    // The session is still loading, so the profile control names no one.
-    expect(screen.getByRole("button", { name: "Account menu" })).toBeInTheDocument();
+    // The access feature resolved the session, so the profile control names the account.
+    expect(
+      await screen.findByRole("button", { name: "Account menu, Maya Rao" }),
+    ).toBeInTheDocument();
     expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
   });
 

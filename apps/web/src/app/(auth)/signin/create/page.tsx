@@ -1,3 +1,5 @@
+import { SignupConfirmation } from "@/features/access/signin/signup-confirmation";
+
 export default function CreateAccountPage() {
-  return <h1>Create account</h1>;
+  return <SignupConfirmation />;
 }

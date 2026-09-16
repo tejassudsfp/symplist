@@ -8,9 +8,31 @@ import {
 } from "./lib/security/headers.ts";
 
 /**
- * Sets the per-request Content Security Policy nonce (§10.4). Next.js reads the nonce from the request's
- * CSP header and applies it to its scripts; the root layout reads `x-nonce` for the appearance
- * stylesheet and Base UI. This proxy never performs authentication.
+ * The api's non-secret presence cookie (§5.1). It carries no session, only "someone signed in on this
+ * device", and the api remains the only authority.
+ */
+export const SESSION_HINT_COOKIE = "sym_hint";
+
+/** Route prefixes a signed-out visitor may open. Everything else starts at the email entry. */
+const publicPrefixes = ["/signin"] as const;
+
+function isPublicPath(pathname: string): boolean {
+  return publicPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+}
+
+/** The path to return to after signing in: a same-origin path, never sign-in itself. */
+function nextParamFor(request: NextRequest): string | null {
+  const { pathname, search } = request.nextUrl;
+  if (pathname === "/" || pathname === "/now") return null;
+  const value = `${pathname}${search}`;
+  return value.length > 1024 ? null : value;
+}
+
+/**
+ * Sets the per-request Content Security Policy nonce (§10.4) and redirects visitors with no session
+ * hint to the email entry (§5.1). The redirect is an optimistic check on a non-secret cookie only —
+ * it never reads a session, never calls the api, and every screen behind it checks access again with
+ * `GET /v1/me`, which is what actually decides what renders.
  */
 export function proxy(request: NextRequest): NextResponse {
   const nonce = createNonce();
@@ -23,6 +45,17 @@ export function proxy(request: NextRequest): NextResponse {
     }),
     development: process.env.NODE_ENV === "development",
   });
+
+  const { pathname } = request.nextUrl;
+  if (!isPublicPath(pathname) && !request.cookies.has(SESSION_HINT_COOKIE)) {
+    const signIn = new URL("/signin", request.nextUrl);
+    const next = nextParamFor(request);
+    if (next) signIn.searchParams.set("next", next);
+    const redirect = NextResponse.redirect(signIn);
+    redirect.headers.set(CSP_HEADER, policy);
+    return redirect;
+  }
+
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set(NONCE_HEADER, nonce);
   requestHeaders.set(CSP_HEADER, policy);

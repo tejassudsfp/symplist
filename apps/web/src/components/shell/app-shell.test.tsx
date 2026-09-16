@@ -223,7 +223,8 @@ describe("keyboard actions through the shell", () => {
 
   it("offers Sign out only through a registered action", async () => {
     const user = userEvent.setup();
-    const { unmount } = renderShell({ path: "/now" });
+    // Without the access feature's action in the registry the menu item stays inert.
+    const { unmount } = renderShell({ path: "/now", actions: shellActions });
     screen.getByRole("button", { name: "Account menu" }).focus();
     await user.keyboard("{Enter}");
     const menu = await screen.findByRole("menu");
