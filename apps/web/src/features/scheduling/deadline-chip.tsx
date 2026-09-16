@@ -10,8 +10,7 @@ export interface DeadlineChipProps {
 
 /**
  * A task's subtle due chip for task list rows and the task page (§12, task_schedule.md). Workspace
- * and documents import it where they show a task. PLACEHOLDER: renders nothing until the scheduling
- * feature implements it.
+ * and documents import it where they show a task. It reads only the mounted-task summary cache.
  */
 export function DeadlineChip({ taskId }: DeadlineChipProps) {
   const scheduling = useScheduling();

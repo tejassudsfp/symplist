@@ -1,5 +1,5 @@
 import { Controller, HttpCode, Inject, Post, Query } from "@nestjs/common";
-import { NotificationsService } from "@symplist/core/scheduling";
+import { NotificationsService, SchedulingError } from "@symplist/core/scheduling";
 import { ApiError } from "../../common/errors/api-error.ts";
 import { RouteClass } from "../../common/route-classes.ts";
 
@@ -14,8 +14,9 @@ export class ReminderUnsubscribeController {
     if (typeof token !== "string" || token.length > 200) throw ApiError.notFound();
     try {
       await this.notifications.unsubscribe(token);
-    } catch {
-      throw ApiError.notFound();
+    } catch (error) {
+      if (error instanceof SchedulingError) throw ApiError.notFound();
+      throw error;
     }
     return { ok: true };
   }
