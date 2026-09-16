@@ -166,6 +166,12 @@ describe("signup confirmation (signup_confirmation.md)", () => {
     ).toBeInTheDocument();
   });
 
+  it("stays on the confirmation after a reload, while session storage is still being read", async () => {
+    renderConfirmation();
+    expect(await screen.findByRole("heading", { name: "No account found" })).toBeInTheDocument();
+    expect(navigation.replace).not.toHaveBeenCalledWith("/signin");
+  });
+
   it("returns to email entry when no address was carried here", async () => {
     window.sessionStorage.clear();
     renderConfirmation();

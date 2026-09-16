@@ -66,7 +66,10 @@ export const OtpInput = forwardRef<OtpInputHandle, OtpInputProps>(function OtpIn
     const next = sanitizeCode(event.target.value, length);
     onChange(next);
     setCaret(Math.min(event.target.selectionStart ?? next.length, next.length));
-    if (next.length === length && next !== value) onComplete?.(next);
+    // Only when the code has just reached its length. Typing into an already-full field inserts a
+    // digit and drops the last one, so reporting that as a completion would submit a code the person
+    // never meant to send and spend one of the challenge's attempts.
+    if (next.length === length && value.length < length) onComplete?.(next);
   };
 
   const activeIndex = Math.min(caret, length - 1);

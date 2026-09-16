@@ -243,6 +243,12 @@ describe("email verification (email_otp.md)", () => {
     expect(await screen.findByText(/they never unlock beta\s+access/)).toBeInTheDocument();
   });
 
+  it("stays on the code step after a reload, while session storage is still being read", async () => {
+    renderVerify();
+    expect(await screen.findByLabelText("6-digit code")).toBeInTheDocument();
+    expect(navigation.replace).not.toHaveBeenCalledWith("/signin");
+  });
+
   it("returns to email entry when there is no challenge", async () => {
     window.sessionStorage.clear();
     renderVerify();

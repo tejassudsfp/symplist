@@ -36,9 +36,11 @@ export function VerifyCode() {
   const inputRef = useRef<OtpInputHandle>(null);
   const submitted = useRef<string | null>(null);
 
+  // Only once session storage has been read: a reload restores the challenge there, and this effect
+  // runs before the provider's own hydration effect.
   useEffect(() => {
-    if (!challenge) router.replace(SIGN_IN_PATH);
-  }, [challenge, router]);
+    if (flow.hydrated && !challenge) router.replace(SIGN_IN_PATH);
+  }, [flow.hydrated, challenge, router]);
 
   const cooldown = useCountdown(challenge?.resendAvailableAt ?? null);
   const blocked = useCountdown(message?.blockedUntil ?? null);

@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { ConfirmDialog } from "@/components/ui/dialog";
-import { navigateAcrossGroups } from "../navigation.ts";
+import { currentPathname, navigateAcrossGroups, needsDocumentNavigation } from "../navigation.ts";
 
 export interface NavigationGuardCopy {
   readonly title: string;
@@ -48,7 +48,12 @@ export function useNavigationGuard(active: boolean, copy: NavigationGuardCopy): 
         window.location.assign(url.href);
         return;
       }
-      navigateAcrossGroups(router, `${url.pathname}${url.search}${url.hash}`);
+      const path = `${url.pathname}${url.search}${url.hash}`;
+      // A document navigation unloads this page after the current task, so the bypass has to outlive
+      // the microtask queue or `beforeunload` would prompt again for a departure already confirmed.
+      const leaving = needsDocumentNavigation(currentPathname(), path);
+      navigateAcrossGroups(router, path);
+      if (leaving) return;
       // Client navigations keep this component mounted until the route changes.
       queueMicrotask(() => {
         bypassRef.current = false;

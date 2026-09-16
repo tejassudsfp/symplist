@@ -51,6 +51,22 @@ describe("the code field (email_otp.md)", () => {
     expect(onComplete).toHaveBeenCalledExactlyOnceWith("123456");
   });
 
+  it("does not report completion again when a digit is typed into a full code", async () => {
+    const user = userEvent.setup();
+    const onComplete = vi.fn();
+    render(<Harness onComplete={onComplete} />);
+    const input = screen.getByLabelText("6-digit code");
+    input.focus();
+    await user.paste("123456");
+    expect(onComplete).toHaveBeenCalledExactlyOnceWith("123456");
+    // Correcting a digit shifts the rest out of the field; submitting that would spend an attempt
+    // of the challenge on a code nobody typed.
+    (input as HTMLInputElement).setSelectionRange(3, 3);
+    await user.keyboard("9");
+    expect(input).toHaveValue("123945");
+    expect(onComplete).toHaveBeenCalledOnce();
+  });
+
   it("supports keyboard editing", async () => {
     const user = userEvent.setup();
     render(<Harness />);

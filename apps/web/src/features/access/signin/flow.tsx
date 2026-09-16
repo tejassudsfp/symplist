@@ -27,6 +27,12 @@ export interface SignInFlow {
   setEmail(email: string): void;
   readonly challenge: SignInChallenge | null;
   setChallenge(challenge: SignInChallenge | null): void;
+  /**
+   * False until session storage has been read on the client. Every step waits for it before deciding
+   * that there is nothing to continue: the provider hydrates in an effect, and a child's effect runs
+   * first, so a reload would otherwise leave the step before its own state arrived.
+   */
+  readonly hydrated: boolean;
   /** Forgets the flow after a successful verification or a deliberate restart. */
   clear(): void;
 }
@@ -112,8 +118,15 @@ export function SignInFlowProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<SignInFlow>(
-    () => ({ email: state.email, setEmail, challenge: state.challenge, setChallenge, clear }),
-    [state, setEmail, setChallenge, clear],
+    () => ({
+      email: state.email,
+      setEmail,
+      challenge: state.challenge,
+      setChallenge,
+      hydrated,
+      clear,
+    }),
+    [state, hydrated, setEmail, setChallenge, clear],
   );
 
   return <SignInFlowContext.Provider value={value}>{children}</SignInFlowContext.Provider>;

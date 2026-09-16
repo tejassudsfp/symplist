@@ -33,9 +33,11 @@ export function SignupConfirmation() {
   const attempted = useRef(false);
   const email = flow.email;
 
+  // Only once session storage has been read: a reload restores the address there, and this effect
+  // runs before the provider's own hydration effect.
   useEffect(() => {
-    if (!email) router.replace(SIGN_IN_PATH);
-  }, [email, router]);
+    if (flow.hydrated && !email) router.replace(SIGN_IN_PATH);
+  }, [flow.hydrated, email, router]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
