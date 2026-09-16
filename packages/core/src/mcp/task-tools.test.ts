@@ -74,6 +74,22 @@ async function create(title: string, parentId?: string) {
 }
 
 describe("MCP task scope at the read, write and replay decision", () => {
+  it("emits confirmed server events once, without failing a committed write on analytics failure", async () => {
+    const confirmed = vi.fn(async () => {
+      throw new Error("analytics unavailable");
+    });
+    const service = new McpTaskTools(grants, tasks, confirmed);
+    const grant = await identity();
+    const input = { title: "Private analytics marker", requestId: uuidv7() };
+    const created = await service.create(grant, input);
+    await service.create(grant, input);
+    expect(confirmed).toHaveBeenCalledTimes(1);
+    const event = confirmed.mock.calls[0]?.[0];
+    expect(event).toMatchObject({
+      analytics: { event: { event: "task_created", properties: { source: "mcp" } } },
+    });
+    expect(JSON.stringify(created)).not.toContain("analytics");
+  });
   it("lists only selected tasks and masks ungranted ancestors and child counts in context", async () => {
     const parent = await create("private parent");
     const child = await create("selected child", parent);

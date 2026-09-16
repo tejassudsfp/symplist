@@ -104,8 +104,19 @@ describe("MCP grant authority and one-time API keys", () => {
       { ...expected, generation: 2 },
       { ...expected, scopes: ["tasks:write" as const] },
       { ...expected, taskIds: [uuidv7()] },
-    ])
+    ]) {
       await expect(grants.authenticateOAuth(altered)).rejects.toThrow("mcp.invalid_token");
+      expect(await grants.authenticateOAuth(expected)).toEqual(expected);
+    }
+    const unknown = { ...expected, id: uuidv7() };
+    const read = vi.spyOn(env.db, "first");
+    await expect(grants.authenticateOAuth(unknown)).rejects.toThrow("mcp.invalid_token");
+    await expect(grants.authenticateOAuth(unknown)).rejects.toThrow("mcp.invalid_token");
+    expect(read).toHaveBeenCalledTimes(1);
+    env.clock += 60_001;
+    await expect(grants.authenticateOAuth(unknown)).rejects.toThrow("mcp.invalid_token");
+    expect(read).toHaveBeenCalledTimes(2);
+    read.mockRestore();
     await env.relock(actor.ownerId);
     await expect(grants.authenticateOAuth(expected)).rejects.toThrow("mcp.invalid_token");
   });

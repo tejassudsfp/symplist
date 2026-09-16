@@ -1,7 +1,67 @@
 # D2 Connections and MCP stream
 
-Status: **in progress; not ready to integrate as a finished feature**. Sole writer at
+Status: **checkpointed at the owner's usage-limit stop; backend implemented, final gates unfinished**. Sole writer at
 `symplist-wt/connections`, branch `wip/d2-connections`, original base `8e26f4f`.
+
+## Resume here — September 16 checkpoint
+
+The historical checkpoints below are superseded by this section. Root committed `4c49738` was
+merged at `5e82a14`; no later root commits or dirty files were copied. Connections UI is separately
+owned by `/root/d2_vault` in `connections-ui` and must merge after this backend.
+
+Completed since the transport checkpoint: all four concrete MCP extensions (`task_schedule`,
+`artifact_snapshot`, `artifact_share_list`, `artifact_share_revoke`) use the actual merged core
+services. Revoke folds encrypted idempotency and fresh authority into the deciding batch; retries
+produce one audit row. Mutations require request IDs and active-task predicates. Both SDK auto
+and legacy clients now also complete real HTTP PKCE consent/exchange, use the resulting JWT,
+and stop after refresh revocation. Task create/move emits server analytics only after an applied
+write, never on replay; analytics failure cannot fail the task or expose its analytics identifier.
+
+Review corrections: post-I/O document authorization prevents content returning after revocation;
+getter-backed actor predicates refresh expiry at publication; concurrent document retrievals cannot
+overdraw a grant budget; OAuth unknown-id caching cannot be poisoned by a wrong claim on a valid
+grant; OAuth last-used timestamps use the same ten-minute cadence as keys; scoped search masks
+ungranted parent metadata; account-selection errors now include native `{id,toolkit}` choices;
+Retry-After accepts HTTP dates as well as seconds. Earlier OAuth scope-before-consume and key/code/
+refresh/redirect/provider-link sink scans remain covered. The whole-diff final review is not yet
+complete; this is not a claim that D2 or E is finished.
+
+Actual latest verification:
+
+- Frozen install passed, no dependency changes.
+- All 17 typechecks and zero-warning lint (1,357 files) passed before the final small analytics
+  callback/schema change. API typecheck passed again after that change.
+- Last focused run: MCP HTTP 12 passed; core MCP task tools 8 passed. Other review tests: core
+  grants 11 passed, shared budget/search signal tests passed, integrations 19 passed.
+- One complete repository test run passed (core 729, API 568 with six credential-gated skips,
+  web 1,558, worker 97, all other packages and 47 script tests).
+- The subsequent full rerun passed web 1,558 and core 730 but timed out in
+  `packages/core/src/documents/service.test.ts:349`, “pages history with the head pinned while new
+  revisions arrive”, at the existing 5,000 ms limit. It stopped downstream packages. No assertion
+  or timeout was changed. Rerun this before diagnosis; the owner requested an immediate checkpoint
+  before that rerun could happen.
+- Production build and `build:web:clean` passed before the final small analytics callback/schema
+  change. Docs link/44-screen check passed. Latest full build/typecheck/lint/test refresh remains.
+- No browser/e2e or live suites were run; root owns those. No live credentials copied or used.
+
+Exact remaining integration/resume work:
+
+1. Rerun the Git-history timeout, then all final gates (including full tests/builds, smoke/deploy
+   check). Finish the final adversarial diff review. Do not weaken tests.
+2. Root wires the exported Composio authority/runtime and metadata-only approval factory into
+   Simon. `createApprovalEditValidator` still fails closed on primitive-schema Vault placeholders;
+   the root/Vault masking/schema adapter is still needed. Surface safe account-selection choices.
+3. Root adds durable hourly hooks in maintenance-owned `apps/worker/src/infra/scheduling-runtime.ts`:
+   `cleanupMcp({db,now,mode:'durable',generation})` and
+   `connectionReconcilerFor(runtime)?.drain({mode:'durable',generation})` under its fence. Local
+   hourly jobs and daily durable reconciliation are already wired.
+4. Root merges backend then Connections UI, reconciles newer root task/Simon review commits,
+   runs combined real-browser/executor-parity/live suites and visual evidence. Do not replace
+   newer root files with the older `4c49738` dependency snapshot in this branch.
+
+Additional shared files in the final checkpoint: `packages/core/src/documents/budgets.ts` and
+new `budgets.test.ts` (concurrent-grant regression); `packages/core/src/search/request-signal.test.ts`.
+No active commands remain at checkpoint; no dev server was started.
 
 ## Implemented checkpoint
 

@@ -189,6 +189,9 @@ export class ConnectionTools {
         choices.length > 1 && !input.connection
           ? "integration.account_selection_required"
           : "integration.connection_required",
+        choices.length > 1 && !input.connection
+          ? { choices: choices.map(({ id, toolkit }) => ({ id, toolkit })) }
+          : {},
       );
     const action = Object.freeze({
       tool,

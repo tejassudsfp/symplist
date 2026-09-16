@@ -127,7 +127,14 @@ describe("owner-bound Composio wrapper", () => {
     f.setConnections([one, { ...one, id: "connection-2" }]);
     await expect(
       f.tools.resolveAction({ slug: schema.slug, arguments: { recipient: "a" } }),
-    ).rejects.toMatchObject({ code: "integration.account_selection_required" });
+    ).rejects.toMatchObject({
+      code: "integration.account_selection_required",
+      details: {
+        choices: expect.arrayContaining([
+          expect.objectContaining({ id: one.id, toolkit: "gmail" }),
+        ]),
+      },
+    });
     expect(
       (
         await f.tools.resolveAction({

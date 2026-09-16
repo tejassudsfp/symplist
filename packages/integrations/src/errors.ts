@@ -20,6 +20,8 @@ export class IntegrationError extends Error {
       slug?: string;
       requestId?: string;
       retryAfter?: number;
+      /** Native ids only, never provider account ids or credential-bearing labels. */
+      choices?: readonly { readonly id: string; readonly toolkit: string }[];
     }> = {},
   ) {
     super(code);
@@ -50,7 +52,12 @@ export function normalizeIntegrationError(error: unknown, sideEffect = false): I
   const headers = object.headers ?? cause.headers;
   const retry =
     headers instanceof Headers ? headers.get("retry-after") : record(headers)["retry-after"];
-  const seconds = typeof retry === "string" && /^\d+$/.test(retry) ? Number(retry) : 60;
+  const seconds =
+    typeof retry === "string" && /^\d+$/.test(retry)
+      ? Number(retry)
+      : typeof retry === "string" && Number.isFinite(Date.parse(retry))
+        ? Math.ceil((Date.parse(retry) - Date.now()) / 1000)
+        : 60;
   const details = {
     ...(status === undefined ? {} : { status }),
     ...(safeId(body.slug ?? nested.slug) ? { slug: safeId(body.slug ?? nested.slug) } : {}),

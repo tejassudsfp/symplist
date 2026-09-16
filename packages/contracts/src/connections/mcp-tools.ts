@@ -1,5 +1,6 @@
 import { idSchema, taskIdSchema } from "../common/ids.ts";
 import { z } from "../common/zod.ts";
+import { taskScheduleToolInputSchema } from "../scheduling/tools.ts";
 import { simonTierSchema } from "../simon/dto.ts";
 import { taskCollectionSchema } from "../workspace/dto.ts";
 import { taskCreateToolInputSchema, taskMoveToolInputSchema } from "../workspace/tools.ts";
@@ -26,3 +27,10 @@ export const mcpTaskMessageSchema = z.strictObject({
   tier: simonTierSchema.default("fast"),
 });
 export const mcpTaskRunSchema = z.strictObject({ runId: idSchema });
+export const mcpTaskScheduleSchema = z.union(
+  taskScheduleToolInputSchema.options.map((option) =>
+    option.extend({
+      requestId: option.shape.operation.value === "read" ? idSchema.optional() : idSchema,
+    }),
+  ),
+);

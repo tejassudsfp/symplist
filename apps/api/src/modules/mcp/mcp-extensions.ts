@@ -1,11 +1,26 @@
 import type { McpServer } from "@modelcontextprotocol/server";
-import { idSchema, isErrorCode } from "@symplist/contracts";
-import { McpError, type McpGrants, type McpIdentity, mcpAuthorization } from "@symplist/core/mcp";
-import { uuidv7 } from "@symplist/db";
+import {
+  idSchema,
+  isErrorCode,
+  mcpTaskScheduleSchema,
+  sharingTools,
+  taskScheduleToolInputSchema,
+} from "@symplist/contracts";
+import {
+  McpError,
+  type McpGrants,
+  type McpIdentity,
+  mcpAuthorization,
+  mcpWriteFold,
+} from "@symplist/core/mcp";
+import { type SchedulingService, taskScheduleTool } from "@symplist/core/scheduling";
+import { type SharingFold, SharingGrants, type SharingRepository } from "@symplist/core/sharing";
+import { sql, uuidv7 } from "@symplist/db";
 import type { SqlGuard } from "@symplist/docs";
 import type { z } from "zod";
 
 export interface McpServiceActor {
+  readonly identity: McpIdentity;
   readonly kind: "mcp";
   readonly ownerId: string;
   readonly userId: string;
@@ -32,6 +47,101 @@ export interface McpToolExtension {
   readonly task: (ownerId: string, input: Record<string, unknown>) => Promise<string>;
   /** Must use these guards in the core write and replay, never just the pre-read. */
   readonly execute: (actor: McpServiceActor, input: Record<string, unknown>) => Promise<unknown>;
+}
+
+/** Concrete feature services share infrastructure, never feature Nest module imports. */
+export function mcpFeatureExtensions(
+  grants: McpGrants,
+  scheduling: SchedulingService,
+  sharing: SharingRepository,
+): readonly McpToolExtension[] {
+  const shares = new SharingGrants(sharing);
+  const task = async (_owner: string, input: Record<string, unknown>) =>
+    idSchema.parse(input.taskId);
+  return [
+    {
+      name: "task_schedule",
+      inputSchema: mcpTaskScheduleSchema,
+      writes: (input) => input.operation !== "read",
+      task,
+      execute: (actor, { requestId: _requestId, ...input }) =>
+        taskScheduleTool(scheduling, actor, taskScheduleToolInputSchema.parse(input)),
+    },
+    {
+      name: "artifact_snapshot",
+      inputSchema: sharingTools.artifact_snapshot.input.extend({ requestId: idSchema }),
+      writes: () => true,
+      task,
+      execute: (actor, { requestId: _requestId, ...input }) => {
+        const { taskId, ...snapshot } = sharingTools.artifact_snapshot.input.parse(input);
+        return sharing.snapshot(actor, taskId, snapshot, actor.requestId);
+      },
+    },
+    {
+      name: "artifact_share_list",
+      inputSchema: sharingTools.artifact_share_list.input,
+      writes: () => false,
+      task,
+      execute: (actor, input) => {
+        const { taskId, ...query } = sharingTools.artifact_share_list.input.parse(input);
+        return sharing.list(actor, taskId, query);
+      },
+    },
+    {
+      name: "artifact_share_revoke",
+      inputSchema: sharingTools.artifact_share_revoke.input.extend({ requestId: idSchema }),
+      writes: () => true,
+      task: async (owner, input) => {
+        const row = await sharing.options.db.first(
+          sql(
+            "SELECT task_id FROM artifacts WHERE id = :artifact AND owner_id = :owner AND deleted_at IS NULL",
+            {
+              artifact: idSchema.parse(input.artifactId),
+              owner,
+            },
+          ),
+        );
+        if (!row) throw new McpError("mcp.not_found");
+        return String(row.task_id);
+      },
+      execute: (actor, { requestId: _requestId, ...input }) => {
+        const args = sharingTools.artifact_share_revoke.input.parse(input);
+        const fold = mcpWriteFold(
+          grants,
+          actor.identity,
+          "artifact_share_revoke",
+          actor.requestId,
+          args,
+        );
+        const sharingFold: SharingFold = {
+          prefix: fold.statements,
+          guard: { sql: fold.claim.guard.exists, params: fold.claim.guard.params },
+          complete: (body, key, effect) => {
+            const completion = fold.completion({ status: 200, body }, key);
+            const proof = sql(effect.sql, effect.params);
+            const authority = sharing.guards(sharing.access(actor.ownerId), ...actor.guards);
+            return [
+              {
+                sql: `${completion.sql} AND (${proof.sql})`,
+                params: [...completion.params, ...proof.params],
+              },
+              sql(
+                `DELETE FROM idempotency_records WHERE scope = :idem_scope AND user_id = :idem_user AND key = :idem_key AND write_id = :idem_write_id AND status = 'pending' AND NOT (${effect.sql})`,
+                { ...fold.claim.guard.params, ...effect.params },
+              ),
+              sql(`SELECT 1 AS authorized WHERE ${authority.sql}`, authority.params),
+            ];
+          },
+          decide: (results, key) => {
+            if (!results.at(-2)?.results[0]?.authorized) throw new McpError("mcp.forbidden");
+            const decision = fold.decide(results, key, 0);
+            return decision.kind === "replay" ? { replay: decision.body } : null;
+          },
+        };
+        return shares.revoke(actor, args.artifactId, args.grantId, sharingFold);
+      },
+    },
+  ];
 }
 
 const allowed = new Set([
@@ -61,6 +171,7 @@ export function registerMcpExtensions(
         if (!idSchema.safeParse(taskId).success) throw new McpError("mcp.not_found");
         await grants.require(identity, scope, [taskId]);
         const actor: McpServiceActor = {
+          identity,
           kind: "mcp",
           ownerId: identity.ownerId,
           userId: identity.ownerId,
@@ -69,7 +180,13 @@ export function registerMcpExtensions(
           taskIds: identity.taskIds,
           scopes: identity.scopes,
           get guards() {
-            return [mcpAuthorization(identity, scope, grants.options.now(), [taskId])];
+            const guard = mcpAuthorization(identity, scope, grants.options.now(), [taskId]);
+            return [
+              {
+                sql: `${guard.sql} AND EXISTS (SELECT 1 FROM tasks WHERE id = :mcp_ext_task AND owner_id = :mcp_ext_owner${write ? " AND status = 'active'" : ""})`,
+                params: { ...guard.params, mcp_ext_task: taskId, mcp_ext_owner: identity.ownerId },
+              },
+            ];
           },
         };
         const output = await extension.execute(actor, input);

@@ -8,7 +8,7 @@ import {
 } from "@symplist/contracts";
 import type { z } from "zod";
 import { sourceKind, type TaskRecord } from "../tasks/model.ts";
-import type { TaskService, TaskWriteFold } from "../tasks/service.ts";
+import type { TaskService, TaskWriteFold, TaskWriteResult } from "../tasks/service.ts";
 import { type McpGrants, mcpAuthorization } from "./grants.ts";
 import { McpError, type McpIdentity } from "./types.ts";
 import { mcpWriteFold } from "./write-fold.ts";
@@ -17,6 +17,9 @@ export class McpTaskTools {
   constructor(
     readonly grants: McpGrants,
     readonly tasks: TaskService,
+    readonly onConfirmed?: (
+      result: Extract<TaskWriteResult<unknown>, { kind: "applied" }>,
+    ) => Promise<void>,
   ) {}
 
   async context(identity: McpIdentity, taskId: string) {
@@ -116,6 +119,7 @@ export class McpTaskTools {
       fold: this.fold(identity, "task_create", args.requestId, args),
     });
     const { task } = taskCreateResponseSchema.parse(result.body);
+    await this.confirmed(result);
     return {
       taskId: task.id,
       collection: task.collection,
@@ -150,11 +154,21 @@ export class McpTaskTools {
       fold: this.fold(identity, "task_move", args.requestId, args),
     });
     const body = taskMoveResponseSchema.parse(result.body);
+    await this.confirmed(result);
     return {
       taskId: body.taskId,
       collection: body.collection,
       parentTaskId: body.parentId,
       movedTaskIds: body.movedTaskIds,
     };
+  }
+
+  private async confirmed(result: TaskWriteResult<unknown>): Promise<void> {
+    if (result.kind !== "applied") return;
+    try {
+      await this.onConfirmed?.(result);
+    } catch {
+      /* Analytics cannot fail a committed task. */
+    }
   }
 }

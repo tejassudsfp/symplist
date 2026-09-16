@@ -46,6 +46,25 @@ describe("live-only toolkit catalogue", () => {
 });
 
 describe("provider error boundary", () => {
+  it("honors HTTP-date Retry-After as well as delta seconds", () => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.UTC(2026, 8, 16));
+    try {
+      expect(
+        normalizeIntegrationError({
+          status: 429,
+          headers: { "retry-after": "Wed, 16 Sep 2026 00:00:17 GMT" },
+        }).details.retryAfter,
+      ).toBe(17);
+      expect(
+        normalizeIntegrationError({
+          status: 429,
+          headers: { "retry-after": "Wed, 16 Sep 2026 00:00:00 GMT" },
+        }).details.retryAfter,
+      ).toBe(1);
+    } finally {
+      clock.mockRestore();
+    }
+  });
   it("normalizes both SDK and raw client errors without retaining private bodies or causes", () => {
     for (const source of [
       {

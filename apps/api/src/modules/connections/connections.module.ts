@@ -1,7 +1,10 @@
 import { Module } from "@nestjs/common";
+import type { ServerAnalyticsEmitter } from "@symplist/analytics/server";
 import { DocumentRepository } from "@symplist/core/documents";
 import { McpGrants } from "@symplist/core/mcp";
+import { SchedulingService } from "@symplist/core/scheduling";
 import { createSearchSources, SearchIndexCache, SearchQueryService } from "@symplist/core/search";
+import { SharingRepository } from "@symplist/core/sharing";
 import { SimonRepository } from "@symplist/core/simon";
 import { TaskService } from "@symplist/core/tasks";
 import type { KeyProvider } from "@symplist/crypto";
@@ -9,6 +12,7 @@ import type { DbClient } from "@symplist/db";
 import type { GitService } from "@symplist/docs";
 import type { ObjectStore } from "@symplist/storage";
 import { CLOCK, type Clock } from "../../common/clock.ts";
+import { SERVER_ANALYTICS } from "../../infra/analytics/analytics.providers.ts";
 import { API_CONFIG, type ApiConfig } from "../../infra/config/api-config.ts";
 import { KEY_PROVIDER } from "../../infra/crypto/crypto.providers.ts";
 import { DB_CLIENT } from "../../infra/db/db.providers.ts";
@@ -17,6 +21,7 @@ import { ExecutionDispatcher } from "../../infra/executors/dispatcher.ts";
 import { OBJECT_STORE } from "../../infra/storage/storage.providers.ts";
 import { McpController } from "../mcp/mcp.controller.ts";
 import { McpRegistration } from "../mcp/mcp.registration.ts";
+import { mcpFeatureExtensions } from "../mcp/mcp-extensions.ts";
 import { MCP_GRANTS, McpGrantsController } from "../mcp/mcp-grants.controller.ts";
 import { MCP_TOOLS, McpTools } from "../mcp/mcp-tools.ts";
 import { OAuthConsentController, OAuthController } from "../mcp/oauth.controller.ts";
@@ -41,7 +46,15 @@ import { CONNECTIONS_RUNTIME, createConnectionsRuntime } from "./connections.run
     McpRegistration,
     {
       provide: MCP_TOOLS,
-      inject: [MCP_GRANTS, OBJECT_STORE, DOCUMENT_GIT, API_CONFIG, TopicHub, ExecutionDispatcher],
+      inject: [
+        MCP_GRANTS,
+        OBJECT_STORE,
+        DOCUMENT_GIT,
+        API_CONFIG,
+        TopicHub,
+        ExecutionDispatcher,
+        SERVER_ANALYTICS,
+      ],
       useFactory: (
         grants: McpGrants,
         objects: ObjectStore,
@@ -49,6 +62,7 @@ import { CONNECTIONS_RUNTIME, createConnectionsRuntime } from "./connections.run
         config: ApiConfig,
         hub: TopicHub,
         dispatcher: ExecutionDispatcher,
+        analytics: ServerAnalyticsEmitter,
       ) =>
         new McpTools(
           grants,
@@ -84,6 +98,38 @@ import { CONNECTIONS_RUNTIME, createConnectionsRuntime } from "./connections.run
             quickChatTtlHours: config.QUICK_CHAT_TTL_HOURS,
           }),
           () => dispatcher.kick(),
+          mcpFeatureExtensions(
+            grants,
+            new SchedulingService({
+              ...grants.options,
+              remindersEnabled: config.REMINDERS_ENABLED,
+              emailEnabled: config.REMINDER_EMAIL_ENABLED,
+              defaultZone: config.DEFAULT_TIMEZONE,
+              deliveryTracking: Boolean(config.RESEND_WEBHOOK_SECRET),
+            }),
+            new SharingRepository({
+              ...grants.options,
+              objects,
+              artifactOrigin: config.ARTIFACT_ORIGIN,
+              privateOrigins: [config.WEB_ORIGIN, config.API_ORIGIN],
+              maxBytes: config.DOC_MAX_BYTES,
+              onGrantChanged: (owner, taskId, artifactId) =>
+                hub.publishToUser(owner, {
+                  type: "share_grant.changed",
+                  data: { taskId, artifactId },
+                }),
+            }),
+          ),
+          async (result) => {
+            if (!result.analytics) return;
+            const { subject, event, eventId } = result.analytics;
+            await analytics.capture({
+              subject,
+              event: event.event,
+              properties: event.properties,
+              eventId,
+            } as Parameters<ServerAnalyticsEmitter["capture"]>[0]);
+          },
         ),
     },
     {

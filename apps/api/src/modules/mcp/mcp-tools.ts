@@ -73,8 +73,9 @@ export class McpTools {
     simon: SimonRepository,
     accepted: () => void,
     readonly extensions: readonly McpToolExtension[] = [],
+    onTaskConfirmed?: McpTaskTools["onConfirmed"],
   ) {
-    this.tasks = new McpTaskTools(grants, tasks);
+    this.tasks = new McpTaskTools(grants, tasks, onTaskConfirmed);
     this.search = new McpSearchTools(grants, queries);
     this.simon = new McpSimonTools(grants, simon, accepted);
     this.documents = new DocumentTools(repository);
@@ -87,6 +88,7 @@ export class McpTools {
     write = false,
     requestId = uuidv7(),
   ): McpDocumentActor {
+    const grants = this.grants;
     return {
       kind: "mcp",
       userId: identity.ownerId,
@@ -94,14 +96,13 @@ export class McpTools {
       scopes: identity.scopes,
       taskIds: identity.taskIds,
       requestId,
-      guards: [
-        mcpAuthorization(
-          identity,
-          write ? "tasks:write" : "tasks:read",
-          this.grants.options.now(),
-          [taskId],
-        ),
-      ],
+      get guards() {
+        return [
+          mcpAuthorization(identity, write ? "tasks:write" : "tasks:read", grants.options.now(), [
+            taskId,
+          ]),
+        ];
+      },
     };
   }
 
@@ -190,13 +191,16 @@ export class McpTools {
     server.registerTool(
       "task_document_outline",
       { inputSchema: taskDocumentOutlineInputSchema, annotations: { readOnlyHint: true } },
-      (args) => safe(() => this.documents.outline(this.actor(identity, args.taskId), args)),
+      (args) =>
+        this.documentCall(identity, args.taskId, () =>
+          this.documents.outline(this.actor(identity, args.taskId), args),
+        ),
     );
     server.registerTool(
       "task_document_search",
       { inputSchema: taskDocumentSearchInputSchema, annotations: { readOnlyHint: true } },
       (args) =>
-        safe(() =>
+        this.documentCall(identity, args.taskId, () =>
           this.documents.search(this.actor(identity, args.taskId), args, {
             budget: this.budgets.forGrant(identity.id),
           }),
@@ -222,13 +226,16 @@ export class McpTools {
     server.registerTool(
       "task_document_changes",
       { inputSchema: taskDocumentChangesInputSchema, annotations: { readOnlyHint: true } },
-      (args) => safe(() => this.documents.changes(this.actor(identity, args.taskId), args)),
+      (args) =>
+        this.documentCall(identity, args.taskId, () =>
+          this.documents.changes(this.actor(identity, args.taskId), args),
+        ),
     );
     server.registerTool(
       "task_document_diff",
       { inputSchema: taskDocumentDiffInputSchema, annotations: { readOnlyHint: true } },
       (args) =>
-        safe(() =>
+        this.documentCall(identity, args.taskId, () =>
           this.documents.diff(this.actor(identity, args.taskId), args, {
             budget: this.budgets.forGrant(identity.id),
           }),
@@ -237,25 +244,49 @@ export class McpTools {
     server.registerTool(
       "task_document_history",
       { inputSchema: taskDocumentHistoryInputSchema, annotations: { readOnlyHint: true } },
-      (args) => safe(() => this.documents.history(this.actor(identity, args.taskId), args)),
+      (args) =>
+        this.documentCall(identity, args.taskId, () =>
+          this.documents.history(this.actor(identity, args.taskId), args),
+        ),
     );
     server.registerTool(
       "task_document_update_section",
       { inputSchema: taskDocumentUpdateSectionInputSchema.extend({ requestId: idSchema }) },
       ({ requestId, ...args }) =>
-        safe(() =>
-          this.documents.updateSection(this.actor(identity, args.taskId, true, requestId), args),
+        this.documentCall(
+          identity,
+          args.taskId,
+          () =>
+            this.documents.updateSection(this.actor(identity, args.taskId, true, requestId), args),
+          true,
         ),
     );
     server.registerTool(
       "task_document_restore",
       { inputSchema: taskDocumentRestoreInputSchema.extend({ requestId: idSchema }) },
       ({ requestId, ...args }) =>
-        safe(() =>
-          this.documents.restore(this.actor(identity, args.taskId, true, requestId), args),
+        this.documentCall(
+          identity,
+          args.taskId,
+          () => this.documents.restore(this.actor(identity, args.taskId, true, requestId), args),
+          true,
         ),
     );
     registerMcpExtensions(server, this.grants, identity, this.extensions);
     return server;
+  }
+
+  private documentCall(
+    identity: McpIdentity,
+    taskId: string,
+    work: () => Promise<unknown>,
+    write = false,
+  ) {
+    return safe(async () => {
+      const output = await work();
+      // Object and Git reads may outlive a revocation. Never return their content on stale authority.
+      await this.grants.require(identity, write ? "tasks:write" : "tasks:read", [taskId]);
+      return output;
+    });
   }
 }

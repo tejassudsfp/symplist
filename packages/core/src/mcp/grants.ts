@@ -228,6 +228,11 @@ export class McpGrants {
     )
       throw new McpError("mcp.invalid_token");
     const identity = grantFromRow(row);
+    await this.touch(identity, row);
+    return identity;
+  }
+
+  private async touch(identity: McpIdentity, row: DbRow): Promise<void> {
     if (row.last_used_at === null || Number(row.last_used_at) <= this.options.now() - 600_000)
       await this.options.db.run(
         sql(
@@ -235,13 +240,12 @@ export class McpGrants {
           {
             now: int(this.options.now()),
             write: uuidv7(this.options.now()),
-            id,
+            id: identity.id,
             generation: int(identity.generation),
             before: int(this.options.now() - 600_000),
           },
         ),
       );
-    return identity;
   }
 
   async require(
@@ -260,21 +264,28 @@ export class McpGrants {
   }
 
   async authenticateOAuth(expected: McpIdentity): Promise<McpIdentity> {
+    const cacheKey = `oauth:${expected.id}`;
+    if ((this.unknown.get(cacheKey) ?? 0) > this.options.now())
+      throw new McpError("mcp.invalid_token");
     const row = await this.options.db.first(
       sql(
         `SELECT g.*, ${accessStateSelectList("u", "access_")} FROM mcp_grants g JOIN users u ON u.id = g.owner_id
-      WHERE g.id = :id AND g.owner_id = :owner AND g.kind = 'oauth' AND g.client_id = :client AND g.generation = :generation AND g.revoked_at IS NULL AND g.expires_at > :now`,
-        {
-          id: expected.id,
-          owner: expected.ownerId,
-          client: expected.clientId,
-          generation: int(expected.generation),
-          now: int(this.options.now()),
-        },
+      WHERE g.id = :id`,
+        { id: expected.id },
       ),
     );
+    if (!row) {
+      if (this.unknown.size >= 4096) this.unknown.clear();
+      this.unknown.set(cacheKey, this.options.now() + 60_000);
+      throw new McpError("mcp.invalid_token");
+    }
     if (
-      !row ||
+      row.kind !== "oauth" ||
+      row.owner_id !== expected.ownerId ||
+      row.client_id !== expected.clientId ||
+      row.generation !== expected.generation ||
+      row.revoked_at !== null ||
+      Number(row.expires_at) <= this.options.now() ||
       !evaluateAccess(accessStateFromRow(row, "access_"), "admitted", this.options.policy).allowed
     )
       throw new McpError("mcp.invalid_token");
@@ -285,6 +296,7 @@ export class McpGrants {
         JSON.stringify(expected.taskIds === null ? null : [...expected.taskIds].sort())
     )
       throw new McpError("mcp.invalid_token");
+    await this.touch(identity, row);
     return identity;
   }
 
