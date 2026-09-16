@@ -341,7 +341,12 @@ export class TaskCommands {
         this.key(scope),
       );
       this.release(scope);
-      if (wasOpen && node) this.deps.navigate(`/${node.collection}`);
+      // Where to land once the task's page is gone. The header can complete a task whose list has
+      // not been loaded (an archive detail, a narrow window with the list collapsed), so the task's
+      // own detail answers when the tree cannot.
+      const landing =
+        node?.collection ?? this.deps.tasks.detail(taskId).detail?.task.collection ?? null;
+      if (wasOpen && landing) this.deps.navigate(`/${landing}`);
       const archived = response.archivedTaskIds.length;
       const message =
         archived > 1

@@ -21,9 +21,12 @@ import type {
   TaskRestoreResponse,
 } from "@symplist/contracts";
 import { preferenceDefaults, preferenceGroups } from "@symplist/contracts";
-import { type RenderResult, render } from "@testing-library/react";
+import { type RenderResult, render, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
+import { ActionsProvider } from "@/actions/provider";
+import { actionRegistry } from "@/actions/registry-index";
+import type { ActionServices } from "@/actions/types";
 import { StatusAnnouncerProvider } from "@/components/ui/status-announcer";
 import { ToastProvider } from "@/components/ui/toast";
 import { ApiError } from "@/lib/api";
@@ -552,13 +555,38 @@ export function renderWorkspace(
   const result = render(
     <StatusAnnouncerProvider>
       <ToastProvider>
-        <TaskRunStateProvider source={options.runState ?? idleRunStateSource}>
-          <WorkspaceProvider api={api} realtime={null} userId={options.userId ?? "user-1"}>
-            {node}
-          </WorkspaceProvider>
-        </TaskRunStateProvider>
+        <ActionsProvider actions={actionRegistry} services={testActionServices()}>
+          <TaskRunStateProvider source={options.runState ?? idleRunStateSource}>
+            <WorkspaceProvider api={api} realtime={null} userId={options.userId ?? "user-1"}>
+              {node}
+            </WorkspaceProvider>
+          </TaskRunStateProvider>
+        </ActionsProvider>
       </ToastProvider>
     </StatusAnnouncerProvider>,
   );
   return { ...result, api, user };
+}
+
+/** The action services a mounted workspace needs; navigation is the test's `next/navigation` mock. */
+function testActionServices(): ActionServices {
+  return {
+    navigate: () => undefined,
+    assign: () => undefined,
+    announce: () => undefined,
+    route: null,
+    shell: null,
+  };
+}
+
+/**
+ * The region-level failure on screen. It cannot be found with `findByRole("alert")`: the status
+ * announcer keeps a permanently mounted assertive region, which that query matches first.
+ */
+export function findInlineError(): Promise<HTMLElement> {
+  return waitFor(() => {
+    const node = document.querySelector<HTMLElement>('[data-slot="inline-error"]');
+    if (!node) throw new Error("no inline error yet");
+    return node;
+  });
 }
