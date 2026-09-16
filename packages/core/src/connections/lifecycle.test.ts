@@ -7,7 +7,11 @@ import {
   createDocumentsTestEnvironment,
   type DocumentsTestEnvironment,
 } from "../documents/test-support.ts";
+import { IdempotencyStore, redactOneTimeSecretResponse } from "../idempotency/index.ts";
+import { SimonRepository } from "../simon/repository.ts";
+import type { ConnectionWriteFold } from "./fold.ts";
 import { type ConnectionActor, ConnectionsService } from "./lifecycle.ts";
+import { ConnectionMutations } from "./mutations.ts";
 
 let env: DocumentsTestEnvironment;
 let keys: ManagedKeyProvider;
@@ -23,6 +27,7 @@ beforeEach(async () => {
     {
       CONTENT_KEK: { current: 1, versions: new Map([[1, env.keys.current("CONTENT_KEK").key]]) },
       SESSION_DIGEST_SECRET: { current: 1, versions: new Map([[1, randomBytes(32)]]) },
+      IDEMPOTENCY_SECRET: { current: 1, versions: new Map([[1, randomBytes(32)]]) },
     },
     { required: ["CONTENT_KEK", "SESSION_DIGEST_SECRET"] },
   );
@@ -53,7 +58,14 @@ beforeEach(async () => {
     catalogue: {
       list: async () => [{ slug: "gmail", name: "Gmail", description: "", auth: "managed" }],
     },
-    sessions: { use: vi.fn() },
+    sessions: {
+      use: vi.fn(async () => ({
+        sessionId: "sess_test",
+        update: async () => undefined,
+        execute: async () => ({ data: {}, error: null, logId: "log" }),
+        delete: async () => undefined,
+      })),
+    },
     delay: async () => undefined,
   });
 });
@@ -83,7 +95,127 @@ async function begin(alias?: string) {
   };
 }
 
+function fold(requestId: string, oneTime = true): ConnectionWriteFold {
+  const store = new IdempotencyStore({ db: env.db, keys });
+  const request = {
+    scope: "POST /connections",
+    userId: actor.ownerId,
+    key: requestId,
+    input: { toolkit: "gmail" },
+    now: env.clock,
+  };
+  const folded = store.foldedClaim(request);
+  return {
+    ...folded,
+    completionStatement: (response, accountKey) =>
+      store.completeStatement({
+        claim: folded.claim,
+        accountKey,
+        now: env.clock,
+        response: oneTime
+          ? { status: 200, body: redactOneTimeSecretResponse(response.body, ["url"]) }
+          : response,
+      }),
+    decide: (results, accountKey) => {
+      const result = store.decideFoldedClaim({ request, folded, results, accountKey });
+      if (result.kind === "replay") return { kind: "replay", body: result.response.body };
+      if (result.kind !== "started") throw new Error(result.kind);
+      return result;
+    },
+  };
+}
+
+function mutations() {
+  return new ConnectionMutations({
+    repository: new SimonRepository({
+      db: env.db,
+      keys,
+      now: () => env.clock,
+      policy: { betaAccessRequired: true },
+      quickChatTtlHours: 24,
+    }),
+    provider,
+    sessions: service.options.sessions,
+  });
+}
+
 describe("native connection callback authority", () => {
+  it("reconnects the exact version of an existing connection while preserving its encrypted alias", async () => {
+    const id = await service.callback(actor, await begin("Work"));
+    const next = await service.start(actor, { toolkit: "gmail", replacesConnectionId: id });
+    expect(
+      await service.callback(actor, {
+        attemptId: next.attemptId,
+        nonce: callbackUrl.searchParams.get("n") ?? "",
+        sessionUri: "new_attestation",
+      }),
+    ).toBe(id);
+    expect(await env.count("connections")).toBe(1);
+    expect((await service.list(actor))[0]).toMatchObject({ id, alias: "Work", status: "active" });
+    expect(
+      await env.db.first(
+        sql("SELECT connected_account_id, generation FROM connections WHERE id = :id", { id }),
+      ),
+    ).toEqual({ connected_account_id: "ca_2", generation: 2 });
+    expect(
+      await env.db.first(sql("SELECT connected_account_id FROM connection_revoke_jobs")),
+    ).toEqual({ connected_account_id: "ca_1" });
+  });
+
+  it("refuses a stale reconnect after a concurrent disconnect", async () => {
+    const id = await service.callback(actor, await begin());
+    const next = await service.start(actor, { toolkit: "gmail", replacesConnectionId: id });
+    await mutations().disconnect(actor, id);
+    await expect(
+      service.callback(actor, {
+        attemptId: next.attemptId,
+        nonce: callbackUrl.searchParams.get("n") ?? "",
+        sessionUri: "new_attestation",
+      }),
+    ).rejects.toThrow("integration.unauthorized");
+    expect(
+      await env.db.first(
+        sql("SELECT connected_account_id, status FROM connections WHERE id = :id", { id }),
+      ),
+    ).toEqual({ connected_account_id: "ca_1", status: "disconnected" });
+    expect(provider.revoke).toHaveBeenCalledWith("ca_2");
+  });
+
+  it("folds the attempt and redacted outcome before issuing one hosted link", async () => {
+    const request = uuidv7();
+    const initial = await service.start(actor, { toolkit: "gmail" }, fold(request));
+    const replay = await service.start(actor, { toolkit: "gmail" }, fold(request));
+    expect(initial.url).toContain("one_time_marker");
+    expect(replay).toEqual({
+      attemptId: initial.attemptId,
+      expiresAt: initial.expiresAt,
+      secretUnavailable: true,
+      notice: "secret.already_issued",
+    });
+    expect(provider.link).toHaveBeenCalledTimes(1);
+    expect(await env.count("connection_attempts")).toBe(1);
+    expect(
+      JSON.stringify(await env.db.all(sql("SELECT * FROM idempotency_records"))),
+    ).not.toContain("one_time_marker");
+  });
+
+  it("does not save an idempotent success when the outstanding-attempt capacity refuses the effect", async () => {
+    for (let i = 0; i < 5; i++) await begin();
+    await expect(service.start(actor, { toolkit: "gmail" }, fold(uuidv7()))).rejects.toThrow(
+      "integration.unavailable",
+    );
+    expect(await env.count("idempotency_records")).toBe(0);
+  });
+
+  it("does not replay a previously admitted attempt after relock", async () => {
+    const request = uuidv7();
+    await service.start(actor, { toolkit: "gmail" }, fold(request));
+    await env.relock(actor.ownerId);
+    await expect(service.start(actor, { toolkit: "gmail" }, fold(request))).rejects.toThrow(
+      "integration.unauthorized",
+    );
+    expect(provider.link).toHaveBeenCalledTimes(1);
+  });
   it("confirms only after identity attestation, stores encrypted aliases and never stores callback/link secrets", async () => {
     const input = await begin("private_alias_marker");
     expect(await service.list(actor)).toEqual([]);
@@ -217,5 +349,63 @@ describe("native connection callback authority", () => {
       "integration.tool_unavailable",
     );
     expect(provider.link).not.toHaveBeenCalled();
+  });
+});
+
+describe("connection disconnect and durable provider cleanup", () => {
+  it("revokes native authority before the provider is called and clears its cleanup intent only on success", async () => {
+    const id = await service.callback(actor, await begin());
+    vi.mocked(provider.revoke).mockImplementationOnce(async () => {
+      expect(
+        await env.db.first(
+          sql("SELECT status, generation FROM connections WHERE id = :id", { id }),
+        ),
+      ).toEqual({ status: "disconnected", generation: 2 });
+      expect(await env.count("connection_revoke_jobs")).toBe(1);
+    });
+    expect(await mutations().disconnect(actor, id)).toEqual({ id, status: "disconnected" });
+    expect(provider.revoke).toHaveBeenCalledWith("ca_1");
+    expect(await env.count("connection_revoke_jobs")).toBe(0);
+  });
+
+  it("retains provider cleanup across an outage and fences concurrent attempts", async () => {
+    const id = await service.callback(actor, await begin());
+    const changes = mutations();
+    vi.mocked(provider.revoke).mockRejectedValueOnce(new Error("outage"));
+    await changes.disconnect(actor, id);
+    expect(await env.count("connection_revoke_jobs")).toBe(1);
+    await changes.finishRevocation(actor.ownerId, "ca_1");
+    expect(provider.revoke).toHaveBeenCalledTimes(1);
+    env.clock += 60_001;
+    await changes.finishRevocation(actor.ownerId, "ca_1");
+    expect(provider.revoke).toHaveBeenCalledTimes(2);
+    expect(await env.count("connection_revoke_jobs")).toBe(0);
+  });
+
+  it("rejects cross-user and logged-out disconnects before any provider call", async () => {
+    const id = await service.callback(actor, await begin());
+    await expect(mutations().disconnect(await createActor(), id)).rejects.toThrow(
+      "integration.unauthorized",
+    );
+    await env.db.run(
+      sql("UPDATE auth_sessions SET revoked_at = :now WHERE id = :session", {
+        now: int(env.clock),
+        session: actor.sessionId,
+      }),
+    );
+    await expect(mutations().disconnect(actor, id)).rejects.toThrow("integration.unauthorized");
+    expect(provider.revoke).not.toHaveBeenCalled();
+  });
+
+  it("folds disconnect idempotency and never re-revokes a replay", async () => {
+    const id = await service.callback(actor, await begin());
+    const request = uuidv7();
+    const changes = mutations();
+    await changes.disconnect(actor, id, fold(request, false));
+    await changes.disconnect(actor, id, fold(request, false));
+    expect(provider.revoke).toHaveBeenCalledTimes(1);
+    expect(
+      await env.db.first(sql("SELECT generation FROM connections WHERE id = :id", { id })),
+    ).toEqual({ generation: 2 });
   });
 });

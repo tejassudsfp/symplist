@@ -6,6 +6,10 @@ export const connectionsPurgeContributor: PurgeContributor = {
   domain: "connections",
   statements: ({ userId, batchLimit }) => [
     sql(
+      `DELETE FROM connection_revoke_jobs WHERE connected_account_id IN (SELECT connected_account_id FROM connection_revoke_jobs WHERE owner_id = :owner LIMIT :limit)`,
+      { owner: userId, limit: int(batchLimit) },
+    ),
+    sql(
       `DELETE FROM connection_attempts WHERE id IN (SELECT id FROM connection_attempts WHERE user_id = :owner LIMIT :limit)`,
       { owner: userId, limit: int(batchLimit) },
     ),
@@ -25,6 +29,7 @@ export const connectionsPurgeContributor: PurgeContributor = {
       `SELECT (EXISTS (SELECT 1 FROM connections WHERE owner_id = :owner)
       OR EXISTS (SELECT 1 FROM connection_attempts WHERE user_id = :owner)
       OR EXISTS (SELECT 1 FROM composio_sessions WHERE user_id = :owner)
+      OR EXISTS (SELECT 1 FROM connection_revoke_jobs WHERE owner_id = :owner)
       OR EXISTS (SELECT 1 FROM connection_state WHERE owner_id = :owner)) AS remaining`,
       {
         owner: userId,

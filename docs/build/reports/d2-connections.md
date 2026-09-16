@@ -32,6 +32,10 @@ Status: **in progress; not ready to integrate as a finished feature**. Sole writ
   service binds an expiring nonce to user and login session, attests through `complete_auth`, checks
   exact account/toolkit/ACTIVE status, and encrypts aliases with row-specific AAD. A late relock,
   logout, shred or expiry refuses publication. Logout expires pending attempts in its batch.
+- Folded connect/disconnect idempotency (hosted link is never replayable), version-bound reconnect,
+  durable ids-only provider revocation, and set-based approval expiry/continuations in the deciding
+  connection batch. Expiry has five statements regardless of approval count, tested with 100 pauses;
+  it does not permanently block disconnect behind a small preflight limit. HTTP/event wiring remains.
 
 ## Simon seam
 
@@ -66,6 +70,8 @@ used for a write. An ambiguous write is surfaced as uncertain, not silently rese
   and API typechecks passed after the authorized Simon authorization-seam cherry-pick (7a09647).
 - Next checkpoint: 58 selected core connection/session tests and all 18 integration tests pass;
   core/integrations typechecks pass. These services are not yet HTTP-mounted.
+- Third checkpoint: 63 connection tests pass, database 164 pass / 2 credential-gated skips; full
+  lint over 1,171 files has zero warnings/errors and all 17 project typechecks pass.
 
 ## Adversarial findings fixed in this checkpoint
 
@@ -88,6 +94,7 @@ diff review. Full feature gates remain required. Root owns progress/coverage and
 ## Files outside owned feature directories
 
 - `packages/db/migrations/0901_connection_lifecycle.sql`
+- `packages/db/migrations/0902_connection_revocation.sql`
 - `packages/core/src/access/restrict-contributors/connections.ts`
 - `packages/core/src/account/purge-contributors/connections.ts`
 - `packages/core/src/access/session-revoke-contributors/connections.ts` and its registry

@@ -16,7 +16,10 @@ import {
 import type { AccessPolicy } from "../access/evaluate.ts";
 import { accessCondition } from "../access/sql.ts";
 import { AccountKeyStore } from "../account/keys.ts";
+import { SimonRepository } from "../simon/repository.ts";
+import { connectionApprovalExpiryStatements } from "./approval-expiry.ts";
 import { ComposioAuthConfigs } from "./auth-configs.ts";
+import { type ConnectionWriteFold, connectionFoldCompletion } from "./fold.ts";
 import type { ComposioSessions } from "./sessions.ts";
 
 export interface ConnectionActor {
@@ -29,6 +32,13 @@ export interface ConnectionView {
   readonly alias: string | null;
   readonly status: "active" | "needs_attention" | "disconnected";
   readonly createdAt: number;
+}
+
+export interface ConnectionStartResult {
+  readonly attemptId: string;
+  readonly expiresAt: number;
+  readonly url?: string;
+  readonly secretUnavailable?: boolean;
 }
 
 export function connectionAliasContext(
@@ -113,20 +123,27 @@ export class ConnectionsService {
 
   async start(
     actor: ConnectionActor,
-    input: { toolkit: string; alias?: string },
-  ): Promise<{ attemptId: string; url: string; expiresAt: number }> {
+    input: { toolkit: string; alias?: string; replacesConnectionId?: string },
+    fold?: ConnectionWriteFold,
+  ): Promise<ConnectionStartResult> {
+    if (fold && fold.claim.userId !== actor.ownerId)
+      throw new IntegrationError("integration.unauthorized");
     if (
       !/^[a-z0-9][a-z0-9_-]{0,127}$/.test(input.toolkit) ||
       (input.alias !== undefined && (!input.alias.trim() || input.alias.length > 120))
     )
       throw new IntegrationError("integration.invalid_arguments");
     const { keyRow, rows } = await this.actorRows(actor);
-    if (rows.length >= 500) throw new IntegrationError("integration.unavailable");
+    const replaces = input.replacesConnectionId
+      ? rows.find((row) => row.id === input.replacesConnectionId && row.toolkit === input.toolkit)
+      : undefined;
+    if (input.replacesConnectionId && !replaces)
+      throw new IntegrationError("integration.unauthorized");
+    if (!replaces && rows.length >= 500) throw new IntegrationError("integration.unavailable");
     const toolkit = (await this.options.catalogue.list()).find(
       (item) => item.slug === input.toolkit,
     );
     if (!toolkit) throw new IntegrationError("integration.tool_unavailable");
-    const config = await this.configs.findOrCreate(toolkit);
     const time = this.options.now();
     const id = uuidv7(time);
     const nonce = randomBytes(32).toString("base64url");
@@ -138,23 +155,43 @@ export class ConnectionsService {
     );
     const key = this.accountKeys.unwrapRow(keyRow);
     let alias: string | null;
+    let aliasText = input.alias?.trim();
     try {
-      alias = input.alias
+      if (aliasText === undefined && replaces?.alias_enc)
+        aliasText = decryptFieldText(
+          key,
+          connectionAliasContext(actor.ownerId, String(replaces.id), "connections"),
+          String(replaces.alias_enc),
+        );
+      alias = aliasText
         ? encryptFieldText(
             key,
             connectionAliasContext(actor.ownerId, id, "connection_attempts"),
-            input.alias.trim(),
+            aliasText,
           )
         : null;
     } finally {
       zeroize(key.key);
     }
-    const created = await this.options.db.batch([
+    const foldKey = this.accountKeys.unwrapRow(keyRow);
+    const planned: ConnectionStartResult = {
+      attemptId: id,
+      expiresAt: time + 600_000,
+      url: "",
+      secretUnavailable: false,
+    };
+    const applied = sql(
+      `EXISTS (SELECT 1 FROM connection_attempts WHERE id = :id AND user_id = :owner AND write_id = :id) AND ${this.access()} AND ${this.session()}`,
+      { id, owner: actor.ownerId, session: actor.sessionId, now: int(time) },
+    );
+    const statements = [
+      ...(fold?.statements ?? []),
       sql(
-        `INSERT INTO connection_attempts (id, user_id, auth_session_id, toolkit, alias_enc, nonce_digest, expires_at, status, created_at, updated_at, write_id)
-        SELECT :id, :owner, :session, :toolkit, ${alias === null ? "NULL" : ":alias"}, :digest, :expiry, 'starting', :now, :now, :id
+        `INSERT INTO connection_attempts (id, user_id, auth_session_id, toolkit, alias_enc, nonce_digest, expires_at, status, created_at, updated_at, write_id, replaces_connection_id, replaces_generation)
+        SELECT :id, :owner, :session, :toolkit, ${alias === null ? "NULL" : ":alias"}, :digest, :expiry, 'starting', :now, :now, :id, ${replaces ? ":replaces, :replaces_generation" : "NULL, NULL"}
         WHERE ${this.access()} AND ${this.session()} AND EXISTS (SELECT 1 FROM account_keys WHERE owner_id = :owner)
-        AND (SELECT COUNT(*) FROM connection_attempts WHERE user_id = :owner AND status IN ('starting', 'pending', 'completing') AND expires_at > :now) < 5`,
+        AND (SELECT COUNT(*) FROM connection_attempts WHERE user_id = :owner AND status IN ('starting', 'pending', 'completing') AND expires_at > :now) < 5
+        ${fold ? `AND ${fold.claim.guard.exists}` : ""}`,
         {
           id,
           owner: actor.ownerId,
@@ -164,13 +201,44 @@ export class ConnectionsService {
           digest: `${digest.version}.${digest.digest}`,
           expiry: int(time + 600_000),
           now: int(time),
+          ...fold?.claim.guard.params,
+          ...(replaces
+            ? {
+                replaces: String(replaces.id),
+                replaces_generation: int(Number(replaces.generation)),
+              }
+            : {}),
         },
       ),
       sql(`SELECT id FROM connection_attempts WHERE id = :id AND write_id = :id`, { id }),
-    ]);
-    if (!created[1]?.results[0]) throw new IntegrationError("integration.unavailable");
+      ...(fold
+        ? connectionFoldCompletion(fold, { status: 201, body: planned }, foldKey, applied)
+        : []),
+      sql(
+        `SELECT 1 AS allowed WHERE ${this.access()} AND ${this.session()} AND EXISTS (SELECT 1 FROM account_keys WHERE owner_id = :owner)`,
+        { owner: actor.ownerId, session: actor.sessionId, now: int(this.options.now()) },
+      ),
+    ];
+    try {
+      const created = await this.options.db.batch(statements);
+      if (!created.at(-1)?.results[0]) throw new IntegrationError("integration.unauthorized");
+      const decision = fold?.decide(created, foldKey);
+      if (decision?.kind === "replay") return decision.body as ConnectionStartResult;
+      if (!created[(fold?.statements.length ?? 0) + 1]?.results[0])
+        throw new IntegrationError("integration.unavailable");
+    } finally {
+      zeroize(foldKey.key);
+    }
     let account: string | undefined;
     try {
+      const config = await this.configs.findOrCreate(toolkit);
+      const allowed = await this.options.db.first(
+        sql(
+          `SELECT 1 AS allowed FROM connection_attempts WHERE id = :id AND user_id = :owner AND auth_session_id = :session AND status = 'starting' AND expires_at > :now AND ${this.access()} AND ${this.session()} AND EXISTS (SELECT 1 FROM account_keys WHERE owner_id = :owner)`,
+          { id, owner: actor.ownerId, session: actor.sessionId, now: int(this.options.now()) },
+        ),
+      );
+      if (!allowed) throw new IntegrationError("integration.unauthorized");
       const callback = new URL("/v1/connections/callback", this.options.apiOrigin);
       callback.searchParams.set("attempt", id);
       callback.searchParams.set("n", nonce);
@@ -178,27 +246,29 @@ export class ConnectionsService {
         actor.ownerId,
         config,
         callback.href,
-        input.alias?.trim(),
+        aliasText,
       );
       account = link.id;
+      const linkWrite = uuidv7(this.options.now());
       const saved = await this.options.db.batch([
         sql(
-          `UPDATE connection_attempts SET connected_account_id = :account, status = 'pending', updated_at = :now WHERE id = :id AND user_id = :owner AND auth_session_id = :session AND status = 'starting' AND expires_at > :now AND ${this.access()} AND ${this.session()} AND EXISTS (SELECT 1 FROM account_keys WHERE owner_id = :owner)`,
+          `UPDATE connection_attempts SET connected_account_id = :account, status = 'pending', updated_at = :now, write_id = :write WHERE id = :id AND user_id = :owner AND auth_session_id = :session AND status = 'starting' AND expires_at > :now AND ${this.access()} AND ${this.session()} AND EXISTS (SELECT 1 FROM account_keys WHERE owner_id = :owner)`,
           {
             account,
             now: int(this.options.now()),
             id,
             owner: actor.ownerId,
             session: actor.sessionId,
+            write: linkWrite,
           },
         ),
         sql(
-          `SELECT id FROM connection_attempts WHERE id = :id AND status = 'pending' AND connected_account_id = :account`,
-          { id, account },
+          `SELECT id FROM connection_attempts WHERE id = :id AND status = 'pending' AND connected_account_id = :account AND write_id = :write`,
+          { id, account, write: linkWrite },
         ),
       ]);
       if (!saved[1]?.results[0]) throw new IntegrationError("integration.unauthorized");
-      return { attemptId: id, url: link.url, expiresAt: time + 600_000 };
+      return { attemptId: id, url: link.url, expiresAt: time + 600_000, secretUnavailable: false };
     } catch (error) {
       await this.options.db.run(
         sql(
@@ -250,7 +320,9 @@ export class ConnectionsService {
         },
       ),
       sql(
-        `SELECT * FROM connection_attempts WHERE id = :id AND write_id = :write AND status = 'completing'`,
+        `SELECT a.*, c.connected_account_id AS replacing_account FROM connection_attempts a
+        LEFT JOIN connections c ON c.id = a.replaces_connection_id AND c.owner_id = a.user_id AND c.generation = a.replaces_generation
+        WHERE a.id = :id AND a.write_id = :write AND a.status = 'completing'`,
         { id: input.attemptId, write },
       ),
       this.accountKeys.selectStatement(actor.ownerId),
@@ -304,7 +376,9 @@ export class ConnectionsService {
     keyRow: DbRow,
     write: string,
   ): Promise<string> {
-    const id = uuidv7(this.options.now());
+    const id = attempt.replaces_connection_id
+      ? String(attempt.replaces_connection_id)
+      : uuidv7(this.options.now());
     const key = this.accountKeys.unwrapRow(keyRow);
     let alias: string | null;
     try {
@@ -324,29 +398,67 @@ export class ConnectionsService {
     }
     const guard = `EXISTS (SELECT 1 FROM connection_attempts WHERE id = :attempt AND user_id = :owner AND auth_session_id = :session AND write_id = :write AND status = 'completing' AND expires_at > :now)`;
     const result = await this.options.db.batch([
-      sql(
-        `INSERT INTO connections (id, owner_id, toolkit, connected_account_id, alias_enc, status, confirmed_at, created_at, updated_at, write_id)
+      ...(attempt.replaces_connection_id
+        ? [
+            sql(
+              `UPDATE connections SET connected_account_id = :account, alias_enc = ${alias === null ? "NULL" : ":alias"}, status = 'active', generation = generation + 1, confirmed_at = :now, updated_at = :now, write_id = :write
+        WHERE id = :id AND owner_id = :owner AND toolkit = :toolkit AND generation = :generation
+        AND ${guard} AND ${this.access()} AND ${this.session()} AND EXISTS (SELECT 1 FROM account_keys WHERE owner_id = :owner)`,
+              {
+                account: String(attempt.connected_account_id),
+                ...(alias === null ? {} : { alias }),
+                now: int(this.options.now()),
+                write,
+                id,
+                owner: actor.ownerId,
+                toolkit: String(attempt.toolkit),
+                generation: int(Number(attempt.replaces_generation)),
+                attempt: String(attempt.id),
+                session: actor.sessionId,
+              },
+            ),
+            ...connectionApprovalExpiryStatements(
+              new SimonRepository({ ...this.options, quickChatTtlHours: 24 }),
+              { ownerId: actor.ownerId, connectionId: id, writeId: write, now: this.options.now() },
+            ),
+            sql(
+              `INSERT INTO connection_revoke_jobs (connected_account_id, owner_id, created_at, write_id)
+          SELECT :account, :owner, :now, :write WHERE EXISTS (SELECT 1 FROM connections WHERE id = :id AND owner_id = :owner AND write_id = :write)
+          ON CONFLICT (connected_account_id) DO NOTHING`,
+              {
+                account: String(attempt.replacing_account),
+                owner: actor.ownerId,
+                now: int(this.options.now()),
+                write,
+                id,
+              },
+            ),
+          ]
+        : [
+            sql(
+              `INSERT INTO connections (id, owner_id, toolkit, connected_account_id, alias_enc, status, confirmed_at, created_at, updated_at, write_id)
         SELECT :id, :owner, :toolkit, :account, ${alias === null ? "NULL" : ":alias"}, 'active', :now, :now, :now, :write
         WHERE ${guard} AND ${this.access()} AND ${this.session()} AND EXISTS (SELECT 1 FROM account_keys WHERE owner_id = :owner)`,
-        {
-          id,
-          owner: actor.ownerId,
-          toolkit: String(attempt.toolkit),
-          account: String(attempt.connected_account_id),
-          ...(alias === null ? {} : { alias }),
-          now: int(this.options.now()),
-          write,
-          attempt: String(attempt.id),
-          session: actor.sessionId,
-        },
-      ),
+              {
+                id,
+                owner: actor.ownerId,
+                toolkit: String(attempt.toolkit),
+                account: String(attempt.connected_account_id),
+                ...(alias === null ? {} : { alias }),
+                now: int(this.options.now()),
+                write,
+                attempt: String(attempt.id),
+                session: actor.sessionId,
+              },
+            ),
+          ]),
       sql(
         `UPDATE connection_attempts SET status = 'confirmed', updated_at = :now WHERE id = :attempt AND write_id = :write AND EXISTS (SELECT 1 FROM connections WHERE id = :id AND write_id = :write)`,
         { now: int(this.options.now()), attempt: String(attempt.id), write, id },
       ),
       sql(`SELECT id FROM connections WHERE id = :id AND write_id = :write`, { id, write }),
     ]);
-    if (!result[2]?.results[0]) throw new IntegrationError("integration.unauthorized");
+    if (!result.at(-1)?.results[0]) throw new IntegrationError("integration.unauthorized");
     return id;
   }
 }
