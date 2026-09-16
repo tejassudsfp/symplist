@@ -23,8 +23,8 @@ All trees live under `/Users/tejassuds/projects/symplist-wt/`. Do not touch the 
 
 | Branch | State at checkpoint request | Next action |
 | --- | --- | --- |
-| `wip/d2-connections` | Active writer; parent `5e82a14`, complete backend plus final security/integration changes being snapshotted | Read final branch report; merge backend first, typecheck and account for every changed path |
-| `wip/d2-maintenance` | Active writer; parent `ee05885`, native Sharing/handoff adapters in progress | Read final report; snapshot is explicitly unfinished until tests/review pass |
+| `wip/d2-connections` | Clean, pushed `ed5abf3`; agent stopped | Read final branch report; merge backend first, typecheck and account for every changed path |
+| `wip/d2-maintenance` | Clean, pushed `e61264b`; agent stopped | Read `simon-sharing-checkpoint.md` on branch; snapshot is explicitly unfinished until tests/review pass |
 | `wip/d2-connections-ui` | Clean `5341297` | Merge after Connections backend; preserve both CSS blocks and root shell/UI changes |
 | `wip/e-visual` | Clean `77f73af` | 36 populated-workspace frames inspected; two contrast fixes. Merge after root UI checkpoint |
 | `wip/e-d1-load` | Clean `fb6783b` | Work already integrated; retain branch backup |
@@ -33,6 +33,10 @@ All trees live under `/Users/tejassuds/projects/symplist-wt/`. Do not touch the 
 | `wip/d2-vault` | Clean `f881976` | Already integrated; retain branch backup |
 
 Agent commits may advance these listed parents. Use `git worktree list`, each branch report and actual remote hashes on resume. Do not infer completion from an agent being idle.
+
+Root UI snapshot is `236349f`, pushed to `origin/feat/symplist-build`. Completed scheduling, sharing, Vault and load branches are also backed up on origin. Connections UI/visual backup was handled centrally after its agent was interrupted by the pause request. No feature work continues during this pause.
+
+Maintenance's exact first resume defect: its draft regression imports `DurableDocumentGit` from nonexistent `documents/durable.ts`; the actual module is `git-jobs.ts`. Production wiring typechecked before that test was added. Fix the import, then finish parity/event/revoke-race tests and full gates; do not merge it as verified. Connections reports focused MCP tests green but still requires its final Git-history timeout rerun and overall review/gate refresh.
 
 ## Remaining integration work
 
