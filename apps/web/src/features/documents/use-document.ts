@@ -231,13 +231,7 @@ export function documentReducer(state: DocumentState, action: Action): DocumentS
                 : { kind: "saved", at: action.head.updatedAt },
             agentUpdate: action.update ?? state.agentUpdate,
             normalizationPending: false,
-            readOnly: action.head.hasRawHtml
-              ? "raw_html"
-              : action.head.parseMode === "fallback"
-                ? "too_complex"
-                : state.readOnly === "locked"
-                  ? "locked"
-                  : null,
+            readOnly: readOnlyFor(action.head) ?? (state.readOnly === "locked" ? "locked" : null),
           }
         : { ...state, head: action.head, agentUpdate: action.update ?? state.agentUpdate };
     case "agent_update_dismissed":
@@ -286,9 +280,14 @@ export function canonicalOrNull(markdown: string): string | null {
   }
 }
 
+/**
+ * Why the page view cannot edit this head. The parser's own limits come first: when the document was
+ * only line-scanned nothing is known about its HTML, so `hasRawHtml` is conservatively true and would
+ * otherwise give the reader the wrong reason.
+ */
 function readOnlyFor(head: HeadSnapshot): ReadOnlyReason | null {
-  if (head.hasRawHtml) return "raw_html";
   if (head.parseMode === "fallback") return "too_complex";
+  if (head.hasRawHtml) return "raw_html";
   return null;
 }
 
@@ -662,7 +661,12 @@ export function useDocument(options: UseDocumentOptions): DocumentHandle {
     if (current.save.kind === "failed" && inFlightRef.current === null) {
       keysRef.current.release("save");
     }
-    dispatch({ type: "buffer", markdown });
+    const action = { type: "buffer", markdown } as const;
+    // The scheduler can write a draft or publish synchronously inside `changed()`, before React has
+    // re-rendered, so the ref is advanced through the same reducer first. Otherwise that first write
+    // reads a buffer that is still clean and skips itself.
+    stateRef.current = documentReducer(current, action);
+    dispatch(action);
     schedulerRef.current?.changed();
   }, []);
 

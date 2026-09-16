@@ -57,9 +57,7 @@ describe("the (app) layout with the feature placeholders", () => {
     expect(within(main).getByRole("heading", { level: 1, name: "Task page" })).toBeInTheDocument();
     // The documents feature owns the page: with no API origin in this build it says so in plain
     // language rather than throwing inside the shell (system_states.md).
-    expect(
-      await within(main).findByText("This page isn't available here"),
-    ).toBeInTheDocument();
+    expect(await within(main).findByText("This page isn't available here")).toBeInTheDocument();
     const chat = screen.getByRole("complementary", { name: "Simon" });
     expect(within(chat).getByText("No messages yet")).toBeInTheDocument();
     // The quick chat launcher belongs to the no-selection view.

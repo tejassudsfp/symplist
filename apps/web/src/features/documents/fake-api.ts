@@ -142,7 +142,8 @@ export class FakeDocuments {
     this.taskId = options.taskId ?? "01929f3e-7c1a-7b2e-9a55-3c2f1d0e9b8a";
     this.now = options.now ?? (() => 1_758_000_000_000);
     let previous = "";
-    (options.commits ?? []).forEach((commit, index) => {
+    const planned = options.commits ?? [];
+    planned.forEach((commit, index) => {
       const kind = commit.kind ?? (index === 0 ? "create" : "edit");
       this.commits.push({
         revision: commit.revision ?? revisionOf(index + 1),
@@ -152,7 +153,8 @@ export class FakeDocuments {
         kind,
         restoredFrom: commit.restoredFrom ?? null,
         subject: commit.subject ?? subjectFor(previous, commit.markdown, kind),
-        committedAt: commit.committedAt ?? this.now() - (options.commits?.length ?? 0 - index) * 1000,
+        // Oldest first, so a fixture's commits are minutes apart and history grouping is testable.
+        committedAt: commit.committedAt ?? this.now() - (planned.length - 1 - index) * 60_000,
         markdown: commit.markdown,
       });
       previous = commit.markdown;
@@ -337,7 +339,8 @@ export class FakeDocuments {
           subject: commit.subject,
           committedAt: commit.committedAt,
         },
-        headRevision: (head?.revision ?? commit.revision) as DocumentRevisionResponse["headRevision"],
+        headRevision: (head?.revision ??
+          commit.revision) as DocumentRevisionResponse["headRevision"],
         isHead: head?.revision === commit.revision,
         markdown: commit.markdown,
         sections: sectionsOf(commit.markdown),
