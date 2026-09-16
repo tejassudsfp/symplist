@@ -199,3 +199,12 @@ Additional shared files: `packages/core/src/search/{index,service,request-signal
 coordinator, not another writer. `packages/core/src/search/sources/tasks.ts` is byte-identical to
 the owner's committed 4d67768 AAD fix, copied as an explicit dependency. The pre-D2 `/mcp` guard
 probe moved to `/mcp/guard-probe`; original security assertions remain intact.
+
+Root integration: merged committed `4c49738` after checkpoint `71e975f`. Conflicting root-owned
+Simon module/tests, progress, coverage, parallel plan and integration report retain the incoming
+committed versions exactly; earlier copies were dependency snapshots, not Connections work.
+All 35 conflicting evidence PNGs likewise retain the root's newer captures (no browser run here).
+The guard-test conflict combines OAuth's `/oauth/token/guard-probe` with Sharing's
+`/artifact/_probe/abc`. Task service and Simon core auto-merges match the root byte-for-byte,
+including authorization and quick-create attachment seams; the root AAD dependency also matches.
+All 17 project typechecks pass after resolution. Root dirty files were not read or copied.

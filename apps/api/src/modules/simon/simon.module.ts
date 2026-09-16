@@ -1,12 +1,15 @@
 import { Inject, Injectable, Module, type OnModuleInit } from "@nestjs/common";
+import type { ServerAnalyticsEmitter } from "@symplist/analytics/server";
+import { AnalyticsService } from "@symplist/core/analytics";
 import { DocumentRepository, DocumentTools } from "@symplist/core/documents";
-import { SimonRepository } from "@symplist/core/simon";
+import { SimonQuickChats, SimonRepository } from "@symplist/core/simon";
 import type { KeyProvider } from "@symplist/crypto";
 import type { DbClient } from "@symplist/db";
 import type { GitService } from "@symplist/docs";
 import type { ObjectStore } from "@symplist/storage";
 import { CLOCK, type Clock } from "../../common/clock.ts";
 import { AppLogger } from "../../common/logging/logger.ts";
+import { SERVER_ANALYTICS } from "../../infra/analytics/analytics.providers.ts";
 import { API_CONFIG, type ApiConfig } from "../../infra/config/api-config.ts";
 import { KEY_PROVIDER } from "../../infra/crypto/crypto.providers.ts";
 import { DB_CLIENT } from "../../infra/db/db.providers.ts";
@@ -14,9 +17,11 @@ import { DOCUMENT_GIT } from "../../infra/documents/git.module.ts";
 import { ExecutionRegistry } from "../../infra/executors/execution-registry.ts";
 import { OBJECT_STORE } from "../../infra/storage/storage.providers.ts";
 import { TopicHub } from "../realtime/topic-hub.ts";
+import { SimonApprovalsController } from "./simon.approvals.controller.ts";
 import { SimonController } from "./simon.controller.ts";
 import { createLocalSimonHandler } from "./simon.local.ts";
 import { SimonUserAsksController } from "./simon.pauses.controller.ts";
+import { SimonTopics } from "./simon.realtime.ts";
 
 @Injectable()
 export class SimonLifecycle implements OnModuleInit {
@@ -45,8 +50,32 @@ export class SimonLifecycle implements OnModuleInit {
 
 /** The simon feature: controllers, gateway handlers and providers live in this folder (§2.3). */
 @Module({
-  controllers: [SimonController, SimonUserAsksController],
+  controllers: [SimonController, SimonUserAsksController, SimonApprovalsController],
   providers: [
+    {
+      provide: SimonQuickChats,
+      inject: [SimonRepository, API_CONFIG, SERVER_ANALYTICS],
+      useFactory: (
+        repository: SimonRepository,
+        config: ApiConfig,
+        emitter: ServerAnalyticsEmitter,
+      ) => {
+        const analytics = new AnalyticsService({
+          ...repository.options,
+          emitter,
+          enabled: config.ANALYTICS_ENABLED && Boolean(config.POSTHOG_PROJECT_KEY),
+        });
+        return new SimonQuickChats(repository, async (owner, collection, eventId) => {
+          await analytics.capture(owner, "quick_chat_saved", { collection }, eventId);
+          await analytics.capture(
+            owner,
+            "task_created",
+            { collection, source: "quick_chat", is_subtask: false },
+            repository.nextId(),
+          );
+        });
+      },
+    },
     {
       provide: DocumentTools,
       inject: [
@@ -108,6 +137,7 @@ export class SimonLifecycle implements OnModuleInit {
         }),
     },
     SimonLifecycle,
+    SimonTopics,
   ],
   exports: [SimonRepository],
 })

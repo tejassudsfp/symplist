@@ -1,14 +1,18 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { PostHog, type PostHogOptions } from "posthog-node";
-import type { AnalyticsConsentState } from "./browser.ts";
 import { checkOutgoingEvent, posthogUsAppHost, posthogUsIngestHost } from "./config.ts";
 import {
+  type AnalyticsEventName,
+  type AnalyticsEventOwner,
   type AnalyticsEventProperties,
   type AnalyticsValidationFailure,
+  type ClientAnalyticsEventName,
   type ServerAnalyticsEventName,
   validateAnalyticsEvent,
 } from "./events.ts";
 import { scrubEvent } from "./scrub.ts";
+
+export type { AnalyticsEventProperties, ServerAnalyticsEventName } from "./events.ts";
 
 /**
  * Server analytics emitter (§15): one `posthog-node` client per process with `disableGeoip: true`,
@@ -19,7 +23,7 @@ import { scrubEvent } from "./scrub.ts";
 
 /** The account's stored analytics state, read from D1 in the same request (§15, decision R9). */
 export interface AnalyticsSubject {
-  readonly consent: AnalyticsConsentState;
+  readonly consent: "unset" | "granted" | "denied";
   /** `users.analytics_id`: random, never derived from identity, never logged. */
   readonly analyticsId: string | null;
 }
@@ -89,6 +93,13 @@ export interface ServerAnalyticsEmitter {
   capture<Name extends ServerAnalyticsEventName>(
     input: ServerCaptureInput<Name>,
   ): Promise<ServerCaptureOutcome>;
+  /** First-party relay only: the browser owns the action, the server keeps its identity private. */
+  captureClient?<Name extends ClientAnalyticsEventName>(input: {
+    readonly subject: AnalyticsSubject;
+    readonly event: Name;
+    readonly properties: AnalyticsEventProperties<Name>;
+    readonly eventId: string;
+  }): Promise<ServerCaptureOutcome>;
   /** Sends queued events; for per-run cleanup in short-lived processes. Never throws. */
   flush(): Promise<void>;
   /** Flushes and stops the client once, before the process exits. Never throws. */
@@ -144,6 +155,7 @@ export function createServerAnalytics(options: ServerAnalyticsOptions): ServerAn
     return {
       enabled: false,
       capture: async () => ({ status: "skipped", reason: "disabled" }),
+      captureClient: async () => ({ status: "skipped", reason: "disabled" }),
       flush: async () => undefined,
       shutdown: async () => undefined,
     };
@@ -168,7 +180,10 @@ export function createServerAnalytics(options: ServerAnalyticsOptions): ServerAn
     before_send: (event) => {
       if (event === null) return null;
       const scrubbed = scrubEvent(event);
-      return checkOutgoingEvent("server", scrubbed, noSdkEvents) ? scrubbed : null;
+      return checkOutgoingEvent("server", scrubbed, noSdkEvents) ||
+        checkOutgoingEvent("client", scrubbed, noSdkEvents)
+        ? scrubbed
+        : null;
     },
     ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
   });
@@ -188,54 +203,63 @@ export function createServerAnalytics(options: ServerAnalyticsOptions): ServerAn
 
   let stopped = false;
 
+  const capture = async (
+    owner: AnalyticsEventOwner,
+    input: {
+      readonly subject: AnalyticsSubject;
+      readonly event: AnalyticsEventName;
+      readonly properties: unknown;
+      readonly eventId: string;
+    },
+  ): Promise<ServerCaptureOutcome> => {
+    if (stopped) return { status: "skipped", reason: "shut_down" };
+    if (input.subject.consent !== "granted") {
+      return { status: "skipped", reason: "consent_not_granted" };
+    }
+    const distinctId = input.subject.analyticsId;
+    if (distinctId === null || distinctId.trim() === "") {
+      return { status: "skipped", reason: "missing_identity" };
+    }
+    if (!uuidPattern.test(input.eventId)) return { status: "rejected", reason: "invalid_event_id" };
+    const validation = validateAnalyticsEvent(owner, input.event, input.properties);
+    if (!validation.ok) return { status: "rejected", reason: validation.reason };
+
+    const message = {
+      distinctId,
+      event: validation.event,
+      properties: { ...validation.properties },
+      uuid: input.eventId.toLowerCase(),
+      disableGeoip: true,
+    };
+    try {
+      if (options.delivery === "batched") {
+        client.capture(message);
+        return { status: "queued" };
+      }
+      // posthog-node reports HTTP failures of an immediate send through its error event, which the
+      // client-wide listener records on this capture's scope only.
+      const scope: ImmediateCaptureScope = { providerFailed: false };
+      await withTimeout(
+        immediateCaptures.run(scope, () => client.captureImmediate(message)),
+        options.immediateTimeoutMs ?? 3000,
+      );
+      if (!scope.providerFailed) return { status: "sent" };
+      warn({ event: "analytics.capture_failed", code: "analytics.provider_error" });
+      return { status: "failed", reason: "provider_error" };
+    } catch (error) {
+      const timedOut = error instanceof TimeoutSignal;
+      warn({
+        event: "analytics.capture_failed",
+        code: timedOut ? "analytics.timeout" : "analytics.provider_error",
+      });
+      return { status: "failed", reason: timedOut ? "timeout" : "provider_error" };
+    }
+  };
+
   return {
     enabled: true,
-
-    async capture(input) {
-      if (stopped) return { status: "skipped", reason: "shut_down" };
-      if (input.subject.consent !== "granted") {
-        return { status: "skipped", reason: "consent_not_granted" };
-      }
-      const distinctId = input.subject.analyticsId;
-      if (distinctId === null || distinctId.trim() === "") {
-        return { status: "skipped", reason: "missing_identity" };
-      }
-      if (!uuidPattern.test(input.eventId))
-        return { status: "rejected", reason: "invalid_event_id" };
-      const validation = validateAnalyticsEvent("server", input.event, input.properties);
-      if (!validation.ok) return { status: "rejected", reason: validation.reason };
-
-      const message = {
-        distinctId,
-        event: validation.event,
-        properties: { ...validation.properties },
-        uuid: input.eventId.toLowerCase(),
-        disableGeoip: true,
-      };
-      try {
-        if (options.delivery === "batched") {
-          client.capture(message);
-          return { status: "queued" };
-        }
-        // posthog-node reports HTTP failures of an immediate send through its error event, which the
-        // client-wide listener records on this capture's scope only.
-        const scope: ImmediateCaptureScope = { providerFailed: false };
-        await withTimeout(
-          immediateCaptures.run(scope, () => client.captureImmediate(message)),
-          options.immediateTimeoutMs ?? 3000,
-        );
-        if (!scope.providerFailed) return { status: "sent" };
-        warn({ event: "analytics.capture_failed", code: "analytics.provider_error" });
-        return { status: "failed", reason: "provider_error" };
-      } catch (error) {
-        const timedOut = error instanceof TimeoutSignal;
-        warn({
-          event: "analytics.capture_failed",
-          code: timedOut ? "analytics.timeout" : "analytics.provider_error",
-        });
-        return { status: "failed", reason: timedOut ? "timeout" : "provider_error" };
-      }
-    },
+    capture: (input) => capture("server", input),
+    captureClient: (input) => capture("client", input),
 
     async flush() {
       try {

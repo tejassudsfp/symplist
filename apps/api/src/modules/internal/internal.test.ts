@@ -36,6 +36,7 @@ import type { ExecutorStateReader } from "../../infra/executors/executor-state.t
 import type { OperationalLog, OperationalLogFields } from "../../infra/scheduler/runtime.ts";
 import { TopicHub } from "../realtime/topic-hub.ts";
 import { TopicRegistry } from "../realtime/topic-registry.ts";
+import { SimonTopics } from "../simon/simon.realtime.ts";
 import { InternalEventHandlerRegistry } from "./internal-event-handlers.ts";
 import { InternalEventsController } from "./internal-events.controller.ts";
 import { EventIdMemory } from "./replay-memory.ts";
@@ -107,6 +108,8 @@ async function start(tuning: { readonly replayMemoryCapacity?: number } = {}): P
   const runs = new FakeRuns();
   const previousSecret = generatedSecret();
   const app = await bootTestApp({
+    // This relay harness deliberately owns synthetic runs/conversations, not Simon's D1 records.
+    overrides: [{ token: SimonTopics, value: { onModuleInit() {} } }],
     env: {
       INTERNAL_EVENT_SECRET_1: previousSecret,
       INTERNAL_EVENT_SECRET_2: generatedSecret(),

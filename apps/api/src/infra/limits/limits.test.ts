@@ -94,7 +94,7 @@ describe("in-memory per-IP buckets (§5.8)", () => {
   it("counts per-IP failures and refuses further attempts past the failure bucket", async () => {
     const app = await boot();
     const post = () =>
-      app.request("POST", "/artifact/a1/password", {
+      app.request("POST", "/artifact/_probe/a1/password", {
         shareHost: true,
         origin: app.config.ARTIFACT_ORIGIN,
       });

@@ -5,6 +5,11 @@
   "license": "MIT",
   "type": "module",
   "exports": {
+    "./policy": {
+      "source": "./src/policy.ts",
+      "types": "./dist/policy.d.ts",
+      "default": "./dist/policy.js"
+    },
     ".": {
       "source": "./src/index.ts",
       "types": "./dist/index.d.ts",

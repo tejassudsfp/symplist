@@ -491,12 +491,12 @@ describe("single-winner approval decisions", () => {
   it("checks task state again after the preliminary read", async () => {
     const id = await pause();
     const view = await approvals.load(owner, id);
-    const load = approvals.load.bind(approvals);
-    approvals.load = async (...args) => {
-      const result = await load(...args);
+    const batch = env.db.batch.bind(env.db);
+    vi.spyOn(env.db, "batch").mockImplementationOnce(async (...args) => {
+      const result = await batch(...args);
       await env.archiveTask(task);
       return result;
-    };
+    });
     await expect(
       approvals.decide(owner, id, { decision: "approve", argDigest: view.argDigest }),
     ).rejects.toMatchObject({ code: "approval.stale" });

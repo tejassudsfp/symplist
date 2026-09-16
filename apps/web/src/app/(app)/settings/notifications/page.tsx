@@ -1,3 +1,4 @@
+import { NotificationSettings } from "@/features/scheduling/settings";
 export default function NotificationSettingsPage() {
-  return <h1>Notification settings</h1>;
+  return <NotificationSettings />;
 }

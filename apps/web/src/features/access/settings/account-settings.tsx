@@ -5,6 +5,7 @@ import { type FormEvent, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { type SaveState, SaveStatus } from "@/components/ui/save-status";
 import { Spinner } from "@/components/ui/spinner";
+import { PrivacySettings } from "@/features/analytics/privacy-settings";
 import { AccessSummary } from "../account/access-summary.tsx";
 import { DeleteAccount } from "../account/delete-account.tsx";
 import { useAccessApi } from "../api.ts";
@@ -169,7 +170,9 @@ export function AccountSettings() {
         Privacy (product analytics consent) belongs to the analytics feature (§15, decision D5); it
         mounts its section here, next to the rest of the account settings.
       */}
-      <div data-slot="account-privacy" />
+      <div data-slot="account-privacy">
+        <PrivacySettings />
+      </div>
 
       <DeleteAccount me={me} />
       {guard.dialog}

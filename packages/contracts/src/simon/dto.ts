@@ -4,6 +4,7 @@
  */
 import { idSchema } from "../common/ids.ts";
 import { z } from "../common/zod.ts";
+import { taskCollectionSchema, taskTitleInputSchema } from "../workspace/dto.ts";
 
 export const simonTierSchema = z.enum(["fast", "smart"]);
 export const simonRunStatusSchema = z.enum([
@@ -31,6 +32,19 @@ export const simonApprovalDecisionSchema = z.strictObject({
 });
 export const simonAnswerSchema = z.strictObject({ text: z.string().trim().min(1).max(32_000) });
 export const simonRunPayloadSchema = z.strictObject({ runId: idSchema });
+export const simonQuickSaveInputSchema = z.strictObject({
+  title: taskTitleInputSchema,
+  collection: taskCollectionSchema.default("now"),
+});
+export const simonQuickSavedSchema = z.strictObject({
+  conversationId: idSchema,
+  taskId: idSchema,
+  collection: taskCollectionSchema,
+});
+export const simonQuickClosedSchema = z.strictObject({
+  conversationId: idSchema,
+  runId: idSchema.nullable(),
+});
 
 export const simonConversationCreatedSchema = z.strictObject({ conversationId: idSchema });
 export const simonMessageAcceptedSchema = z.strictObject({
@@ -45,4 +59,52 @@ export const simonRunViewSchema = z.strictObject({
   status: simonRunStatusSchema,
   tier: simonTierSchema,
   stopRequested: z.boolean(),
+});
+
+export const simonHistoryQuerySchema = z.strictObject({
+  beforeSeq: z.coerce.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
+});
+export const simonVisiblePartSchema = z.discriminatedUnion("type", [
+  z.strictObject({ type: z.literal("text"), text: z.string() }),
+  z.strictObject({
+    type: z.literal("data-approval-result"),
+    data: z.strictObject({
+      status: z.enum(["succeeded", "failed", "uncertain", "denied", "dismissed", "expired"]),
+      result: z.unknown().optional(),
+    }),
+  }),
+  z.strictObject({
+    type: z.literal("data-user-answer"),
+    data: z.strictObject({
+      status: z.enum(["answered", "dismissed", "expired"]),
+      text: z.string().optional(),
+    }),
+  }),
+  z.strictObject({
+    type: z.literal("tool"),
+    toolCallId: z.string(),
+    toolName: z.string(),
+    state: z.enum(["input-available", "output-available", "output-error"]),
+    output: z.unknown().optional(),
+    errorCode: z.string().optional(),
+  }),
+]);
+export const simonHistoryMessageSchema = z.strictObject({
+  id: idSchema,
+  seq: z.number().int().positive(),
+  role: z.enum(["user", "assistant", "tool"]),
+  status: z.enum(["queued", "accepted", "completed", "cancelled"]),
+  runId: idSchema.nullable(),
+  text: z.string(),
+  parts: z.array(simonVisiblePartSchema),
+});
+export const simonConversationViewSchema = z.strictObject({
+  conversationId: idSchema,
+  kind: z.enum(["task", "quick"]),
+  taskId: idSchema.nullable(),
+  activeRun: simonRunViewSchema.nullable(),
+  pendingApprovalId: idSchema.nullable(),
+  pendingAskId: idSchema.nullable(),
+  messages: z.array(simonHistoryMessageSchema),
+  nextBeforeSeq: z.number().int().positive().nullable(),
 });

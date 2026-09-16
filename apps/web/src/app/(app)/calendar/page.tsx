@@ -1,3 +1,4 @@
+import { Calendar } from "@/features/scheduling/calendar";
 export default function CalendarPage() {
-  return <h1>Calendar</h1>;
+  return <Calendar />;
 }

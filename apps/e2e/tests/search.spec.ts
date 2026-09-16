@@ -543,7 +543,7 @@ test.describe("full search", () => {
     await evidence(page, testInfo, "failure");
 
     mode = "rebuilding";
-    await page.getByRole("button", { name: "Try again" }).click();
+    await page.getByRole("main").getByRole("button", { name: "Try again" }).click();
     await expect(page.getByText(/Search is rebuilding its index/)).toBeVisible();
     await expect(page.getByText("Some recent changes aren't searchable yet.")).toBeVisible();
     await evidence(page, testInfo, "rebuilding");

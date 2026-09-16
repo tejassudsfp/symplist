@@ -4,15 +4,26 @@ Maps every specification, screen and required flow to implementation and verific
 
 ## Specifications
 
+Development lifecycle regression evidence: `workspace-provider.test.tsx` and scheduling's
+`provider.test.tsx` render actual providers under React Strict Mode. Store suites cover cleanup,
+reopen, abandoned responses and resumed preference saves. `core/search/task-writer-boundary.test.ts`
+creates through TaskService before search decryption, checking the real encryption AAD boundary.
+
+D1 request-budget evidence: the merged [combined load contract](reports/e-d1-load.md) runs ten
+five-step Simon turns with real encrypted document Git jobs plus fifty due reminders through rated
+D1 REST clients. Five load/safeguard tests pass; this is local request-volume evidence, not a live
+capacity or five-minute completion claim. Shared hourly cleanup and Vault lock-before-close have
+merged core/API/worker regressions; quick-chat and MCP cleanup integration remains open.
+
 | Note | Status | Implementation | Evidence |
 | --- | --- | --- | --- |
 | [01_product.md](../notes/files/01_product.md) | In progress | Tasks, their pages and the shell (D1); Simon, Vault, scheduling, sharing and connections are D2 | `apps/e2e/evidence/workspace/`, `apps/e2e/evidence/shell/` |
 | [02_themes.md](../notes/files/02_themes.md) | Verified | `apps/web/src/theme/`, `apps/web/src/features/workspace/appearance-settings.tsx` | `shell.spec.ts` renders all six themes in light and dark on first paint and checks each with axe (`apps/e2e/evidence/shell/desktop-theme-*.png`); `workspace.spec.ts` "changes appearance and keeps it, without touching the list" |
 | [03_access_and_billing.md](../notes/files/03_access_and_billing.md) | Verified | `apps/web/src/features/access/`, `apps/api/src/modules/access/`, `packages/core/src/access/` | `access.spec.ts` (signup consent, emailed code, gate, onboarding, relock, restore, sign out) with `apps/e2e/evidence/access/`; `packages/core/src/access/*.test.ts` |
 | [04_beta_access.md](../notes/files/04_beta_access.md) | Verified | `packages/core/src/access/invites.ts`, `redemption.ts`, `apps/web/src/features/access/admin/` | `access.spec.ts` (an administrator generates a code, the member redeems it, a second code cannot bypass a relock); `apps/api/src/modules/access/admin-invites.test.ts` |
-| [05_vault.md](../notes/files/05_vault.md) | Not started | | |
+| [05_vault.md](../notes/files/05_vault.md) | In progress | Vault core/API/UI merged; Simon grants, shared lock events and cleanup wiring remain | Vault core/security/HTTP/UI tests; browser journey and visual matrix authored, not yet run |
 | [06_document_tools.md](../notes/files/06_document_tools.md) | Implemented | `packages/docs/`, `packages/core/src/documents/`, `apps/web/src/features/documents/` | 347 component and unit tests; the artifact viewer, share dialog and grant list are the `artifact-surface.ts` seam for D2, and no Playwright coverage was added |
-| [07_architecture.md](../notes/files/07_architecture.md) | In progress | Shared Simon loop/local/Trigger adapters, document tools, encrypted lifecycle and create/send/Stop/Retry/question HTTP routes; approval HTTP, realtime/UI and remaining tool integrations remain | Core `repository.test.ts`, `approvals.test.ts`, `fold.test.ts`, `retries.test.ts`; agent document parity/marker tests; `simon.api.test.ts` covers HTTP replay, races, owner isolation, question decisions, CSRF and encrypted persistence. Full browser executor parity remains Phase E. |
+| [07_architecture.md](../notes/files/07_architecture.md) | In progress | Shared Simon loop/local/Trigger adapters, document tools, encrypted lifecycle, HTTP commands/history and production conversation topics/snapshots; metadata edit-validator integration, chat UI/reduction and remaining tool integrations remain | Core `repository.test.ts`, `approvals.test.ts`, `fold.test.ts`, `retries.test.ts`, `views.test.ts`; agent document parity/marker tests; `simon.api.test.ts` covers HTTP replay/races/owner isolation, question/approval decisions, fresh-session revocation, CSRF, encrypted persistence and real WebSocket snapshot/replay. Full browser executor parity remains Phase E. |
 | [08_self_hosting.md](../notes/files/08_self_hosting.md) | Not started | | |
 | [09_research.md](../notes/files/09_research.md) | Background only | | |
 | [10_original_list.md](../notes/files/10_original_list.md) | Background only | | |
@@ -20,10 +31,10 @@ Maps every specification, screen and required flow to implementation and verific
 | [12_simon_meta_tools.md](../notes/files/12_simon_meta_tools.md) | In progress | `packages/agent/src/policy.ts`, `rules.ts`; core encrypted approvals and invocation ledger; wrappers and runtime tool integration remain | `policy.test.ts`, `approvals.test.ts`: conservative approvals, schema changes, mixed batches, forbidden tools, escaped untrusted data, single-winner decisions and at-most-once side effects |
 | [13_keyboard_shortcuts.md](../notes/files/13_keyboard_shortcuts.md) | Verified | `apps/web/src/actions/`, `apps/web/src/features/workspace/shortcuts-settings.tsx`, `apps/web/src/features/search/shortcut-help.tsx` | `workspace.spec.ts` "runs the whole list from the keyboard, with no pointer at all" and "remaps a shortcut and shows the new key in the menu that runs it"; `shell.spec.ts` focus order and key sequences; `app/(app)/layout.test.tsx` proves a remap reaches the dispatcher end to end |
 | [14_search.md](../notes/files/14_search.md) | Implemented | `packages/search/`, `packages/core/src/search/`, `apps/api/src/modules/search/`, `apps/web/src/features/search/` | `search.spec.ts` at three viewports with axe (`apps/e2e/evidence/search/`), against contract-shaped `/v1/*` fixtures rather than a live index (decision S16); documents, chat, preferences and scheduling source contributors are still empty stubs, so only task titles are indexed |
-| [15_deadlines_reminders_calendar.md](../notes/files/15_deadlines_reminders_calendar.md) | Not started | | |
-| [16_simon_handoffs_and_artifact_sharing.md](../notes/files/16_simon_handoffs_and_artifact_sharing.md) | Not started | | |
-| [17_analytics.md](../notes/files/17_analytics.md) | Not started | | |
-| Note 18: quick chat (to be written, decision D1 in [decisions](decisions.md)) | In progress | Task-less conversation creation/message HTTP, TTL enforcement and read-only document tool capabilities exist; UI, close/delete, Save as task and cleanup remain | Core conversation/fold tests, agent document-capability tests and HTTP duplicate-create/expiry tests; no browser quick-chat journey yet |
+| [15_deadlines_reminders_calendar.md](../notes/files/15_deadlines_reminders_calendar.md) | In progress — integrated | [Scheduling report](reports/d2-scheduling.md) | Simon/analytics wiring and Phase E pending |
+| [16_simon_handoffs_and_artifact_sharing.md](../notes/files/16_simon_handoffs_and_artifact_sharing.md) | In progress — integrated | [Sharing report](reports/d2-sharing.md) | Cross-feature callbacks and Phase E pending |
+| [17_analytics.md](../notes/files/17_analytics.md) | In progress — integrated | [Sharing report](reports/d2-sharing.md) | Cross-feature callbacks and Phase E pending |
+| Note 18: quick chat (to be written, decision D1 in [decisions](decisions.md)) | In progress | Task-less conversation creation/message HTTP, TTL enforcement, read-only document tools, atomic Save as task, synchronous close/delete and fenced hourly cleanup exist; UI remains | Core conversation/fold tests, agent document-capability tests; fifteen save/close core and four HTTP contracts cover rollback, continuation-chain deletion, late output refusal, ownership/CSRF, expiry and protected idempotent replay; no browser quick-chat journey yet |
 
 ## Screen briefs
 
@@ -38,38 +49,38 @@ Maps every specification, screen and required flow to implementation and verific
 | [agent_approval](../../design/mockups/agent_approval.md) | Not started | | |
 | [agent_connections](../../design/mockups/agent_connections.md) | Not started | | |
 | [archive](../../design/mockups/archive.md) | Verified | `apps/web/src/features/workspace/archive-view.tsx` | `workspace.spec.ts` "completes a task, finds it in the archive and restores it"; `apps/e2e/evidence/workspace/archive--record-open--*.png` |
-| [artifact_share](../../design/mockups/artifact_share.md) | Not started | | |
-| [artifact_shares](../../design/mockups/artifact_shares.md) | In progress | `apps/web/src/app/(app)/tasks/[taskId]/artifacts/page.tsx` | The frame and `setArtifactSurface(renderer)` seam exist with `artifacts-screen.test.tsx`; the list needs the D2 sharing contracts |
-| [artifact_viewer](../../design/mockups/artifact_viewer.md) | Not started | | |
+| [artifact_share](../../design/mockups/artifact_share.md) | Implemented; integration verification pending | [Sharing report](reports/d2-sharing.md) | Browser/visual evidence and Simon handoff callback pending |
+| [artifact_shares](../../design/mockups/artifact_shares.md) | Implemented; integration verification pending | [Sharing report](reports/d2-sharing.md) | Browser/visual evidence and Simon handoff callback pending |
+| [artifact_viewer](../../design/mockups/artifact_viewer.md) | Implemented; integration verification pending | [Sharing report](reports/d2-sharing.md) | Browser/visual evidence and Simon handoff callback pending |
 | [beta_gate](../../design/mockups/beta_gate.md) | Verified | `apps/web/src/app/(gate)/access/page.tsx` | `access.spec.ts` (a wrong code, then the real one) with axe; `apps/e2e/evidence/access/*-beta-gate.png` |
-| [calendar](../../design/mockups/calendar.md) | Not started | | |
+| [calendar](../../design/mockups/calendar.md) | Implemented; browser verification pending | [Scheduling report](reports/d2-scheduling.md) | Combined unit/HTTP/UI checks pass; visual evidence pending |
 | [command_palette](../../design/mockups/command_palette.md) | Verified | `apps/web/src/features/search/command-palette.tsx` | `search.spec.ts` (keyboard-only open, find, open, run an action) with axe; `apps/e2e/evidence/search/*-palette-*.png` |
 | [connections](../../design/mockups/connections.md) | Not started | | |
 | [document_history](../../design/mockups/document_history.md) | Implemented | `apps/web/src/features/documents/history/` | `history-screen.test.tsx` and the documents component suite; no Playwright coverage |
 | [email_entry](../../design/mockups/email_entry.md) | Verified | `apps/web/src/app/(auth)/signin/page.tsx` | `access.spec.ts` with axe; `apps/e2e/evidence/access/*-email-entry.png` |
 | [email_otp](../../design/mockups/email_otp.md) | Verified | `apps/web/src/app/(auth)/signin/verify/page.tsx` | `access.spec.ts` with axe; `apps/e2e/evidence/access/*-email-otp.png` |
-| [handoff](../../design/mockups/handoff.md) | Not started | | |
+| [handoff](../../design/mockups/handoff.md) | Implemented; integration verification pending | [Sharing report](reports/d2-sharing.md) | Browser/visual evidence and Simon handoff callback pending |
 | [keyboard_shortcuts](../../design/mockups/keyboard_shortcuts.md) | Verified | `apps/web/src/features/workspace/shortcuts-settings.tsx`, `apps/web/src/features/search/shortcut-help.tsx` | `workspace.spec.ts` remap journey; `search.spec.ts` help overlay with focus restored; `apps/e2e/evidence/search/*-shortcut-help*.png` |
-| [notifications](../../design/mockups/notifications.md) | Not started | | |
+| [notifications](../../design/mockups/notifications.md) | Implemented; browser verification pending | [Scheduling report](reports/d2-scheduling.md) | Combined unit/HTTP/UI checks pass; visual evidence pending |
 | [onboarding_connections](../../design/mockups/onboarding_connections.md) | Verified | `apps/web/src/app/(onboarding)/welcome/connections/page.tsx` | `access.spec.ts` with axe; `apps/e2e/evidence/access/*-onboarding-connections.png` — the connector catalogue itself is a seam for D2 |
 | [onboarding_name](../../design/mockups/onboarding_name.md) | Verified | `apps/web/src/app/(onboarding)/welcome/page.tsx` | `access.spec.ts` with axe; `apps/e2e/evidence/access/*-onboarding-name.png` |
 | [profile_menu](../../design/mockups/profile_menu.md) | Verified | `apps/web/src/components/shell/top-bar.tsx`, `apps/web/src/features/access/actions.ts` | `access.spec.ts` "the profile menu signs out and returns to the email entry"; `shell.spec.ts`; `apps/e2e/evidence/access/*-profile-menu.png` |
 | [search](../../design/mockups/search.md) | Verified | `apps/web/src/app/(app)/search/page.tsx`, `apps/web/src/features/search/search-screen.tsx` | `search.spec.ts` (filters, archive opt-in, paging, empty, failure and rebuilding states) with axe at three viewports; `apps/e2e/evidence/search/` |
 | [settings_account](../../design/mockups/settings_account.md) | Implemented | `apps/web/src/app/(app)/settings/account/page.tsx`, `apps/web/src/features/access/account/` | `apps/web/src/features/access/account/*.test.tsx`; the Privacy section is an empty slot for the analytics feature (decision D5) |
 | [settings_appearance](../../design/mockups/settings_appearance.md) | Verified | `apps/web/src/features/workspace/appearance-settings.tsx` | `workspace.spec.ts` "changes appearance and keeps it, without touching the list"; `apps/e2e/evidence/workspace/settings_appearance--*.png` |
-| [settings_notifications](../../design/mockups/settings_notifications.md) | Not started | | |
+| [settings_notifications](../../design/mockups/settings_notifications.md) | Implemented; browser verification pending | [Scheduling report](reports/d2-scheduling.md) | Combined unit/HTTP/UI checks pass; visual evidence pending |
 | [signup_confirmation](../../design/mockups/signup_confirmation.md) | Verified | `apps/web/src/app/(auth)/signin/create/page.tsx` | `access.spec.ts` with axe; `apps/e2e/evidence/access/*-signup-confirmation.png` |
 | [system_states](../../design/mockups/system_states.md) | Not started | | |
 | [task_actions](../../design/mockups/task_actions.md) | Verified | `apps/web/src/features/workspace/task-menu.tsx`, `commands.ts` | `workspace.spec.ts` (complete, undo, move, rename, subtasks); `apps/e2e/evidence/workspace/task_actions*`, `workspace_now--completed-undo--*.png` |
 | [task_chat](../../design/mockups/task_chat.md) | Not started | | |
 | [task_document](../../design/mockups/task_document.md) | Implemented | `apps/web/src/features/documents/document-pane.tsx` | documents component suite; the task page header is the shell/workspace feature's `taskHeader` slot and the two halves are composed in `shell.spec.ts` |
-| [task_schedule](../../design/mockups/task_schedule.md) | Not started | | |
-| [transactional_emails](../../design/mockups/transactional_emails.md) | Not started | | |
-| [vault_item_editor](../../design/mockups/vault_item_editor.md) | Not started | | |
-| [vault_items](../../design/mockups/vault_items.md) | Not started | | |
-| [vault_reset](../../design/mockups/vault_reset.md) | Not started | | |
-| [vault_setup](../../design/mockups/vault_setup.md) | Not started | | |
-| [vault_unlock](../../design/mockups/vault_unlock.md) | Not started | | |
+| [task_schedule](../../design/mockups/task_schedule.md) | Implemented; browser verification pending | [Scheduling report](reports/d2-scheduling.md) | Combined unit/HTTP/UI checks pass; visual evidence pending |
+| [transactional_emails](../../design/mockups/transactional_emails.md) | Implemented; browser verification pending | [Scheduling report](reports/d2-scheduling.md) | Combined unit/HTTP/UI checks pass; visual evidence pending |
+| [vault_item_editor](../../design/mockups/vault_item_editor.md) | Implemented | `features/vault/item-editor.tsx` | Component tests pass; combined browser/visual check pending |
+| [vault_items](../../design/mockups/vault_items.md) | Implemented | `features/vault/vault-screen.tsx` | Component tests; 36-frame matrix authored, unrun |
+| [vault_reset](../../design/mockups/vault_reset.md) | Implemented | `features/vault/reset-screen.tsx` | Recovery core/HTTP/UI tests; browser verification pending |
+| [vault_setup](../../design/mockups/vault_setup.md) | Implemented | `features/vault/key-form.tsx` | Core/HTTP/UI tests; browser verification pending |
+| [vault_unlock](../../design/mockups/vault_unlock.md) | Implemented | `features/vault/key-form.tsx` | Core/HTTP/UI tests; browser verification pending |
 | [workspace_later](../../design/mockups/workspace_later.md) | Verified | `apps/web/src/app/(app)/later/` | `workspace.spec.ts` "moves a task from Now to Later and back with Undo"; `apps/e2e/evidence/workspace/workspace_later--moved-in--*.png` |
 | [workspace_now](../../design/mockups/workspace_now.md) | Verified | `apps/web/src/app/(app)/now/`, `apps/web/src/features/workspace/task-inbox.tsx` | `workspace.spec.ts` with axe and a screen-reader tree check; `apps/e2e/evidence/workspace/workspace_now--*.png` |
 | [workspace_unclassified](../../design/mockups/workspace_unclassified.md) | Verified | `apps/web/src/app/(app)/unclassified/` | `workspace.spec.ts` shares the collection surface; `shell.spec.ts` rail navigation |
@@ -93,7 +104,7 @@ Maps every specification, screen and required flow to implementation and verific
 | Keyboard-only journey (note 13 acceptance) | Verified | `workspace.spec.ts` "runs the whole list from the keyboard, with no pointer at all"; `shell.spec.ts` focus order and sequences | `apps/e2e/evidence/workspace/keyboard_shortcuts--list-journey--*.png` (desktop and laptop; the phone run is skipped, it has no keyboard) |
 | Command palette and full search (scopes, archive/chat opt-in, jump to section) | Implemented | `search.spec.ts` at three viewports | `apps/e2e/evidence/search/`; it runs against contract-shaped `/v1/*` fixtures, not a live index (decision S16), and chat search stays inert until the Simon and preferences contributors land |
 | Style × accent × mode switching preserves drafts and running chat | In progress | `workspace.spec.ts` appearance journey; `shell.spec.ts` per-theme first paint | Switching is verified; that it preserves a document draft and a running chat needs the documents and Simon surfaces in one journey (D2) |
-| Vault setup → unlock → item → reset via OTP → re-unlock | Not started | | |
+| Vault setup → unlock → item → reset via OTP → re-unlock | Verified locally | `apps/e2e/tests/vault.spec.ts` | Real-API setup/edit/lock/recovery/preserved contents pass at 1440/1024/390; live provider verification pending |
 | Deadline → calendar reschedule → reminder at top of hour → notification → snooze → complete | Not started | | |
 | Handoff prompt → snapshot review → expiring link → signed-out HTML and raw read → revoke/expire | Not started | | |
 | Password and public share variants; relock disables grants | Not started | | |

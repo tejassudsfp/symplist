@@ -8,14 +8,16 @@ import {
   zeroize,
 } from "@symplist/crypto";
 import { type DbRow, int, type Statement, sql, uuidv7 } from "@symplist/db";
-import {
-  type ConfirmedConnection,
-  confirmedConnection,
-  confirmedConnectionGuard,
-} from "../connections/authority.ts";
+import { type ConfirmedConnection, confirmedConnectionGuard } from "../connections/authority.ts";
 import { continuationStatements, pauseGuard } from "./continuations.ts";
+import {
+  assertFoldOwner,
+  guardedCompletion,
+  releaseUnapplied,
+  type SimonWriteFold,
+} from "./fold.ts";
 import { type SimonRepository, simonField } from "./repository.ts";
-import { type SimonCheckpointData, SimonError, type SimonRun } from "./types.ts";
+import { runFromRow, type SimonCheckpointData, SimonError, type SimonRun } from "./types.ts";
 
 export const APPROVAL_TTL_MS = 24 * 3_600_000;
 export interface ApprovalProposal {
@@ -171,8 +173,10 @@ export class SimonApprovals {
     const { db } = this.repository.options;
     const results = await db.batch([
       sql(
-        `SELECT * FROM approvals WHERE id = :id AND owner_id = :owner AND ${this.repository.access()}`,
-        { id: approvalId, owner: ownerId },
+        `SELECT * FROM approvals WHERE id = :id AND owner_id = :owner AND ${this.repository.access()}
+        AND EXISTS (SELECT 1 FROM conversations c WHERE c.id = approvals.conversation_id
+          AND (c.expires_at IS NULL OR c.expires_at > :now))`,
+        { id: approvalId, owner: ownerId, now: int(this.repository.options.now()) },
       ),
       this.repository.accountKeys.selectStatement(ownerId),
     ]);
@@ -192,65 +196,98 @@ export class SimonApprovals {
     approvalId: string,
     input: typeof simonApprovalDecisionSchema._input,
     validateEdit?: ApprovalEditValidator,
+    fold?: SimonWriteFold,
   ): Promise<{ approvalId: string; runId: string; status: ApprovalView["status"] }> {
+    assertFoldOwner(fold, ownerId);
     const decision = simonApprovalDecisionSchema.parse(input);
-    const approval = await this.load(ownerId, approvalId);
-    const run = await this.repository.run(ownerId, approval.runId);
-    if (!run) throw new SimonError("not_found");
-    const edited = decision.editedArguments !== undefined;
-    if (edited && (decision.decision !== "approve" || !validateEdit))
-      throw new SimonError("validation");
-    if (
-      approval.status !== "pending" ||
-      approval.expiresAt <= this.repository.options.now() ||
-      approval.argDigest !== decision.argDigest
-    )
-      throw new SimonError("approval.stale");
-    const validated =
-      edited && validateEdit
-        ? await validateEdit({ approval, editedArguments: decision.editedArguments ?? {} })
-        : null;
-    const connection = validated
-      ? await confirmedConnection(this.repository.options.db, ownerId, approval.connectionId)
-      : null;
-    if (
-      validated &&
-      (!connection ||
-        connection.connectedAccountId !== approval.connectedAccountId ||
-        connection.generation !== approval.connectionGeneration)
-    )
-      throw new SimonError("approval.stale");
-    const now = this.repository.options.now();
-    const writeId = uuidv7(now);
-    const nextId = uuidv7(now);
-    const status = validated
-      ? "superseded"
-      : decision.decision === "approve"
-        ? "approved"
-        : decision.decision === "deny"
-          ? "denied"
-          : "dismissed";
-    const changeGuard = connection ? confirmedConnectionGuard(connection) : null;
-    const statements: Statement[] = [
+    const params = { id: approvalId, owner: ownerId };
+    const loaded = await this.repository.options.db.batch([
       sql(
-        `UPDATE approvals SET status = :status, decided_at = :now, write_id = :w
+        `SELECT * FROM approvals WHERE id = :id AND owner_id = :owner AND ${this.repository.access()}`,
+        params,
+      ),
+      sql(
+        `SELECT r.* FROM runs r JOIN approvals a ON a.run_id = r.id
+        WHERE a.id = :id AND a.owner_id = :owner AND r.owner_id = :owner`,
+        params,
+      ),
+      this.repository.accountKeys.selectStatement(ownerId),
+      sql(
+        `SELECT c.* FROM connections c JOIN approvals a ON a.connection_id = c.id
+        WHERE a.id = :id AND a.owner_id = :owner AND c.owner_id = :owner AND c.status = 'active'
+        AND c.connected_account_id = a.connected_account_id
+        AND c.generation = COALESCE(a.connection_generation, 1)`,
+        params,
+      ),
+    ]);
+    const approvalRow = loaded[0]?.results[0];
+    const runRow = loaded[1]?.results[0];
+    const keyRow = loaded[2]?.results[0];
+    if (!approvalRow || !runRow || !keyRow) throw new SimonError("not_found");
+    const key = this.repository.accountKeys.unwrapRow(keyRow);
+    try {
+      const approval = this.decode(approvalRow, key);
+      const run = runFromRow(runRow);
+      const connectionRow = loaded[3]?.results[0];
+      const connection: ConfirmedConnection | null = connectionRow
+        ? {
+            id: String(connectionRow.id),
+            ownerId,
+            toolkit: String(connectionRow.toolkit),
+            connectedAccountId: String(connectionRow.connected_account_id),
+            generation: Number(connectionRow.generation),
+          }
+        : null;
+      const edited = decision.editedArguments !== undefined;
+      if (edited && (decision.decision !== "approve" || !validateEdit))
+        throw new SimonError("validation");
+      const eligible =
+        approval.status === "pending" &&
+        approval.expiresAt > this.repository.options.now() &&
+        approval.argDigest === decision.argDigest &&
+        (decision.decision !== "approve" || connection !== null);
+      if (!eligible && !fold) throw new SimonError("approval.stale");
+      const validated =
+        eligible && edited && validateEdit
+          ? await validateEdit({ approval, editedArguments: decision.editedArguments ?? {} })
+          : null;
+      const now = this.repository.options.now();
+      const writeId = uuidv7(now);
+      const nextId = uuidv7(now);
+      const status = validated
+        ? "superseded"
+        : decision.decision === "approve"
+          ? "approved"
+          : decision.decision === "deny"
+            ? "denied"
+            : "dismissed";
+      const changeGuard =
+        decision.decision === "approve" && connection ? confirmedConnectionGuard(connection) : null;
+      const statements: Statement[] = [
+        ...(fold?.statements ?? []),
+        sql(
+          `UPDATE approvals SET status = :status, decided_at = :now, write_id = :w
       WHERE id = :id AND owner_id = :owner AND status = 'pending' AND expires_at > :now AND arg_digest = :digest
       AND ${this.repository.access()} AND ${pauseGuard(this.repository, "approvals")}
+      AND ${eligible ? "1" : "0"}
+      AND EXISTS (SELECT 1 FROM account_keys WHERE owner_id = :owner)
+      ${fold ? `AND ${fold.claim.guard.exists}` : ""}
+      ${fold?.authorization ? `AND (${fold.authorization.sql})` : ""}
       ${changeGuard ? `AND ${changeGuard.sql}` : ""}`,
-        {
-          id: approvalId,
-          owner: ownerId,
-          status,
-          now: int(now),
-          w: writeId,
-          digest: decision.argDigest,
-          ...changeGuard?.params,
-        },
-      ),
-    ];
-    if (validated && connection) {
-      const key = await this.repository.accountKeys.require(ownerId);
-      try {
+          {
+            id: approvalId,
+            owner: ownerId,
+            status,
+            now: int(now),
+            w: writeId,
+            digest: decision.argDigest,
+            ...changeGuard?.params,
+            ...fold?.claim.guard.params,
+            ...fold?.authorization?.params,
+          },
+        ),
+      ];
+      if (validated && connection) {
         statements.push(
           this.insert(
             nextId,
@@ -271,34 +308,57 @@ export class SimonApprovals {
             approvalId,
           ),
         );
-      } finally {
-        zeroize(key.key);
+      } else {
+        statements.push(
+          ...continuationStatements(this.repository, {
+            table: "approvals",
+            pauseId: approvalId,
+            ownerId,
+            runId: run.id,
+            nextRunId: nextId,
+            writeId,
+            now,
+          }),
+        );
       }
-    } else {
-      statements.push(
-        ...continuationStatements(this.repository, {
-          table: "approvals",
-          pauseId: approvalId,
-          ownerId,
-          runId: run.id,
-          nextRunId: nextId,
-          writeId,
-          now,
-        }),
+      const response: { approvalId: string; runId: string; status: ApprovalView["status"] } =
+        validated
+          ? { approvalId: nextId, runId: run.id, status: "pending" }
+          : { approvalId, runId: nextId, status };
+      const applied = sql(
+        "EXISTS (SELECT 1 FROM approvals WHERE id = :id AND owner_id = :owner AND write_id = :w)",
+        { id: approvalId, owner: ownerId, w: writeId },
       );
+      const authority = sql(
+        `EXISTS (SELECT 1 FROM approvals a JOIN conversations c ON c.id = a.conversation_id
+      WHERE a.id = :id AND a.owner_id = :owner AND ${this.repository.access()}
+      AND ${this.repository.activeTask("c")}
+      AND (c.expires_at IS NULL OR c.expires_at > :now)
+      AND EXISTS (SELECT 1 FROM account_keys WHERE owner_id = :owner))
+      ${fold?.authorization ? `AND (${fold.authorization.sql})` : ""}`,
+        { id: approvalId, owner: ownerId, now: int(now), ...fold?.authorization?.params },
+      );
+      if (fold)
+        statements.push(
+          releaseUnapplied(fold, applied),
+          guardedCompletion(fold.completion({ status: 200, body: response }, key), applied),
+        );
+      statements.push({
+        sql: `SELECT (${applied.sql}) AS applied, (${authority.sql}) AS allowed`,
+        params: [...applied.params, ...authority.params],
+      });
+      const results = await this.repository.options.db.batch(statements);
+      const row = results.at(-1)?.results[0];
+      if (row?.allowed !== 1) throw new SimonError(fold ? "not_found" : "approval.stale");
+      if (fold) {
+        const outcome = fold.decide(results, key, 0);
+        if (outcome.kind === "replay") return outcome.body as typeof response;
+      }
+      if (row.applied !== 1) throw new SimonError("approval.stale");
+      return response;
+    } finally {
+      zeroize(key.key);
     }
-    statements.push(
-      sql("SELECT id FROM approvals WHERE id = :id AND owner_id = :owner AND write_id = :w", {
-        id: approvalId,
-        owner: ownerId,
-        w: writeId,
-      }),
-    );
-    const results = await this.repository.options.db.batch(statements);
-    if (!results.at(-1)?.results[0]) throw new SimonError("approval.stale");
-    return validated
-      ? { approvalId: nextId, runId: run.id, status: "pending" }
-      : { approvalId, runId: nextId, status };
   }
 
   /** Used by the bounded sweeper and connection mutations; caller folds these into its effect batch. */

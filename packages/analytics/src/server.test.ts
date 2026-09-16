@@ -90,6 +90,45 @@ afterEach(() => {
 });
 
 describe("server analytics emitter (§15)", () => {
+  it("relays client-owned allowlisted events without SDK URL/referrer/profile defaults", async () => {
+    const { fetch, requests } = fakeIngest();
+    const { instance } = emitter({ fetch });
+    expect(
+      await instance.captureClient?.({
+        subject: granted,
+        event: "quick_chat_started",
+        properties: { entry: "button" },
+        eventId,
+      }),
+    ).toEqual({ status: "queued" });
+    await instance.flush();
+    await instance.shutdown();
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.events).toHaveLength(1);
+    const event = requests[0]?.events[0];
+    expect(event).toMatchObject({
+      event: "quick_chat_started",
+      distinct_id: analyticsId,
+      uuid: eventId,
+    });
+    expect(event?.properties).toEqual({
+      entry: "button",
+      event_version: 1,
+      $geoip_disable: true,
+      $is_server: true,
+      $lib: "posthog-node",
+      $lib_version: "5.52.3",
+    });
+    for (const forbidden of [
+      "$current_url",
+      "$referrer",
+      "$pathname",
+      "$set",
+      "$initial_referrer",
+      "utm_source",
+    ])
+      expect(JSON.stringify(event)).not.toContain(forbidden);
+  });
   it("is a no-op that makes zero requests when disabled or unconfigured", async () => {
     for (const overrides of [{ enabled: false }, { projectKey: undefined }, { projectKey: " " }]) {
       const { fetch, requests } = fakeIngest();
@@ -424,11 +463,13 @@ describe("server analytics emitter (§15)", () => {
       });
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
+    // The SDK compresses an in-flight batch asynchronously. Drain that attempt while still
+    // offline, so recovery cannot accept both its older snapshot and the bounded newest queue.
+    await instance.flush();
+    expect(sent).toEqual([]);
     reachable = true;
     await instance.flush();
-    expect(sent.length).toBeGreaterThan(0);
-    expect(sent.length).toBeLessThanOrEqual(3);
-    expect(sent).toEqual(ids.slice(10 - sent.length));
+    expect(sent).toEqual(ids.slice(-3));
     await instance.shutdown();
   });
 

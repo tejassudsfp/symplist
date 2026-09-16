@@ -69,7 +69,7 @@ describe("structured request logs (§6.3)", () => {
   it("never logs the share-route key, in fields or URLs", async () => {
     app.logs.clear();
     const response = await app.get(
-      `/artifact/0190aaaa?key=${encodeURIComponent(secrets.shareKey)}`,
+      `/artifact/_probe/0190aaaa?key=${encodeURIComponent(secrets.shareKey)}`,
       {
         shareHost: true,
       },
@@ -78,10 +78,10 @@ describe("structured request logs (§6.3)", () => {
     const [read] = app.logs.events("probe.share_read");
     expect(read).toMatchObject({ key: REDACTED, length: secrets.shareKey.length });
     const [request] = app.logs.events("http.request");
-    expect(request?.route).toBe("/artifact/:id");
+    expect(request?.route).toBe("/artifact/_probe/:id");
     expectNoSecrets(app.logs.text());
-    expect(redactUrl(`/artifact/1?key=${secrets.shareKey}&view=raw#frag`)).toBe(
-      `/artifact/1?key=${REDACTED}&view=${REDACTED}`,
+    expect(redactUrl(`/artifact/_probe/1?key=${secrets.shareKey}&view=raw#frag`)).toBe(
+      `/artifact/_probe/1?key=${REDACTED}&view=${REDACTED}`,
     );
   });
 

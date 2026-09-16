@@ -12,7 +12,9 @@ The owner's latest instruction authorizes isolated worktrees, superseding the ea
 
 The suggested 0300–0499 allocations collide with existing Documents/Search ownership and files. Architecture §3.4 and the migration README already reserve independent D2 ranges; preserve those. Migrations remain expand-only and existing migrations are immutable.
 
-Vault finished its implementation/review checkpoints at `f881976` with a clean worktree and passing branch gates; it remains unmerged with browser verification and shared integration hooks pending. Connections started from `8e26f4f` in the freed slot. No agent writes the completed Vault tree.
+Vault `f881976` is merged at `0a43c0b`; Scheduling `1792f5f` is merged at `f51ac3f`. Sharing `e2b61f0` is being integrated next, with per-file audits in [the integration report](reports/d2-integration.md). Browser verification and shared integration hooks remain pending. Connections started from `8e26f4f` in the freed slot. No agent writes the completed feature trees.
+
+Connections remains the active feature writer. The separate `symplist-wt/d1-load` worktree / `wip/e-d1-load` branch now owns the bounded combined Phase E D1 load contract, starting from `f51ac3f`; it writes only its tests/support and `reports/e-d1-load.md`. Root owns all combined browser runs. Completed-stream agents may perform explicitly assigned read-only reviews, never edit the integration checkout.
 
 ## Shared-file rules
 

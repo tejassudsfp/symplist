@@ -91,8 +91,16 @@ export function WorkspaceProvider({ children, userId, api, realtime }: Workspace
     };
   }, [client, userId]);
 
+  /*
+   * The stores live as long as the account does, not as long as one mount. Strict Mode's
+   * mount/unmount/remount in development runs the cleanup below while `useMemo` keeps the same
+   * instances, so the store has to be reopened on the way back in — otherwise the remounted
+   * provider holds permanently disposed stores that drop every response they asked for.
+   */
   useEffect(() => {
     const { tasks, preferences } = stores;
+    tasks.reopen();
+    preferences.reopen();
     return () => {
       tasks.dispose();
       preferences.dispose();

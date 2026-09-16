@@ -31,7 +31,7 @@ export class RealtimeSessionControl implements RealtimeAccessNotifier {
       for (const socket of hub.socketsOfSession(sessionId)) {
         // A session id that belongs to another user never closes that user's socket.
         if (socket.userId !== event.userId) continue;
-        hub.close(socket, wsCloseCodes.sessionEnded, "session ended");
+        hub.close(socket, wsCloseCodes.sessionEnded, "session ended", event.reason);
         closed += 1;
       }
     }

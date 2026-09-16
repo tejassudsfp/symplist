@@ -147,7 +147,12 @@ export class AccessSweep {
       if (!hub.isConnected(socket)) continue;
       const row = rows.get(socket.sessionId);
       if (!row || row.userId !== socket.userId || row.revokedAt !== null || row.expiresAt <= now) {
-        hub.close(socket, wsCloseCodes.sessionEnded, "session ended");
+        hub.close(
+          socket,
+          wsCloseCodes.sessionEnded,
+          "session ended",
+          row?.expiresAt !== undefined && row.expiresAt <= now ? "idle" : "revoked",
+        );
         closedSession += 1;
         continue;
       }

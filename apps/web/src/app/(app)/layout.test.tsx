@@ -81,8 +81,10 @@ beforeEach(async () => {
   workspace.api.current = new FakeWorkspaceApi([{ id: taskId, title: "Refresh my portfolio" }]);
   const { mayaMe } = await import("@/features/access/test-support");
   const { resetSharedSessionStoreForTests } = await import("@/features/access/session-runtime");
+  const { resetAnalytics } = await import("@/features/analytics/runtime");
   session.me = mayaMe();
   resetSharedSessionStoreForTests();
+  resetAnalytics();
 });
 
 /*
@@ -103,17 +105,19 @@ describe("the (app) layout with the feature placeholders", () => {
     expect(document.querySelector('[data-slot="quick-chat"]')).toBeNull();
   });
 
-  it("leaves the slots of features that render nothing yet empty", async () => {
+  it("leaves unbuilt slots empty and exposes the consent load failure safely", async () => {
     await renderAppLayout("/now");
-    for (const name of [
-      "vault-status",
-      "notification-control",
-      "quick-chat",
-      "command-palette",
-      "consent-banner",
-    ]) {
+    for (const name of ["quick-chat", "command-palette"]) {
       expect(slot(name)).toBeEmptyDOMElement();
     }
+    expect(slot("vault-status")).toHaveTextContent("Vault uses a separate key");
+    expect(
+      within(slot("notification-control")).getByRole("button", { name: "Notifications" }),
+    ).toBeInTheDocument();
+    expect(await within(slot("consent-banner")).findByRole("alert")).toHaveTextContent(
+      "Your privacy choice could not be loaded. Product usage sharing stays off.",
+    );
+    expect(within(slot("consent-banner")).getByRole("button", { name: "Try again" })).toBeEnabled();
     // The access feature resolved the session, so the profile control names the account.
     expect(
       await screen.findByRole("button", { name: "Account menu, Maya Rao" }),

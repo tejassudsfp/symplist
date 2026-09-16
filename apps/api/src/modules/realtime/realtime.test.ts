@@ -1,6 +1,6 @@
 import { type ConversationId, conversationTopic } from "@symplist/contracts";
 import type { SessionContext } from "@symplist/core/access";
-import type { BufferedTopicEvent } from "@symplist/core/events";
+import { type BufferedTopicEvent, TopicAccessDeniedError } from "@symplist/core/events";
 import { int, sql, uuidv7 } from "@symplist/db";
 import { FakeClock } from "@symplist/testing";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -16,6 +16,7 @@ import { rawUpgrade, WsTestClient } from "../../../test/ws-client.ts";
 import { ACCESS_SERVICE } from "../../common/access/access.providers.ts";
 import { REALTIME_ACCESS_NOTIFIER, REALTIME_SHUTDOWN } from "../../common/seams.ts";
 import type { OperationalLog, OperationalLogFields } from "../../infra/scheduler/runtime.ts";
+import { SimonTopics } from "../simon/simon.realtime.ts";
 import { AccessSweep } from "./access-sweep.ts";
 import { REALTIME_PUBLISHER, type RealtimeDependencies } from "./realtime.tokens.ts";
 import { RingBuffer } from "./ring-buffer.ts";
@@ -81,6 +82,9 @@ async function start(
   options: Pick<TestAppOptions, "env"> & { readonly backgroundLoops?: boolean } = {},
 ): Promise<Harness> {
   const app = await bootTestApp({
+    // These infrastructure tests install deliberately synthetic owners/providers below. Production
+    // Simon topic registration is covered by its real-conversation HTTP/WebSocket tests instead.
+    overrides: [{ token: SimonTopics, value: { onModuleInit() {} } }],
     ...(options.env ? { env: options.env } : {}),
     runtime: {
       ...(options.backgroundLoops === undefined
@@ -372,7 +376,10 @@ describe("user topic (§7)", () => {
     const h = await start();
     const locked = await h.user("locked");
     const contributor = vi.fn(async () => ({ unreadCount: 99 }));
-    h.registry.registerUserSnapshotContributor({ name: "scheduling", contribute: contributor });
+    h.registry.registerUserSnapshotContributor({
+      name: "test-private-unread",
+      contribute: contributor,
+    });
     const client = await h.connect(locked.session);
     client.send({ t: "sub", topic: "user", cursor: null, openTasks: [] });
     const snapshot = await client.waitFor((frame) => frame.t === "snapshot");
@@ -526,6 +533,44 @@ describe("conversation topics (§7)", () => {
     expect(h.app.logs.text()).not.toContain(MARKER);
   });
 
+  it("detaches when a fresh snapshot denies access and discards queued plaintext", async () => {
+    const h = await start();
+    const alice = await h.user();
+    const conversation = uuidv7() as ConversationId;
+    const topic = conversationTopic(conversation);
+    h.registry.registerAuthorizer(ownedConversations(new Map([[conversation, alice.id]])));
+    let deny: (reason: unknown) => void = () => undefined;
+    let entered: () => void = () => undefined;
+    const building = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    h.registry.registerSnapshotProvider({
+      kind: "conversation",
+      snapshot: () =>
+        new Promise((_resolve, reject) => {
+          deny = reject;
+          entered();
+        }),
+    });
+    const client = await h.connect(alice.session);
+    client.send({ t: "sub", topic, cursor: null });
+    await building;
+    await h.hub.publishToConversation(
+      { ownerId: alice.id, conversationId: conversation },
+      { type: "run.progress", data: { step: 1 } },
+    );
+    deny(new TopicAccessDeniedError());
+    expect(await client.waitFor((frame) => frame.t === "err")).toMatchObject({ code: "not_found" });
+    await h.hub.publishToConversation(
+      { ownerId: alice.id, conversationId: conversation },
+      { type: "run.progress", data: { step: 2 } },
+    );
+    await client.settle();
+    expect(client.frames.filter((frame) => frame.t !== "pong").map((frame) => frame.t)).toEqual([
+      "err",
+    ]);
+  });
+
   it("sends resync when no snapshot provider exists and queues events published while a snapshot is built", async () => {
     const h = await start();
     const alice = await h.user();
@@ -596,6 +641,18 @@ describe("session and access freshness (§5.5)", () => {
     expect((await clients.revoked.closed).code).toBe(4401);
     expect((await clients.expiring.closed).code).toBe(4401);
     expect((await clients.relocked.closed).code).toBe(4403);
+    expect(clients.revoked.frames.at(-1)).toMatchObject({
+      type: "vault.locked",
+      data: { reason: "revoked" },
+    });
+    expect(clients.expiring.frames.at(-1)).toMatchObject({
+      type: "vault.locked",
+      data: { reason: "idle" },
+    });
+    expect(clients.relocked.frames.at(-1)).toMatchObject({
+      type: "vault.locked",
+      data: { reason: "revoked" },
+    });
     await clients.locked.settle();
     expect(h.hub.socketsOfUser(locked.id)[0]?.access.suspendedAt).toBe(1);
   });
@@ -841,11 +898,20 @@ describe("session and access freshness (§5.5)", () => {
       reason: "logout",
     });
     expect((await aliceA.closed).code).toBe(4401);
+    expect(aliceA.frames.filter((frame) => frame.type === "vault.locked")).toEqual([
+      expect.objectContaining({ topic: "user", data: { reason: "logout" } }),
+    ]);
     await aliceB.settle();
     await bobClient.settle();
+    expect(aliceB.frames.some((frame) => frame.type === "vault.locked")).toBe(false);
+    expect(bobClient.frames.some((frame) => frame.type === "vault.locked")).toBe(false);
 
     await h.control.accessRestricted({ userId: alice.id, reason: "relocked", accessGeneration: 1 });
     expect((await aliceB.closed).code).toBe(4403);
+    expect(aliceB.frames.at(-1)).toMatchObject({
+      type: "vault.locked",
+      data: { reason: "revoked" },
+    });
 
     // A socket that was only at identity level stays open on suspension and is refreshed from D1.
     await h.control.accessRestricted({
@@ -866,11 +932,49 @@ describe("session and access freshness (§5.5)", () => {
       reason: "revoked",
     });
     expect((await bobClient.closed).code).toBe(4401);
+    expect(bobClient.frames.at(-1)).toMatchObject({
+      type: "vault.locked",
+      data: { reason: "revoked" },
+    });
     expect(h.app.logs.events("realtime.sessions_ended").length).toBeGreaterThan(0);
   });
 });
 
 describe("upgrades racing a post-commit hook", () => {
+  it("sends the Vault invalidation before close without releasing an in-flight user snapshot", async () => {
+    const h = await start();
+    const alice = await h.user();
+    let complete: ((value: { vaultUnlocked: boolean }) => void) | undefined;
+    h.registry.registerUserSnapshotContributor({
+      name: "test-pending-vault",
+      contribute: () =>
+        new Promise((resolve) => {
+          complete = resolve;
+        }),
+    });
+    const client = await h.connect(alice.session);
+    client.send({ t: "sub", topic: "user", cursor: null, openTasks: [] });
+    await vi.waitFor(() => expect(complete).toBeDefined());
+    await h.hub.publishToUser(alice.id, {
+      type: "tasks.changed",
+      data: { taskTreeVersion: 1, taskIds: [] },
+    });
+    await h.control.sessionsEnded({
+      userId: alice.id,
+      sessionIds: [alice.session.sessionId],
+      reason: "logout",
+    });
+    expect((await client.closed).code).toBe(4401);
+    complete?.({ vaultUnlocked: true });
+    expect(client.frames).toEqual([
+      expect.objectContaining({
+        t: "ev",
+        topic: "user",
+        type: "vault.locked",
+        data: { reason: "logout" },
+      }),
+    ]);
+  });
   it("refuses an upgrade whose session lookup was in flight when its session ended or access changed", async () => {
     const h = await start();
     const alice = await h.user();

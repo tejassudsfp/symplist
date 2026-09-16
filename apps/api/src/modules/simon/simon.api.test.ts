@@ -1,13 +1,14 @@
 import {
   errorEnvelopeSchema,
   simonConversationCreatedSchema,
+  simonConversationViewSchema,
   simonMessageAcceptedSchema,
   simonRunViewSchema,
   taskCreateResponseSchema,
 } from "@symplist/contracts";
-import { SimonRepository, SimonUserAsks } from "@symplist/core/simon";
+import { SimonApprovals, SimonRepository, SimonUserAsks, SimonViews } from "@symplist/core/simon";
 import { zeroize } from "@symplist/crypto";
-import { sql, uuidv7 } from "@symplist/db";
+import { int, sql, uuidv7 } from "@symplist/db";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   bootTestApp,
@@ -15,12 +16,138 @@ import {
   type TestApp,
   type TestSession,
 } from "../../../test/harness.ts";
+import { WsTestClient } from "../../../test/ws-client.ts";
 import { ExecutionDispatcher } from "../../infra/executors/dispatcher.ts";
+import { TopicHub } from "../realtime/topic-hub.ts";
 
 const apps: TestApp[] = [];
+const sockets: WsTestClient[] = [];
 afterEach(async () => {
+  for (const socket of sockets.splice(0)) socket.close();
   for (const app of apps.splice(0)) await app.close();
   vi.restoreAllMocks();
+});
+
+describe("Simon conversation history and realtime", () => {
+  it("detaches if a quick chat expires between authorization and snapshot loading", async () => {
+    const app = await boot();
+    const { session } = await app.createSignedInUser();
+    const { conversationId, runId } = await question(app, session);
+    const hub = app.app.get(TopicHub);
+    const read = SimonViews.prototype.conversation;
+    vi.spyOn(SimonViews.prototype, "conversation").mockImplementationOnce(async function (
+      this: SimonViews,
+      ...args
+    ) {
+      await hub.publishToConversation(
+        { ownerId: session.userId, conversationId },
+        {
+          type: "chunk",
+          data: {
+            runId,
+            chunk: { type: "text-delta", id: "text", delta: "expired-private-marker" },
+          },
+        },
+      );
+      await app.db.run(
+        sql("UPDATE conversations SET expires_at = :now WHERE id = :id", {
+          id: conversationId,
+          now: int(app.clock.now()),
+        }),
+      );
+      return read.apply(this, args);
+    });
+    const socket = await WsTestClient.connect(app.wsUrl, {
+      origin: app.config.WEB_ORIGIN,
+      cookie: session.cookie,
+    });
+    sockets.push(socket);
+    socket.send({ t: "sub", topic: `conversation:${conversationId}`, cursor: null });
+    expect(await socket.waitFor((frame) => frame.t === "err")).toMatchObject({ code: "not_found" });
+    await socket.settle();
+    expect(socket.frames.filter((frame) => frame.t === "ev" || frame.t === "snapshot")).toEqual([]);
+    expect(JSON.stringify(socket.frames)).not.toContain("expired-private-marker");
+  });
+  it("reads owner history, pending questions and strict history cursors", async () => {
+    const app = await boot();
+    const { session } = await app.createSignedInUser();
+    const { session: stranger } = await app.createSignedInUser();
+    const { conversationId, askId, runId } = await question(app, session);
+    const response = await app.get(`/v1/conversations/${conversationId}`, { session });
+    expect(response.status).toBe(200);
+    const view = simonConversationViewSchema.parse(response.json());
+    expect(view).toMatchObject({
+      pendingAskId: askId,
+      activeRun: { runId, status: "awaiting_user" },
+    });
+    expect(view.messages).toHaveLength(2);
+    const older = await app.get(`/v1/conversations/${conversationId}?beforeSeq=2`, { session });
+    expect(
+      simonConversationViewSchema.parse(older.json()).messages.map((message) => message.seq),
+    ).toEqual([1]);
+    expect(
+      (await app.get(`/v1/conversations/${conversationId}?beforeSeq=-1`, { session })).status,
+    ).toBe(400);
+    expect(
+      (await app.get(`/v1/conversations/${conversationId}?ownerId=${session.userId}`, { session }))
+        .status,
+    ).toBe(400);
+    expect(
+      (await app.get(`/v1/conversations/${conversationId}`, { session: stranger })).status,
+    ).toBe(404);
+  });
+
+  it("authorizes real conversations, snapshots the active run tail and replays only newer frames", async () => {
+    const app = await boot();
+    const { session } = await app.createSignedInUser();
+    const { session: stranger } = await app.createSignedInUser();
+    const { conversationId, runId } = await question(app, session);
+    const hub = app.app.get(TopicHub);
+    const audience = { ownerId: session.userId, conversationId };
+    const publish = (delta: string, id = runId) =>
+      hub.publishToConversation(audience, {
+        type: "chunk",
+        data: { runId: id, chunk: { type: "text-delta", id: "text_1", delta } },
+      });
+    await publish("unrelated-old-run", uuidv7());
+    await publish("live-marker-one");
+    const connect = async (identity: TestSession) => {
+      const socket = await WsTestClient.connect(app.wsUrl, {
+        origin: app.config.WEB_ORIGIN,
+        cookie: identity.cookie,
+      });
+      sockets.push(socket);
+      return socket;
+    };
+    const topic = `conversation:${conversationId}`;
+    const foreign = await connect(stranger);
+    foreign.send({ t: "sub", topic, cursor: null });
+    expect(await foreign.waitFor((frame) => frame.t === "err")).toMatchObject({
+      code: "not_found",
+    });
+    const socket = await connect(session);
+    socket.send({ t: "sub", topic, cursor: null });
+    const snapshot = await socket.waitFor((frame) => frame.t === "snapshot");
+    expect(snapshot).toMatchObject({
+      data: {
+        conversationId,
+        activeRun: { runId },
+        live: [{ type: "chunk", data: { runId, chunk: { delta: "live-marker-one" } } }],
+      },
+    });
+    expect(JSON.stringify(snapshot)).not.toContain("unrelated-old-run");
+    await publish("live-marker-two");
+    const event = await socket.waitFor((frame) => frame.t === "ev");
+    expect(event).toMatchObject({ data: { chunk: { delta: "live-marker-two" } } });
+    const reconnect = await connect(session);
+    reconnect.send({ t: "sub", topic, cursor: snapshot.seq });
+    expect(await reconnect.waitFor((frame) => frame.t === "ev")).toMatchObject({
+      seq: event.seq,
+      data: event.data,
+    });
+    expect(reconnect.frames.filter((frame) => frame.t === "ev")).toHaveLength(1);
+    expect(app.logs.text()).not.toContain("live-marker");
+  });
 });
 async function boot() {
   const app = await bootTestApp();
@@ -71,6 +198,136 @@ async function question(app: TestApp, session: TestSession) {
     zeroize(claim.key.key);
   }
 }
+
+async function approval(app: TestApp, session: TestSession) {
+  const conversationId = await quick(app, session);
+  const sent = await post(app, session, `/v1/conversations/${conversationId}/messages`, {
+    text: "Please send",
+  });
+  const runId = simonMessageAcceptedSchema.parse(sent.json()).runId;
+  const repository = app.app.get(SimonRepository);
+  const claim = await repository.claim(runId ?? "", "local");
+  if (!claim) throw new Error("Expected claim");
+  const connectionId = uuidv7();
+  await app.db.run(
+    sql(
+      `INSERT INTO connections (id, owner_id, toolkit, connected_account_id,
+    status, confirmed_at, created_at, updated_at, write_id)
+    VALUES (:id, :owner, 'gmail', 'ca_http', 'active', :now, :now, :now, :id)`,
+      { id: connectionId, owner: session.userId, now: int(app.clock.now()) },
+    ),
+  );
+  try {
+    const approvals = new SimonApprovals(repository);
+    const id = await approvals.pause(
+      claim.run,
+      claim.key,
+      {
+        toolCallId: "send_1",
+        toolSlug: "GMAIL_SEND_EMAIL",
+        connection: {
+          id: connectionId,
+          ownerId: session.userId,
+          toolkit: "gmail",
+          connectedAccountId: "ca_http",
+          generation: 1,
+        },
+        arguments: { body: "approval-http-private-marker" },
+        preview: { body: "approval-http-private-marker" },
+        policyVersion: "test.1",
+      },
+      { text: "Review the send", steps: 1 },
+    );
+    return { id, conversationId, runId, view: await approvals.load(session.userId, id) };
+  } finally {
+    zeroize(claim.key.key);
+  }
+}
+
+describe("Simon approval HTTP decisions", () => {
+  it("refuses a revoked session even if its ordinary read cache is warm", async () => {
+    const app = await boot();
+    const { session } = await app.createSignedInUser();
+    const { id, view } = await approval(app, session);
+    expect((await app.get(`/v1/approvals/${id}`, { session })).status).toBe(200);
+    await app.db.run(
+      sql("UPDATE auth_sessions SET revoked_at = :now WHERE user_id = :owner", {
+        owner: session.userId,
+        now: int(app.clock.now()),
+      }),
+    );
+    const result = await post(app, session, `/v1/approvals/${id}/decision`, {
+      decision: "approve",
+      argDigest: view.argDigest,
+    });
+    expect(result.status).toBe(401);
+    expect(
+      (await app.db.first(sql("SELECT status FROM approvals WHERE id = :id", { id })))?.status,
+    ).toBe("pending");
+    expect(await app.db.all(sql("SELECT id FROM runs"))).toHaveLength(1);
+  });
+  it.each(["approve", "deny", "dismiss"] as const)(
+    "records and replays %s exactly once",
+    async (decision) => {
+      const app = await boot();
+      const { session } = await app.createSignedInUser();
+      const { id, view, conversationId } = await approval(app, session);
+      const read = await app.get(`/v1/approvals/${id}`, { session });
+      expect(read.status).toBe(200);
+      expect(read.json()).toMatchObject({
+        id,
+        status: "pending",
+        arguments: { body: "approval-http-private-marker" },
+      });
+      const chat = await post(app, session, `/v1/conversations/${conversationId}/messages`, {
+        text: "yes approve",
+      });
+      expect(simonMessageAcceptedSchema.parse(chat.json()).status).toBe("queued");
+      const decisionKey = key();
+      const body = { decision, argDigest: view.argDigest };
+      const first = await post(app, session, `/v1/approvals/${id}/decision`, body, {
+        idempotencyKey: decisionKey,
+      });
+      expect(first.status, first.text).toBe(200);
+      expect(first.json()).toMatchObject({
+        approvalId: id,
+        status: decision === "approve" ? "approved" : decision === "deny" ? "denied" : "dismissed",
+      });
+      const replay = await post(app, session, `/v1/approvals/${id}/decision`, body, {
+        idempotencyKey: decisionKey,
+      });
+      expect(replay.status).toBe(200);
+      expect(replay.json()).toEqual(first.json());
+      const stale = await post(app, session, `/v1/approvals/${id}/decision`, body);
+      expect(stale.status).toBe(409);
+      expect(code(stale)).toBe("approval.stale");
+      expect(app.logs.lines.join("\n")).not.toContain("approval-http-private-marker");
+    },
+  );
+
+  it("enforces owner identity, CSRF, strict arguments and quick-chat expiry", async () => {
+    const app = await boot();
+    const { session } = await app.createSignedInUser();
+    const { session: stranger } = await app.createSignedInUser();
+    const { id, view } = await approval(app, session);
+    const body = { decision: "approve", argDigest: view.argDigest };
+    expect((await app.get(`/v1/approvals/${id}`, { session: stranger })).status).toBe(404);
+    expect((await post(app, stranger, `/v1/approvals/${id}/decision`, body)).status).toBe(404);
+    expect(
+      (await post(app, session, `/v1/approvals/${id}/decision`, body, { csrf: null })).status,
+    ).toBe(403);
+    expect(
+      (
+        await post(app, session, `/v1/approvals/${id}/decision`, {
+          ...body,
+          ownerId: stranger.userId,
+        })
+      ).status,
+    ).toBe(400);
+    await app.clock.advance(24 * 3_600_000);
+    expect((await app.get(`/v1/approvals/${id}`, { session })).status).toBe(404);
+  });
+});
 
 describe("Simon user questions", () => {
   it("queues an ordinary reply and answers only through the explicit idempotent endpoint", async () => {

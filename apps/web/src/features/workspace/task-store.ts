@@ -131,6 +131,34 @@ export class TaskStore {
     this.listeners.clear();
   }
 
+  /**
+   * Undoes a `dispose()` for a store that is mounted again rather than replaced.
+   *
+   * React's development Strict Mode mounts, unmounts and remounts, while the provider keeps this
+   * instance in a `useMemo` whose dependencies did not change. Without this the store came back
+   * permanently dead: every read resolved into a `disposed` guard, so a list that was already
+   * fetched stayed `loading` and `ensureCollection()` (which only acts on `idle`) never asked
+   * again. The API returned the tasks and the store dropped them — an empty workspace with a
+   * perfectly healthy `GET /v1/tasks` behind it.
+   *
+   * An entry left `loading` with no request in flight is reset so the next read starts a real one.
+   */
+  reopen(): void {
+    this.disposed = false;
+    for (const entry of this.collections.values()) {
+      if (entry.status === "loading" && !entry.inFlight) {
+        entry.status = "idle";
+        entry.snapshot = null;
+      }
+    }
+    for (const entry of this.details.values()) {
+      if (entry.status === "loading" && !entry.inFlight) {
+        entry.status = "idle";
+        entry.snapshot = null;
+      }
+    }
+  }
+
   /* ------------------------------------------------------------------------------------------ */
   /* Reads                                                                                        */
   /* ------------------------------------------------------------------------------------------ */

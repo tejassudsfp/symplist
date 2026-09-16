@@ -98,7 +98,10 @@ export class ApiError extends Error {
 export function sendApiError(res: Response, error: ApiError, requestId: string): void {
   if (res.headersSent) return;
   res.status(error.status);
-  res.setHeader("Cache-Control", "no-store");
+  res.setHeader(
+    "Cache-Control",
+    res.getHeader("Cache-Control") === "private, no-store" ? "private, no-store" : "no-store",
+  );
   if (error.code === "rate.limited") res.setHeader(retryAfterHeader, String(error.retryAfter ?? 1));
   res.json(error.toEnvelope(requestId));
 }

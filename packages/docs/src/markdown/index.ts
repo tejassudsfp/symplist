@@ -3,6 +3,8 @@
  * serializer and link destination rules. Nothing reachable from this entry point may import `node:*`
  * or a server-only package; `packages/testing/src/browser-safe.test.ts` enforces it.
  */
+
+export { escapeArtifactHtml, renderArtifactMarkdown } from "./artifact.ts";
 export {
   CANONICAL_STRINGIFY_OPTIONS,
   canonicalizeMarkdown,
