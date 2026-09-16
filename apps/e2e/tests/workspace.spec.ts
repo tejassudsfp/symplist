@@ -196,6 +196,28 @@ test.describe("the workspace", () => {
     await expect(row(page, "Book a bike tune-up")).toBeVisible();
   });
 
+  test("Enter adds and selects; Shift+Enter adds and stays for the next one", async ({ page }) => {
+    const field = page.getByLabel("Add task to Now");
+
+    // Shift+Enter keeps the caret in the field, so a run of tasks is typed without reaching back.
+    await field.fill("Water the plants");
+    await field.press("Shift+Enter");
+    await expect(row(page, "Water the plants")).toBeVisible();
+    await expect(field).toBeFocused();
+    await expect(field).toHaveValue("");
+
+    await page.keyboard.type("Buy stamps");
+    await field.press("Shift+Enter");
+    await expect(row(page, "Buy stamps")).toBeVisible();
+    await expect(field).toBeFocused();
+
+    // Plain Enter finishes: focus lands on the task just made, ready for the next keystroke.
+    await page.keyboard.type("Book the train");
+    await field.press("Enter");
+    await expect(row(page, "Book the train")).toBeFocused();
+    await expect(field).toHaveValue("");
+  });
+
   test("runs the whole list from the keyboard, with no pointer at all", async ({
     page,
   }, testInfo) => {

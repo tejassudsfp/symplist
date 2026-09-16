@@ -15,6 +15,9 @@ import { TaskRow } from "./task-row.tsx";
 import { visibleRows } from "./tree.ts";
 import { useTaskCollection, useWorkspace, useWorkspaceUi } from "./workspace-provider.tsx";
 
+/** Names the two saving keys as text, so the pair is not carried by the decorative caps alone. */
+const QUICK_ADD_HINT_ID = "sym-quick-add-hint";
+
 /** The empty state each collection shows, in its own voice (the three inbox briefs). */
 const emptyCopy: Readonly<Record<TaskCollection, { title: string; description: string }>> = {
   now: {
@@ -91,12 +94,30 @@ export function TaskInbox({ collection }: TaskInboxProps) {
   const isEmpty = listStatus === "ready" && snapshot.tasks.length === 0;
   const noMatches = searchOpen && query.trim().length > 0 && rows.length === 0 && !isEmpty;
 
+  /**
+   * Enter saves and hands focus to the task just created, so the next keystroke acts on it. Shift +
+   * Enter saves and keeps the caret here for the next one — the "add another" half of the pair. A
+   * failed add returns no id and leaves focus in the field, next to the draft it restored.
+   *
+   * Both are handled here rather than through the form's submit so the two can be told apart;
+   * `preventDefault` stops the implicit submit firing a second add.
+   */
   const onDraftKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "Escape" && draft.trim().length === 0) {
       event.preventDefault();
       ui.setDraft(collection, "");
       event.currentTarget.blur();
+      return;
     }
+    // Never submit mid-composition: an IME's Enter commits the candidate, it does not add a task.
+    if (event.key !== "Enter" || event.nativeEvent.isComposing || event.repeat) return;
+    event.preventDefault();
+    const addAnother = event.shiftKey;
+    void commands.addTask(collection).then((taskId) => {
+      if (addAnother || taskId === undefined) return;
+      ui.setActiveRow(collection, taskId);
+      ui.requestFocus(taskId);
+    });
   };
 
   return (
@@ -115,6 +136,7 @@ export function TaskInbox({ collection }: TaskInboxProps) {
             id={QUICK_ADD_ID}
             className="sym-quick-add-input"
             aria-label={`Add task to ${label}`}
+            aria-describedby={QUICK_ADD_HINT_ID}
             placeholder="Add task"
             value={draft}
             readOnly={adding}
@@ -124,10 +146,20 @@ export function TaskInbox({ collection }: TaskInboxProps) {
           />
           {adding ? <Spinner size={12} label="Adding" /> : null}
           {draft.trim().length > 0 && !adding ? (
-            <span aria-hidden="true" className="sym-kbd">
-              ↵
+            /*
+             * Both keys are shown because the pair is only discoverable together: ↵ alone reads as
+             * the only way to save. Decorative — the accessible description on the field carries the
+             * same thing as text, so a screen reader hears it once, not twice.
+             */
+            <span aria-hidden="true" className="sym-quick-add-keys">
+              <span className="sym-kbd">↵</span>
+              <span className="sym-kbd">⇧↵</span>
             </span>
           ) : null}
+          <span id={QUICK_ADD_HINT_ID} className="sr-only">
+            Press Enter to add the task and select it. Press Shift plus Enter to add it and keep
+            typing the next one.
+          </span>
         </form>
         <button
           type="button"

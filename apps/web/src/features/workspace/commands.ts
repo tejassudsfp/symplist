@@ -70,17 +70,23 @@ export class TaskCommands {
   }
 
   /** Adds the collection's quick-add draft as a task. Keeps the text when the write fails. */
-  async addTask(collection: TaskCollection): Promise<void> {
+  /**
+   * Adds the quick-add draft. Returns the new task's id so the caller can move focus to it; returns
+   * undefined when nothing was created, so a failed add never steals focus from the field the person
+   * is still typing in.
+   */
+  async addTask(collection: TaskCollection): Promise<string | undefined> {
     const draft = this.deps.ui.getState().drafts[collection].trim();
-    if (draft.length === 0) return;
+    if (draft.length === 0) return undefined;
     const scope = `create:${collection}:${draft}`;
-    if (this.deps.ui.isPending(scope)) return;
+    if (this.deps.ui.isPending(scope)) return undefined;
     this.deps.ui.setPending(scope, true);
     this.deps.ui.setDraft(collection, "");
     try {
       const response = await this.deps.tasks.create({ title: draft, collection }, this.key(scope));
       this.release(scope);
       this.deps.announce(`Added ${quoted(response.task.title)} to ${collectionLabels[collection]}`);
+      return response.task.id;
     } catch (error) {
       const failure = classifyFailure(error);
       this.deps.ui.setDraft(collection, draft);
@@ -91,6 +97,7 @@ export class TaskCommands {
           : {}),
       });
       if (!failure.retryable) this.release(scope);
+      return undefined;
     } finally {
       this.deps.ui.setPending(scope, false);
     }

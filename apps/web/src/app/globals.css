@@ -2066,3 +2066,55 @@
     font-size: 15px;
   }
 }
+
+/* ---------------------------------------------------------------------------------------------- */
+/* Brand lockup                                                                                     */
+/*                                                                                                  */
+/* The whole lockup scales from font-size: the mark is 1em tall, so setting the size on the wrapper  */
+/* moves mark and wordmark together and they stay optically locked. Nothing here sets a colour — the */
+/* mark inherits the surrounding text so it works on all six themes in light and dark.               */
+/* ---------------------------------------------------------------------------------------------- */
+
+.sym-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42em;
+  line-height: 1;
+  color: inherit;
+}
+
+.sym-logo--stacked {
+  flex-direction: column;
+  gap: 0.3em;
+}
+
+.sym-logo__mark {
+  display: block;
+  flex: none;
+  height: 1em;
+  width: auto;
+  /* Round caps sit fractionally outside the 24-unit box; without this they are clipped. */
+  overflow: visible;
+}
+
+.sym-logo--stacked .sym-logo__mark {
+  height: 1.5em;
+}
+
+.sym-logo__word {
+  /* Pinned to Geist, not var(--sym-font): the wordmark must not change when the theme does. */
+  font-family: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  font-size: 1em;
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  /* The product notes write the name lowercase throughout. */
+  text-transform: lowercase;
+}
+
+/* The quick-add field names both saving keys: ↵ adds and selects, ⇧↵ adds and stays for the next. */
+.sym-quick-add-keys {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}

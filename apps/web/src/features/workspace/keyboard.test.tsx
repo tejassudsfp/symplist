@@ -216,6 +216,37 @@ describe("the list by keyboard alone", () => {
     expect(await screen.findByRole("menuitem", { name: /Rename/ })).toBeInTheDocument();
   });
 
+  it("adds with Enter and hands focus to the new task, so the next key acts on it", async () => {
+    const { user } = await listPane();
+    const field = screen.getByLabelText("Add task to Now");
+    await user.click(field);
+    await user.type(field, "Water the plants");
+    await user.keyboard("{Enter}");
+
+    const row = await screen.findByRole("treeitem", { name: /Water the plants/ });
+    await waitFor(() => expect(row).toHaveFocus());
+    expect(field).toHaveValue("");
+  });
+
+  it("adds with Shift+Enter and keeps the caret in the field for the next one", async () => {
+    const { user } = await listPane();
+    const field = screen.getByLabelText("Add task to Now");
+    await user.click(field);
+    await user.type(field, "Water the plants");
+    await user.keyboard("{Shift>}{Enter}{/Shift}");
+
+    await screen.findByRole("treeitem", { name: /Water the plants/ });
+    // The whole point of the second binding: the field is still where you are typing.
+    expect(field).toHaveFocus();
+    expect(field).toHaveValue("");
+
+    await user.type(field, "Buy stamps");
+    await user.keyboard("{Shift>}{Enter}{/Shift}");
+    await screen.findByRole("treeitem", { name: /Buy stamps/ });
+    expect(screen.getByRole("treeitem", { name: /Water the plants/ })).toBeInTheDocument();
+    expect(field).toHaveFocus();
+  });
+
   it("leaves single-key shortcuts alone while the quick-add field has focus", async () => {
     const { user, api } = await listPane();
     const field = screen.getByLabelText("Add task to Now");
