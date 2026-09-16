@@ -41,6 +41,10 @@ export const simonQuickSavedSchema = z.strictObject({
   taskId: idSchema,
   collection: taskCollectionSchema,
 });
+export const simonQuickClosedSchema = z.strictObject({
+  conversationId: idSchema,
+  runId: idSchema.nullable(),
+});
 
 export const simonConversationCreatedSchema = z.strictObject({ conversationId: idSchema });
 export const simonMessageAcceptedSchema = z.strictObject({

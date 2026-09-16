@@ -98,6 +98,39 @@ function snapshot() {
 }
 
 describe("Simon document checkpoint authority", () => {
+  it("refreshes a retained quick-chat actor's expiry time after external work", async () => {
+    const quick = await repository.createConversation(claim.run.ownerId, null);
+    const accepted = await repository.acceptMessage(claim.run.ownerId, quick, "expiry-test", {
+      text: "Read this task",
+      tier: "fast",
+    });
+    const quickClaim = await repository.claim(String(accepted.runId), "local");
+    if (!quickClaim) throw new Error("missing quick claim");
+    try {
+      const quickSession = await SimonDocumentSession.create({
+        repository,
+        claim: quickClaim,
+        tools: env.tools,
+        git: null,
+      });
+      const actor = quickSession.actor("delayed-read");
+      const before = actor.guards?.[0];
+      if (!before) throw new Error("missing run guard");
+      expect(
+        await env.db.first(sql(`SELECT 1 AS allowed WHERE ${before.sql}`, before.params)),
+      ).toEqual({ allowed: 1 });
+      env.clock += 25 * 3600000;
+      const after = actor.guards?.[0];
+      if (!after) throw new Error("missing refreshed run guard");
+      expect(after.params.simon_guard_now).not.toBe(before.params.simon_guard_now);
+      expect(
+        await env.db.first(sql(`SELECT 1 AS allowed WHERE ${after.sql}`, after.params)),
+      ).toBeNull();
+    } finally {
+      repository.releaseClaim(quickClaim);
+    }
+  });
+
   it("does not record a completed read whose result was lost to Stop before the step checkpoint", async () => {
     await read();
     await repository.stop(claim.run.ownerId, claim.run.id);

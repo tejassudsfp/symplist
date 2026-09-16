@@ -1,11 +1,95 @@
 import { simonConversationCreatedSchema, simonQuickSavedSchema } from "@symplist/contracts";
+import { SimonRepository } from "@symplist/core/simon";
 import { int, sql } from "@symplist/db";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { bootTestApp, type TestApp } from "../../../test/harness.ts";
+import { ExecutionDispatcher } from "../../infra/executors/dispatcher.ts";
 
 const apps: TestApp[] = [];
 afterEach(async () => {
+  vi.restoreAllMocks();
   for (const app of apps.splice(0)) await app.close();
+});
+
+describe("owner quick-chat close route", () => {
+  it("removes history before cancellation, and retries cancellation after a lost reply", async () => {
+    const { app, owner, conversationId } = await fixture();
+    const repo = app.inject<SimonRepository>(SimonRepository);
+    const accepted = await repo.acceptMessage(owner.id, conversationId, "close-message", {
+      text: "Close secret",
+      tier: "fast",
+    });
+    const cancel = vi
+      .spyOn(app.inject<ExecutionDispatcher>(ExecutionDispatcher), "cancel")
+      .mockImplementation(async () => {
+        expect(
+          await app.db.first(
+            sql("SELECT id FROM conversations WHERE id=:id", { id: conversationId }),
+          ),
+        ).toBeNull();
+        throw new Error("simulated cancellation outage");
+      });
+    const close = () =>
+      app.request("DELETE", `/v1/conversations/${conversationId}`, {
+        session: owner.session,
+        idempotencyKey: "close-quick-chat",
+      });
+    const first = await close();
+    expect(first.status, first.text).toBe(200);
+    expect(first.json()).toEqual({ conversationId, runId: accepted.runId });
+    const replay = await close();
+    expect(replay.status, replay.text).toBe(200);
+    expect(replay.json()).toEqual(first.json());
+    expect(cancel).toHaveBeenCalledTimes(2);
+    expect(cancel).toHaveBeenLastCalledWith("simon_run", accepted.runId);
+    for (const table of ["messages", "message_parts", "runs", "conversations"])
+      expect(await app.db.first(sql(`SELECT COUNT(*) AS n FROM ${table}`))).toEqual({ n: 0 });
+    expect(
+      (await app.get(`/v1/conversations/${conversationId}`, { session: owner.session })).status,
+    ).toBe(404);
+    await app.db.run(
+      sql("UPDATE users SET beta_state='relocked' WHERE id=:owner", { owner: owner.id }),
+    );
+    expect((await close()).status).toBe(404);
+    expect(cancel).toHaveBeenCalledTimes(2);
+  });
+
+  it("requires CSRF and ownership and cannot delete a saved task chat", async () => {
+    const { app, owner, conversationId, path } = await fixture();
+    const closePath = `/v1/conversations/${conversationId}`;
+    const other = await app.createSignedInUser();
+    expect(
+      (
+        await app.request("DELETE", closePath, {
+          session: owner.session,
+          csrf: null,
+          idempotencyKey: "close-quick-csrf-key",
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await app.request("DELETE", closePath, {
+          session: other.session,
+          idempotencyKey: "close-quick-foreign-key",
+        })
+      ).status,
+    ).toBe(404);
+    expect(
+      (await app.post(path, { session: owner.session, idempotencyKey: "save-before-close", body }))
+        .status,
+    ).toBe(201);
+    expect(
+      (
+        await app.request("DELETE", closePath, {
+          session: owner.session,
+          idempotencyKey: "close-quick-saved-key",
+        })
+      ).status,
+    ).toBe(404);
+    expect(await app.db.first(sql("SELECT COUNT(*) AS n FROM conversations"))).toEqual({ n: 1 });
+    expect(await app.db.first(sql("SELECT COUNT(*) AS n FROM tasks"))).toEqual({ n: 1 });
+  });
 });
 async function fixture() {
   const app = await bootTestApp();

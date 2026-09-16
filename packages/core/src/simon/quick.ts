@@ -1,8 +1,19 @@
-import { simonQuickSavedSchema, type simonQuickSaveInputSchema } from "@symplist/contracts";
+import {
+  simonQuickClosedSchema,
+  simonQuickSavedSchema,
+  type simonQuickSaveInputSchema,
+} from "@symplist/contracts";
+import { zeroize } from "@symplist/crypto";
 import { int, sql } from "@symplist/db";
 import { TaskOperationError } from "../tasks/errors.ts";
 import { TaskService, type TaskWriteFold } from "../tasks/service.ts";
-import { assertFoldOwner, type SimonWriteFold } from "./fold.ts";
+import {
+  assertFoldOwner,
+  guardedCompletion,
+  releaseUnapplied,
+  type SimonWriteFold,
+} from "./fold.ts";
+import { quickDeleteStatements } from "./quick-delete.ts";
 import type { SimonRepository } from "./repository.ts";
 import { SimonError } from "./types.ts";
 
@@ -16,6 +27,66 @@ export class SimonQuickChats {
       eventId: string,
     ) => Promise<void>,
   ) {}
+
+  async close(ownerId: string, conversationId: string, fold?: SimonWriteFold) {
+    assertFoldOwner(fold, ownerId);
+    if (fold?.authorization) throw new SimonError("not_found");
+    const repo = this.repository;
+    const loaded = await repo.options.db.batch([
+      repo.accountKeys.selectStatement(ownerId),
+      sql(
+        "SELECT active_run_id FROM conversations WHERE id=:id AND owner_id=:owner AND kind='quick'",
+        { id: conversationId, owner: ownerId },
+      ),
+    ]);
+    const keyRow = loaded[0]?.results[0];
+    if (!keyRow) throw new SimonError("not_found");
+    const key = repo.accountKeys.unwrapRow(keyRow);
+    try {
+      const runId = loaded[1]?.results[0]?.active_run_id;
+      const response = { conversationId, runId: typeof runId === "string" ? runId : null };
+      const writeId = repo.nextId();
+      const authority = `${repo.access()} AND EXISTS (SELECT 1 FROM account_keys WHERE owner_id=:owner)`;
+      const marker = { sql: "write_id=:qd_write", params: { qd_write: writeId } };
+      const applied = sql(
+        "EXISTS (SELECT 1 FROM conversations WHERE id=:id AND owner_id=:owner AND write_id=:write)",
+        { id: conversationId, owner: ownerId, write: writeId },
+      );
+      const before = [
+        ...(fold?.statements ?? []),
+        sql(
+          `UPDATE conversations SET write_id=:write WHERE id=:id AND owner_id=:owner AND kind='quick' AND active_run_id IS :run AND (${authority}) ${fold ? `AND ${fold.claim.guard.exists}` : ""}`,
+          {
+            id: conversationId,
+            owner: ownerId,
+            write: writeId,
+            run: response.runId,
+            ...fold?.claim.guard.params,
+          },
+        ),
+        { sql: `SELECT (${applied.sql}) AS applied`, params: applied.params },
+      ];
+      const appliedAt = before.length - 1;
+      const results = await repo.options.db.batch([
+        ...before,
+        ...(fold
+          ? [
+              releaseUnapplied(fold, applied),
+              guardedCompletion(fold.completion({ status: 200, body: response }, key), applied),
+            ]
+          : []),
+        ...quickDeleteStatements(conversationId, ownerId, repo.options.now(), marker),
+        sql(`SELECT (${authority}) AS allowed`, { owner: ownerId }),
+      ]);
+      if (results.at(-1)?.results[0]?.allowed !== 1) throw new SimonError("not_found");
+      const decision = fold?.decide(results, key, 0);
+      if (decision?.kind === "replay") return simonQuickClosedSchema.parse(decision.body);
+      if (results[appliedAt]?.results[0]?.applied !== 1) throw new SimonError("not_found");
+      return response;
+    } finally {
+      zeroize(key.key);
+    }
+  }
 
   async save(
     ownerId: string,

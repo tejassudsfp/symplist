@@ -1,6 +1,6 @@
 import { type DbClient, int } from "@symplist/db";
 import { MaintenanceFence, maintenanceStatement } from "../maintenance-fence.ts";
-import { SimonPauseReconciler, SimonRepository } from "../simon/index.ts";
+import { cleanupQuickChats, SimonPauseReconciler, SimonRepository } from "../simon/index.ts";
 import type { ScannerExecution } from "./scanner.ts";
 import type { SchedulingOptions } from "./service.ts";
 
@@ -24,6 +24,7 @@ export async function cleanupHourly(options: SchedulingCleanupOptions, input: Sc
   if (!(await fence.current())) return { noop: true };
   const simon = new SimonRepository({ ...options, quickChatTtlHours: options.quickChatTtlHours });
   await new SimonPauseReconciler(simon).run(input);
+  await cleanupQuickChats(simon, fence);
   await options.db.batch([
     maintenanceStatement(
       "DELETE FROM webhook_receipts WHERE rowid IN (SELECT rowid FROM webhook_receipts WHERE received_at<:cutoff LIMIT 100)",

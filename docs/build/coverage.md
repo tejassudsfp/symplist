@@ -34,7 +34,7 @@ merged core/API/worker regressions; quick-chat and MCP cleanup integration remai
 | [15_deadlines_reminders_calendar.md](../notes/files/15_deadlines_reminders_calendar.md) | In progress — integrated | [Scheduling report](reports/d2-scheduling.md) | Simon/analytics wiring and Phase E pending |
 | [16_simon_handoffs_and_artifact_sharing.md](../notes/files/16_simon_handoffs_and_artifact_sharing.md) | In progress — integrated | [Sharing report](reports/d2-sharing.md) | Cross-feature callbacks and Phase E pending |
 | [17_analytics.md](../notes/files/17_analytics.md) | In progress — integrated | [Sharing report](reports/d2-sharing.md) | Cross-feature callbacks and Phase E pending |
-| Note 18: quick chat (to be written, decision D1 in [decisions](decisions.md)) | In progress | Task-less conversation creation/message HTTP, TTL enforcement, read-only document tools and atomic Save as task exist; UI, close/delete and cleanup remain | Core conversation/fold tests, agent document-capability tests; seven quick-save core and two HTTP contracts cover attachment rollback, concurrent messages, preserved encrypted history and protected idempotent replay; no browser quick-chat journey yet |
+| Note 18: quick chat (to be written, decision D1 in [decisions](decisions.md)) | In progress | Task-less conversation creation/message HTTP, TTL enforcement, read-only document tools, atomic Save as task, synchronous close/delete and fenced hourly cleanup exist; UI remains | Core conversation/fold tests, agent document-capability tests; fifteen save/close core and four HTTP contracts cover rollback, continuation-chain deletion, late output refusal, ownership/CSRF, expiry and protected idempotent replay; no browser quick-chat journey yet |
 
 ## Screen briefs
 

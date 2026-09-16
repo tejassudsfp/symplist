@@ -1,4 +1,15 @@
-import { Body, Controller, Get, HttpCode, Inject, Param, Post, Query, Req } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Inject,
+  Param,
+  Post,
+  Query,
+  Req,
+} from "@nestjs/common";
 import {
   conversationIdSchema,
   runIdSchema,
@@ -95,6 +106,33 @@ export class SimonController {
     return simonCall(() =>
       this.quickChats.save(session.userId, conversationId, body, simonWriteFold(req)),
     );
+  }
+
+  @Delete("conversations/:id")
+  @Access("admitted")
+  @Idempotent({ folded: true })
+  closeQuickChat(
+    @Req() req: Request,
+    @CurrentSession() session: SessionContext,
+    @Param("id", { schema: conversationIdSchema }) conversationId: string,
+  ) {
+    return simonCall(async () => {
+      const closed = await this.quickChats.close(
+        session.userId,
+        conversationId,
+        simonWriteFold(req),
+      );
+      // The transaction removed all history and authority first. Retained ids-only dispatch
+      // intents let a lost reply retry cancellation without keeping chat content.
+      if (closed.runId) {
+        try {
+          await this.dispatcher.cancel("simon_run", closed.runId);
+        } catch {
+          this.logger.warn("simon.cancel_pending");
+        }
+      }
+      return closed;
+    });
   }
 
   @Get("runs/:id")

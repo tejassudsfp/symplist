@@ -60,6 +60,7 @@ export class SimonDocumentSession {
 
   actor(toolCallId: string): SimonDocumentActor {
     const { run } = this.claim;
+    const { repository } = this;
     if (!/^[A-Za-z0-9_-]{1,128}$/.test(toolCallId)) throw new SimonError("validation");
     return {
       kind: "simon",
@@ -70,17 +71,20 @@ export class SimonDocumentSession {
       contextEpoch: this.contextEpoch,
       mode: run.taskId ? "task" : "quick",
       taskId: run.taskId,
-      guards: [
-        {
-          sql: `EXISTS (SELECT 1 FROM runs WHERE id = :simon_guard_run AND owner_id = :simon_guard_owner AND executor_generation = :simon_guard_generation AND ${this.repository.runGuard().replaceAll(":now", ":simon_guard_now")})`,
-          params: {
-            simon_guard_run: run.id,
-            simon_guard_owner: run.ownerId,
-            simon_guard_generation: int(run.generation),
-            simon_guard_now: int(this.repository.options.now()),
+      // Re-read time when a core service builds its deciding batch, including after R2 work.
+      get guards() {
+        return [
+          {
+            sql: `EXISTS (SELECT 1 FROM runs WHERE id = :simon_guard_run AND owner_id = :simon_guard_owner AND executor_generation = :simon_guard_generation AND ${repository.runGuard().replaceAll(":now", ":simon_guard_now")})`,
+            params: {
+              simon_guard_run: run.id,
+              simon_guard_owner: run.ownerId,
+              simon_guard_generation: int(run.generation),
+              simon_guard_now: int(repository.options.now()),
+            },
           },
-        },
-      ],
+        ];
+      },
     };
   }
 
