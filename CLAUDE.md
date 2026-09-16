@@ -113,6 +113,31 @@ CI-only, and the GitHub integration replaces it.
 So: **Simon chat does not run on Trigger yet.** The scaffolding is correct and waiting; the task is
 D2 work.
 
+### The executor rule (owner, 2026-09-16)
+
+> If durable, then everything on Trigger. If not, then no Trigger.
+
+This is already what §8 specifies and what the config enforces:
+
+- `DURABLE=true` — **all** model and tool execution happens in `simon-run` on Trigger. The api only
+  accepts the message, claims the conversation and dispatches; it never runs model or tool code, and
+  it **rejects `OPENAI_API_KEY`** at boot so it cannot.
+- `DURABLE=false` — the api runs the same loop in process and makes **zero** Trigger calls, needing
+  no Trigger credentials. This mode exists only for local development and the Playwright harness.
+
+**Execution location and content retention are separate questions.** Decision R2 keeps all execution
+on Trigger while the *content* returns to Symplist as signed, encrypted chunks, so Trigger holds
+only ids, enums and counts. **Trigger Sessions / `chat.agent` are therefore not used** — their input
+and output streams would retain user messages and Simon's output in plaintext on Trigger, which
+breaks §8.3 and the R12 promise that account deletion is a true crypto-shred ("Trigger holds no
+content"). Note 07 originally sketched sessions but flagged "Trigger streams, logs, and provider
+retention remain in the threat model"; R2 acted on that caveat. Revisiting it is a one-decision
+change to R2, §8.3 and R12 — do not drift into it.
+
+**Simon's prompts stay in code** (owner, 2026-09-16), versioned with git and changed only by deploy.
+Trigger managed prompts (`prompts.define()`) are not used: prompt changes must not bypass review, and
+the prompt behind any run must be recoverable from the commit.
+
 ---
 
 ## Stack (locked — see architecture §1)
