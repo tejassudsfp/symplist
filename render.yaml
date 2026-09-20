@@ -1,0 +1,175 @@
+# Render Blueprint for the public Symplist API and isolated artifact host.
+# Secrets are entered in Render during the initial Blueprint apply. The same shared-family values
+# must also be configured in Trigger.dev; never replace them with independently generated values.
+previews:
+  generation: off
+
+services:
+  - type: web
+    name: symplist-api
+    runtime: docker
+    plan: 0.5c-512mb
+    region: singapore
+    branch: main
+    autoDeployTrigger: checksPass
+    dockerfilePath: ./apps/api/Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz
+    maxShutdownDelaySeconds: 60
+    preDeployCommand: node node_modules/@symplist/db/dist/cli/migrate.js --driver d1
+    domains:
+      - api.symplist.tejassuds.com
+      - artifacts.symplist.tejassuds.com
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: WEB_ORIGIN
+        value: https://symplist.tejassuds.com
+      - key: API_ORIGIN
+        value: https://api.symplist.tejassuds.com
+      - key: WS_ORIGIN
+        value: wss://api.symplist.tejassuds.com
+      - key: ARTIFACT_ORIGIN
+        value: https://artifacts.symplist.tejassuds.com
+      - key: ADMIN_BOOTSTRAP_EMAIL
+        sync: false
+      - key: TRUST_PROXY_HOPS
+        value: "1"
+      - key: DATA_DRIVER
+        value: d1
+      - key: EMAIL_DRIVER
+        value: resend
+      - key: DURABLE
+        value: "true"
+      - key: KEY_PROVIDER
+        value: env
+      - key: BETA_ACCESS_REQUIRED
+        value: "true"
+      - key: BILLING_ENABLED
+        value: "false"
+      - key: PAYWALL_ENABLED
+        value: "false"
+      - key: AI_USAGE_LIMITS_ENABLED
+        value: "false"
+      - key: OTP_LENGTH
+        value: "6"
+      - key: OTP_TTL_MINUTES
+        value: "10"
+      - key: OTP_MAX_ATTEMPTS
+        value: "5"
+      - key: VAULT_IDLE_LOCK_MINUTES
+        value: "5"
+      - key: REMINDERS_ENABLED
+        value: "true"
+      - key: REMINDER_EMAIL_ENABLED
+        value: "true"
+      - key: REMINDER_MAX_LATENESS_HOURS
+        value: "24"
+      - key: DEFAULT_TIMEZONE
+        value: UTC
+      - key: QUICK_CHAT_TTL_HOURS
+        value: "24"
+      - key: DOC_MAX_BYTES
+        value: "1048576"
+      - key: EMAIL_FROM_SECURITY
+        value: Symplist <security@symplist.tejassuds.com>
+      - key: EMAIL_FROM_REMINDERS
+        value: Symplist <reminders@symplist.tejassuds.com>
+      - key: AI_ENABLED
+        value: "true"
+      - key: AI_DEFAULT_TIER
+        value: fast
+      - key: AI_FAST_PROVIDER
+        value: openai
+      - key: AI_FAST_MODEL
+        value: gpt-5.6-luna
+      - key: AI_SMART_PROVIDER
+        value: openai
+      - key: AI_SMART_MODEL
+        value: gpt-5.6-terra
+      - key: AI_PROVIDER_MODE
+        value: live
+      - key: AI_TELEMETRY_ENABLED
+        value: "true"
+      - key: TRIGGER_SECRET_KEY
+        sync: false
+      - key: TRIGGER_PROJECT_REF
+        sync: false
+      - key: CLOUDFLARE_ACCOUNT_ID
+        sync: false
+      - key: D1_DATABASE_ID
+        sync: false
+      - key: CLOUDFLARE_D1_API_TOKEN
+        sync: false
+      - key: R2_BUCKET
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_WEBHOOK_SECRET
+        sync: false
+      - key: COMPOSIO_API_KEY
+        sync: false
+      - key: COMPOSIO_WEBHOOK_SECRET
+        sync: false
+      - key: ANALYTICS_ENABLED
+        value: "true"
+      - key: POSTHOG_PROJECT_KEY
+        sync: false
+      - key: POSTHOG_HOST
+        value: https://us.i.posthog.com
+      - key: POSTHOG_PERSONAL_API_KEY
+        sync: false
+      - key: POSTHOG_PROJECT_ID
+        sync: false
+      - key: CONTENT_KEK_1
+        sync: false
+      - key: CONTENT_KEK_CURRENT
+        value: "1"
+      - key: INTERNAL_EVENT_SECRET_1
+        sync: false
+      - key: INTERNAL_EVENT_SECRET_CURRENT
+        value: "1"
+      - key: REMINDER_UNSUBSCRIBE_SECRET_1
+        sync: false
+      - key: REMINDER_UNSUBSCRIBE_SECRET_CURRENT
+        value: "1"
+      - key: VAULT_RECOVERY_KEY_1
+        sync: false
+      - key: VAULT_RECOVERY_KEY_CURRENT
+        value: "1"
+      - key: SESSION_DIGEST_SECRET_1
+        sync: false
+      - key: SESSION_DIGEST_SECRET_CURRENT
+        value: "1"
+      - key: OTP_DIGEST_SECRET_1
+        sync: false
+      - key: OTP_DIGEST_SECRET_CURRENT
+        value: "1"
+      - key: INVITE_DIGEST_SECRET_1
+        sync: false
+      - key: INVITE_DIGEST_SECRET_CURRENT
+        value: "1"
+      - key: SHARE_DIGEST_SECRET_1
+        sync: false
+      - key: SHARE_DIGEST_SECRET_CURRENT
+        value: "1"
+      - key: SHARE_SESSION_DIGEST_SECRET_1
+        sync: false
+      - key: SHARE_SESSION_DIGEST_SECRET_CURRENT
+        value: "1"
+      - key: MCP_TOKEN_DIGEST_SECRET_1
+        sync: false
+      - key: MCP_TOKEN_DIGEST_SECRET_CURRENT
+        value: "1"
+      - key: MCP_OAUTH_SIGNING_KEY_1
+        sync: false
+      - key: MCP_OAUTH_SIGNING_KEY_CURRENT
+        value: "1"
+      - key: IDEMPOTENCY_SECRET_1
+        sync: false
+      - key: IDEMPOTENCY_SECRET_CURRENT
+        value: "1"
