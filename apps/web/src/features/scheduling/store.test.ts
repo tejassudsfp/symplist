@@ -1,11 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
-import { DeadlineStore } from "./store.ts";
+import { DeadlineStore, scheduleOverlay } from "./store.ts";
 import { stubSchedulingApi } from "./test-support.ts";
 
 const flush = async () => {
   for (let index = 0; index < 10; index++) await Promise.resolve();
 };
 describe("bounded visible deadline summaries", () => {
+  it("does not let an old editor close a newer global overlay", () => {
+    const first = scheduleOverlay.open("first-task");
+    const second = scheduleOverlay.open("second-task", true);
+    expect(scheduleOverlay.close(first)).toBe(false);
+    expect(scheduleOverlay.get()).toBe(second);
+    expect(scheduleOverlay.close(second)).toBe(true);
+    expect(scheduleOverlay.get()).toBeNull();
+  });
   it("does not let an old subscription cleanup remove a reopened entry", async () => {
     const api = stubSchedulingApi({
       summaries: vi.fn(async (ids: readonly string[]) =>

@@ -93,11 +93,11 @@ export function SchedulingProvider({
       {children}
       {userId && overlay ? (
         <ScheduleEditor
-          key={overlay.taskId}
+          key={overlay.id}
           taskId={overlay.taskId}
           addReminder={overlay.addReminder}
           api={api}
-          onClose={scheduleOverlay.close}
+          onClose={() => scheduleOverlay.close(overlay)}
           onSaved={(snapshot) => deadlines.set(snapshot)}
         />
       ) : null}

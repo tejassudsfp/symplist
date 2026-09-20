@@ -1,6 +1,6 @@
 "use client";
 import { MessageCircleIcon, XIcon } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { track } from "@/features/analytics/runtime";
@@ -57,27 +57,57 @@ function QuickChatDialog({
   const [saving, setSaving] = useState(false);
   const [title, setTitle] = useState("");
   const [collection, setCollection] = useState<"now" | "later" | "unclassified">("now");
+  const cleanupGeneration = useRef(0);
+  const unmounted = useRef(false);
+  const savedAsTask = useRef(false);
+  const operation = useRef<"close" | "save" | null>(null);
   const disabled = state.busy || state.uncertain || !state.conversationId;
+
+  useEffect(() => {
+    cleanupGeneration.current++;
+    unmounted.current = false;
+    return () => {
+      const generation = ++cleanupGeneration.current;
+      // Strict Mode immediately mounts this effect again with the same dialog instance. Deferring
+      // distinguishes that rehearsal from a task/route change that truly removed the quick chat.
+      queueMicrotask(() => {
+        if (cleanupGeneration.current !== generation) return;
+        unmounted.current = true;
+        if (!savedAsTask.current && operation.current === null) void store.discardQuick();
+      });
+    };
+  }, [store]);
+
+  const discardAfterInterruptedOperation = () => {
+    if (unmounted.current && !savedAsTask.current) void store.discardQuick();
+  };
   const close = async () => {
     if (state.busy || state.uncertain) return;
-    await store.closeQuick(onClose);
+    operation.current = "close";
+    const closed = await store.closeQuick(onClose);
+    operation.current = null;
+    if (!closed) discardAfterInterruptedOperation();
   };
   const save = async () => {
     const id = state.conversationId;
     if (!id || !title.trim() || disabled || state.projection.view?.activeRun) return;
     let saved: Awaited<ReturnType<SimonApi["save"]>> | null = null;
-    await store.command(
+    operation.current = "save";
+    const completed = await store.command(
       null,
       async (key) => {
         saved = await store.api.save(id, { title: title.trim(), collection }, key);
         return saved;
       },
       () => {
-        onClose();
+        savedAsTask.current = true;
         store.forgetQuick();
+        onClose();
         if (saved) onSaved(saved);
       },
     );
+    operation.current = null;
+    if (!completed) discardAfterInterruptedOperation();
   };
   return (
     <Dialog

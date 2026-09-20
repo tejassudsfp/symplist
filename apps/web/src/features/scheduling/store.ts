@@ -92,11 +92,12 @@ export class DeadlineStore {
     }
   }
 }
-type Overlay = { taskId: string; addReminder: boolean } | null;
+type Overlay = { id: number; taskId: string; addReminder: boolean } | null;
 export function openNotifications() {
   if (typeof window !== "undefined") window.dispatchEvent(new Event("symplist:notifications"));
 }
 let overlay: Overlay = null;
+let overlayId = 0;
 const listeners = new Set<() => void>();
 export const scheduleOverlay = {
   get: () => overlay,
@@ -107,11 +108,14 @@ export const scheduleOverlay = {
     };
   },
   open: (taskId: string, addReminder = false) => {
-    overlay = { taskId, addReminder };
+    overlay = { id: ++overlayId, taskId, addReminder };
     for (const listener of listeners) listener();
+    return overlay;
   },
-  close: () => {
+  close: (expected?: Exclude<Overlay, null>) => {
+    if (expected && overlay !== expected) return false;
     overlay = null;
     for (const listener of listeners) listener();
+    return true;
   },
 };

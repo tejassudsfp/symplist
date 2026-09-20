@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stubNavigation } from "../test-support.tsx";
@@ -43,9 +43,15 @@ beforeEach(() => {
   navigation.push.mockReset();
   navigation.replace.mockReset();
   location = stubNavigation("/settings/account");
+  window.history.replaceState(null, "", "/settings/account");
+  vi.spyOn(window.history, "back").mockImplementation(() => undefined);
 });
 
-afterEach(() => {
+afterEach(async () => {
+  cleanup();
+  await Promise.resolve();
+  vi.restoreAllMocks();
+  window.history.replaceState(null, "", "/");
   location.restore();
 });
 
@@ -67,7 +73,10 @@ describe("the navigation guard (settings_account.md, admin_invite_create.md)", (
     expect(navigation.push).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "Leave anyway" }));
-    expect(navigation.push).toHaveBeenCalledWith("/now");
+    // The guarded history entry is artificial, so replacing it has normal push semantics without
+    // leaving a duplicate copy of the protected route in the Back stack.
+    expect(navigation.replace).toHaveBeenCalledWith("/now");
+    expect(navigation.push).not.toHaveBeenCalled();
   });
 
   it("does not prompt again when the confirmed departure is a document navigation", async () => {
@@ -78,10 +87,37 @@ describe("the navigation guard (settings_account.md, admin_invite_create.md)", (
     await user.click(screen.getByRole("link", { name: "Go" }));
     await user.click(await screen.findByRole("button", { name: "Leave anyway" }));
 
-    expect(location.assign).toHaveBeenCalledWith("/access/account");
+    expect(location.replace).toHaveBeenCalledWith("/access/account");
     expect(navigation.push).not.toHaveBeenCalled();
     // The page is still here until the browser unloads it; the confirmed leave must not be queried
     // a second time by the browser's own prompt.
     expect(wouldPrompt()).toBe(false);
+  });
+
+  it("restores and confirms a same-document browser Back before protected state can disappear", async () => {
+    const user = userEvent.setup();
+    const forward = vi.spyOn(window.history, "forward").mockImplementation(() => undefined);
+    const go = vi.spyOn(window.history, "go").mockImplementation(() => undefined);
+    render(<Harness href="/now" />);
+    const sentinel = window.history.state;
+    expect(sentinel).toEqual(
+      expect.objectContaining({ __symplistNavigationGuard: expect.any(String) }),
+    );
+
+    // Back first reaches the real copy of this URL. The guard restores its same-URL sentinel before
+    // opening a dialog, so Next never gets a chance to unmount a dirty draft or one-time key.
+    fireEvent(window, new PopStateEvent("popstate", { state: null }));
+    expect(forward).toHaveBeenCalledOnce();
+    expect(screen.queryByText("Leave without saving?")).not.toBeInTheDocument();
+    fireEvent(window, new PopStateEvent("popstate", { state: sentinel }));
+    expect(await screen.findByText("Leave without saving?")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Stay" }));
+    expect(go).not.toHaveBeenCalled();
+
+    fireEvent(window, new PopStateEvent("popstate", { state: null }));
+    fireEvent(window, new PopStateEvent("popstate", { state: sentinel }));
+    await user.click(await screen.findByRole("button", { name: "Leave anyway" }));
+    expect(go).toHaveBeenCalledExactlyOnceWith(-2);
   });
 });
