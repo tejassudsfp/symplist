@@ -431,3 +431,8 @@ Decisions made while building the documents backend (`packages/docs`, `core/docu
 | ID | Decision | Basis | References |
 | --- | --- | --- | --- |
 | EL.1 | **Missing D1 rate-limit headers preserve the conservative shared budget.** Cloudflare's current public API documentation says successful REST responses carry `Ratelimit` and `Ratelimit-Policy`, but the live D1 `/query` endpoint returned neither for both configured tokens on 2026-09-20. The live contract treats a complete pair as measurable and a complete absence as an explicit `unknown`; a partial pair still fails. No rate assumption is relaxed: the API/worker split remains 2 + 1 requests per second until a future live run can measure scope. | Live D1 contract; provider discrepancy | §3.1–3.2; C3-2 |
+## Simon Connections/Vault integration
+
+| ID | Decision | Basis | References |
+| --- | --- | --- | --- |
+| D2E.13 | **A Vault handle is a review-time placeholder, never an alternate provider value.** The wrapper overlays the exact single-key `{\"$vault\": grantId}` shape onto live input schemas for proposal/edit validation, then validates resolved plaintext against the unchanged live schema. Session and metadata work finishes before resolution; after decryption only in-memory validation and the final run/connection authority fence precede the no-retry provider call. Both executors use this seam. Quick chat rejects every handle, and every returned value crosses the mandatory Vault redactor before a result, checkpoint, model or output sink. | The provider schema ordinarily rejects an object where its eventual value is a string; resolving during proposal or API edit validation would violate the Vault and durable-API boundaries. | §8.3–8.5, §11.3, §14.1; R2, R5, R12 |

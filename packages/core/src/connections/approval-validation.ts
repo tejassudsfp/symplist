@@ -1,11 +1,11 @@
 import {
   type ConnectionToolAuthority,
-  cleanToolArguments,
   type ExternalToolSchema,
   IntegrationError,
+  maskVaultHandles,
   normalizeIntegrationError,
+  validateExternalArguments,
 } from "@symplist/integrations";
-import { z } from "zod";
 import type { ApprovalEditValidator } from "../simon/approvals.ts";
 
 export interface ApprovalValidationOptions {
@@ -17,18 +17,6 @@ export interface ApprovalValidationOptions {
     discovered: readonly ExternalToolSchema[],
   ) => "approval_required" | "exempt" | "unavailable";
   readonly policyVersion: string | (() => string);
-}
-
-function previewValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(previewValue);
-  if (value && typeof value === "object") {
-    const object = value as Record<string, unknown>;
-    if (Object.hasOwn(object, "$vault")) return "[Vault value]";
-    return Object.fromEntries(
-      Object.entries(object).map(([key, item]) => [key, previewValue(item)]),
-    );
-  }
-  return value;
 }
 
 /** Metadata-only: safe to call in the durable API. Creates no session and executes no tool. */
@@ -50,12 +38,9 @@ export function createApprovalEditValidator(
       throw normalizeIntegrationError(error);
     }
     if (tool.slug !== approval.toolSlug) throw new IntegrationError("integration.invalid_response");
-    const args = cleanToolArguments(editedArguments);
-    try {
-      if (!z.fromJSONSchema(tool.schema).safeParse(args).success) throw new Error("invalid");
-    } catch {
-      throw new IntegrationError("integration.invalid_arguments");
-    }
+    const args = validateExternalArguments(tool.schema, editedArguments, {
+      allowVaultHandles: true,
+    });
     const connection = (await authority.connections()).find(
       (item) => item.id === approval.connectionId,
     );
@@ -84,7 +69,7 @@ export function createApprovalEditValidator(
         toolkit: tool.toolkit,
         connection: connection.id,
         policy,
-        arguments: previewValue(args),
+        arguments: maskVaultHandles(args),
       },
     };
   };

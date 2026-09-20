@@ -10,6 +10,8 @@ import {
 import { type DbClient, type DbRow, int, sql, uuidv7 } from "@symplist/db";
 import type { AccessPolicy } from "../access/evaluate.ts";
 import { accessCondition } from "../access/sql.ts";
+import type { SimonRepository } from "../simon/repository.ts";
+import type { ClaimedSimonRun } from "../simon/types.ts";
 import { type VaultActor, VaultError, type VaultFold } from "./context.ts";
 import { openItem } from "./items.ts";
 import { disposeOpenVault, type VaultSessions } from "./sessions.ts";
@@ -175,6 +177,49 @@ function handles(value: unknown, path = "", depth = 0): Handle[] {
       throw new VaultError("vault.grant_revoked");
     return handles(child, `${path}/${key.replaceAll("~", "~0").replaceAll("/", "~1")}`, depth + 1);
   });
+}
+
+/**
+ * The executor-facing Vault seam. It binds a resolution to the already claimed run and reuses the
+ * same generation/cancellation/access fence as every other Simon effect. Quick chat gets an
+ * identity redactor only when no handle exists; a handle is always refused there.
+ */
+export async function resolveClaimedVaultArguments(
+  repository: SimonRepository,
+  claim: ClaimedSimonRun,
+  toolSlug: string,
+  args: unknown,
+) {
+  if (claim.run.taskId === null) {
+    if (handles(args).length) throw new VaultError("vault.grant_revoked");
+    return {
+      arguments: structuredClone(args),
+      redact: (value: unknown) => value,
+    };
+  }
+  return resolveVaultArguments(
+    repository.options.db,
+    repository.options.policy,
+    {
+      kind: "task",
+      ownerId: claim.run.ownerId,
+      taskId: claim.run.taskId,
+      conversationId: claim.run.conversationId,
+      toolSlug,
+      accountKey: claim.key,
+      now: repository.options.now(),
+      guard: {
+        exists: `EXISTS (SELECT 1 FROM runs WHERE id=:vault_run AND owner_id=:vault_run_owner
+          AND executor_generation=:vault_run_generation AND ${repository.runGuard()})`,
+        params: {
+          vault_run: claim.run.id,
+          vault_run_owner: claim.run.ownerId,
+          vault_run_generation: int(claim.run.generation),
+        },
+      },
+    },
+    args,
+  );
 }
 /** Worker-safe resolver: no Vault key, session token or recovery credential is available here. */
 export async function resolveVaultArguments(

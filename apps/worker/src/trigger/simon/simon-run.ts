@@ -1,13 +1,24 @@
 import {
   createSimonModels,
   runSimonTurn,
+  simonApprovedConnectionEffect,
+  simonConnectionTools,
   simonNativeTools,
   simonSharingTools,
 } from "@symplist/agent";
 import { simonRunPayloadSchema } from "@symplist/contracts";
+import { ComposioSessions, createSimonConnectionAuthority } from "@symplist/core/connections";
 import { DocumentRepository, DocumentTools, DurableDocumentGit } from "@symplist/core/documents";
 import { SimonRepository } from "@symplist/core/simon";
+import { resolveClaimedVaultArguments } from "@symplist/core/vault";
 import { GitService } from "@symplist/docs";
+import {
+  ConnectionTools,
+  createComposioClient,
+  executionClient,
+  IntegrationError,
+  readExternalToolSchema,
+} from "@symplist/integrations";
 import { AbortTaskRunError, task, tasks } from "@trigger.dev/sdk";
 import { workerAnalytics } from "../../infra/analytics.ts";
 import { reportingD1Counters } from "../../infra/d1-counters.ts";
@@ -33,6 +44,47 @@ export async function runDurableSimon(
     policy: { betaAccessRequired: runtime.config.BETA_ACCESS_REQUIRED },
     quickChatTtlHours: runtime.config.QUICK_CHAT_TTL_HOURS,
   });
+  const composio = runtime.config.COMPOSIO_API_KEY
+    ? createComposioClient(runtime.config.COMPOSIO_API_KEY)
+    : undefined;
+  const sessions = composio
+    ? new ComposioSessions({
+        db: runtime.db,
+        client: executionClient(composio),
+        policy: repository.options.policy,
+        now: repository.options.now,
+      })
+    : undefined;
+  const schema = (slug: string) => {
+    if (!composio) throw new IntegrationError("integration.unavailable");
+    return readExternalToolSchema(composio, slug);
+  };
+  let connectionOptions:
+    | { runId: string; value: Parameters<typeof simonConnectionTools>[1] }
+    | undefined;
+  const connectionsFor = (
+    context: Parameters<typeof simonApprovedConnectionEffect>[0],
+  ): Parameters<typeof simonConnectionTools>[1] => {
+    if (connectionOptions?.runId === context.claim.run.id) return connectionOptions.value;
+    const authority = createSimonConnectionAuthority(repository, context.claim, schema);
+    let external: Promise<ConnectionTools> | undefined;
+    const value = {
+      authority,
+      external: () =>
+        (external ??= (async () => {
+          if (!composio || !sessions) throw new IntegrationError("integration.unavailable");
+          return new ConnectionTools(
+            executionClient(composio),
+            await sessions.use(authority.ownerId),
+            authority,
+          );
+        })()),
+      resolveArguments: (toolSlug: string, args: Readonly<Record<string, unknown>>) =>
+        resolveClaimedVaultArguments(repository, context.claim, toolSlug, args),
+    };
+    connectionOptions = { runId: context.claim.run.id, value };
+    return value;
+  };
   const flushAnnouncements = simonTaskAnnouncements(runtime);
   try {
     return await runSimonTurn(parsed.data.runId, {
@@ -43,7 +95,9 @@ export async function runDurableSimon(
         ? AbortSignal.any([signal, AbortSignal.timeout(890_000)])
         : AbortSignal.timeout(890_000),
       telemetryEnabled: runtime.config.AI_TELEMETRY_ENABLED,
+      approvedEffect: (context) => simonApprovedConnectionEffect(context, connectionsFor(context)),
       tools: async (context) => ({
+        ...simonConnectionTools(context, connectionsFor(context)),
         ...simonNativeTools(context, {
           scheduling: {
             remindersEnabled: runtime.config.REMINDERS_ENABLED,
