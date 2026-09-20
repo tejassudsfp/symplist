@@ -4,6 +4,7 @@ import { uuidv7 } from "@symplist/db";
 import { decodeJwt, decodeProtectedHeader } from "jose";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { bootTestApp, type TestApp } from "../../../test/harness.ts";
+import { assertSecretAbsent } from "../../../test/secret-scan.ts";
 import { OAUTH_RUNTIME, type OAuthRuntime } from "./oauth.runtime.ts";
 
 let app: TestApp;
@@ -164,8 +165,10 @@ describe("OAuth public and trusted consent HTTP boundaries", () => {
     expect(first.status, first.text).toBe(200);
     const issued = oauthDecisionResultSchema.parse(first.json());
     const url = new URL(issued.redirectUrl ?? "");
+    const code = url.searchParams.get("code") ?? "";
     expect(url.searchParams.get("iss")).toBe(app.config.API_ORIGIN);
     expect(url.searchParams.get("state")).toBe(state);
+    await assertSecretAbsent(app, [url.href, code, state]);
     const replay = await app.post(`/v1/oauth/requests/${request}/decision`, {
       session,
       body,
@@ -176,11 +179,7 @@ describe("OAuth public and trusted consent HTTP boundaries", () => {
       secretUnavailable: true,
       notice: "secret.already_issued",
     });
-    for (const secret of [url.href, url.searchParams.get("code") ?? "", state]) {
-      expect(await app.scanDatabaseFor(secret)).toEqual([]);
-      expect(app.scanObjectsFor(secret)).toEqual([]);
-      expect(app.logs.text()).not.toContain(secret);
-    }
+    await assertSecretAbsent(app, [url.href, code, state], [replay]);
   });
   it("denial preserves issuer/state and emits no token", async () => {
     const { session, request } = await consent();
@@ -218,11 +217,15 @@ describe("OAuth public and trusted consent HTTP boundaries", () => {
       scope: "tasks:read",
     });
     expect((jwt.exp ?? 0) - (jwt.iat ?? 0)).toBe(900);
-    for (const secret of [issued.access_token, issued.refresh_token, context.code]) {
-      expect(await app.scanDatabaseFor(secret)).toEqual([]);
-      expect(app.scanObjectsFor(secret)).toEqual([]);
-      expect(app.logs.text()).not.toContain(secret);
-    }
+    await assertSecretAbsent(app, [issued.access_token, issued.refresh_token, context.code]);
+    const replay = await app.post("/oauth/token", { body: context.exchange });
+    expect(replay.status).toBe(400);
+    expect(replay.json()).toEqual({ error: "invalid_grant" });
+    await assertSecretAbsent(
+      app,
+      [issued.access_token, issued.refresh_token, context.code],
+      [replay],
+    );
   });
   it("rejects missing resource, wrong PKCE and broadened scope without consuming a code", async () => {
     const context = await authorize();
@@ -242,8 +245,10 @@ describe("OAuth public and trusted consent HTTP boundaries", () => {
   it("rotates refresh tokens and makes reuse revoke even the newest access token", async () => {
     const context = await authorize();
     const first = (await app.post("/oauth/token", { body: context.exchange })).json() as {
+      access_token: string;
       refresh_token: string;
     };
+    await assertSecretAbsent(app, [first.access_token, first.refresh_token, context.code]);
     const body = {
       grant_type: "refresh_token",
       client_id: context.client.client_id,
@@ -254,10 +259,23 @@ describe("OAuth public and trusted consent HTTP boundaries", () => {
     expect(rotated.status, rotated.text).toBe(200);
     const latest = rotated.json() as { access_token: string; refresh_token: string };
     expect(latest.refresh_token).not.toBe(first.refresh_token);
-    expect((await app.post("/oauth/token", { body })).status).toBe(400);
+    const reuse = await app.post("/oauth/token", { body });
+    expect(reuse.status).toBe(400);
+    expect(reuse.json()).toEqual({ error: "invalid_grant" });
     await expect(
       app.inject<OAuthRuntime>(OAUTH_RUNTIME).accessTokens.verifyAccessToken(latest.access_token),
     ).rejects.toThrow("Invalid or expired access token");
+    await assertSecretAbsent(
+      app,
+      [
+        context.code,
+        first.access_token,
+        first.refresh_token,
+        latest.access_token,
+        latest.refresh_token,
+      ],
+      [reuse],
+    );
   });
   it("accepts flat form token requests and revokes a refresh token without app cookies", async () => {
     const context = await authorize();
@@ -268,13 +286,10 @@ describe("OAuth public and trusted consent HTTP boundaries", () => {
     });
     expect(response.status).toBe(200);
     const issued = (await response.json()) as { access_token: string; refresh_token: string };
-    expect(
-      (
-        await app.post("/oauth/revoke", {
-          body: { client_id: context.client.client_id, token: issued.refresh_token },
-        })
-      ).status,
-    ).toBe(200);
+    const revoked = await app.post("/oauth/revoke", {
+      body: { client_id: context.client.client_id, token: issued.refresh_token },
+    });
+    expect(revoked.status).toBe(200);
     await expect(
       app.inject<OAuthRuntime>(OAUTH_RUNTIME).accessTokens.verifyAccessToken(issued.access_token),
     ).rejects.toThrow("Invalid or expired access token");
@@ -285,5 +300,10 @@ describe("OAuth public and trusted consent HTTP boundaries", () => {
         })
       ).status,
     ).toBe(200);
+    await assertSecretAbsent(
+      app,
+      [context.code, issued.access_token, issued.refresh_token],
+      [revoked],
+    );
   });
 });

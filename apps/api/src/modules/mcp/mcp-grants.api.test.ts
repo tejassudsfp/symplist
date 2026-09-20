@@ -3,6 +3,7 @@ import { McpGrants } from "@symplist/core/mcp";
 import { sql, uuidv7 } from "@symplist/db";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { bootTestApp, type TestApp } from "../../../test/harness.ts";
+import { assertSecretAbsent } from "../../../test/secret-scan.ts";
 
 let app: TestApp;
 const body = { name: "private_key_label_marker", scopes: ["tasks:read"], taskIds: null };
@@ -19,6 +20,8 @@ describe("MCP grant trusted UI routes", () => {
     expect(response.status, response.text).toBe(201);
     const issued = mcpKeyResultSchema.parse(response.json());
     expect(issued.key).toMatch(/^sym_/);
+    const key = issued.key ?? "";
+    await assertSecretAbsent(app, [key]);
     const replay = await app.post("/v1/mcp/grants", { session, body, idempotencyKey: request });
     expect(replay.status, replay.text).toBe(200);
     expect(replay.json()).toMatchObject({
@@ -27,16 +30,17 @@ describe("MCP grant trusted UI routes", () => {
       notice: "secret.already_issued",
     });
     expect(replay.json()).not.toHaveProperty("key");
-    for (const marker of [issued.key ?? "missing", body.name]) {
-      expect(await app.scanDatabaseFor(marker)).toEqual([]);
-      expect(app.scanObjectsFor(marker)).toEqual([]);
-      expect(app.logs.text()).not.toContain(marker);
-    }
-    const listed = mcpGrantListSchema.parse((await app.get("/v1/mcp/grants", { session })).json());
+    const listResponse = await app.get("/v1/mcp/grants", { session });
+    const listed = mcpGrantListSchema.parse(listResponse.json());
     expect(listed.server).toBe(`${app.config.API_ORIGIN}/mcp`);
     expect(listed.grants).toHaveLength(1);
     expect(listed.grants[0]).toMatchObject({ id: issued.id, name: body.name, taskIds: null });
-    expect(JSON.stringify(listed)).not.toContain(issued.key);
+    expect(JSON.stringify(listed)).not.toContain(key);
+    await assertSecretAbsent(app, [key], [replay, listResponse]);
+    // Labels are intentionally returned to their owner, but must remain encrypted at rest.
+    expect(await app.scanDatabaseFor(body.name)).toEqual([]);
+    expect(app.scanObjectsFor(body.name)).toEqual([]);
+    expect(app.logs.text()).not.toContain(body.name);
   });
 
   it("rejects missing CSRF, missing idempotency, unsupported permissions and locked accounts", async () => {

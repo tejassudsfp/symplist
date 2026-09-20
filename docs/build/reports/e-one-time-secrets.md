@@ -2,6 +2,8 @@
 
 Worktree `symplist-wt/maintenance`, branch `wip/d2-maintenance`, updated from build checkpoint `9e63cfc` before this slice. Tests only; no production, contract, migration or shared harness changes.
 
+The Connections/MCP completion follow-up runs on branch `wip/d2-connection-secret-scans`. It closes the local route gap that remained when this report was first written, again with tests only and no production, contract, migration or shared harness changes.
+
 ## Exact route inventory and coverage
 
 All paths below are exercised against the real local Nest HTTP application, SQLite database and local R2 adapter with newly issued test-only secrets.
@@ -16,6 +18,10 @@ All paths below are exercised against the real local Nest HTTP application, SQLi
 | Vault recovery | `POST /v1/vault/reset/otp`, `/v1/vault/reset/verify`, `/v1/vault/reset` | Consumed-OTP rejection; exact reset replay and status exclude old/new passphrases, OTP and old Vault cookie |
 | Artifact release | `POST /v1/artifacts/:artifactId/grants`, link/password/public/proposal-release/replacement variants | Two exact retries return redacted grant-only responses; changed-input mismatch; `/v1/tasks/:taskId/artifacts` inventory; replacement rotates URL and revokes the previous grant |
 | Recipient share session | `POST /artifact/:artifactId/password` on the artifact host | Real form nonce, successful cookie issuance and authenticated `/artifact/:id/raw`; body, persistence and logs never contain the issued recipient-session token or password |
+| Hosted connection capability | `POST /v1/connections`; `GET /v1/connections/callback` with the provider `session_uri` | Exact start retry is redacted and does not call the provider twice; owner inventory excludes the hosted URL, its token and callback nonce; callback/replay, fixed redirect, inventory and a foreign mutation exclude the provider attestation token |
+| MCP bearer API key | `POST /v1/mcp/grants` | Exact retry is redacted; owner grant inventory carries only metadata; the raw `sym_` key is absent from all sinks and non-minting response bodies and headers |
+| OAuth authorization code | `POST /v1/oauth/requests/:id/decision` after `/oauth/authorize` | The full callback URL, code and returned state are absent from every plaintext durable sink; exact consent-decision retry contains only request id and `secret.already_issued` (the authorization request retains state only as its required field envelope) |
+| OAuth access and refresh credentials | `POST /oauth/token` for authorization-code exchange and refresh rotation; `POST /oauth/revoke` | Code reuse and consumed-refresh reuse return only `invalid_grant`; old and replacement access/refresh tokens remain absent after rotation, reuse-triggered grant revocation, explicit revocation and actual MCP use in both protocol modes |
 
 ## Scan strength
 
@@ -32,10 +38,9 @@ All paths below are exercised against the real local Nest HTTP application, SQLi
 - The artifact password form necessarily carries the **presented** share key in its hidden field (§13.3); this is not a new owner release. The form may not contain the password or recipient-session token. Issued OTPs necessarily reach the captured security-email transport, which is a delivery sink, not an operational log.
 - No production defect was found in this slice. Existing tests were not changed, weakened, skipped or removed; no lint suppressions were added.
 
-## Remaining gaps — not claimed complete
+## Remaining boundaries
 
-- Connections/MCP is not yet merged at this checkpoint. MCP API-key creation and OAuth authorization-code issuance still need the same per-route scans, plus access/refresh token handling and hosted connection credentials once their routes land. This slice must not close the global carried Phase C item until those routes are covered.
-- These are local contract suites, not live D1/R2/provider, browser, deployment or provider-retention verification. They do not replace the Simon Trigger marker test, executor parity tests or a full realtime/analytics sink audit.
+- No currently implemented Connections/MCP credential route remains outside the local per-route scan. These are still local contract suites, not live D1/R2/provider, browser, deployment or provider-retention verification. They do not replace the Simon Trigger marker test, executor parity tests or a full realtime/analytics sink audit.
 
 ## Verification
 
@@ -47,6 +52,12 @@ All paths below are exercised against the real local Nest HTTP application, SQLi
 - `pnpm --filter @symplist/web build`: production build passed.
 - No real credentials, provider calls, live database migrations or browser servers were used.
 
+Connections/MCP completion verification:
+
+- Focused API suites: **32 tests passed** across Connections, MCP grants, OAuth HTTP boundaries and actual MCP transport in both protocol modes.
+- Biome passed on all four changed test files with zero errors or warnings. The API TypeScript project build passed, and `git diff --check` passed.
+- The first focused run was prevented from entering test logic by the restricted runner's loopback-bind policy (`listen EPERM`). The same command passed once ephemeral local listening was enabled; this was an environment restriction, not a test retry after an assertion failure.
+
 ## Every changed path / overlaps
 
 - `apps/api/test/secret-scan.ts` — new shared test-only scanner.
@@ -56,7 +67,15 @@ All paths below are exercised against the real local Nest HTTP application, SQLi
 - `apps/api/test/sharing-secret-scans.test.ts` — share release/replacement/proposal/recipient-cookie contracts.
 - `docs/build/reports/e-one-time-secrets.md` — this report.
 
-No edits to existing feature files, shared harness, progress, coverage, decisions ledger, manifests, lockfile or secrets.
+Connections/MCP completion paths:
+
+- `apps/api/src/modules/connections/connections.api.test.ts`
+- `apps/api/src/modules/mcp/mcp-grants.api.test.ts`
+- `apps/api/src/modules/mcp/oauth.api.test.ts`
+- `apps/api/src/modules/mcp/mcp.api.test.ts`
+- `docs/build/reports/e-one-time-secrets.md`
+
+No edits to production feature files, shared harness, progress, coverage, decisions ledger, manifests, lockfile or secrets.
 
 ## Commit checkpoints
 

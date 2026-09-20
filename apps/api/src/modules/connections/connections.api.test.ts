@@ -10,6 +10,7 @@ import { sql, uuidv7 } from "@symplist/db";
 import { type ConnectionLifecycleProvider, createComposioClient } from "@symplist/integrations";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { bootTestApp, type TestApp, type TestSession } from "../../../test/harness.ts";
+import { assertSecretAbsent } from "../../../test/secret-scan.ts";
 import { CONNECTIONS_RUNTIME, type ConnectionsRuntime } from "./connections.runtime.ts";
 
 const apps: TestApp[] = [];
@@ -145,6 +146,10 @@ describe("connections HTTP boundary", () => {
     expect(response.status, response.text).toBe(201);
     const first = connectionStartResultSchema.parse(response.json());
     expect(first.url).toContain("private_link_marker");
+    const hostedUrl = first.url ?? "";
+    const hostedToken = new URL(hostedUrl).searchParams.get("token") ?? "";
+    const nonce = new URL(callback()).searchParams.get("n") ?? "";
+    await assertSecretAbsent(app, [hostedUrl, hostedToken, nonce]);
     const replay = await start(app, session, request);
     expect(replay.status, replay.text).toBe(200);
     expect(replay.json()).toMatchObject({
@@ -154,12 +159,13 @@ describe("connections HTTP boundary", () => {
     });
     expect(replay.json()).not.toHaveProperty("url");
     expect(provider.link).toHaveBeenCalledTimes(1);
-    const nonce = new URL(callback()).searchParams.get("n") ?? "";
-    for (const secret of ["private_link_marker", nonce, "Private work alias"]) {
-      expect(await app.scanDatabaseFor(secret)).toEqual([]);
-      expect(app.scanObjectsFor(secret)).toEqual([]);
-      expect(app.logs.text()).not.toContain(secret);
-    }
+    const list = await app.get("/v1/connections", { session });
+    expect(list.status, list.text).toBe(200);
+    await assertSecretAbsent(app, [hostedUrl, hostedToken, nonce], [replay, list]);
+    // Aliases are intentionally returned to their owner, but must remain encrypted at rest.
+    expect(await app.scanDatabaseFor("Private work alias")).toEqual([]);
+    expect(app.scanObjectsFor("Private work alias")).toEqual([]);
+    expect(app.logs.text()).not.toContain("Private work alias");
   });
 
   it("requires CSRF, idempotency and admission before hosted authorization", async () => {
@@ -188,7 +194,8 @@ describe("connections HTTP boundary", () => {
     const { session } = await app.createSignedInUser();
     await start(app, session);
     const target = new URL(callback());
-    target.searchParams.set("session_uri", "private_attestation_marker");
+    const attestation = "private_attestation_marker";
+    target.searchParams.set("session_uri", attestation);
     target.searchParams.set("next", "https://attacker.example");
     const response = await app.get(`${target.pathname}${target.search}`, { session });
     expect(response.status, response.text).toBe(303);
@@ -196,14 +203,15 @@ describe("connections HTTP boundary", () => {
       `${app.config.WEB_ORIGIN}/settings/connections?result=connected`,
     );
     expect(response.headers.get("referrer-policy")).toBe("no-referrer");
-    const listed = (await app.get("/v1/connections", { session })).json<{
+    const listResponse = await app.get("/v1/connections", { session });
+    const listed = listResponse.json<{
       connections: { id: string; alias: string }[];
     }>();
     expect(listed.connections[0]?.alias).toBe("Private work alias");
     const replay = await app.get(`${target.pathname}${target.search}`, { session });
     expect(replay.headers.get("location")).toContain("result=failed");
     expect(provider.complete).toHaveBeenCalledTimes(1);
-    expect(app.logs.text()).not.toContain("private_attestation_marker");
+    await assertSecretAbsent(app, [attestation], [response, listResponse, replay]);
     const other = await app.createSignedInUser();
     expect((await app.get("/v1/connections", { session: other.session })).json()).toEqual({
       enabled: true,
@@ -214,6 +222,7 @@ describe("connections HTTP boundary", () => {
       idempotencyKey: uuidv7(),
     });
     expect(foreign.status).toBe(404);
+    await assertSecretAbsent(app, [attestation], [response, listResponse, replay, foreign]);
   });
 
   it("disconnects only through the trusted UI and replays without another provider operation", async () => {
