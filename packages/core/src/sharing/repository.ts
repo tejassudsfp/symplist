@@ -349,9 +349,10 @@ export class SharingRepository {
     if (!row) throw new SharingError("not_found");
     return { row, key: this.accountKeys.unwrapRow(row), extra: results.slice(1) };
   }
-  async content(row: DbRow, key: AccountDataKey): Promise<string> {
+  async content(row: DbRow, key: AccountDataKey, afterRead?: () => Promise<void>): Promise<string> {
     const stored = await this.options.objects.get(String(row.object_key));
     if (!stored) throw new SharingError("sharing.unavailable");
+    await afterRead?.();
     return Buffer.from(
       decryptObject(key, artifactObjectContext(key.ownerId, String(row.id)), stored.body),
     ).toString("utf8");

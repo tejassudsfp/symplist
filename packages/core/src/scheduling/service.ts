@@ -35,6 +35,16 @@ export interface SchedulingGuard {
   readonly sql: string;
   readonly params: Readonly<Record<string, string>>;
 }
+interface PendingOccurrenceProof {
+  readonly id: string;
+  readonly reminderId: string;
+  readonly generation: number;
+  readonly intendedAt: number;
+}
+interface SchedulingState {
+  readonly snapshot: SchedulingSnapshot;
+  readonly occurrences: ReadonlyMap<string, PendingOccurrenceProof>;
+}
 export function schedulingContext(ownerId: string, table: string, rowId: string, column: string) {
   return { purpose: "scheduling", ownerId, table, rowId, column };
 }
@@ -96,6 +106,13 @@ export class SchedulingService {
     taskId: string,
     guards: readonly SchedulingGuard[] = [],
   ): Promise<SchedulingSnapshot> {
+    return (await this.state(ownerId, taskId, guards)).snapshot;
+  }
+  private async state(
+    ownerId: string,
+    taskId: string,
+    guards: readonly SchedulingGuard[] = [],
+  ): Promise<SchedulingState> {
     const [tasks, schedules, reminders, preferences] = await this.options.db.batch([
       sql(
         `SELECT id FROM tasks WHERE id=:task AND owner_id=:owner AND ${this.access()} ${guards.map((guard) => `AND (${guard.sql})`).join(" ")}`,
@@ -110,7 +127,7 @@ export class SchedulingService {
         owner: ownerId,
       }),
       sql(
-        `SELECT r.*,o.intended_at FROM reminders r JOIN reminder_occurrences o ON o.reminder_id=r.id AND o.generation=r.generation
+        `SELECT r.*,o.id AS occurrence_id,o.generation AS occurrence_generation,o.intended_at FROM reminders r JOIN reminder_occurrences o ON o.reminder_id=r.id AND o.generation=r.generation
         WHERE r.owner_id=:owner AND r.task_id=:task AND r.status='active' AND o.status IN ('pending','claimed') ORDER BY o.intended_at LIMIT 20`,
         { owner: ownerId, task: taskId },
       ),
@@ -120,22 +137,36 @@ export class SchedulingService {
     const row = schedules?.results[0];
     const deadline = deadlineFromRow(row);
     const prefs = preferencesFromRow(preferences?.results[0], this.options.defaultZone);
+    const reminderRows = reminders?.results ?? [];
     return {
-      taskId,
-      version: Number(row?.version ?? 0),
-      deadline,
-      deadlineAt: (row?.deadline_at as number | null) ?? null,
-      reminders: (reminders?.results ?? []).map((reminder) => {
-        const rule = JSON.parse(String(reminder.rule_json));
-        const overrideQuiet = reminder.override_quiet === 1;
-        return {
-          id: String(reminder.id),
-          rule,
-          channels: JSON.parse(String(reminder.channels_json)),
-          overrideQuiet,
-          ...previewReminder(rule, deadline, prefs, overrideQuiet),
-        };
-      }),
+      snapshot: {
+        taskId,
+        version: Number(row?.version ?? 0),
+        deadline,
+        deadlineAt: (row?.deadline_at as number | null) ?? null,
+        reminders: reminderRows.map((reminder) => {
+          const rule = JSON.parse(String(reminder.rule_json));
+          const overrideQuiet = reminder.override_quiet === 1;
+          return {
+            id: String(reminder.id),
+            rule,
+            channels: JSON.parse(String(reminder.channels_json)),
+            overrideQuiet,
+            ...previewReminder(rule, deadline, prefs, overrideQuiet),
+          };
+        }),
+      },
+      occurrences: new Map(
+        reminderRows.map((reminder) => [
+          String(reminder.id),
+          {
+            id: String(reminder.occurrence_id),
+            reminderId: String(reminder.id),
+            generation: Number(reminder.occurrence_generation),
+            intendedAt: Number(reminder.intended_at),
+          },
+        ]),
+      ),
     };
   }
   async preferences(ownerId: string) {
@@ -262,15 +293,17 @@ export class SchedulingService {
     const operation = input.fingerprintInput ?? { task, data };
     const replay = await this.replay({ ...input, fingerprint: operation });
     if (replay) return replay;
-    const [current, preferenceState] = await Promise.all([
-      this.get(owner, task, input.guards),
+    const [state, preferenceState] = await Promise.all([
+      this.state(owner, task, input.guards),
       this.preferences(owner),
     ]);
+    const current = state.snapshot;
     const key = await this.accountKeys.require(owner);
     const now = this.options.now();
     const w = uuidv7(now);
     try {
       const fingerprint = canonicalJson({ actor: input.actor, operation });
+      const overdueOccurrences: PendingOccurrenceProof[] = [];
       const reminders = data.reminders.map((r) => {
         const existing = current.reminders.find((reminder) => reminder.id === r.id);
         if (r.id && !existing) throw new SchedulingError("not_found");
@@ -280,17 +313,23 @@ export class SchedulingService {
           preferenceState.data,
           r.overrideQuiet,
         );
-        const unchangedPending =
+        const unchangedPending = Boolean(
           existing &&
-          existing.intendedAt === preview.intendedAt &&
-          canonicalJson({
-            rule: existing.rule,
-            channels: existing.channels,
-            overrideQuiet: existing.overrideQuiet,
-          }) ===
-            canonicalJson({ rule: r.rule, channels: r.channels, overrideQuiet: r.overrideQuiet });
-        if (preview.intendedAt <= now && !unchangedPending)
-          throw new SchedulingError("schedule.past_reminder");
+            existing.intendedAt === preview.intendedAt &&
+            canonicalJson({
+              rule: existing.rule,
+              channels: existing.channels,
+              overrideQuiet: existing.overrideQuiet,
+            }) ===
+              canonicalJson({ rule: r.rule, channels: r.channels, overrideQuiet: r.overrideQuiet }),
+        );
+        if (preview.intendedAt <= now) {
+          if (!unchangedPending) throw new SchedulingError("schedule.past_reminder");
+          const occurrence = existing ? state.occurrences.get(existing.id) : undefined;
+          if (!occurrence || occurrence.intendedAt !== preview.intendedAt)
+            throw new SchedulingError("schedule.conflict");
+          overdueOccurrences.push(occurrence);
+        }
         if (this.options.remindersEnabled === false)
           throw new SchedulingError("schedule.unavailable");
         if (
@@ -323,11 +362,19 @@ export class SchedulingService {
         zone: data.deadline?.zone ?? "",
         due: deadlineAt === null ? "" : int(deadlineAt),
         choice: data.deadline?.kind === "timed" ? data.deadline.disambiguation : "",
+        pending_occurrences: JSON.stringify(overdueOccurrences),
         ...input.fold?.claim.guard.params,
         ...Object.assign({}, ...(input.guards?.map((guard) => guard.params) ?? [])),
       };
       const assignments = `deadline_kind=NULLIF(:kind,''),deadline_date=NULLIF(:date,''),deadline_local=NULLIF(:local,''),deadline_zone=NULLIF(:zone,''),deadline_at=CAST(NULLIF(:due,'') AS INTEGER),disambiguation=NULLIF(:choice,''),updated_at=:now,write_id=:w`;
-      const active = `EXISTS(SELECT 1 FROM tasks WHERE id=:task AND owner_id=:owner AND status='active') AND ${this.access()} AND EXISTS(SELECT 1 FROM account_keys WHERE owner_id=:owner) ${foldGuard} ${input.guards?.map((guard) => `AND (${guard.sql})`).join(" ") ?? ""}`;
+      const pending = `NOT EXISTS (SELECT 1 FROM json_each(:pending_occurrences) expected WHERE NOT EXISTS (
+        SELECT 1 FROM reminder_occurrences o JOIN reminders r ON r.id=o.reminder_id AND r.owner_id=o.owner_id AND r.task_id=o.task_id
+        WHERE o.id=json_extract(expected.value,'$.id') AND o.owner_id=:owner AND o.task_id=:task
+        AND o.reminder_id=json_extract(expected.value,'$.reminderId')
+        AND o.generation=CAST(json_extract(expected.value,'$.generation') AS INTEGER)
+        AND o.intended_at=CAST(json_extract(expected.value,'$.intendedAt') AS INTEGER)
+        AND o.status IN ('pending','claimed') AND r.status='active' AND r.generation=o.generation))`;
+      const active = `EXISTS(SELECT 1 FROM tasks WHERE id=:task AND owner_id=:owner AND status='active') AND ${this.access()} AND EXISTS(SELECT 1 FROM account_keys WHERE owner_id=:owner) AND ${pending} ${foldGuard} ${input.guards?.map((guard) => `AND (${guard.sql})`).join(" ") ?? ""}`;
       const statements: Statement[] = [
         ...(input.fold?.statements ?? []),
         data.baseVersion === 0

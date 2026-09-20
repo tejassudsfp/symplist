@@ -127,6 +127,83 @@ describe("shared reminder scan", () => {
     expect(send).toHaveBeenCalledTimes(1);
     expect(await env.count("notifications")).toBe(1);
   });
+  it("conflicts instead of recreating an overdue occurrence delivered while snooze is saving", async () => {
+    await schedules.save({
+      ownerId: owner,
+      taskId: task,
+      actor: "user",
+      requestId: "snooze-race-fixture",
+      data: {
+        baseVersion: 0,
+        deadline: null,
+        reminders: ["2026-09-15T10:00", "2026-09-15T11:00"].map((local) => ({
+          rule: {
+            kind: "absolute" as const,
+            local,
+            zone: "UTC",
+            disambiguation: "reject" as const,
+          },
+          channels: ["in_app" as const, "email" as const],
+          overrideQuiet: false,
+        })),
+      },
+    });
+    env.clock = Date.parse("2026-09-15T10:00Z");
+    await scanner().run({ executor: "local", generation: 1 });
+    const notification = (await notifications.list(owner)).items[0];
+    if (!notification) throw new Error("Missing notification fixture");
+    env.clock = Date.parse("2026-09-15T11:00Z");
+    const snooze = {
+      ownerId: owner,
+      notificationId: notification.id,
+      requestId: "snooze-race",
+      local: "2026-09-15T12:00",
+      zone: "UTC",
+      disambiguation: "reject" as const,
+    };
+    const batch = env.db.batch.bind(env.db);
+    let raced = false;
+    const spy = vi.spyOn(env.db, "batch").mockImplementation(async (statements, options) => {
+      if (
+        !raced &&
+        statements.some((statement) =>
+          statement.sql.startsWith("UPDATE task_schedules SET version=version+1"),
+        )
+      ) {
+        raced = true;
+        await scanner().run({ executor: "local", generation: 1 });
+      }
+      return batch(statements, options);
+    });
+    await expect(notifications.snooze(snooze)).rejects.toMatchObject({
+      code: "schedule.conflict",
+    });
+    spy.mockRestore();
+    expect(raced).toBe(true);
+    expect(
+      await env.db.all(
+        sql("SELECT status FROM reminder_occurrences WHERE intended_at=:at", {
+          at: String(Date.parse("2026-09-15T11:00Z")),
+        }),
+      ),
+    ).toEqual([{ status: "delivered" }]);
+    expect(send).toHaveBeenCalledTimes(2);
+
+    await notifications.snooze(snooze);
+    expect(await env.count("reminder_occurrences")).toBe(3);
+    env.clock = Date.parse("2026-09-15T12:00Z");
+    await scanner().run({ executor: "local", generation: 1 });
+    await scanner().run({ executor: "local", generation: 1 });
+    expect(send).toHaveBeenCalledTimes(3);
+    expect(await env.count("notifications")).toBe(3);
+    expect(
+      await env.db.all(
+        sql("SELECT status FROM reminder_occurrences WHERE intended_at=:at", {
+          at: String(Date.parse("2026-09-15T11:00Z")),
+        }),
+      ),
+    ).toEqual([{ status: "delivered" }]);
+  });
   it("the wrong executor/generation and a mode switch before provider dispatch send nothing", async () => {
     await schedule();
     env.clock += 3600000;
