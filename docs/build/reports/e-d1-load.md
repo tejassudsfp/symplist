@@ -1,5 +1,8 @@
 # Combined D1 load contract
 
+Current status: merged. The five local request-budget and transport-safeguard tests remain the
+recorded Phase E evidence; this report does not claim live D1 capacity or a latency SLA.
+
 Branch: `wip/e-d1-load`, based on `f51ac3f` (Simon, Vault and Scheduling).
 Scope: architecture §3.1's carried-over Phase D2/E request-budget test, not feature implementation.
 
@@ -62,7 +65,7 @@ after committing is sent exactly once, while a failed read retries.
 - This is service/transport integration, not browser or HTTP middleware coverage. Session resolution,
   signed output relay, unrelated background maintenance and periodic reconciliation are not part of
   the measured workload. Output chunks use an in-memory sink and do not write D1 per token.
-- Gates on the final merged application and all remaining Phase E browser/live checks remain the
+- Gates on the final merged application, the current browser journeys and live Resend remain the
   integrator's responsibility. This test must not be cited as completion of Phase E.
 
 ## Verification

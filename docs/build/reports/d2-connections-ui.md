@@ -1,5 +1,9 @@
 # D2 Connections UI
 
+Current status: merged. Service Connections, Agent Connections, onboarding catalogue and OAuth
+consent/authorize screens are implemented and locally verified. The branch/worktree details below
+describe their original implementation checkpoint, not remaining integration work.
+
 Branch: `wip/d2-connections-ui`, isolated worktree `../symplist-wt/connections-ui`, based on
 `131818d`. The backend author's contracts-only `1322884` is cherry-picked as `bdf18b7`.
 No backend implementation, migration, secret or environment file is changed.
@@ -85,9 +89,11 @@ or catalogue is stored. Task-scoped grant choices do not implicitly include desc
   preserves only that allowlisted enum for the exact Connections-to-onboarding transition, with
   real gate regression tests and no propagation of arbitrary callback query data.
 
-## Integration follow-up
+## Current integration boundary
 
-Merge after the Connections backend contract/checkpoint. Run the combined browser journey for
-hosted callback, onboarding return, key setup/revoke and OAuth consent, including mobile and all
-theme/mode evidence. The UI is implemented against real contracts; tests use provider-shaped
-fakes and the real browser API client, not live external credentials.
+The backend, UI, Simon adapter, maintenance and per-route secret scans are now merged. The UI is
+implemented against real contracts; its component tests use provider-shaped fakes and the real
+browser API client. `mcp-flow.spec.ts` authors Agent Connections key creation/use/relock and OAuth
+PKCE consent/exchange/use/relock against the local API, but it has not been rerun on the current
+merged tree. No Service Connections hosted-provider browser mutation or all-theme Connections
+visual pass is claimed. The 2026-09-20 live Composio evidence is a bounded catalogue probe only.

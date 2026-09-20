@@ -1,5 +1,7 @@
 # D2 provider contract stream
 
+Status: merged; fake/scripted contracts and the bounded live OpenAI and Composio targets have run.
+
 ## Scope
 
 Added reusable suites under `packages/testing/src/contracts/` for the Simon AI provider boundary and
@@ -10,6 +12,8 @@ the corresponding credential is present.
 The OpenAI probe sends only a short synthetic marker, caps output, disables AI SDK telemetry and
 retries at the call boundary, and never supplies tools. The Composio live probe lists bounded toolkit
 metadata only; it never creates a session, selects an account, or executes a connector action.
+Credential gates remain visible for ordinary offline runs; the live results below were produced by
+explicitly enabling the targets with the ignored environment.
 
 ## Contract coverage
 
@@ -29,7 +33,14 @@ metadata only; it never creates a session, selects an account, or executes a con
 
 ## Verification
 
-Biome formatting/lint and `git diff --check` pass for all changed files. Full Vitest/typecheck runs
-were not available in this isolated worktree because the local pnpm install is absent and the
-launcher attempted to hydrate `pnpm@12.4.2` from the network; no live provider credentials were
-used.
+The original isolated implementation checkpoint passed Biome and `git diff --check`; later merged
+package and repository gates superseded its missing-install caveat. On 2026-09-20 the credentialed
+targets produced:
+
+- OpenAI: **12/12 passed**.
+- Composio: **7 passed / 5 intentionally skipped target-capability cases**. The bounded live
+  catalogue probe passed; the skips are cases whose fake target exposes controls the live metadata
+  target deliberately does not.
+
+These are content-free provider-boundary probes. They do not establish a live connected-account
+mutation or an end-to-end browser → Trigger `simon-run` → encrypted output-relay journey.
