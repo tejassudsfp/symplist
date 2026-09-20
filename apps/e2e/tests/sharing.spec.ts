@@ -6,6 +6,7 @@ import { signIn } from "../src/helpers/session.ts";
 
 /** Real API and encrypted local object store; no endpoint interception for this cross-feature flow. */
 test("saved document → private snapshot → reviewed link → isolated viewer → revocation", async ({
+  browser,
   page,
   context,
 }) => {
@@ -54,7 +55,9 @@ test("saved document → private snapshot → reviewed link → isolated viewer 
   await expect(link).toBeVisible();
   const url = await link.inputValue();
   expect(new URL(url).hostname).not.toBe(new URL(env.WEB_ORIGIN ?? "").hostname);
-  const viewer = await context.newPage();
+  // Recipients never inherit the owner's app cookie; the capability URL is the complete authority.
+  const recipient = await browser.newContext();
+  const viewer = await recipient.newPage();
   await viewer.goto(url);
   await expect(
     viewer.getByRole("heading", { level: 1, name: "Reviewed launch outline" }),
@@ -62,6 +65,13 @@ test("saved document → private snapshot → reviewed link → isolated viewer 
   await expect(viewer.getByText("A reviewed source for the next collaborator.")).toBeVisible();
   await expect(viewer.locator("script")).toHaveCount(0);
   await expect(viewer.locator("img,iframe,video,audio")).toHaveCount(0);
+  const raw = new URL(url);
+  raw.pathname = `${raw.pathname}/raw`;
+  const rawViewer = await recipient.newPage();
+  await rawViewer.goto(raw.href);
+  await expect(rawViewer.locator("body")).toContainText(
+    "A reviewed source for the next collaborator.",
+  );
   await page.getByRole("button", { name: "Done", exact: true }).click();
   await page.getByRole("button", { name: "Revoke", exact: true }).click();
   await page
@@ -71,10 +81,15 @@ test("saved document → private snapshot → reviewed link → isolated viewer 
   await expect(page.getByText("revoked", { exact: true })).toBeVisible();
   await viewer.reload();
   await expect(viewer.getByRole("heading", { name: "This artifact is unavailable" })).toBeVisible();
-  await viewer.close();
+  await rawViewer.reload();
+  await expect(
+    rawViewer.getByRole("heading", { name: "This artifact is unavailable" }),
+  ).toBeVisible();
+  await recipient.close();
 });
 
 test("password and public variants keep independent access rules, while relock disables both", async ({
+  browser,
   page,
   context,
 }) => {
@@ -115,7 +130,8 @@ test("password and public variants keep independent access rules, while relock d
     .inputValue();
   await passwordDialog.getByRole("button", { name: "Done" }).click();
 
-  const passwordViewer = await context.newPage();
+  const passwordRecipient = await browser.newContext();
+  const passwordViewer = await passwordRecipient.newPage();
   await passwordViewer.goto(passwordUrl);
   await expect(passwordViewer.getByRole("heading", { name: "A password is needed" })).toBeVisible();
   await passwordViewer.getByLabel("Password").fill("separate-password");
@@ -132,7 +148,8 @@ test("password and public variants keep independent access rules, while relock d
     .getByRole("textbox", { name: "Keep this link before closing" })
     .inputValue();
   expect(new URL(publicUrl).searchParams.has("key")).toBe(false);
-  const publicViewer = await context.newPage();
+  const publicRecipient = await browser.newContext();
+  const publicViewer = await publicRecipient.newPage();
   await publicViewer.goto(publicUrl);
   await expect(publicViewer.getByRole("heading", { name: "Variant snapshot" })).toBeVisible();
 
@@ -145,8 +162,8 @@ test("password and public variants keep independent access rules, while relock d
   await expect(
     publicViewer.getByRole("heading", { name: "This artifact is unavailable" }),
   ).toBeVisible();
-  await passwordViewer.close();
-  await publicViewer.close();
+  await passwordRecipient.close();
+  await publicRecipient.close();
 });
 
 test("a manual handoff remains private until its selected artifact is explicitly released", async ({
