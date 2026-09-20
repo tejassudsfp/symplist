@@ -180,6 +180,9 @@ test("Simon reads and updates a saved section and the open page receives the new
   await expect(page.getByText("Updated the document section.", { exact: true })).toBeVisible();
   await expect(page.getByText("Reading a section · Done", { exact: true })).toBeVisible();
   await expect(page.getByText("Updating a section · Done", { exact: true })).toBeVisible();
+  if ((page.viewportSize()?.width ?? 1440) < 700) {
+    await page.getByRole("button", { name: "Page", exact: true }).click();
+  }
   await page.getByRole("button", { name: "Markdown", exact: true }).click();
   await expect(page.getByRole("textbox", { name: "Markdown source", exact: true })).toContainText(
     "Updated through the real Simon document tool path.",
