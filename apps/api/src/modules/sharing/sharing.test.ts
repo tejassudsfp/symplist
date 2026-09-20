@@ -260,7 +260,14 @@ describe("password grants", () => {
     const bad = await post("wrong password");
     expect(bad.status).toBe(403);
     expect(bad.text).toContain("did not work");
-    const success = await post("calm-private-password");
+    // The artifact response's required no-referrer policy makes real browser form posts carry the
+    // literal `Origin: null`; same-origin Fetch Metadata is the independent CSRF witness.
+    const success = await app.post(`/artifact/${artifact.id}/password`, {
+      shareHost: true,
+      origin: "null",
+      headers: { "sec-fetch-site": "same-origin" },
+      body: { key: value, nonce, password: "calm-private-password" },
+    });
     expect(success.status, success.text).toBe(303);
     const cookie = success.headers.get("set-cookie") ?? "";
     expect(cookie).toContain("__Host-sym_share_");
