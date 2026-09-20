@@ -149,7 +149,7 @@ describe("share route classes and host routing (§5.3, §6, §13.2)", () => {
     });
   });
 
-  it("requires the share Origin, or Sec-Fetch-Site: same-origin when Origin is absent, for the password form", async () => {
+  it("requires the share Origin or a same-origin Fetch Metadata witness for a private Origin", async () => {
     const post = (headers: Record<string, string>, origin: string | null) =>
       app.request("POST", "/artifact/_probe/abc/password", {
         shareHost: true,
@@ -160,9 +160,14 @@ describe("share route classes and host routing (§5.3, §6, §13.2)", () => {
     expect(ok.status).toBe(201);
     expect(ok.json()).toMatchObject({ cookies: [] });
     expect((await post({ "sec-fetch-site": "same-origin" }, null)).status).toBe(201);
+    // `Referrer-Policy: no-referrer` makes a browser form POST serialize Origin as `null`.
+    expect((await post({ "sec-fetch-site": "same-origin" }, "null")).status).toBe(201);
     for (const [headers, origin] of [
       [{}, null],
       [{ "sec-fetch-site": "same-site" }, null],
+      [{}, "null"],
+      [{ "sec-fetch-site": "same-site" }, "null"],
+      [{ "sec-fetch-site": "cross-site" }, "null"],
       [{}, app.config.WEB_ORIGIN],
       [{}, "https://evil.example"],
     ] as const) {

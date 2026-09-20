@@ -121,11 +121,18 @@ export class RouteClassGuard implements CanActivate {
         if (origin !== this.config.WEB_ORIGIN) throw new ApiError("auth.origin_forbidden");
         return;
       case "artifact_or_same_origin":
-        if (origin === undefined) {
-          if (header(req, "sec-fetch-site") !== "same-origin") {
-            throw new ApiError("auth.origin_forbidden");
-          }
-        } else if (origin !== this.config.ARTIFACT_ORIGIN) {
+        // Share pages deliberately send `Referrer-Policy: no-referrer`. Fetch serializes Origin as
+        // the literal `null` for a navigation-mode POST under that policy, including this same-origin
+        // HTML form. Treat that browser privacy value like an omitted Origin only when Fetch Metadata
+        // independently proves the request came from the same origin. Sandboxed/cross-site forms
+        // carry `cross-site` or `same-site` and remain forbidden.
+        if (
+          origin !== this.config.ARTIFACT_ORIGIN &&
+          !(
+            (origin === undefined || origin === "null") &&
+            header(req, "sec-fetch-site") === "same-origin"
+          )
+        ) {
           throw new ApiError("auth.origin_forbidden");
         }
         return;
