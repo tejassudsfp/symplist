@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { outlineRequestHandler } from "@/features/documents/outline-request";
+import { handoffDraftHandler } from "@/features/sharing/handoff-draft";
 import { createSimonApi, type SimonApi } from "./api.ts";
 import { ChatPane } from "./chat-pane.tsx";
 import { SimonProvider } from "./provider.tsx";
@@ -90,6 +91,63 @@ describe("Simon conversation surfaces", () => {
     ]);
     await waitFor(() => expect(input).toHaveValue(""));
     expect(screen.getByRole("log", { name: "Conversation with Simon" })).toBeInTheDocument();
+  });
+  it("re-registers handoff drafting after Strict Mode cleanup and uses the task conversation", async () => {
+    const client = api();
+    const draft = "## Objective\nPrepare a bounded specialist handoff";
+    client.send.mockImplementationOnce(async () => {
+      client.history.mockResolvedValue({
+        ...view,
+        latestRun: {
+          runId: run,
+          conversationId: id,
+          taskId: task,
+          status: "completed",
+          tier: "fast",
+          stopRequested: false,
+          outcomeCode: null,
+        },
+        messages: [
+          {
+            id: run,
+            seq: 2,
+            role: "assistant",
+            status: "completed",
+            runId: run,
+            text: draft,
+            parts: [],
+          },
+        ],
+      });
+      return {
+        messageId: "01995000-0000-7000-8000-000000000004",
+        runId: run,
+        status: "accepted",
+      };
+    });
+    const rendered = render(
+      <StrictMode>
+        <SimonProvider userId="owner" api={client} realtime={null}>
+          <p>Handoff surface</p>
+        </SimonProvider>
+      </StrictMode>,
+    );
+    await waitFor(() => expect(handoffDraftHandler()).not.toBeNull());
+    const handler = handoffDraftHandler();
+    if (!handler) throw new Error("handoff draft handler not registered");
+    await expect(
+      handler({
+        taskId: task,
+        revision: "a".repeat(40),
+        target: "coding_assistant",
+        outcome: "Prepare the implementation",
+        artifactIds: ["01995000-0000-7000-8000-000000000005"],
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toBe(draft);
+    expect(client.send.mock.calls[0]?.[1].text).not.toContain("PRIVATE_DOCUMENT_PLAINTEXT");
+    rendered.unmount();
+    expect(handoffDraftHandler()).toBeNull();
   });
   it("renders saved Markdown without active HTML or remote tracking images", async () => {
     const client = api();

@@ -1,5 +1,6 @@
 import { simonConversationViewSchema } from "@symplist/contracts";
 import { describe, expect, it, vi } from "vitest";
+import { HandoffDraftError } from "@/features/sharing/handoff-draft";
 import { ApiError, ApiNetworkError } from "@/lib/api";
 import type { SimonApi } from "./api.ts";
 import { SimonStore } from "./store.ts";
@@ -7,6 +8,8 @@ import { SimonStore } from "./store.ts";
 const id = "01995000-0000-7000-8000-000000000001";
 const task = "01995000-0000-7000-8000-000000000002";
 const run = "01995000-0000-7000-8000-000000000003";
+const message = "01995000-0000-7000-8000-000000000004";
+const artifact = "01995000-0000-7000-8000-000000000005";
 const view = simonConversationViewSchema.parse({
   conversationId: id,
   kind: "task",
@@ -46,6 +49,16 @@ async function opened() {
   const off = store.watch(task);
   await vi.waitFor(() => expect(store.get(task).projection.view).toEqual(view));
   return { api, store, off };
+}
+function handoffInput(signal = new AbortController().signal) {
+  return {
+    taskId: task,
+    revision: "a".repeat(40),
+    target: "coding_assistant" as const,
+    outcome: "Return an implementation plan",
+    artifactIds: [artifact],
+    signal,
+  };
 }
 describe("owner-scoped Simon store", () => {
   it("preserves drafts/tier but releases history when switching tasks", async () => {
@@ -132,6 +145,152 @@ describe("owner-scoped Simon store", () => {
     await store.send(task);
     store.draft(task, "Corrected");
     expect(store.get(task)).toMatchObject({ draft: "Corrected", uncertain: false });
+  });
+  it("uses an ordinary task turn for a reference-only handoff and returns its terminal draft", async () => {
+    const { api, store } = await opened();
+    const draft = "## Objective\nShip the reviewed task\n\n## Open questions\nNone yet";
+    api.send.mockImplementationOnce(async () => {
+      api.history.mockResolvedValue({
+        ...view,
+        latestRun: {
+          runId: run,
+          conversationId: id,
+          taskId: task,
+          status: "completed",
+          tier: "fast",
+          stopRequested: false,
+          outcomeCode: null,
+        },
+        messages: [
+          {
+            id: message,
+            seq: 1,
+            role: "user",
+            status: "accepted",
+            runId: run,
+            text: "request",
+            parts: [],
+          },
+          {
+            id: run,
+            seq: 2,
+            role: "assistant",
+            status: "completed",
+            runId: run,
+            text: draft,
+            parts: [{ type: "text", text: draft }],
+          },
+        ],
+      });
+      return { messageId: message, runId: run, status: "accepted" };
+    });
+    await expect(store.draftHandoff(handoffInput(), { pollMs: 0, timeoutMs: 1_000 })).resolves.toBe(
+      draft,
+    );
+    expect(api.send).toHaveBeenCalledOnce();
+    const sent = api.send.mock.calls[0];
+    expect(sent?.[0]).toBe(id);
+    expect(sent?.[1].text).toContain(artifact);
+    expect(sent?.[1].text).toContain("a".repeat(40));
+    expect(sent?.[1].text).not.toContain("PRIVATE_DOCUMENT_PLAINTEXT");
+  });
+  it("keeps an accepted handoff across timeout and resumes it without another message", async () => {
+    const { api, store } = await opened();
+    api.send.mockResolvedValueOnce({ messageId: message, runId: run, status: "accepted" });
+    await expect(
+      store.draftHandoff(handoffInput(), { pollMs: 0, timeoutMs: 5 }),
+    ).rejects.toMatchObject({ code: "simon.handoff_timeout" });
+    const draft = "## Objective\nResume the exact accepted request";
+    api.history.mockResolvedValue({
+      ...view,
+      latestRun: {
+        runId: run,
+        conversationId: id,
+        taskId: task,
+        status: "completed",
+        tier: "fast",
+        stopRequested: false,
+        outcomeCode: null,
+      },
+      messages: [
+        {
+          id: message,
+          seq: 1,
+          role: "user",
+          status: "accepted",
+          runId: run,
+          text: "request",
+          parts: [],
+        },
+        {
+          id: run,
+          seq: 2,
+          role: "assistant",
+          status: "completed",
+          runId: run,
+          text: draft,
+          parts: [],
+        },
+      ],
+    });
+    await expect(store.draftHandoff(handoffInput(), { pollMs: 0, timeoutMs: 1_000 })).resolves.toBe(
+      draft,
+    );
+    expect(api.send).toHaveBeenCalledOnce();
+  });
+  it("stops a surface wait on unmount and retries an unknown acceptance with the exact key", async () => {
+    const { api, store } = await opened();
+    const controller = new AbortController();
+    const accepting = deferred<Awaited<ReturnType<SimonApi["send"]>>>();
+    api.send.mockImplementationOnce(() => accepting.promise);
+    const waiting = store.draftHandoff(handoffInput(controller.signal), {
+      pollMs: 0,
+      timeoutMs: 1_000,
+    });
+    await vi.waitFor(() => expect(api.send).toHaveBeenCalledOnce());
+    controller.abort();
+    await expect(waiting).rejects.toBeInstanceOf(HandoffDraftError);
+    expect(store.get(task).busy).toBe(true);
+    accepting.resolve({ messageId: message, runId: run, status: "accepted" });
+    await vi.waitFor(() => expect(store.get(task).busy).toBe(false));
+
+    const retryApi = fakeSimonApi();
+    retryApi.send.mockRejectedValueOnce(new ApiNetworkError()).mockImplementationOnce(async () => {
+      retryApi.history.mockResolvedValue({
+        ...view,
+        latestRun: {
+          runId: run,
+          conversationId: id,
+          taskId: task,
+          status: "completed",
+          tier: "fast",
+          stopRequested: false,
+          outcomeCode: null,
+        },
+        messages: [
+          {
+            id: run,
+            seq: 2,
+            role: "assistant",
+            status: "completed",
+            runId: run,
+            text: "## Objective\nRecovered",
+            parts: [],
+          },
+        ],
+      });
+      return { messageId: message, runId: run, status: "accepted" };
+    });
+    const retryStore = new SimonStore(retryApi, null);
+    retryStore.watch(task);
+    await vi.waitFor(() => expect(retryStore.get(task).projection.view).toEqual(view));
+    await expect(
+      retryStore.draftHandoff(handoffInput(), { pollMs: 0, timeoutMs: 100 }),
+    ).rejects.toMatchObject({ code: "simon.handoff_failed" });
+    await expect(
+      retryStore.draftHandoff(handoffInput(), { pollMs: 0, timeoutMs: 1_000 }),
+    ).resolves.toContain("Recovered");
+    expect(retryApi.send.mock.calls[0]).toEqual(retryApi.send.mock.calls[1]);
   });
   it("does not discard an uncertain mutation after cleanup; remount retries its key", async () => {
     const { api, store, off } = await opened();

@@ -1,8 +1,9 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeDocuments } from "@/features/documents/fake-api";
 import { ArtifactsManager } from "./artifacts-manager.tsx";
+import { HandoffDraftError, type HandoffDraftInput } from "./handoff-draft.ts";
 import { HandoffScreen, manualHandoffPrompt, setHandoffDraftHandler } from "./handoff-screen.tsx";
 import { ShareDialog } from "./share-dialog.tsx";
 import { SnapshotDialog } from "./snapshot-dialog.tsx";
@@ -13,6 +14,7 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/tasks/example/handoff",
 }));
 beforeEach(() => setHandoffDraftHandler(null));
+afterEach(() => setHandoffDraftHandler(null));
 describe("review and release", () => {
   it("does not mint on opening, defaults to 24-hour link and reveals only a successful release", async () => {
     const api = fakeSharingApi();
@@ -259,6 +261,92 @@ describe("task snapshots and handoff", () => {
       expect.any(String),
     );
     expect(api.release).not.toHaveBeenCalled();
+  });
+  it("returns Simon's ordinary-turn draft to the editor with selected references only", async () => {
+    const documents = new FakeDocuments({
+      taskId: artifact.taskId,
+      commits: [{ markdown: "# Secret source\nPRIVATE_DOCUMENT_PLAINTEXT\n" }],
+    });
+    const api = fakeSharingApi();
+    const draft = "## Objective\nPrepare the launch\n\n## Open questions\nConfirm the date";
+    const handler = vi.fn(async (_input: HandoffDraftInput) => draft);
+    setHandoffDraftHandler(handler);
+    render(<HandoffScreen taskId={artifact.taskId} api={api} documents={documents.api} />);
+    await userEvent.type(await screen.findByLabelText("Desired outcome"), "Prepare the launch");
+    await userEvent.click(screen.getByRole("checkbox", { name: /Launch brief/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Ask Simon to draft" }));
+    await screen.findByText(/Draft ready/);
+    expect(screen.getByRole("textbox", { name: "Editable prompt" })).toHaveValue(draft);
+    expect(handler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskId: artifact.taskId,
+        revision: documents.head?.revision,
+        target: "coding_assistant",
+        outcome: "Prepare the launch",
+        artifactIds: [artifact.id],
+        signal: expect.any(AbortSignal),
+      }),
+    );
+    expect(JSON.stringify(handler.mock.calls[0]?.[0])).not.toContain("PRIVATE_DOCUMENT_PLAINTEXT");
+    expect(api.handoff).not.toHaveBeenCalled();
+    expect(api.release).not.toHaveBeenCalled();
+  });
+  it("explains a bounded wait without claiming the still-running task turn failed", async () => {
+    setHandoffDraftHandler(
+      vi.fn(async () => {
+        throw new HandoffDraftError("simon.handoff_timeout");
+      }),
+    );
+    render(
+      <HandoffScreen
+        taskId={artifact.taskId}
+        api={fakeSharingApi()}
+        documents={
+          new FakeDocuments({
+            taskId: artifact.taskId,
+            commits: [{ markdown: "# Brief\nContext\n" }],
+          }).api
+        }
+      />,
+    );
+    await userEvent.type(await screen.findByLabelText("Desired outcome"), "Draft a plan");
+    await userEvent.click(screen.getByRole("button", { name: "Ask Simon to draft" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/still in task chat/i);
+    expect(screen.getByRole("button", { name: "Ask Simon to draft" })).toBeEnabled();
+  });
+  it("aborts only the surface wait when the handoff screen unmounts", async () => {
+    let resolve: (draft: string) => void = () => {};
+    let signal: AbortSignal | null = null;
+    setHandoffDraftHandler(
+      vi.fn(
+        (input) =>
+          new Promise<string>((done) => {
+            signal = input.signal;
+            resolve = done;
+          }),
+      ),
+    );
+    const rendered = render(
+      <HandoffScreen
+        taskId={artifact.taskId}
+        api={fakeSharingApi()}
+        documents={
+          new FakeDocuments({
+            taskId: artifact.taskId,
+            commits: [{ markdown: "# Brief\nContext\n" }],
+          }).api
+        }
+      />,
+    );
+    await userEvent.type(await screen.findByLabelText("Desired outcome"), "Draft a plan");
+    await userEvent.click(screen.getByRole("button", { name: "Ask Simon to draft" }));
+    await waitFor(() => expect(signal).not.toBeNull());
+    rendered.unmount();
+    const captured = signal as AbortSignal | null;
+    if (!captured) throw new Error("draft signal not captured");
+    expect(captured.aborted).toBe(true);
+    resolve("## Objective\nLate response");
+    await Promise.resolve();
   });
   it("has complete manual instructions without claiming a live destination integration", () => {
     const text = manualHandoffPrompt("Review this change");
