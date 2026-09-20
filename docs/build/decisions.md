@@ -336,6 +336,12 @@ Decisions made while building the documents backend (`packages/docs`, `core/docu
 | BR2 | **The share card is a committed PNG, not a generated `opengraph-image`.** Rendered once at 1200×630 and 1200×600 with the real Geist face, so a link preview never depends on a font fetch or a render at request time. `metadataBase` comes from the public web origin so a preview never resolves to localhost, and `robots` is `index: false` because the workspace is private. | Build default | Architecture §10.3 |
 | WS25 | **Quick add has two saving keys.** Enter adds the task and moves focus to it, so the next keystroke acts on what was just made; Shift + Enter adds it and keeps the caret in the field for the next one. The pair is only worth having because the two differ: a single Enter that both saved and stayed left no way to say "done". A failed add returns no id and leaves focus in the field beside the draft it restored. Both are handled on `keydown` rather than through the form's submit so they can be told apart, and an Enter raised while an IME is composing is ignored so it commits a candidate instead of adding a task. The field names both keys visibly and through `aria-describedby`. | Owner request | Note 13; brief `workspace_now.md` |
 
+## Phase E — Environment distribution
+
+| # | Decision | Status | Supersedes / extends |
+| --- | --- | --- | --- |
+| ENV1 | **Environment distribution follows the binding §4.5 inventory, not the root template's obsolete “all 12 shared” sentence.** The api receives all twelve generated families; the worker receives only `CONTENT_KEK`, `INTERNAL_EVENT_SECRET` and `REMINDER_UNSUBSCRIBE_SECRET`, with identical versions and values. A durable api omits AI provider credentials, the worker file always omits platform-injected `TRIGGER_SECRET_KEY`, and the web receives only its five public/build variables. `pnpm env:distribute` derives the placement from the checked-in app templates and inventory, validates all three runtime schemas before atomic mode-600 writes, and `pnpm env:check` verifies the resulting ignored files without printing values. | Phase E implementation; resolves conflicting owner shorthand and root-template prose in favor of binding architecture/config | Architecture §4.5, §16.1–16.2; decision C1.7 |
+
 ## Phase D2 — Simon
 
 | # | Decision | Status | Supersedes / extends |
