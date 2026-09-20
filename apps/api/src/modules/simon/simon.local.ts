@@ -1,12 +1,15 @@
 import type { ServerAnalyticsEmitter } from "@symplist/analytics/server";
 import { AnalyticsService } from "@symplist/core/analytics";
+import { createSimonConnectionAuthority } from "@symplist/core/connections";
 import type { DocumentTools } from "@symplist/core/documents";
 import type { LocalExecutionHandler } from "@symplist/core/events";
 import type { SimonRepository } from "@symplist/core/simon";
+import { resolveClaimedVaultArguments } from "@symplist/core/vault";
 import type { ObjectStore } from "@symplist/storage";
 import type { AppLogger } from "../../common/logging/logger.ts";
 import type { ApiConfig } from "../../infra/config/api-config.ts";
 import type { TopicHub } from "../realtime/topic-hub.ts";
+import type { SimonConnectionsRuntime } from "./simon.connections.ts";
 
 /** The durable API never even imports the model/tool package through this path. */
 export function createLocalSimonHandler(
@@ -17,6 +20,7 @@ export function createLocalSimonHandler(
   documents: DocumentTools,
   objects: ObjectStore,
   emitter: ServerAnalyticsEmitter,
+  connections: SimonConnectionsRuntime,
 ): LocalExecutionHandler {
   return async (job, context) => {
     if (config.DURABLE) throw new Error("simon.local_disabled");
@@ -25,17 +29,47 @@ export function createLocalSimonHandler(
       emitter,
       enabled: emitter.enabled,
     });
-    const { createSimonModels, runSimonTurn, simonNativeTools, simonSharingTools } = await import(
-      "@symplist/agent"
-    );
+    const {
+      createSimonModels,
+      runSimonTurn,
+      simonApprovedConnectionEffect,
+      simonConnectionTools,
+      simonNativeTools,
+      simonSharingTools,
+    } = await import("@symplist/agent");
+    let connectionOptions:
+      | { runId: string; value: Parameters<typeof simonConnectionTools>[1] }
+      | undefined;
+    const connectionsFor = (
+      toolContext: Parameters<typeof simonApprovedConnectionEffect>[0],
+    ): Parameters<typeof simonConnectionTools>[1] => {
+      if (connectionOptions?.runId === toolContext.claim.run.id) return connectionOptions.value;
+      const authority = createSimonConnectionAuthority(
+        repository,
+        toolContext.claim,
+        connections.schema,
+      );
+      let external: ReturnType<typeof connections.tools> | undefined;
+      const value = {
+        authority,
+        external: () => (external ??= connections.tools(authority)),
+        resolveArguments: (toolSlug: string, args: Readonly<Record<string, unknown>>) =>
+          resolveClaimedVaultArguments(repository, toolContext.claim, toolSlug, args),
+      };
+      connectionOptions = { runId: toolContext.claim.run.id, value };
+      return value;
+    };
     await runSimonTurn(job.subjectId, {
       repository,
       executor: "local",
       models: createSimonModels(config),
       signal: context.signal,
       telemetryEnabled: config.AI_TELEMETRY_ENABLED,
+      approvedEffect: (toolContext) =>
+        simonApprovedConnectionEffect(toolContext, connectionsFor(toolContext)),
       documents: () => ({ tools: documents, git: null }),
       tools: async (toolContext) => ({
+        ...simonConnectionTools(toolContext, connectionsFor(toolContext)),
         ...simonNativeTools(toolContext, {
           scheduling: {
             remindersEnabled: config.REMINDERS_ENABLED,

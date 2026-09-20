@@ -2,6 +2,7 @@ import { isErrorCode } from "@symplist/contracts";
 import { AccountKeyUnavailableError } from "@symplist/core/account";
 import type { SimonWriteFold } from "@symplist/core/simon";
 import { SimonError } from "@symplist/core/simon";
+import { IntegrationError } from "@symplist/integrations";
 import type { Request } from "express";
 import { ApiError } from "../../common/errors/api-error.ts";
 import { foldedIdempotencyOf } from "../../common/idempotency/idempotency.interceptor.ts";
@@ -23,6 +24,13 @@ export async function simonCall<T>(work: () => Promise<T>): Promise<T> {
     if (error instanceof AccountKeyUnavailableError) throw ApiError.notFound();
     if (error instanceof SimonError)
       throw new ApiError(isErrorCode(error.code) ? error.code : "internal");
+    if (error instanceof IntegrationError) {
+      const retryAfter = error.details.retryAfter;
+      throw new ApiError(isErrorCode(error.code) ? error.code : "internal", {
+        details: { ...error.details },
+        ...(retryAfter === undefined ? {} : { retryAfter }),
+      });
+    }
     throw error;
   }
 }

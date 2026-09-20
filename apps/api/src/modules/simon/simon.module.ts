@@ -17,7 +17,16 @@ import { DOCUMENT_GIT } from "../../infra/documents/git.module.ts";
 import { ExecutionRegistry } from "../../infra/executors/execution-registry.ts";
 import { OBJECT_STORE } from "../../infra/storage/storage.providers.ts";
 import { TopicHub } from "../realtime/topic-hub.ts";
-import { SimonApprovalsController } from "./simon.approvals.controller.ts";
+import {
+  SIMON_APPROVAL_EDIT_VALIDATOR,
+  type SimonApprovalEditValidatorFactory,
+  SimonApprovalsController,
+} from "./simon.approvals.controller.ts";
+import {
+  createSimonConnectionsRuntime,
+  SIMON_CONNECTIONS_RUNTIME,
+  type SimonConnectionsRuntime,
+} from "./simon.connections.ts";
 import { SimonController } from "./simon.controller.ts";
 import { createLocalSimonHandler } from "./simon.local.ts";
 import { SimonUserAsksController } from "./simon.pauses.controller.ts";
@@ -33,6 +42,7 @@ export class SimonLifecycle implements OnModuleInit {
     @Inject(DocumentTools) private readonly documents: DocumentTools,
     @Inject(OBJECT_STORE) private readonly objects: ObjectStore,
     @Inject(SERVER_ANALYTICS) private readonly emitter: ServerAnalyticsEmitter,
+    @Inject(SIMON_CONNECTIONS_RUNTIME) private readonly connections: SimonConnectionsRuntime,
     private readonly logger: AppLogger,
   ) {}
   onModuleInit(): void {
@@ -47,6 +57,7 @@ export class SimonLifecycle implements OnModuleInit {
           this.documents,
           this.objects,
           this.emitter,
+          this.connections,
         ),
       );
   }
@@ -56,6 +67,20 @@ export class SimonLifecycle implements OnModuleInit {
 @Module({
   controllers: [SimonController, SimonUserAsksController, SimonApprovalsController],
   providers: [
+    {
+      provide: SIMON_CONNECTIONS_RUNTIME,
+      inject: [DB_CLIENT, CLOCK, API_CONFIG],
+      useFactory: (db: DbClient, clock: Clock, config: ApiConfig) =>
+        createSimonConnectionsRuntime(db, clock, config),
+    },
+    {
+      provide: SIMON_APPROVAL_EDIT_VALIDATOR,
+      inject: [SIMON_CONNECTIONS_RUNTIME],
+      useFactory:
+        (runtime: SimonConnectionsRuntime): SimonApprovalEditValidatorFactory =>
+        (ownerId) =>
+          runtime.editValidator(ownerId),
+    },
     {
       provide: SimonQuickChats,
       inject: [SimonRepository, API_CONFIG, SERVER_ANALYTICS],

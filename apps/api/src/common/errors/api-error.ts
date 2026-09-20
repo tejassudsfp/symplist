@@ -102,6 +102,6 @@ export function sendApiError(res: Response, error: ApiError, requestId: string):
     "Cache-Control",
     res.getHeader("Cache-Control") === "private, no-store" ? "private, no-store" : "no-store",
   );
-  if (error.code === "rate.limited") res.setHeader(retryAfterHeader, String(error.retryAfter ?? 1));
+  if (error.retryAfter !== undefined) res.setHeader(retryAfterHeader, String(error.retryAfter));
   res.json(error.toEnvelope(requestId));
 }

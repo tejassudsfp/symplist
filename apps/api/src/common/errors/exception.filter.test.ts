@@ -14,8 +14,9 @@ import { ThrottlerException } from "@nestjs/throttler";
 import { errorEnvelopeSchema, rateLimitedErrorSchema } from "@symplist/contracts";
 import { RateLimitedError } from "@symplist/crypto";
 import { DbRateLimitedError, DbUnknownOutcomeError } from "@symplist/db";
+import type { Response } from "express";
 import { describe, expect, it } from "vitest";
-import { ApiError } from "./api-error.ts";
+import { ApiError, sendApiError } from "./api-error.ts";
 import { toApiError } from "./exception.filter.ts";
 
 describe("error envelope mapping (§6)", () => {
@@ -94,6 +95,25 @@ describe("error envelope mapping (§6)", () => {
     expect(rateLimitedErrorSchema.parse(envelope).error.details.retryAfter).toBe(3);
     expect(ApiError.rateLimited(0).retryAfter).toBe(1);
     expect(ApiError.rateLimited(10 ** 9).retryAfter).toBe(86_400);
+  });
+
+  it("sends Retry-After for a provider-specific rate-limit code", () => {
+    const headers = new Map<string, string>();
+    const response = {
+      headersSent: false,
+      status: () => response,
+      getHeader: (name: string) => headers.get(name),
+      setHeader: (name: string, value: string) => {
+        headers.set(name, value);
+      },
+      json: () => response,
+    } as unknown as Response;
+    sendApiError(
+      response,
+      new ApiError("integration.rate_limited", { retryAfter: 7 }),
+      "request-1",
+    );
+    expect(headers.get("Retry-After")).toBe("7");
   });
 
   it("refuses undeclared codes", () => {
