@@ -734,22 +734,35 @@ export class SimonRepository {
 
   /** Model history excludes queued/cancelled follow-ups and uses encrypted structured checkpoints. */
   async executionHistory(run: SimonRun, key: AccountDataKey) {
-    const rows = await this.options.db.all(
+    const eligible = `owner_id = :owner AND conversation_id = :conversation AND status IN ('accepted', 'completed')`;
+    const floor = `(SELECT MIN(seq) FROM (SELECT seq FROM messages WHERE ${eligible} ORDER BY seq DESC LIMIT 100))`;
+    const guard = `EXISTS (SELECT 1 FROM runs WHERE id = :run AND owner_id = :owner AND executor_generation = :generation AND ${this.runGuard()})`;
+    const params = {
+      owner: run.ownerId,
+      conversation: run.conversationId,
+      run: run.id,
+      generation: int(run.generation),
+      now: int(this.options.now()),
+    };
+    const results = await this.options.db.batch([
+      sql(
+        `UPDATE conversations SET context_epoch=context_epoch+1, history_floor_seq=${floor}, write_id=:history_write
+      WHERE id=:conversation AND owner_id=:owner AND ${guard}
+        AND (${floor}) IS NOT NULL
+        AND EXISTS (SELECT 1 FROM messages WHERE ${eligible} AND seq < (${floor}))
+        AND COALESCE(history_floor_seq,0) < (${floor})`,
+        { ...params, history_write: this.nextId() },
+      ),
       sql(
         `SELECT m.id, m.role, m.content_enc, p.content_enc AS snapshot_enc FROM messages m
       LEFT JOIN message_parts p ON p.message_id = m.id AND p.owner_id = m.owner_id AND p.seq = 0
       WHERE m.owner_id = :owner AND m.conversation_id = :conversation AND m.status IN ('accepted', 'completed')
-      AND EXISTS (SELECT 1 FROM runs WHERE id = :run AND owner_id = :owner AND executor_generation = :generation AND ${this.runGuard()})
+      AND ${guard}
       ORDER BY m.seq DESC LIMIT 100`,
-        {
-          owner: run.ownerId,
-          conversation: run.conversationId,
-          run: run.id,
-          generation: int(run.generation),
-          now: int(this.options.now()),
-        },
+        params,
       ),
-    );
+    ]);
+    const rows = results[1]?.results ?? [];
     return [...rows].reverse().map((row) => ({
       id: String(row.id),
       role: row.role as "user" | "assistant" | "tool",

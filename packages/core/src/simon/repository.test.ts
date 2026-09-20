@@ -270,6 +270,44 @@ describe("execution fencing and checkpoints", () => {
       zeroize(claimed.key.key);
     }
   });
+  it("advances context epoch once when bounded model history drops older messages", async () => {
+    for (let index = 0; index < 50; index += 1) {
+      const accepted = await send(`history-${index}`, `question ${index}`);
+      const owned = await repository.claim(accepted.runId ?? "", "local");
+      if (!owned) throw new Error("test expected a claimed history run");
+      try {
+        expect(
+          await repository.checkpoint(owned.run, owned.key, `answer ${index}`, 1, "completed"),
+        ).toBe(true);
+      } finally {
+        zeroize(owned.key.key);
+      }
+    }
+    const current = await claim();
+    try {
+      const history = await repository.executionHistory(current.run, current.key);
+      expect(history).toHaveLength(100);
+      expect(history[0]?.text).toBe("answer 0");
+      expect(history.at(-1)?.text).toBe("private marker text");
+      expect(
+        await env.db.first(
+          sql("SELECT context_epoch,history_floor_seq FROM conversations WHERE id=:id", {
+            id: conversation,
+          }),
+        ),
+      ).toEqual({ context_epoch: 1, history_floor_seq: 2 });
+      await repository.executionHistory(current.run, current.key);
+      expect(
+        (
+          await env.db.first(
+            sql("SELECT context_epoch FROM conversations WHERE id=:id", { id: conversation }),
+          )
+        )?.context_epoch,
+      ).toBe(1);
+    } finally {
+      zeroize(current.key.key);
+    }
+  });
   it("starts only the oldest queued message in the completion batch", async () => {
     const claimed = await claim();
     try {
