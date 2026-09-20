@@ -2,7 +2,10 @@ import { aptGet, syncEnvVars } from "@trigger.dev/build/extensions/core";
 import { defineConfig } from "@trigger.dev/sdk";
 // The Trigger CLI loads this file with jiti, which resolves workspace packages to `dist` rather than
 // their `source` export, so the worker allowlist is imported from its TypeScript source by path.
-import { workerImageEnvInstructions, workerSyncEnvVars } from "../../packages/config/src/worker.ts";
+import {
+  workerImageEnvInstructions,
+  workerSyncEnvVarsWhenPresent,
+} from "../../packages/config/src/worker.ts";
 import { guardedSyncEnvVars, imageEnvExtension } from "./src/infra/build-extensions.ts";
 
 export default defineConfig({
@@ -24,8 +27,9 @@ export default defineConfig({
     extensions: [
       // Document history uses the Git CLI inside deployed tasks (§9.1).
       aptGet({ packages: ["git"] }),
-      // Only the worker allowlist is synced; an invalid or forbidden configuration fails the deploy (§4.5).
-      syncEnvVars(guardedSyncEnvVars(() => workerSyncEnvVars(process.env))),
+      // Linked GitHub builds receive no runtime secrets and preserve Trigger-managed values. A
+      // credentialed CLI deploy receives the worker env and must validate the complete allowlist.
+      syncEnvVars(guardedSyncEnvVars(() => workerSyncEnvVarsWhenPresent(process.env))),
       // TRIGGER_AI_SDK_OTEL_AUTOREGISTER=0 is baked into the image, because sync drops TRIGGER_* (§8.3).
       imageEnvExtension(workerImageEnvInstructions),
     ],

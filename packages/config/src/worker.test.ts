@@ -17,6 +17,7 @@ import {
   workerSyncAllowlist,
   workerSyncEntry,
   workerSyncEnvVars,
+  workerSyncEnvVarsWhenPresent,
   workerVariableNames,
 } from "./worker.ts";
 
@@ -342,6 +343,23 @@ describe("worker syncEnvVars allowlist (§4.5, §8.8)", () => {
       isSecret: true,
     });
     for (const entry of synced) expect(workerSyncEntry(entry.name)).toBeDefined();
+  });
+
+  it("preserves dashboard-managed vars in linked builds but refuses a partial sync", () => {
+    expect(
+      workerSyncEnvVarsWhenPresent({
+        CI: "true",
+        GITHUB_SHA: "0123456789abcdef",
+        TRIGGER_EXISTING_DEPLOYMENT_ID: "deployment_example",
+        OTEL_BATCH_PROCESSING_ENABLED: "1",
+      }),
+    ).toEqual([]);
+
+    expect(() => workerSyncEnvVarsWhenPresent({ API_ORIGIN: "https://api.example.com" })).toThrow(
+      ConfigError,
+    );
+    const complete = productionWorkerEnv();
+    expect(workerSyncEnvVarsWhenPresent(complete)).toEqual(workerSyncEnvVars(complete));
   });
 
   it("ignores a CI value for TRIGGER_AI_SDK_OTEL_AUTOREGISTER; the image value always wins", () => {

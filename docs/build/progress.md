@@ -25,6 +25,14 @@ Checkpoint file for the end-to-end build. Read this first when resuming; update 
 
 ## Log
 
+- 2026-09-20: **Protected-release follow-up fixed the linked Trigger build boundary.** PR #2's first
+  preview exposed that GitHub-linked image builds receive no runtime secrets, while the config
+  required a complete worker environment during `syncEnvVars`; every automatic deployment therefore
+  failed before task packaging. Empty linked-build input now preserves Trigger-managed variables,
+  while any credentialed partial input still fails closed and a complete CLI deployment validates
+  and syncs the allowlist. The initial/rotation CLI path and linked-build behavior are documented and
+  regression-tested; no secret moved into GitHub or the image builder.
+
 - 2026-09-20: **Phases D2/E/F and repository-side G are complete and verified on the merged current
   head.** All 20
   cross-feature flows are Verified; the 36 theme/mode/viewport frames were rerun and inspected; the

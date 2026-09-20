@@ -75,7 +75,9 @@ Trigger connection.
 
 The repo is **linked to Trigger.dev**, so a push to `main` auto-deploys. No `TRIGGER_ACCESS_TOKEN`
 PAT is needed, and no CI deploy job should be built — the secret matrix already marks that token
-CI-only, and the GitHub integration replaces it.
+CI-only, and the GitHub integration replaces it. Trigger runtime variables are bootstrapped and
+rotated through a credentialed local CLI deploy; linked image builds intentionally receive no
+runtime secrets and preserve the environment already managed by Trigger.
 
 **Tasks that exist today** (`apps/worker/src/trigger/`):
 

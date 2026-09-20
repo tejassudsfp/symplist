@@ -231,3 +231,19 @@ export function workerSyncEnvVars(env: EnvRecord): WorkerSyncEnvVar[] {
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
     .map(([name, value]) => ({ name, value, isSecret: workerSyncEntry(name)?.isSecret ?? true }));
 }
+
+/**
+ * Selects a complete explicitly supplied deployment environment, or performs no sync at all.
+ *
+ * Trigger's linked GitHub builder deliberately does not expose runtime secrets to the image-build
+ * process. In that environment none of Symplist's allowlisted variables is present, so returning an
+ * empty selection preserves the variables already managed by Trigger. If even one allowlisted value
+ * is present (as in a local/CI CLI deploy), the complete worker schema is still mandatory: a partial
+ * or invalid selection fails closed through {@link workerSyncEnvVars}.
+ */
+export function workerSyncEnvVarsWhenPresent(env: EnvRecord): WorkerSyncEnvVar[] {
+  const hasAllowlistedValue = Object.keys(presentVariables(env)).some(
+    (name) => workerSyncEntry(name) !== undefined,
+  );
+  return hasAllowlistedValue ? workerSyncEnvVars(env) : [];
+}

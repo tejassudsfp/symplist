@@ -332,9 +332,12 @@ Skip this entire section when `DURABLE=false`.
    ```
 
 The CLI option overrides the public project ref in `trigger.config.ts`. For repository-linked
-automatic deploys, replace that public ref with your own in your fork. The `syncEnvVars` build
-extension reads `apps/worker/.env`, validates the worker allowlist, and syncs only permitted values.
-Trigger.dev injects its environment `TRIGGER_SECRET_KEY` into task processes itself.
+automatic deploys, replace that public ref with your own in your fork. The first deployment and
+every environment change must use the credentialed CLI command above: its `syncEnvVars` extension
+reads `apps/worker/.env`, validates the complete worker allowlist and syncs only permitted values.
+Linked GitHub image builds receive no runtime secrets and preserve those Trigger-managed values
+instead of trying to resync them. Trigger.dev injects its environment `TRIGGER_SECRET_KEY` into task
+processes itself.
 
 After deploy, confirm these schedules and queue families appear:
 
