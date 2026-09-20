@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
 import { type ConversationId, conversationIdSchema, idSchema } from "./ids.ts";
 import {
   clientFrameSchema,
@@ -22,6 +21,7 @@ import {
   wsMaxSubscriptions,
   wsPath,
 } from "./ws.ts";
+import { z } from "./zod.ts";
 
 const id = (n: number) => `0199a5a0-7c1f-7000-8000-${n.toString(16).padStart(12, "0")}`;
 const conversationId: ConversationId = conversationIdSchema.parse(id(1));

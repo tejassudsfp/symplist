@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
 import {
   csrfHeader,
   preSessionCsrfHeaderValue,
@@ -13,6 +12,7 @@ import {
   secretAlreadyIssuedNotice,
 } from "./idempotency.ts";
 import { idSchema } from "./ids.ts";
+import { z } from "./zod.ts";
 
 describe("HTTP header constants (§5.3, §6.1)", () => {
   it("names the headers exactly", () => {

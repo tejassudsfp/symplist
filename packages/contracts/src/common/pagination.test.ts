@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
 import { idSchema } from "./ids.ts";
 import {
   cursorSchema,
@@ -9,6 +8,7 @@ import {
   pageQuerySchema,
   pageSchema,
 } from "./pagination.ts";
+import { z } from "./zod.ts";
 
 describe("pagination", () => {
   it("parses canonical query-string and JSON limits", () => {

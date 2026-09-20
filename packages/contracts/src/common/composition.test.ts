@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
 import {
   commonErrorCodes,
   decodeWsServerFrame,
@@ -13,6 +12,7 @@ import {
   wsEventsByFeature,
   wsServerFrameSchema,
 } from "../index.ts";
+import { z } from "./zod.ts";
 
 describe("composed contracts index", () => {
   it("includes every foundation error code with its status", () => {

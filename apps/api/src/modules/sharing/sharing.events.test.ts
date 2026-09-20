@@ -20,14 +20,14 @@ it("relays worker grant hints only after reloading canonical owner-authorized ar
     );
     const saved = await app.post(`/v1/tasks/${taskId}/document/commits`, {
       session: owner.session,
-      idempotencyKey: "event-source",
+      idempotencyKey: "sharing-event-source",
       body: { baseRevision: null, markdown: "# Source\nPrivate content" },
     });
     expect(saved.status, saved.text).toBe(201);
     const revision = documentPublishResponseSchema.parse(saved.json()).revision;
     const created = await app.post(`/v1/tasks/${taskId}/artifacts`, {
       session: owner.session,
-      idempotencyKey: "event-artifact",
+      idempotencyKey: "sharing-event-artifact",
       body: { title: "Private title", revision },
     });
     expect(created.status, created.text).toBe(201);

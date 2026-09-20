@@ -17,14 +17,15 @@ describe("schema compilation", () => {
     // modules in import order, so no amount of ordering in the barrel can fix that after the fact.
     const root = fileURLToPath(new URL("..", import.meta.url));
     const offenders: string[] = [];
+    const directZodImport = /\bfrom\s+["']zod["']/;
     const walk = (directory: string) => {
       for (const entry of readdirSync(directory, { withFileTypes: true })) {
         const path = join(directory, entry.name);
         if (entry.isDirectory()) {
           walk(path);
-        } else if (entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts")) {
+        } else if (entry.name.endsWith(".ts")) {
           if (path.endsWith(join("common", "zod.ts"))) continue;
-          if (/from "zod"/.test(readFileSync(path, "utf8")))
+          if (directZodImport.test(readFileSync(path, "utf8")))
             offenders.push(path.slice(root.length));
         }
       }
