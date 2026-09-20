@@ -76,7 +76,11 @@ test("deadline reschedule becomes a notification that can be snoozed and complet
 
   await page.goto("/now");
   await expect(page.getByRole("tree").getByText(title, { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Notifications", exact: true }).click();
+  const notifications = page.getByRole("button", {
+    name: /^Notifications(?:, [1-9]\d* unread)?$/,
+  });
+  await expect(notifications).toHaveAccessibleName("Notifications, 1 unread");
+  await notifications.click();
   const center = page.getByRole("dialog", { name: "Notifications", exact: true });
   const reminder = center.getByRole("article").filter({ hasText: title });
   await expect(reminder).toContainText("Deadline: 2030-04-18");
@@ -106,7 +110,7 @@ test("deadline reschedule becomes a notification that can be snoozed and complet
 
   await reminder.getByRole("button", { name: "Mark complete", exact: true }).click();
   await expect(page.getByRole("tree").getByText(title, { exact: true })).toBeHidden();
-  await page.getByRole("button", { name: "Notifications", exact: true }).click();
+  await notifications.click();
   const completed = page.getByRole("dialog", { name: "Notifications" }).getByRole("article");
   await expect(completed).toContainText("This task is completed or archived.");
   await expect(completed.getByRole("button", { name: "Mark complete" })).toBeDisabled();
