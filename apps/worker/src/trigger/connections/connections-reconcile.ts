@@ -1,48 +1,10 @@
-import { ComposioSessions, ConnectionReconciler } from "@symplist/core/connections";
-import { SimonRepository } from "@symplist/core/simon";
 import { sql } from "@symplist/db";
-import {
-  ComposioLifecycleProvider,
-  createComposioClient,
-  executionClient,
-} from "@symplist/integrations";
 import { AbortTaskRunError, schedules } from "@trigger.dev/sdk";
+import { connectionReconcilerFor } from "../../infra/connections-runtime.ts";
 import { reportingD1Counters } from "../../infra/d1-counters.ts";
 import { toWorkerError } from "../../infra/errors.ts";
-import { type WorkerRuntime, workerRuntime } from "../../infra/runtime.ts";
+import { workerRuntime } from "../../infra/runtime.ts";
 import { d1 } from "../../queues.ts";
-
-export function connectionReconcilerFor(runtime: WorkerRuntime): ConnectionReconciler | null {
-  if (!runtime.config.COMPOSIO_API_KEY) return null;
-  const client = createComposioClient(runtime.config.COMPOSIO_API_KEY);
-  const provider = new ComposioLifecycleProvider(client, runtime.config.COMPOSIO_API_KEY);
-  const policy = { betaAccessRequired: runtime.config.BETA_ACCESS_REQUIRED };
-  const repository = new SimonRepository({
-    db: runtime.db,
-    keys: runtime.keys,
-    now: Date.now,
-    policy,
-    quickChatTtlHours: runtime.config.QUICK_CHAT_TTL_HOURS,
-  });
-  const sessions = new ComposioSessions({
-    db: runtime.db,
-    client: executionClient(client),
-    policy,
-    now: Date.now,
-  });
-  return new ConnectionReconciler({
-    repository,
-    provider,
-    sessions,
-    changed: async (ownerId, connectionId) => {
-      await runtime.events.announce({
-        type: "connection.status_changed",
-        ownerId,
-        payload: { connectionId },
-      });
-    },
-  });
-}
 
 /** No user content enters Trigger payloads, outputs, tags, metadata or errors. */
 export const connectionsReconcile = schedules.task({

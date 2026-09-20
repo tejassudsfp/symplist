@@ -8,6 +8,7 @@ import {
 } from "@symplist/db";
 import type { ObjectStore } from "@symplist/storage";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import * as connectionsRuntime from "./connections-runtime.ts";
 import type { WorkerRuntime } from "./runtime.ts";
 import { runScheduledWork } from "./scheduling-runtime.ts";
 
@@ -36,14 +37,22 @@ describe("durable cleanup adapter", () => {
     const keys = createKeyProvider({
       CONTENT_KEK: { current: 1, versions: new Map([[1, Buffer.alloc(32, 2)]]) },
     });
+    const drain = vi.fn(async () => 1);
+    vi.spyOn(connectionsRuntime, "connectionReconcilerFor").mockReturnValue({ drain } as never);
     const runtime = {
-      config: { DURABLE: true, BETA_ACCESS_REQUIRED: true, QUICK_CHAT_TTL_HOURS: 24 },
+      config: {
+        DURABLE: true,
+        BETA_ACCESS_REQUIRED: true,
+        QUICK_CHAT_TTL_HOURS: 24,
+        COMPOSIO_API_KEY: "test",
+      },
       db,
       keys,
       objects: { list },
     } as unknown as WorkerRuntime;
     try {
       expect(await runScheduledWork(runtime, "cleanup")).toEqual({ noop: false });
+      expect(drain).toHaveBeenCalledWith({ mode: "durable", generation: 3 });
       expect(list).toHaveBeenCalledWith({ prefix: `u/${owner}/artifacts/`, limit: 100 });
       expect(await db.first(sql("SELECT owner_id,lease_until FROM cleanup_cursors"))).toEqual({
         owner_id: owner,
@@ -51,8 +60,10 @@ describe("durable cleanup adapter", () => {
       });
       await db.run(sql("UPDATE executor_state SET mode='local',generation=4 WHERE id=1"));
       list.mockClear();
+      drain.mockClear();
       expect(await runScheduledWork(runtime, "cleanup")).toEqual({ noop: true });
       expect(list).not.toHaveBeenCalled();
+      expect(drain).not.toHaveBeenCalled();
     } finally {
       keys.destroy();
     }

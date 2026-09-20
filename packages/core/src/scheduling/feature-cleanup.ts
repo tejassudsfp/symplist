@@ -1,6 +1,7 @@
 import { int, sql, uuidv7 } from "@symplist/db";
 import type { ObjectStore } from "@symplist/storage";
 import { type MaintenanceGuard, maintenanceStatement } from "../maintenance-fence.ts";
+import { cleanupMcp } from "../mcp/maintenance.ts";
 import { SharingMaintenance } from "../sharing/maintenance.ts";
 import { cleanupVault } from "../vault/maintenance.ts";
 import type { CleanupContext } from "./cleanup.ts";
@@ -13,6 +14,12 @@ export async function cleanupSharedFeatures(context: CleanupContext, objects: Ob
   const sharing = new SharingMaintenance(db, objects);
   await sharing.sweep(now(), fence.guard());
   if (!(await fence.current())) return;
+  await cleanupMcp({
+    db,
+    now: now(),
+    mode: fence.execution.executor === "trigger" ? "durable" : "local",
+    generation: fence.execution.generation,
+  });
   const token = uuidv7(now());
   const leaseUntil = now() + 300_000;
   const guard = fence.guard();

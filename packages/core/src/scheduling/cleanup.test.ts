@@ -79,6 +79,9 @@ describe("generation-fenced shared hourly cleanup", () => {
         "INSERT INTO webhook_receipts(provider,receipt_id,received_at) VALUES('resend','old',0)",
         {},
       ),
+      sql(
+        "INSERT INTO oauth_clients(id,metadata,created_at,write_id) VALUES('expired-client','{}',0,'seed')",
+      ),
     ]);
   }
   it.each(["local", "trigger"] as const)(
@@ -113,6 +116,7 @@ describe("generation-fenced shared hourly cleanup", () => {
         await env.db.first(sql("SELECT status FROM share_approvals WHERE id='proposal'")),
       ).toEqual({ status: "expired" });
       expect(await env.count("webhook_receipts")).toBe(0);
+      expect(await env.count("oauth_clients")).toBe(0);
       expect(store.delete.mock.calls).toEqual([[object(2).key]]);
       expect(store.list).toHaveBeenCalledWith({ prefix: `u/${owner}/artifacts/`, limit: 100 });
     },
