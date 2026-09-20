@@ -3,6 +3,7 @@ import { MessageCircleIcon, XIcon } from "lucide-react";
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { track } from "@/features/analytics/runtime";
 import { useOptionalWorkspace } from "@/features/workspace/workspace-provider";
 import type { SimonApi } from "./api.ts";
 import { SimonConversation } from "./conversation.tsx";
@@ -20,7 +21,10 @@ export function QuickChatLauncher() {
       <Button
         ref={launcher}
         className="sym-quick-chat-launcher"
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          track("quick_chat_started", { entry: "button" });
+          setOpen(true);
+        }}
         aria-expanded={open}
       >
         <MessageCircleIcon size={16} aria-hidden="true" />

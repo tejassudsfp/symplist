@@ -8,6 +8,9 @@ import { ChatPane } from "./chat-pane.tsx";
 import { SimonProvider } from "./provider.tsx";
 import { QuickChatLauncher } from "./quick-chat.tsx";
 
+const analytics = vi.hoisted(() => ({ track: vi.fn() }));
+vi.mock("@/features/analytics/runtime", () => ({ track: analytics.track }));
+
 const id = "01995000-0000-7000-8000-000000000001";
 const task = "01995000-0000-7000-8000-000000000002";
 const run = "01995000-0000-7000-8000-000000000003";
@@ -36,6 +39,7 @@ function api() {
   };
 }
 beforeEach(() => {
+  analytics.track.mockReset();
   vi.stubGlobal(
     "matchMedia",
     vi.fn(() => ({
@@ -161,6 +165,7 @@ describe("Simon conversation surfaces", () => {
       </SimonProvider>,
     );
     fireEvent.click(screen.getByRole("button", { name: "Ask Simon" }));
+    expect(analytics.track).toHaveBeenCalledWith("quick_chat_started", { entry: "button" });
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
     await waitFor(() => expect(client.history).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: "Close and delete quick chat" }));
