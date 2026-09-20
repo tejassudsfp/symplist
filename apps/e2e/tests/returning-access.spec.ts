@@ -11,9 +11,23 @@ interface LoginCode {
 test("a returning OTP login routes every current access state before protected UI renders", async ({
   context,
   page,
-}) => {
+}, testInfo) => {
   test.slow();
   const env = readRunEnv();
+  const projectAddresses: Readonly<Record<string, string>> = {
+    desktop: "192.0.2.31",
+    laptop: "192.0.2.32",
+    mobile: "192.0.2.33",
+  };
+  const clientAddress = projectAddresses[testInfo.project.name];
+  if (!clientAddress) throw new Error(`No test client address for ${testInfo.project.name}`);
+  // This route stands in for the single trusted proxy hop. Injecting at the network boundary keeps
+  // browser CORS production-shaped while giving each viewport its own real IP-limit bucket.
+  await page.route(`${env.API_ORIGIN}/**`, (route) =>
+    route.continue({
+      headers: { ...route.request().headers(), "x-forwarded-for": clientAddress },
+    }),
+  );
   const cases = [
     {
       state: "unlocked",
@@ -31,7 +45,7 @@ test("a returning OTP login routes every current access state before protected U
       state: "relocked",
       path: /\/access\/paused$/,
       heading: "Access is currently paused",
-      detail: "Your session was interrupted",
+      detail: "An administrator paused this account's beta access",
     },
     {
       state: "suspended",

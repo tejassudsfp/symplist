@@ -53,7 +53,9 @@ export function e2eApiEnv(options: { readonly apiPort: number; readonly webPort:
     API_ORIGIN: `http://127.0.0.1:${options.apiPort}`,
     WS_ORIGIN: `ws://127.0.0.1:${options.apiPort}`,
     ARTIFACT_ORIGIN: `http://localhost:${options.apiPort}`,
-    TRUST_PROXY_HOPS: "0",
+    // Playwright talks directly to this process by default. Individual proxy-sensitive flows may
+    // inject one X-Forwarded-For hop at the network route, matching production's trusted edge.
+    TRUST_PROXY_HOPS: "1",
     DATA_DRIVER: "local",
     EMAIL_DRIVER: "log",
     DURABLE: "false",

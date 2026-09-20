@@ -150,6 +150,11 @@ async function ensureAdminSession(request: APIRequestContext): Promise<string> {
   });
   expect(onboarded.status(), await onboarded.text()).toBe(200);
   expect(((await onboarded.json()) as { destination: string }).destination).toBe("app");
+  const consent = await request.put(`${apiOrigin}/v1/analytics/consent`, {
+    headers: sessionHeaders,
+    data: { state: "denied" },
+  });
+  expect(consent.status(), await consent.text()).toBe(200);
 
   await request.storageState({ path: adminStatePath });
   return adminStatePath;
