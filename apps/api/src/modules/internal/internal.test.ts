@@ -850,6 +850,21 @@ describe("run output relay dedupe as replay protection (§6.2, §8.2)", () => {
     expect(await relay.accept(unknown, body(unknown, 0))).toMatchObject({ reason: "unknown_run" });
     expect(lookups.ownership - before.ownership).toBe(2);
   });
+
+  it("revokes cached ownership immediately while retaining sequence replay protection", async () => {
+    const { relay, active, lookups, body } = relayFor();
+    const runId = uuidv7();
+    active.set(runId, "running");
+    expect(await relay.accept(runId, body(runId, 0))).toEqual({ status: "accepted", relayed: 1 });
+    const before = { ...lookups };
+    relay.invalidate(runId);
+    expect(await relay.accept(runId, body(runId, 1))).toEqual({
+      status: "rejected",
+      reason: "unknown_run",
+    });
+    expect(lookups).toEqual(before);
+    expect(await relay.accept(runId, body(runId, 0))).toEqual({ status: "duplicate" });
+  });
 });
 
 describe("run output relay key cache (§8.2)", () => {

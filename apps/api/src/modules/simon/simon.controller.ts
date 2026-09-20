@@ -27,6 +27,8 @@ import { Idempotent } from "../../common/idempotent.decorator.ts";
 import { AppLogger } from "../../common/logging/logger.ts";
 import { RouteClass } from "../../common/route-classes.ts";
 import { ExecutionDispatcher } from "../../infra/executors/dispatcher.ts";
+import { RunOutputRelay } from "../internal/run-output.relay.ts";
+import { TopicHub } from "../realtime/topic-hub.ts";
 import { simonCall, simonWriteFold } from "./simon.http.ts";
 
 /** Cookie/Origin/CSRF-protected commands. No model, tool or agent dependency lives here. */
@@ -37,6 +39,8 @@ export class SimonController {
     @Inject(SimonRepository) private readonly repository: SimonRepository,
     @Inject(SimonQuickChats) private readonly quickChats: SimonQuickChats,
     @Inject(ExecutionDispatcher) private readonly dispatcher: ExecutionDispatcher,
+    @Inject(RunOutputRelay) private readonly runOutput: RunOutputRelay,
+    @Inject(TopicHub) private readonly hub: TopicHub,
     private readonly logger: AppLogger,
   ) {}
 
@@ -122,9 +126,11 @@ export class SimonController {
         conversationId,
         simonWriteFold(req),
       );
+      this.hub.forgetConversation(session.userId, conversationId);
       // The transaction removed all history and authority first. Retained ids-only dispatch
       // intents let a lost reply retry cancellation without keeping chat content.
       if (closed.runId) {
+        this.runOutput.invalidate(closed.runId);
         try {
           await this.dispatcher.cancel("simon_run", closed.runId);
         } catch {

@@ -157,6 +157,60 @@ describe("ring buffer", () => {
     expect(buffer.canReplayAfter(15, 14)).toBe(false);
     expect(() => buffer.push({ seq: 14 })).toThrow(RangeError);
   });
+
+  it("drops a deleted conversation's buffered plaintext and detaches its subscribers", async () => {
+    const clock = new FakeClock(1_000_000);
+    const registry = new TopicRegistry();
+    const hub = new TopicHub({
+      registry,
+      access: { satisfies: () => true },
+      timers: clock,
+      log: new Log(),
+      events: testEvents,
+    });
+    const ownerId = uuidv7();
+    const conversationId = uuidv7() as ConversationId;
+    const topic = conversationTopic(conversationId);
+    registry.registerAuthorizer({ kind: "conversation", authorize: async () => true });
+    const liveLengths: number[] = [];
+    registry.registerSnapshotProvider({
+      kind: "conversation",
+      snapshot: async (_socket, _topic, live) => {
+        liveLengths.push(live.length);
+        return { conversationId, messages: [] };
+      },
+    });
+    const sent: string[] = [];
+    const socket = hub.connect(
+      { send: (frame) => sent.push(frame), close: () => undefined, isOpen: () => true },
+      {
+        userId: ownerId,
+        sessionId: uuidv7(),
+        access: {
+          emailVerifiedAt: 1,
+          betaState: "unlocked",
+          suspendedAt: null,
+          onboardingStep: "done",
+          role: "member",
+          accessGeneration: 1,
+          accessEpoch: 0,
+          deletionState: "none",
+        },
+      },
+    );
+    await hub.publishToConversation(
+      { ownerId, conversationId },
+      { type: "chunk", data: { marker: MARKER } },
+    );
+    expect(await hub.subscribeConversation(socket, topic, null)).toBe("subscribed");
+    expect(liveLengths).toEqual([1]);
+    hub.forgetConversation(ownerId, conversationId);
+    expect(hub.topicCount()).toBe(0);
+    expect(JSON.parse(sent.at(-1) ?? "{}")).toEqual({ t: "resync", topic });
+    expect(JSON.stringify(sent)).not.toContain(MARKER);
+    expect(await hub.subscribeConversation(socket, topic, null)).toBe("subscribed");
+    expect(liveLengths).toEqual([1, 0]);
+  });
 });
 
 describe("platform wiring (§5.5, §7)", () => {

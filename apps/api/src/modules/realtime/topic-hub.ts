@@ -530,6 +530,29 @@ export class TopicHub implements RealtimePublisher {
     return this.topics.size;
   }
 
+  /**
+   * Drops a deleted conversation's plaintext replay tail immediately. Existing tabs receive a
+   * content-free resync before their subscription is detached, so they re-read and reach the
+   * ordinary not-found state instead of retaining a stale transcript.
+   */
+  forgetConversation(ownerId: string, conversationId: string): void {
+    const key = `conversation:${conversationId}`;
+    const state = this.topics.get(key);
+    if (!state) return;
+    if (state.ownerId !== null && state.ownerId !== ownerId) {
+      this.options.log.error("realtime.owner_mismatch", { topic: key });
+      return;
+    }
+    const frame = JSON.stringify({ t: "resync", topic: state.topic });
+    for (const record of [...state.subscribers]) {
+      if (record.userId === ownerId) this.sendNow(record, frame);
+      record.subscriptions.delete(key);
+    }
+    state.subscribers.clear();
+    state.buffer?.clear();
+    this.topics.delete(key);
+  }
+
   /* ---------------------------------------------------------------------------------------------
    * Internals
    * ------------------------------------------------------------------------------------------- */

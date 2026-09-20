@@ -126,6 +126,21 @@ export class RunOutputRelay {
     return this.runs.size;
   }
 
+  /**
+   * A trusted owner action removed the run's conversation. Retain sequence dedupe, but revoke every
+   * cached fact that could otherwise admit plaintext until the normal state TTL expires.
+   */
+  invalidate(runId: string): void {
+    const entry = this.runs.get(runId);
+    if (!entry) return;
+    entry.ownership = null;
+    entry.ownershipPromise = undefined;
+    entry.state = { value: null, readAt: this.options.timers.now() };
+    entry.statePromise = undefined;
+    entry.missingAt = this.options.timers.now();
+    entry.lastUsedAt = this.options.timers.now();
+  }
+
   async accept(pathRunId: string, body: RunOutputBody): Promise<RelayResult> {
     const { hub, log } = this.options;
     if (hub.isShuttingDown) return this.reject(body, "shutting_down");
