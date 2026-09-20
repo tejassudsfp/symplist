@@ -4,13 +4,13 @@ import { documentsActions } from "./actions.ts";
 import { type DocumentController, setActiveDocument } from "./controller.ts";
 import { setOutlineRequestHandler } from "./outline-request.ts";
 
-function environment(route: WorkspaceRoute | null) {
+function environment(route: WorkspaceRoute | null, shell: ActionServices["shell"] = null) {
   const services: ActionServices = {
     navigate: vi.fn(),
     assign: vi.fn(),
     announce: vi.fn(),
     route,
-    shell: null,
+    shell,
   };
   const env: ActionEnvironment = { source: "keyboard", platform: "other", pane: "page", services };
   return { env, services };
@@ -194,6 +194,23 @@ describe("documents.ask_outline", () => {
     expect(byId("documents.ask_outline").availability(env)).toEqual({ enabled: true });
     await byId("documents.ask_outline").run(env);
     expect(handler).toHaveBeenCalledWith(taskId);
+  });
+
+  it("reveals and focuses chat after Simon prepares the outline request", async () => {
+    const handler = vi.fn();
+    const focusPane = vi.fn();
+    setOutlineRequestHandler(handler);
+    const shell = {
+      focusPane,
+      revealInbox: vi.fn(),
+      toggleInbox: vi.fn(),
+      toggleChat: vi.fn(),
+      isInboxVisible: vi.fn(() => true),
+      isChatVisible: vi.fn(() => false),
+    };
+    const { env } = environment({ collection: "now", taskId }, shell);
+    await byId("documents.ask_outline").run(env);
+    expect(focusPane).toHaveBeenCalledWith("chat");
   });
 
   it("does nothing when the handler disappeared between the check and the run", async () => {

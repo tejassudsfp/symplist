@@ -2,6 +2,7 @@ import { simonConversationViewSchema } from "@symplist/contracts";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { outlineRequestHandler } from "@/features/documents/outline-request";
 import { createSimonApi, type SimonApi } from "./api.ts";
 import { ChatPane } from "./chat-pane.tsx";
 import { SimonProvider } from "./provider.tsx";
@@ -47,6 +48,23 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("Simon conversation surfaces", () => {
+  it("registers the empty-page outline seam, preserving a draft for the task", async () => {
+    const client = api();
+    const rendered = render(
+      <StrictMode>
+        <SimonProvider userId="owner" api={client} realtime={null}>
+          <ChatPane taskId={task} />
+        </SimonProvider>
+      </StrictMode>,
+    );
+    await waitFor(() => expect(outlineRequestHandler()).not.toBeNull());
+    await outlineRequestHandler()?.(task);
+    expect(screen.getByRole("textbox", { name: "Message Simon" })).toHaveValue(
+      "Create a concise outline for this task page.",
+    );
+    rendered.unmount();
+    expect(outlineRequestHandler()).toBeNull();
+  });
   it("mounts real AI Elements and memoized stores through Strict Mode, then sends", async () => {
     const client = api();
     render(

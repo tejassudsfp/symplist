@@ -7,6 +7,10 @@ import {
   useMemo,
   useSyncExternalStore,
 } from "react";
+import {
+  outlineRequestHandler,
+  setOutlineRequestHandler,
+} from "@/features/documents/outline-request";
 import { createSimonApi, type SimonApi } from "./api.ts";
 import { type SimonRealtime, simonRealtime } from "./realtime.ts";
 import { SimonStore } from "./store.ts";
@@ -30,6 +34,15 @@ export function SimonProvider({
   useEffect(() => {
     store.reopen();
     return () => store.dispose();
+  }, [store]);
+  useEffect(() => {
+    const requestOutline = (taskId: string) => {
+      store.draft(taskId, "Create a concise outline for this task page.");
+    };
+    setOutlineRequestHandler(requestOutline);
+    return () => {
+      if (outlineRequestHandler() === requestOutline) setOutlineRequestHandler(null);
+    };
   }, [store]);
   return <Context.Provider value={store}>{children}</Context.Provider>;
 }

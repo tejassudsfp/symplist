@@ -90,6 +90,7 @@ export const documentsActions: readonly AppAction[] = [
       const handler = outlineRequestHandler();
       if (!taskId || !handler) return;
       await handler(taskId);
+      services.shell?.focusPane("chat");
     },
   },
 ];
