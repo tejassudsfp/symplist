@@ -1,5 +1,10 @@
 # D2 cross-feature maintenance integration
 
+Current status: merged and verified. The shared local/durable hourly path now covers bounded,
+generation-fenced Quick Chat, Vault/share, OAuth/MCP and Composio-revocation maintenance. Current
+browser and executor evidence is recorded in [coverage.md](../coverage.md); branch-era wiring notes
+below are historical.
+
 Branch `wip/d2-maintenance`, isolated sole-writer tree `symplist-wt/maintenance`, base `7915bc5`.
 
 ## Implemented

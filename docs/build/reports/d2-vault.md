@@ -1,5 +1,10 @@
 # D2 Vault — implemented and stage-verified
 
+Current status: merged and Phase E verified. Core/security/HTTP/UI contracts and `vault.spec.ts` at
+1440, 1024 and 390 cover setup, edit, idle lock, fresh-OTP recovery and preserved contents; grant
+resolution and redaction pass under both executors. The branch-era details and open-integration
+language below are retained as implementation history, not current work.
+
 Branch: `wip/d2-vault`. Sole worktree: `symplist-wt/vault`. Integration base: `bc138ea`; root fixture repair `b7e805b` was cherry-picked as `9989373`.
 
 ## Implemented

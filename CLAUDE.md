@@ -11,73 +11,59 @@ most simple.**
 
 ## Status — read this first
 
-**Last updated 2026-09-16, after a session crash mid-merge.**
+**Last updated 2026-09-20, after the final release-candidate audit and evidence gate.**
 
 | Phase | State |
 | --- | --- |
 | 0 · Scaffold | Done |
 | A · Research | Done — `docs/build/research/` |
 | B · Architecture | Done — `docs/build/architecture.md`, revised after a 56-issue review |
-| C · Foundation | Done — 39/43 independent checks; 4 deferred by design |
-| **D1 · Feature wave 1** | **Merged, NOT yet verified** — see below |
-| D2 · Feature wave 2 | **Not started** |
-| E · Integration & visual | Not started |
-| F · Adversarial review | Not started |
-| G · Docs, self-hosting, PR | Not started |
+| C · Foundation | Done; the four deferred provider/executor checks landed in D2/E |
+| D1 · Feature wave 1 | Done and verified |
+| **D2 · Feature wave 2** | **Done and verified** |
+| **E · Integration & visual** | **Done and verified** |
+| F · Adversarial review | Done for the release candidate |
+| G · Docs, self-hosting, PR | Repository work done; owner merge/publish pending |
 
-### Exactly where D1 stands
+### Exactly where D2/E stand
 
-All four feature branches are **merged and committed** onto `feat/symplist-build`:
+All D2 feature areas are merged on `feat/symplist-build`: Simon/executors/Quick Chat, scheduling and
+notifications, Vault, Sharing/handoff, Connections/incoming MCP, analytics/consent and the Resend
+webhook. The Trigger tasks, cross-feature browser flows, six-theme visual matrix, environment split,
+live migrations and bounded provider contracts exist.
 
-```
-e5420c1  Close the three cross-branch items the merge had to fix
-71bb464  Merge the documents feature into the D1 build branch
-9557fcb  Merge the access feature into the D1 build branch
-8e4807f  Merge the search feature into the D1 build branch
-6533ec1  Merge the workspace feature into the D1 build branch
-```
+The final adversarial pass found and fixed real integration defects: Strict Mode stores that stayed
+disposed after remount, artifact password navigation carrying `Origin: null`, responsive Simon
+document navigation, consent mutation timing, concurrent scheduling assertions, a stale global
+smoke skip and missing browser proof for Quick Chat expiry, share expiry and handoff release.
+The final Playwright run passed 212 cases with 16 intentional skips across the three viewports, and
+the regenerated evidence is committed as release evidence.
 
-`wip/workspace`, `wip/access`, `wip/documents` and `wip/search` are each **0 commits ahead** of the
-build branch — fully absorbed. Nothing was lost in the crash.
+### Final D2/E verification
 
-**What the crash cost:** the merge agent was on its *final full verification run before committing*
-and never finished. So:
+Confirmed on the merged current head: Biome checked 1,453 files with zero errors or warnings; all 17
+projects typechecked; 4,767 Vitest tests and 61 script tests passed; both production builds passed;
+Playwright passed 212 cases with 16 intentional skips; `pnpm smoke:local`, the API deploy check and
+the documentation check passed. All 46 live D1 migrations were already applied.
 
-- **93 files are uncommitted**: 79 regenerated e2e evidence screenshots, 12 modified source/doc
-  files, and one new file (`apps/e2e/src/helpers/identity.ts`).
-- Those 12 files are real cross-feature e2e fixes (`access.spec.ts`, `search.spec.ts`,
-  `shell.spec.ts`, the e2e helpers, `documents.test.ts`, `access-paused.tsx`) plus part-written
-  updates to `progress.md`, `coverage.md` and `decisions.md`.
-- **The merged tree has never passed a full gate run.** Treat it as unverified until it does.
-
-### The next action
-
-Run the gates on the merged tree, fix what fails, commit. In order:
+Reproduce the complete release gate with:
 
 ```bash
 export PATH="/opt/homebrew/opt/node@24/bin:$PATH"
-pnpm install
+pnpm install --frozen-lockfile
 pnpm lint          # zero errors AND zero warnings
 pnpm typecheck
 pnpm test
 pnpm build && pnpm build:web:clean
 pnpm e2e           # slowest by far: cold-starts web + api, 3 viewports
+pnpm smoke:local
 node scripts/check-api-deploy.mjs
 python3 scripts/check_docs.py
 ```
 
-Then an independent pass that proves no branch lost work in the conflict resolutions
-(`git diff feat/symplist-build...wip/<branch>` for each of the four), and only then D2.
-
-Merge notes from all eight D1 stages, including the known conflict hotspots, were collected during
-the merge — regenerate them from the stage reports if needed.
-
-### After that
-
-1. **D2** — Simon/executors/Composio/quick chat, scheduling/notifications/calendar, Vault,
-   sharing/handoff, connections/MCP, analytics/consent. The biggest wave.
-2. **E** — cross-feature E2E, visual verification at 1440/1024/390 across all six themes.
-3. **F**, then **G**.
+D2/E and the repository-side F/G release work are complete. The resume anchor is
+`docs/build/progress.md`; it records the exact passing focused, browser and live evidence. The owner
+still controls the feature-branch merge, production provider settings and post-deploy smoke.
 
 ---
 
@@ -100,18 +86,14 @@ CI-only, and the GitHub integration replaces it.
 | `document-git` | small-1x | `d1-git` |
 | `documents-maintenance` | micro | `d1` |
 | `search-index` | micro | `d1` |
+| `simon-run` | micro | `d1` |
+| `reminder-scan` | micro | `reminder-scan` (concurrency 1) |
+| `cleanup-hourly` | micro | `d1` |
+| `connections-reconcile` | micro | `d1` |
 
-**Tasks the architecture specifies that do NOT exist yet — all D2:**
-
-- **`simon-run`** — the chat run. §8 and §3 define it: the api dispatcher calls
-  `tasks.trigger('simon-run', { runId }, { idempotencyKey: runId })` when `DURABLE=true`, stores
-  `trigger_run_id`, and never runs model or tool code in the api itself. The dispatcher, the
-  `DURABLE` branch, the internal-event relay and the run-output controller are all built and tested
-  in Phase C — **the task on the other end is not written.**
-- `reminder-scan` (queue `reminder-scan`, concurrency 1), `cleanup-hourly`, `connections-reconcile`.
-
-So: **Simon chat does not run on Trigger yet.** The scaffolding is correct and waiting; the task is
-D2 work.
+With `DURABLE=true`, Simon model/tool work runs in `simon-run`; the API only accepts, claims and
+dispatches. Trigger payloads/outputs/tags stay ids/enums/counts only, and encrypted content returns
+through the signed worker-to-API relay. Trigger Sessions and `chat.agent` remain forbidden by R2.
 
 ### The executor rule (owner, 2026-09-16)
 
@@ -187,18 +169,18 @@ pnpm secrets:generate
 
 **Git**
 
-- Never push. Never commit to `main`. Never open a PR without being asked. Only the owner merges.
+- Never commit or push `main`, and never open a PR without being asked. Only the owner merges.
+- Push `feat/symplist-build` only when the owner explicitly asks for a remote snapshot or handoff.
 - All work goes on `feat/symplist-build` or a `wip/*` branch.
-- Commit messages end with:
-  ```
-  Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
-  ```
+- Commit in logical chunks with plain messages and no attribution or credit trailers.
 
 **Secrets**
 
-- Never commit `.env*`, `symplist_env_and_decisions.csv`, or the original build prompt.
-- The master env lives at `.env.local` (git-ignored, mode 600) and is **not** distributed into
-  `apps/*/.env` yet — doing so turns on live suites that would hit real providers.
+- Never commit `.env*`, `symplist_env_and_decisions.csv`, or the original build prompt. The root
+  `.env.example` is the sole tracked `.env*` exception and contains no real values; per-runtime
+  checked-in templates are named `apps/*/env.example`.
+- The master env lives at `.env.local` (git-ignored, mode 600). On 2026-09-20 it was distributed
+  into ignored mode-600 `apps/{api,worker,web}/.env` files and validated with `pnpm env:check`.
 - `CONTENT_KEK_1` and `VAULT_RECOVERY_KEY_1` need an offline backup. Lose the first and every
   encrypted field is unrecoverable; lose the second and no vault can be recovered.
 
@@ -227,15 +209,16 @@ Put one in the wrong file and the app refuses to boot.
 
 ## Credentials
 
-Verified live: **D1** (database `symplist`, 30 migrations not yet applied), **R2** (bucket
-`symplist-r2`, write-tested), **Trigger** (prod key, authenticated).
-Stored but untested: OpenAI, Composio, Resend.
-Outstanding, not blocking: the four PostHog vars (analytics is enabled), and the two webhook signing
-secrets, which the providers only issue once those endpoints exist in D2.
+Verified live on 2026-09-20 without printing credentials: D1 15/15, R2 10/10, Trigger 15 passing
+checks (three intentional target-control skips), OpenAI 13/13 including a real prompt-cache read,
+Composio 7 passing checks (five target-capability skips), and PostHog 1/1. All 46 expand-only
+migrations are present in the live D1 database (`applied: 0`, `alreadyApplied: 46`,
+`outOfOrder: 0`). Resend delivery/webhook remains an honestly documented live-provider gap; the
+optional-secret 404 path and signed webhook contracts are verified locally.
 
 ## Brand
 
 The mark is three rows — dots plus lines stepping down 11.0 / 7.4 / 3.8 on a 24-unit grid, 2.2
 stroke, round caps. Drawn in `currentColor` so it inherits all six themes in light and dark; it
-never carries a colour of its own. Wordmark is lowercase. Assets are cut but **not yet added to
-`apps/web`** — that was queued behind the merge.
+never carries a colour of its own. Wordmark is lowercase. The component and web/PWA/social assets
+live under `apps/web/src/components/brand/` and `apps/web/public/brand/`.

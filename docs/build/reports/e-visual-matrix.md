@@ -49,7 +49,8 @@ All files are retained in `apps/e2e/evidence/visual-matrix/`. Each link below re
 - Production Next build and API TypeScript build: passed as prerequisites of the browser run.
 - Visual matrix: **36/36 browser tests passed**, with five real visible task rows, saved desktop page, persisted theme/mode, keyboard focus, no horizontal document overflow, checkbox/bell contrast ≥3:1, and WCAG 2.2 AA axe rules without exclusions.
 - The two intentionally failing pre-fix contrast runs are regression evidence, not unexplained flakes.
-- Full cross-feature e2e and live integration suites were not run for this bounded slice.
+- At this isolated branch checkpoint, full cross-feature e2e and live integration suites were not
+  run; their later merged-tree results are recorded in [progress.md](../progress.md).
 - Documentation links and all 44 screen briefs passed `python3 scripts/check_docs.py`; `git diff --check` passed.
 
 Reproduce without disturbing the development instance:
@@ -73,4 +74,8 @@ pnpm --filter @symplist/e2e exec playwright test tests/visual-matrix.spec.ts --w
 
 No migrations, manifests, lockfile, backend, Simon/Connections components, progress ledger or coverage ledger changed. No live credentials were read or retained; the existing harness generated throwaway test keys and local-driver accounts. Ports 3000/4000 were untouched.
 
-The captured Simon panel is the baseline's truthful empty state; populated/streaming chat and approvals need the later Simon UI integration matrix. Consent was disabled by the throwaway test deployment, so these frames do not verify the consent banner. This slice establishes populated-workspace theme evidence, not all-screen visual acceptance.
+The captured Simon panel is the baseline's truthful empty state. Dedicated Studio/light Simon,
+approval and Quick Chat evidence at all three viewports is recorded in
+[the Simon browser report](e-simon-browser.md); it is intentionally separate from this 36-frame
+populated-workspace theme matrix. Consent was disabled by the throwaway test deployment, so these
+frames do not verify the consent banner; the merged analytics browser journey does.

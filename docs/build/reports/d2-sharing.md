@@ -1,6 +1,9 @@
 # D2 Sharing / Analytics stream
 
-Status: implementation and stream-local verification complete; ready for integration. Sole writer in `symplist-wt/sharing`, branch `wip/d2-sharing`. Cross-feature wiring and Phase E evidence remain with the integrator, explicitly listed below.
+Current status: merged and Phase E verified. `sharing.spec.ts` passes private/password/public release,
+signed-out HTML/raw reads, revoke, relock, deterministic expiry and manual handoff release at all
+three viewports. The original `symplist-wt/sharing` branch checkpoint and remaining-integration
+language below are retained as implementation history.
 
 ## Backend checkpoint
 

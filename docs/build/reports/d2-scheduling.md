@@ -1,5 +1,11 @@
 # D2 Scheduling and Resend stream — handoff
 
+Current status: merged and Phase E verified. `scheduling.spec.ts` passes the deadline, calendar,
+production scanner, notification, snooze, completion and persisted-settings journeys at all three
+viewports. Resend webhook/provider contracts pass locally; live Resend delivery is neither required
+by Phase E nor claimed. The branch-era integration language below is retained as implementation
+history.
+
 Worktree: `symplist-wt/scheduling`, branch `wip/d2-scheduling`. Sole writer. Implementation is checkpointed in logical commits; cross-stream wiring and Phase E browser/live verification belong to the integrator.
 
 ## Implementation

@@ -1,21 +1,26 @@
 # What each remaining phase needs
 
-Written 2026-09-16, the day Phase D1 was merged and verified. Companion to
+Written 2026-09-16, the day Phase D1 was merged and verified; completion status updated
+2026-09-20. Companion to
 [progress.md](progress.md) (the checkpoint), [architecture.md](architecture.md) (binding design)
 and [decisions.md](decisions.md) (numbered rulings that override instinct).
 
-**Done so far:** phases 0, A, B, C and D1. The build branch is one clean checkout, every gate green:
-lint over 1,102 files with zero warnings, every project typechecking, ~3,500 tests, both builds,
-92 e2e tests, the api deploy check and the docs check.
+**Done so far:** phases 0 through F, plus every repository-side Phase G deliverable. The requirements
+below remain the audit trail; exact current-head gate results live in [progress.md](progress.md).
 
-**Left:** D2, E, F, G.
+**Left:** the owner-controlled merge/publish and post-deploy smoke boundary.
 
 ---
 
 ## Phase D2 — feature wave 2
 
-The larger of the two waves. Every area below is currently a **seam only** — between 4 and 36 lines
-per feature, against 34–72 files each for the D1 features. Effectively none of it is written.
+**Status: Done.** Every feature area, screen, task registration and carried Phase C contract listed
+below is integrated. Completed release evidence and current-head repository checks are recorded in
+[progress.md](progress.md) and [coverage.md](coverage.md).
+
+At the 2026-09-16 D1 checkpoint, every area below was a **seam only** — between 4 and 36 lines per
+feature, against 34–72 files each for the D1 features. This table is the pre-D2 baseline, not the
+current implementation state.
 
 | Feature | web | api | core |
 | --- | --- | --- | --- |
@@ -28,11 +33,11 @@ per feature, against 34–72 files each for the D1 features. Effectively none of
 
 ### D2a · Simon, executors and quick chat — architecture §8
 
-The centrepiece, and the largest single piece of work left in the project.
+The centrepiece, and the largest single piece of work in D2.
 
-- **`simon-run` Trigger task.** Machine `micro`, queue `d1`. The api dispatcher already calls
-  `tasks.trigger('simon-run', { runId }, { idempotencyKey: runId })` and the reconciler already
-  polls it — **the task itself does not exist.** It starts with a conditional claim
+- **`simon-run` Trigger task.** Machine `micro`, queue `d1`. The api dispatcher calls
+  `tasks.trigger('simon-run', { runId }, { idempotencyKey: runId })`, the reconciler polls it and the
+  registered task starts with a conditional claim
   (`queued` → `running` at the current executor generation); a failed claim exits as a no-op.
 - **The owner's executor rule**: if durable, everything on Trigger; if not, no Trigger. Already
   enforced — the api rejects `OPENAI_API_KEY` when `DURABLE=true`, so it cannot call a model.
@@ -47,7 +52,7 @@ The centrepiece, and the largest single piece of work left in the project.
   This is why `document-git` has its own `d1-git` queue — `simon-run` must never hold the slot its
   own child needs.
 - **§8.3 Trigger hygiene.** Payloads, outputs, metadata and tags carry only ids, enums and counts.
-  Needs the **marker-string test** that proves no plaintext reaches a Trigger-hosted sink.
+  Marker-string tests prove no plaintext reaches a Trigger-hosted sink.
   `TRIGGER_AI_SDK_OTEL_AUTOREGISTER=0`. No Trigger Sessions, no `chat.agent`, no `AgentChat` —
   see the R2 note in [CLAUDE.md](../../CLAUDE.md).
 - **Quick chat**: task-less conversation from the bottom-right button, shown only when no task is
@@ -92,7 +97,7 @@ The centrepiece, and the largest single piece of work left in the project.
 - **This unblocks D1's deliberate gap**: `apps/web/src/features/documents/artifact-surface.ts` is
   the seam the documents feature left for exactly this. The artifact viewer, the share-creation
   dialog and the grant list were left unbuilt in D1 because their contracts and these routes did not
-  exist. Fill the seam rather than building a parallel surface.
+  exist. D2 filled that seam rather than building a parallel surface.
 - Briefs: `artifact_share`, `artifact_shares`, `artifact_viewer`, `handoff`.
 
 ### D2e · Connections and incoming MCP — architecture §14
@@ -115,7 +120,8 @@ The centrepiece, and the largest single piece of work left in the project.
 - Event allowlist and property schemas from note 17, plus `quick_chat_started` and
   `quick_chat_saved`. `analytics_id` is a random id, never derived from identity, never exposed in
   responses or logs (decision R9).
-- **Needs the four PostHog variables** — the only credentials still outstanding.
+- The four PostHog variables are present in the ignored live environment, and the bounded live
+  PostHog contract passed 1/1 without private content.
 
 ### D2g · Resend webhook — decision R14, architecture §12.5
 
@@ -144,6 +150,11 @@ marker-string test proves no plaintext reaches Trigger; and the full gate set is
 
 ## Phase E — integration, end-to-end and visual
 
+**Status: Done.** The 20-flow ledger, both-executor contracts, restart/no-replay proof, D1 load
+contract, 36-frame theme/mode/viewport matrix, environment placement, 46 live migrations and the
+required bounded live suites are recorded in [coverage.md](coverage.md). A browser against the
+deployed durable stack remains a publish smoke boundary, not a substitute for executor parity.
+
 Cross-feature work that only makes sense once D2 exists.
 
 - **The 20 flows in [coverage.md](coverage.md)**, end to end, not per-feature.
@@ -153,21 +164,27 @@ Cross-feature work that only makes sense once D2 exists.
   conflicts, duplicate message submission, disconnect and replay without duplicate output, stop and
   approval flows, restart during a side effect, and an environment mode change with active work.
 - **Visual verification at 1440 / 1024 / 390** across all six themes in light and dark. D1 captured
-  evidence at studio/light only (plus one meadow/dark appearance journey), so the populated-list
-  frames per theme are still missing.
+  evidence at studio/light only (plus one meadow/dark appearance journey); Phase E added, reran and
+  inspected all 36 populated-list theme × mode × viewport frames.
 - **The D1 load test** (§3.1) if it has not already landed in D2.
-- **Live suites** against the real providers — D1, R2, Trigger, OpenAI, Composio, PostHog. D1, R2
-  and Trigger credentials are verified working; these suites currently skip themselves when
+- **Live suites** against the real providers — D1, R2, Trigger, OpenAI, Composio, PostHog. All six
+  required bounded suites passed with credentials on 2026-09-20; they still skip deliberately when
   credentials are absent.
 - **Distribute `.env.local` into `apps/*/.env`** along the secret-placement matrix in
-  [CLAUDE.md](../../CLAUDE.md). This is deliberately not done yet: with `DURABLE=true` the api
-  *rejects* `OPENAI_API_KEY`, the worker must *not* carry `TRIGGER_SECRET_KEY`, and turning the live
-  suites on early means tests hitting the real OpenAI account and R2 bucket.
-- **Apply the 30 migrations** to the live D1 database, which is currently empty.
+  [CLAUDE.md](../../CLAUDE.md). Distribution and `pnpm env:check` are complete: the durable api
+  rejects `OPENAI_API_KEY`, the worker does not carry `TRIGGER_SECRET_KEY`, shared families match and
+  all three ignored runtime files are mode 600.
+- **Apply the migrations** to the live D1 database. The current tree has 46 expand-only migrations;
+  the live run reported `applied: 0`, `alreadyApplied: 46`, `outOfOrder: 0`.
 
 ---
 
 ## Phase F — adversarial review
+
+**Status: Done for this release candidate.** Independent backend, frontend, cost/privacy,
+self-hosting and final-release passes read the integrated diff and fixed the defects they found.
+The findings, fixes and exact release gates are recorded in
+[the release audit](reports/f-release-audit.md).
 
 The pattern that paid for itself in D1: a reviewer that reads the whole diff, hunts real defects,
 **fixes them**, and returns a verdict. In D1 this caught a task tree with no tab stop at all, a
@@ -196,6 +213,12 @@ Dimensions worth a pass each:
 ---
 
 ## Phase G — documentation, self-hosting and the pull request
+
+**Status: repository work done; owner merge/publish pending.** The runnable guide, deployment
+configuration, CI migration job, brand assets, README, About screen, updated specifications and
+release evidence are committed on `feat/symplist-build`. The standing rule forbids this builder from
+opening or merging the pull request; the owner performs that final external action and the
+post-deploy smoke.
 
 - **Self-hosting guide** from note 08 — the whole point of the MIT licence.
 - **Deploy configuration**: Vercel (web) and Render (api, basic paid always-on). Domains

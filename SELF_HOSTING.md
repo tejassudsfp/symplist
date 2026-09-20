@@ -231,7 +231,8 @@ The application adds these independent safety bounds:
 - at most ten model/tool steps, one tool call per step, and no automatic model retries;
 - the newest 40 conversation messages and 64 KiB of encrypted-history plaintext enter a prompt;
 - provider-controlled connector results have a cumulative 96 KiB model-visible budget;
-- Simon message submissions are limited to 12 per client network per minute before D1/model work;
+- Simon message submissions are limited to 12 per authenticated session within its client network
+  per minute before D1/model work; only a one-way session digest enters the limiter key;
 - Fast and Smart resolve only to the explicitly configured models; there is no silent expensive
   fallback.
 
@@ -485,6 +486,10 @@ excluded. The browser posts allowed events to `POST /v1/analytics/events`; ident
 server. User consent is still required after the operator enables PostHog.
 
 ## 14. Backup, restore, and export
+
+These are provider/operator procedures. Symplist does not ship a backup/restore orchestrator, so
+the commands below must be reviewed against the current provider documentation and rehearsed in an
+isolated environment before they are used on production data.
 
 ### What must be backed up
 

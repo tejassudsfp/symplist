@@ -65,8 +65,10 @@ after committing is sent exactly once, while a failed read retries.
 - This is service/transport integration, not browser or HTTP middleware coverage. Session resolution,
   signed output relay, unrelated background maintenance and periodic reconciliation are not part of
   the measured workload. Output chunks use an in-memory sink and do not write D1 per token.
-- Gates on the final merged application, the current browser journeys and live Resend remain the
-  integrator's responsibility. This test must not be cited as completion of Phase E.
+- Final merged gates and current browser journeys are recorded in [progress.md](../progress.md) and
+  [coverage.md](../coverage.md). A live Resend delivery/webhook is not part of the required Phase E
+  live set and is not claimed. This load test remains local request-volume evidence and must not be
+  cited as a live capacity or latency result.
 
 ## Verification
 

@@ -1,19 +1,28 @@
 # Phase E Simon browser and executor evidence
 
-Status: the local-executor browser journeys are authored and the merged executor contracts are
-verified; the browser suite has not been rerun on the current merged tree, and the durable browser
-relay path remains unverified.
+Status: verified on the merged tree. The local-executor browser journeys, connector approval
+journeys and restart/no-replay journey pass at 1440, 1024 and 390. Executor parity is verified by
+the shared local/Trigger contract matrix; a browser against a deployed durable environment is a
+deployment smoke boundary, not part of the local Playwright harness.
 
-## Authored browser coverage
+The final full Playwright gate passed **212 cases with 16 intentional skips**. The Simon family
+contributed 33 passing viewport cases: 24 from `simon.spec.ts`, six from
+`simon-connections.spec.ts` and three from `executor-resilience.spec.ts`.
 
-`apps/e2e/tests/simon.spec.ts` defines six real-API journeys. Playwright expands them across the
-three configured viewports (1440, 1024 and 390), for 18 cases:
+## Executed browser coverage
+
+`apps/e2e/tests/simon.spec.ts` defines eight real-API journeys. Playwright expands them across the
+three configured viewports (1440, 1024 and 390), for 24 passing cases:
 
 - Task chat submission with Enter/newline, IME non-submission and Mod+Enter; one accepted message,
   terminal reply, WebSocket disconnect/reconnect and reload without duplicate visible output.
 - Temporary Quick Chat send and close/delete; a 404 for the deleted conversation, launcher focus
   restoration and a fresh empty conversation.
+- Hourly cleanup expiring an unsaved Quick Chat after the configured 24-hour TTL and returning the
+  browser to a fresh conversation.
 - Quick Chat Save as task with the conversation preserved after reload.
+- Simon reading and updating an exact saved document section through the real encrypted job/Git
+  path, with the open page receiving the new revision.
 - Stop on an encrypted paused run while preserving existing assistant output.
 - Answering the exact pending question through the owner API.
 - Exact action/account details on an approval card, denial, persisted denied state and reload.
@@ -51,41 +60,49 @@ The backend matrix is broader than the browser file and is verified by focused l
   local executor contracts prove it makes no Trigger call. Worker registration and the §8.3 marker
   tests cover the ids-only Trigger payload/output boundary and encrypted worker→API output design.
 
-The focused verification that introduced the final matrix edges passed: agent 43, core 133, API
-executor 76 (plus six credential-gated skips), worker matrix/load five, and an additional 56 core
-tests. These are service/contract results, not browser results.
+`apps/e2e/tests/simon-connections.spec.ts` adds six passing viewport cases. They prove discovery,
+schema lookup, an exact encrypted action proposal, recognizable account identity, trusted-UI
+approval, one successful invocation, an uncertain post-send outcome, duplicate-decision rejection
+and no blind resend. `apps/e2e/tests/executor-resilience.spec.ts` adds three passing viewport cases:
+it recreates the repository/key process boundary after an accepted effect loses its response, then
+drives the real Retry UI and proves one invocation/effect marker and no replay marker.
 
-## Live evidence and remaining boundary
+The focused backend verification that introduced the matrix edges passed: agent 43, core 133, API
+executor 76 (plus six credential-gated skips), worker matrix/load five, and an additional 56 core
+tests. The final full unit gate later passed 4,767 Vitest tests plus 61 script tests.
+
+## Live evidence and deployment boundary
 
 Bounded live contracts were run on 2026-09-20: Trigger 15 passed with three intentionally skipped
-live-control cases (local, fake and live targets all exercised), and OpenAI 12/12. The Composio live
+live-control cases (local, fake and live targets all exercised), and OpenAI 13/13 including a real
+prompt-cache read. The Composio live
 target's bounded metadata probe also passed as part of its seven-pass/five-intentional-skip result.
 These probes deliberately carry no private conversation and do **not** combine into a live Simon
 browser run.
 
-No current merged execution of `simon.spec.ts` is claimed. The original authoring worktree could not
-bind the local servers; no later result has replaced that absence. In particular, there is still no
-executed browser proof of:
+The merged local browser run now covers exact approval success/uncertainty, interruption during an
+external-effect boundary, the document edit initiated from browser chat and browser-driven
+24-hour Quick Chat expiry. The production durable path is covered structurally and under both
+executor claims: ids-only Trigger payloads, API-without-model/tool installation, worker-only model
+execution and the signed encrypted worker→API output relay all have executable contracts.
 
-- `DURABLE=true` dispatching a real `simon-run`, making the OpenAI/tool call only in Trigger and
-  returning output through the signed encrypted worker→API relay;
-- browser approval edit/approve/success/uncertain outcomes or interruption during a live external
-  side effect;
-- a document edit initiated from the browser chat, a browser-driven 24-hour Quick Chat expiry, or
-  the merged Simon states across every theme/mode.
+The standard Playwright harness intentionally sets `DURABLE=false`, so it does not claim a single
+browser session against a deployed `DURABLE=true` API and hosted Trigger worker. That final
+composition depends on deployment DNS/runtime state and belongs in the publish smoke, without
+weakening the Phase E executor-parity evidence.
 
 The earlier 36-frame visual matrix remains valid populated-workspace evidence, but its Simon panel
-was intentionally empty. It is not evidence for the current chat/approval/Quick Chat surfaces.
+was intentionally empty. Dedicated current-surface evidence is retained under
+`apps/e2e/evidence/simon/` (15 images) and `apps/e2e/evidence/simon-connections/` (six images), with
+Studio/light coverage at 1440, 1024 and 390. Phase E does not claim a 36-theme chat matrix.
 
-Run the authored local suite without disturbing the default development ports:
+Reproduce the local Simon family without disturbing the default development ports:
 
 ```sh
 export PATH="/opt/homebrew/opt/node@24/bin:$PATH"
-E2E_WEB_PORT=3500 E2E_API_PORT=4500 pnpm --filter @symplist/e2e exec playwright test tests/simon.spec.ts --workers=1
+E2E_WEB_PORT=3500 E2E_API_PORT=4500 pnpm --filter @symplist/e2e exec playwright test \
+  tests/simon.spec.ts tests/simon-connections.spec.ts tests/executor-resilience.spec.ts --workers=3
 ```
-
-Completing the durable gap requires a separate credentialed deployment/browser journey, because the
-standard Playwright harness intentionally sets `DURABLE=false` and has no Trigger connection.
 
 ## Files that authored the browser slice
 

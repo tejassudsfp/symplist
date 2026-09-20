@@ -1,8 +1,10 @@
 # D2 Simon Connections and Vault integration
 
-Status: **implemented, merged and locally verified**. Bounded live Composio and Trigger contracts
-passed on 2026-09-20, but they were separate content-free probes. A browser-driven durable
-`simon-run` through the signed encrypted worker→API relay remains unverified.
+Status: **implemented, merged and Phase E verified**. Bounded live Composio and Trigger contracts
+passed on 2026-09-20 as separate content-free probes, and `simon-connections.spec.ts` verifies exact
+connector approval, success and uncertain/no-resend outcomes at all three viewports. Local/Trigger
+contract parity covers the signed encrypted worker→API path; a browser against a deployed durable
+stack remains publish-smoke scope. Branch-era sandbox limitations below are historical.
 
 This closes the root-owned seam left by the merged Simon, Connections and Vault streams. The same
 Symplist-owned tool surface is now registered in the local Nest executor and the durable

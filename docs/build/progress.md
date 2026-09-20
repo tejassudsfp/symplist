@@ -4,7 +4,7 @@ Checkpoint file for the end-to-end build. Read this first when resuming; update 
 
 **Goal:** build and verify the complete Symplist free closed-beta application from its product notes, screen briefs, and supplied UI sample, with real backend integrations, documented self-hosting, and evidence for the acceptance criteria.
 
-- Branch: `feat/symplist-build` (no upstream; never push to `main`)
+- Branch: `feat/symplist-build` (tracks `origin/feat/symplist-build`; never push to `main`)
 - Scope sources: [notes](../notes/files/00_index.md), [screen briefs](../../design/mockups/overall.md), [UI sample](<../../design/UI sample/README.md>), [decisions](decisions.md), [coverage ledger](coverage.md)
 - Local runtime: Homebrew Node 24 (`export PATH="/opt/homebrew/opt/node@24/bin:$PATH"`), pnpm 12.4.2
 - Secrets: the owner-supplied ignored `.env.local` has been distributed into the three runtime files and verified against the placement matrix; all are mode 600. Never print values.
@@ -18,12 +18,27 @@ Checkpoint file for the end-to-end build. Read this first when resuming; update 
 | B | Architecture and contracts: repository layout, D1 schema, API/WebSocket protocol, shared contracts, test conventions | Done ([architecture](architecture.md) revised after 56-issue adversarial review, verified) |
 | C | Foundation: apps and shared packages, configuration, storage/crypto/email adapters, auth guard skeleton, theme tokens, CI | Done (C0, C-a, C-b, C-close, code review c7 fixes; independent verification 39/43 PASS, the other 4 deferred below) |
 | D1 | Feature wave 1: identity/access/admin, workspace/tasks, appearance, documents/Git, keyboard/search core | Done (four branches merged into `feat/symplist-build`; every gate green, see the log) |
-| D2 | Feature wave 2: Simon/executors/Composio/quick chat, scheduling/notifications/calendar, Vault, sharing/handoff, connections/MCP, analytics/consent | Implementation complete — all feature areas, Simon connector/Vault/Sharing/scheduling wiring, screens, maintenance, search contributors and carried contract/secret/load suites are integrated; current-head publication gates and browser evidence are tracked in E |
-| E | Integration, end-to-end flows, visual verification at 1440/1024/390 across themes | In progress — environment placement, 45 live migrations, D1 load, executor edge matrix, bounded live provider suites and the earlier 36-frame populated-workspace matrix are recorded; current merged cross-feature browser execution and a real durable Simon relay journey remain |
-| F | Adversarial review and fixes | Pending |
-| G | Documentation, spec updates, self-hosting guide, pull request | Pending |
+| D2 | Feature wave 2: Simon/executors/Composio/quick chat, scheduling/notifications/calendar, Vault, sharing/handoff, connections/MCP, analytics/consent | Done and verified — every feature area, screen, Trigger task, maintenance path, search contributor and carried contract/secret/load suite is integrated |
+| E | Integration, end-to-end flows, visual verification at 1440/1024/390 across themes | Done and verified — all 20 flows, executor parity, restart/no-replay, environment placement, 46 live migrations, required live suites and the 36-frame visual matrix are recorded; a deployed durable-browser composition remains publish-smoke scope |
+| F | Adversarial review and fixes | Done for the release candidate — backend, frontend, cost/privacy, self-hosting and final integrated passes fixed their findings and are recorded in `reports/f-release-audit.md` |
+| G | Documentation, spec updates, self-hosting guide, pull request | Repository work done — runnable guide, deploy/CI configuration, brand, README, About screen and spec updates are committed; owner merge/publish and post-deploy smoke remain external |
 
 ## Log
+
+- 2026-09-20: **Phases D2/E/F and repository-side G are complete and verified on the merged current
+  head.** All 20
+  cross-feature flows are Verified; the 36 theme/mode/viewport frames were rerun and inspected; the
+  same Simon chat, native-tool, document, Sharing, Connections and Vault contracts pass under local
+  and Trigger claims; and the environment, load and bounded live-provider evidence is recorded.
+  Current-head gates passed: zero-warning lint over 1,453 files, all 17 project typechecks, 4,767
+  Vitest tests plus 61 script tests, both production builds, 212 Playwright cases with 16 intentional
+  skips, `pnpm smoke:local`, the API deploy check and the 44-brief documentation check. Live D1
+  reported zero applied, 46 already applied and zero out of
+  order. A deployed `DURABLE=true` browser composition remains publish-smoke scope rather than a
+  Phase E executor-parity gap. The runnable self-hosting/deployment guide, About screen and final
+  adversarial report are complete. The owner-only merge, provider hard spend limit, production
+  domains/secrets and post-deploy smoke remain; they are not repository implementation gaps. The
+  same-day entries below are retained as historical checkpoints.
 
 - 2026-09-20: **D2 implementation is integrated; Phase E evidence was reconciled against the merged tree.** The Simon approval, Connections/Agent Connections, system-state, cookie-consent, MCP OAuth-consent and Quick Chat screens are implemented with local component/API contracts; document, Simon-message, privacy and scheduling search contributors are registered. The executor matrix runs the same turn/native/document/Sharing/Connections paths under local and Trigger claims and now explicitly covers both-mode relock/wrong-executor refusal, concurrent duplicate submission and local↔durable active/pending-work switches. Local mode is asserted to make no Trigger calls and durable Nest installs no model/tool handler. The remaining executor proof is an executed browser → live `simon-run` → encrypted worker/API relay journey; no current-head browser/e2e or visual rerun is claimed.
   - Live bounded suites run with the ignored credentials: D1 15/15, R2 10/10, Trigger executor contract 15 passed with three intentionally skipped live-control cases (local/fake/live targets all exercised), OpenAI 12/12, Composio seven passed with five intentionally skipped target-capability cases and its bounded live probe passing, and PostHog 1/1. No live Resend delivery/webhook result is claimed.
