@@ -1,12 +1,18 @@
 # D2 Connections and MCP stream
 
-Status: **backend ready for root integration; local review complete, combined/live gates remain**. Sole writer at
-`symplist-wt/connections`, branch `wip/d2-connections`, original base `8e26f4f`.
+Current status: **merged**. The backend, UI, Simon/Vault adapter, hourly/daily maintenance and
+Connections/MCP one-time-secret route scans are integrated. The bounded live Composio catalogue
+probe passed on 2026-09-20; no hosted-provider browser mutation or live MCP client journey is
+claimed. The branch-era checkpoints below remain as implementation history and their pending-merge
+language is superseded by this paragraph.
+
+Original writer: `symplist-wt/connections`, branch `wip/d2-connections`, base `8e26f4f`.
 
 ## Final backend review — September 20
 
-This section supersedes the historical September 16 checkpoint below. Connections UI remains a
-separate stream. This is backend integration readiness, not a claim that D2 or E is finished.
+This was the final backend-only September 20 checkpoint and supersedes the historical September 16
+checkpoint below. At that moment the Connections UI was still a separate stream. The current-status
+paragraph above supersedes this section's integration-ready and pending-work statements.
 
 Commit `fb35529` fixes a confirmation race: the existing 500-connection bound is now checked in
 the deciding INSERT, not just before the provider callback. A regression fills the capacity after

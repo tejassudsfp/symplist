@@ -1,7 +1,6 @@
 # Phase E environment distribution
 
-Status: implemented and verified locally on `wip/e-env`; pending merge and one ignored source-file
-correction.
+Status: merged and verified against the ignored live runtime files on 2026-09-20.
 
 ## Outcome
 
@@ -32,14 +31,15 @@ its documented public/build variables.
 - 225 focused `packages/config` tests pass.
 - Biome checks all 1,308 files with zero errors or warnings.
 - The documentation check passes for all 44 screen briefs.
-- A live-shaped distribution from the ignored owner source produced and re-validated 82 api, 55
-  worker and five web assignments, all mode 600. No value appeared in output.
+- On 2026-09-20 the integrated `pnpm env:check` passed against the actual ignored outputs: 82 API,
+  55 worker and five web assignments, with all three files mode 600. The earlier branch-time
+  `AI_PROVIDER_MODE` source correction is no longer pending. No value appeared in output.
+- The same live checkpoint ran the migrator against D1. It reported `applied: 0`,
+  `alreadyApplied: 45`, `outOfOrder: 0`; all 45 current expand-only migrations were already present.
 
-The live-shaped first pass stopped before writing because the ignored master source carries an
-obsolete `AI_PROVIDER_MODE`. An isolated private copy was set to the binding production value
-`live`, after which distribution and `env:check` passed. The branch deliberately did not modify the
-main checkout's ignored source. Integration must make that one non-secret correction before running
-the command there.
+Environment verification establishes placement, schema validity, shared-family equality and file
+permissions. It does not establish application startup, browser behavior or a complete deployment
+gate on the current merged head.
 
 ## Shared files touched
 

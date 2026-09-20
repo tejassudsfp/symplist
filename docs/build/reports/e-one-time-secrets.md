@@ -1,5 +1,8 @@
 # Phase E: current-route one-time-secret scans
 
+Status: merged. Every currently implemented one-time credential route, including Connections hosted
+links and MCP bearer/OAuth credentials, has a local real-HTTP scanner contract.
+
 Worktree `symplist-wt/maintenance`, branch `wip/d2-maintenance`, updated from build checkpoint `9e63cfc` before this slice. Tests only; no production, contract, migration or shared harness changes.
 
 The Connections/MCP completion follow-up runs on branch `wip/d2-connection-secret-scans`. It closes the local route gap that remained when this report was first written, again with tests only and no production, contract, migration or shared harness changes.
