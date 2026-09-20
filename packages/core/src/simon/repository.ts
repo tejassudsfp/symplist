@@ -638,7 +638,8 @@ export class SimonRepository {
     return [
       sql(
         `UPDATE runs SET status = :status, steps = :steps, heartbeat_at = :now,
-        finished_at = CASE WHEN :status = 'running' THEN NULL ELSE :now END, write_id = :w
+        finished_at = CASE WHEN :status = 'running' THEN NULL ELSE :now END, write_id = :w,
+        outcome_code = CASE WHEN :status = 'failed' THEN 'ai.provider_failed' ELSE outcome_code END
         ${telemetry ? ", provider = :provider, model = :model, rules_version = :rules, input_tokens = :input_tokens, output_tokens = :output_tokens" : ""}
         ${extra?.retrievedBytes !== undefined ? ", retrieved_bytes = MAX(retrieved_bytes, CAST(:retrieved_bytes AS INTEGER))" : ""}
         WHERE id = :run AND owner_id = :owner AND executor_generation = :generation AND ${stopGuard}
