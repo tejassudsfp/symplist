@@ -408,7 +408,7 @@ export function describeDbClientContract(
       ).resolves.toBeNull();
     });
 
-    it("exposes Cloudflare rate-limit headers on REST responses", async (context) => {
+    it("records Cloudflare rate-limit header availability on REST responses", async (context) => {
       if (!target.responses) {
         context.skip("rate-limit headers exist only on REST transports");
         return;
@@ -416,8 +416,25 @@ export function describeDbClientContract(
       await client.first(sql("SELECT 1 AS one"));
       const last = target.responses[target.responses.length - 1];
       expect(last?.status).toBe(200);
-      const policies = parseRateLimitHeaders(last?.headers ?? new Headers());
-      expect(policies.some((policy) => typeof policy.remaining === "number")).toBe(true);
+      const headers = last?.headers ?? new Headers();
+      const rawLimit = headers.get("ratelimit");
+      const rawPolicy = headers.get("ratelimit-policy");
+      // Cloudflare's public API documentation promises both headers, but its live D1 query
+      // endpoint has been observed returning neither. A partial pair is unsafe to interpret.
+      expect(rawLimit === null).toBe(rawPolicy === null);
+      const policies = parseRateLimitHeaders(headers);
+      if (rawLimit !== null) {
+        expect(policies.some((policy) => typeof policy.remaining === "number")).toBe(true);
+      } else {
+        expect(policies).toEqual([]);
+      }
+      console.info(
+        JSON.stringify({
+          check: "d1.rate_limit_headers",
+          available: rawLimit !== null,
+          policyCount: policies.length,
+        }),
+      );
     });
   });
 }
@@ -435,29 +452,45 @@ export function describeLiveD1RateLimitScope(
   describe.skipIf(!secondToken)(
     `live D1 rate-limit scope${secondToken ? "" : " (skipped: CLOUDFLARE_D1_WORKER_API_TOKEN not set)"}`,
     () => {
-      it("reports whether two tokens share one rate-limit budget", async () => {
+      it("reports whether two tokens share one rate-limit budget when headers are available", async () => {
         const first = observingFetch((url, init) => fetch(url, init));
         const second = observingFetch((url, init) => fetch(url, init));
         const primary = createClient(settings.apiToken, first.fetch);
         const other = createClient(secondToken as string, second.fetch);
-        const remaining = (responses: readonly ObservedResponse[]) => {
+        const remaining = (responses: readonly ObservedResponse[]): number | undefined => {
           const last = responses[responses.length - 1];
           const values = parseRateLimitHeaders(last?.headers ?? new Headers())
             .map((policy) => policy.remaining)
             .filter((value): value is number => typeof value === "number");
-          expect(values.length).toBeGreaterThan(0);
-          return Math.min(...values);
+          return values.length > 0 ? Math.min(...values) : undefined;
         };
         const probe = sql("SELECT 1 AS one");
         await other.first(probe);
         const otherBefore = remaining(second.responses);
         for (let index = 0; index < 3; index += 1) await primary.first(probe);
-        remaining(first.responses);
+        const primaryAfter = remaining(first.responses);
         await other.first(probe);
         const otherAfter = remaining(second.responses);
+        if (otherBefore === undefined || primaryAfter === undefined || otherAfter === undefined) {
+          expect([otherBefore, primaryAfter, otherAfter]).toEqual([
+            undefined,
+            undefined,
+            undefined,
+          ]);
+          console.info(
+            JSON.stringify({ check: "d1.rate_limit_scope", available: false, scope: "unknown" }),
+          );
+          return;
+        }
         const shared = otherBefore - otherAfter >= 3;
         console.info(
-          JSON.stringify({ check: "d1.rate_limit_scope", shared, otherBefore, otherAfter }),
+          JSON.stringify({
+            check: "d1.rate_limit_scope",
+            available: true,
+            scope: shared ? "shared" : "per-token",
+            otherBefore,
+            otherAfter,
+          }),
         );
         expect(typeof shared).toBe("boolean");
       });
