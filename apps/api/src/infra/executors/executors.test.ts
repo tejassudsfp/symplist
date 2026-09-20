@@ -1155,6 +1155,96 @@ describe("reconciler", () => {
  * --------------------------------------------------------------------------------------------- */
 
 describe("executor switch (§8.1)", () => {
+  it.each([
+    ["local", "durable"],
+    ["durable", "local"],
+  ] as const)(
+    "%s → %s retires active work and the new executor dispatches rebound pending work",
+    async (from, to) => {
+      const h = await track(harness(from));
+      const active = uuidv7();
+      let oldTriggerRunId: string | null = null;
+      if (from === "durable") {
+        const handle = await h.trigger.tasks.trigger(
+          "simon-run",
+          { runId: active },
+          { idempotencyKey: active },
+        );
+        h.trigger.startRun(handle.id);
+        oldTriggerRunId = handle.id;
+      }
+      h.tracker.add(active, {
+        ownerId: OWNER,
+        executor: from === "durable" ? "trigger" : "local",
+        triggerRunId: oldTriggerRunId,
+      });
+      const pending = await addIntent(h.db);
+      h.tracker.add(pending.subjectId, {
+        ownerId: OWNER,
+        executor: null,
+        status: "queued",
+      });
+
+      const report = await new ExecutorSwitch({
+        db: h.db,
+        registry: h.registry,
+        trigger: h.trigger,
+        now: () => h.clock.now(),
+        log: h.log,
+      }).switchTo(to);
+      expect(report).toMatchObject({
+        from,
+        to,
+        advanced: true,
+        generation: 2,
+        interrupted: 1,
+        rebound: 1,
+      });
+      expect(h.tracker.runs.get(active)).toMatchObject({
+        status: "interrupted",
+        outcomeCode: "executor_switched",
+      });
+      if (oldTriggerRunId)
+        expect((await h.trigger.runs.retrieve(oldTriggerRunId)).status).toBe("CANCELED");
+
+      const localCalls = vi.fn(async () => {});
+      if (to === "local") h.registry.registerLocalHandler("simon_run", localCalls);
+      const local =
+        to === "local"
+          ? new LocalExecutor({ registry: h.registry, timers: h.clock, log: h.log })
+          : null;
+      const dispatcher = new ExecutionDispatcher({
+        repository: h.repository,
+        state: new ExecutorStateService(new ExecutorStateRepository(h.db), to, h.clock, h.log),
+        registry: h.registry,
+        executor: local ?? new TriggerExecutor(h.trigger),
+        timers: h.clock,
+        log: h.log,
+      });
+      try {
+        expect(await dispatcher.dispatchPending()).toEqual({
+          considered: 1,
+          dispatched: 1,
+          failed: 0,
+          skipped: 0,
+        });
+        expect(await intentRow(h.db, pending.id)).toMatchObject({
+          status: "dispatched",
+          executor: to === "local" ? "local" : "trigger",
+          executor_generation: 2,
+        });
+        expect(h.tracker.runs.get(pending.subjectId)).toMatchObject({
+          executor: to === "local" ? "local" : "trigger",
+          generation: 2,
+        });
+        expect(localCalls).toHaveBeenCalledTimes(to === "local" ? 1 : 0);
+      } finally {
+        await dispatcher.close();
+        await local?.shutdown(0);
+      }
+    },
+  );
+
   it("local → durable advances the generation, interrupts local runs and rebinds pending intents", async () => {
     const h = await track(harness("local"));
     const running = "01996d2a-4c00-7000-8000-000000000021";

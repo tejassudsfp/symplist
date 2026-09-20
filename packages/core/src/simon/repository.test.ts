@@ -130,13 +130,23 @@ describe("message acceptance", () => {
       )?.active_run_id,
     ).toBe(accepted.runId);
   });
-  it("deduplicates simultaneous identical submissions", async () => {
-    const responses = await Promise.all([send(), send(), send()]);
-    expect(responses[0]).toEqual(responses[1]);
-    expect(responses[1]).toEqual(responses[2]);
-    expect(await env.count("messages")).toBe(1);
-    expect(await env.count("runs")).toBe(1);
-  });
+  it.each(["local", "trigger"] as const)(
+    "deduplicates simultaneous identical submissions in %s mode",
+    async (executor) => {
+      await env.db.run(
+        sql("UPDATE executor_state SET mode = :mode", {
+          mode: executor === "local" ? "local" : "durable",
+        }),
+      );
+      const responses = await Promise.all([send(), send(), send()]);
+      expect(responses[0]).toEqual(responses[1]);
+      expect(responses[1]).toEqual(responses[2]);
+      expect(await env.count("messages")).toBe(1);
+      expect(await env.count("runs")).toBe(1);
+      expect(await env.count("dispatch_intents")).toBe(1);
+      expect(await env.db.first(sql("SELECT executor FROM runs"))).toEqual({ executor });
+    },
+  );
   it("rejects a reused key with different text or tier", async () => {
     await send();
     await expect(send("one", "other text")).rejects.toMatchObject({ code: "idempotency.mismatch" });

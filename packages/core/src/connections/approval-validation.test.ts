@@ -36,6 +36,8 @@ function fixture() {
     toolSlug: tool.slug,
     connectionId: connection.id,
     connectedAccountId: connection.connectedAccountId,
+    connectionToolkit: connection.toolkit,
+    connectionAlias: null,
     connectionGeneration: 2,
     status: "pending",
     argDigest: "digest",
