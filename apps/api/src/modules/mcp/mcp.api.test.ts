@@ -5,6 +5,7 @@ import { sql, uuidv7 } from "@symplist/db";
 import { FakeClock } from "@symplist/testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { bootTestApp, type TestApp } from "../../../test/harness.ts";
+import { assertSecretAbsent } from "../../../test/secret-scan.ts";
 import { SearchIndexCoordinator } from "../search/search-index.coordinator.ts";
 import { MCP_TOOLS, type McpTools } from "./mcp-tools.ts";
 
@@ -94,24 +95,16 @@ describe("incoming stateless MCP over both SDK protocol eras", () => {
         tasks: [],
         nextCursor: null,
       });
-      expect(
-        (
-          await app.post("/oauth/revoke", {
-            body: { token: tokens.refresh_token, client_id: clientId },
-          })
-        ).status,
-      ).toBe(200);
+      const revoked = await app.post("/oauth/revoke", {
+        body: { token: tokens.refresh_token, client_id: clientId },
+      });
+      expect(revoked.status).toBe(200);
       await expect(client.callTool({ name: "task_list", arguments: {} })).rejects.toThrow();
-      for (const secret of [
-        tokens.access_token,
-        tokens.refresh_token,
-        callback.searchParams.get("code") ?? "",
-      ]) {
-        expect(secret).not.toBe("");
-        expect(await app.scanDatabaseFor(secret)).toEqual([]);
-        expect(app.scanObjectsFor(secret)).toEqual([]);
-        expect(app.logs.text()).not.toContain(secret);
-      }
+      await assertSecretAbsent(
+        app,
+        [tokens.access_token, tokens.refresh_token, callback.searchParams.get("code") ?? ""],
+        [revoked],
+      );
     },
   );
   it.each(["auto", "legacy"] as const)(
