@@ -174,4 +174,51 @@ describe("Simon conversation surfaces", () => {
     expect(client.close.mock.calls[0]?.[0]).toBe(id);
     await waitFor(() => expect(screen.getByRole("button", { name: "Ask Simon" })).toHaveFocus());
   });
+  it("deletes an unsaved quick chat when navigation unmounts it, but not during Strict Mode rehearsal", async () => {
+    const client = api();
+    client.history.mockResolvedValue({ ...view, kind: "quick", taskId: null });
+    const rendered = render(
+      <StrictMode>
+        <SimonProvider userId="owner" api={client} realtime={null}>
+          <QuickChatLauncher />
+        </SimonProvider>
+      </StrictMode>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Ask Simon" }));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    await waitFor(() => expect(client.history).toHaveBeenCalled());
+    await Promise.resolve();
+    expect(client.close).not.toHaveBeenCalled();
+
+    rendered.rerender(
+      <StrictMode>
+        <SimonProvider userId="owner" api={client} realtime={null}>
+          <p>Selected task route</p>
+        </SimonProvider>
+      </StrictMode>,
+    );
+    await waitFor(() => expect(client.close).toHaveBeenCalledOnce());
+    expect(client.close.mock.calls[0]?.[0]).toBe(id);
+  });
+  it("does not delete a quick conversation after Save as task converts it", async () => {
+    const client = api();
+    client.history.mockResolvedValue({ ...view, kind: "quick", taskId: null });
+    render(
+      <SimonProvider userId="owner" api={client} realtime={null}>
+        <QuickChatLauncher />
+      </SimonProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Ask Simon" }));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    await waitFor(() => expect(client.history).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "Save as task" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Task title" }), {
+      target: { value: "Keep this conversation" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save task" }));
+    await waitFor(() => expect(client.save).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await Promise.resolve();
+    expect(client.close).not.toHaveBeenCalled();
+  });
 });

@@ -38,12 +38,14 @@ interface Pending {
 interface Entry {
   state: ChatState;
   readonly createKey: string;
+  readonly discardKey: string;
   watchers: number;
   reading: boolean;
   refreshAgain: boolean;
   readVersion: number;
   off: (() => void) | null;
   pending: Pending | null;
+  discarding: Promise<boolean> | null;
 }
 const quickKey = "quick";
 
@@ -75,12 +77,14 @@ export class SimonStore {
     if (!entry) {
       entry = {
         createKey: createIdempotencyKey(),
+        discardKey: createIdempotencyKey(),
         watchers: 0,
         reading: false,
         refreshAgain: false,
         readVersion: 0,
         off: null,
         pending: null,
+        discarding: null,
         state: {
           taskId,
           conversationId: null,
@@ -405,5 +409,37 @@ export class SimonStore {
         confirmed();
       },
     );
+  }
+
+  /**
+   * Best-effort lifecycle cleanup for a quick-chat surface that disappeared without its explicit
+   * close action. It deliberately does not use `command`: a message request may still be settling
+   * while route or task navigation unmounts the dialog, but closing the temporary conversation must
+   * not be stranded behind that request. The fixed key makes repeated Strict Mode/unmount cleanup
+   * one operation, and the entry identity prevents an old cleanup from deleting a newly opened chat.
+   */
+  discardQuick(): Promise<boolean> {
+    const entry = this.entries.get(quickKey);
+    if (!entry) return Promise.resolve(true);
+    if (entry.discarding) return entry.discarding;
+    const discard = (async () => {
+      try {
+        const id =
+          entry.state.conversationId ??
+          (await this.api.create(null, entry.createKey)).conversationId;
+        if (this.entries.get(quickKey) !== entry) return true;
+        await this.api.close(id, entry.discardKey);
+        if (this.entries.get(quickKey) === entry) this.forgetQuick();
+        return true;
+      } catch {
+        // The server's 24-hour expiry remains the final cleanup boundary when navigation is offline.
+        return false;
+      }
+    })();
+    entry.discarding = discard;
+    void discard.finally(() => {
+      if (entry.discarding === discard) entry.discarding = null;
+    });
+    return discard;
   }
 }

@@ -215,6 +215,25 @@ describe("owner-scoped Simon store", () => {
     expect(store.get(null).conversationId).toBeNull();
     expect(api.create).toHaveBeenCalledTimes(2);
   });
+  it("discards an unmounted quick chat without waiting behind a settling message", async () => {
+    const api = fakeSimonApi();
+    api.history.mockResolvedValue({ ...view, kind: "quick", taskId: null });
+    const waiting = deferred<Awaited<ReturnType<SimonApi["send"]>>>();
+    api.send.mockImplementationOnce(() => waiting.promise);
+    const store = new SimonStore(api, null);
+    store.watch(null);
+    await vi.waitFor(() => expect(store.get(null).projection.view?.kind).toBe("quick"));
+    store.draft(null, "Temporary request");
+    const send = store.send(null);
+    await vi.waitFor(() => expect(api.send).toHaveBeenCalledOnce());
+
+    expect(await store.discardQuick()).toBe(true);
+    expect(api.close).toHaveBeenCalledWith(id, expect.any(String));
+    expect(store.get(null).conversationId).toBeNull();
+
+    waiting.resolve({ messageId: run, runId: run, status: "accepted" });
+    await send;
+  });
   it("prepends an older page once and retains it across a live-head refresh", async () => {
     const api = fakeSimonApi();
     const recent = {

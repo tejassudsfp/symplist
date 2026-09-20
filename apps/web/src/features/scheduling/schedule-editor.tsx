@@ -51,14 +51,20 @@ export function ScheduleEditor({
   const [removeRelative, setRemoveRelative] = useState(false);
   const request = useRef<{ json: string; key: string } | null>(null);
   const initialFocus = useRef<HTMLInputElement>(null);
+  const contextEpoch = useRef(0);
   useEffect(() => {
     void reload;
-    let active = true;
+    const epoch = ++contextEpoch.current;
+    const current = () => contextEpoch.current === epoch;
     setError("");
     setData(null);
+    setPreview(null);
+    setBusy(false);
+    setRemoveRelative(false);
+    request.current = null;
     void Promise.all([api.get(taskId), api.preferences()])
       .then(([snapshot, preferences]) => {
-        if (!active) return;
+        if (!current()) return;
         setPrefs(preferences.data);
         const reminders = snapshot.reminders.map(({ id, rule, channels, overrideQuiet }) => ({
           id,
@@ -86,10 +92,10 @@ export function ScheduleEditor({
         });
       })
       .catch((failure) => {
-        if (active) setError(schedulingMessage(failure));
+        if (current()) setError(schedulingMessage(failure));
       });
     return () => {
-      active = false;
+      if (contextEpoch.current === epoch) contextEpoch.current++;
     };
   }, [api, taskId, reload, addReminder, initialDate]);
   const update = (next: SchedulingSave) => {
@@ -99,30 +105,36 @@ export function ScheduleEditor({
   };
   const save = async () => {
     if (!data) return;
+    const epoch = contextEpoch.current;
+    const current = () => contextEpoch.current === epoch;
     const json = JSON.stringify(data);
     if (request.current?.json !== json) request.current = { json, key: crypto.randomUUID() };
     setBusy(true);
     setError("");
     try {
       const result = await api.save(taskId, data, request.current.key);
+      if (!current()) return;
       onSaved(result);
       onClose();
     } catch (failure) {
-      setError(schedulingMessage(failure));
+      if (current()) setError(schedulingMessage(failure));
     } finally {
-      setBusy(false);
+      if (current()) setBusy(false);
     }
   };
   const showPreview = async () => {
     if (!data) return;
+    const epoch = contextEpoch.current;
+    const current = () => contextEpoch.current === epoch;
     setBusy(true);
     setError("");
     try {
-      setPreview(await api.preview(data));
+      const result = await api.preview(data);
+      if (current()) setPreview(result);
     } catch (failure) {
-      setError(schedulingMessage(failure));
+      if (current()) setError(schedulingMessage(failure));
     } finally {
-      setBusy(false);
+      if (current()) setBusy(false);
     }
   };
   return (

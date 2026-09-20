@@ -163,7 +163,7 @@ describe("Settings → Account (settings_account.md)", () => {
     await user.click(screen.getByRole("link", { name: "Appearance" }));
     const dialog = await screen.findByRole("alertdialog");
     await user.click(within(dialog).getByRole("button", { name: "Discard changes" }));
-    await waitFor(() => expect(navigation.push).toHaveBeenCalledWith("/settings/appearance"));
+    await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/settings/appearance"));
   });
 
   it("keeps deletion in its own area, away from the ordinary save action", async () => {
