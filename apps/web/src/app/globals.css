@@ -3381,3 +3381,79 @@
     margin-left: 44px;
   }
 }
+
+/* D2 system_states: route failures, unmatched URLs and navigation loading. */
+.sym-route-state-shell {
+  display: grid;
+  min-height: 100dvh;
+  place-items: center;
+  padding: 24px;
+  background: var(--sym-bg);
+}
+.sym-route-state {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  width: min(100%, 520px);
+  padding: clamp(24px, 5vw, 44px);
+  border: 1px solid var(--sym-line);
+  border-radius: var(--sym-rl);
+  background: var(--sym-surface);
+  color: var(--sym-text);
+}
+.sym-route-state--embedded {
+  justify-content: center;
+  min-height: min(520px, calc(100dvh - 150px));
+  margin: auto;
+  border: 0;
+  background: transparent;
+}
+.sym-route-state h1 {
+  margin: 4px 0 0;
+  font-family: var(--sym-head-font);
+  font-size: clamp(20px, 3vw, 28px);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.sym-route-state h1:focus {
+  outline: none;
+}
+.sym-route-state-description {
+  max-width: 44ch;
+  margin: 0;
+  color: var(--sym-muted);
+  line-height: 1.55;
+}
+.sym-route-state-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+.sym-route-state-actions > a {
+  color: var(--sym-link);
+  font-size: 13.5px;
+  text-underline-offset: 2px;
+}
+.sym-route-state--loading [data-slot="skeleton"] {
+  max-width: 100%;
+}
+.sym-route-state--loading [role="status"] {
+  width: 100%;
+  margin-top: 10px;
+  padding-inline: 0;
+}
+@media (max-width: 599px) {
+  .sym-route-state-shell {
+    align-items: start;
+    padding: max(24px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom));
+  }
+  .sym-route-state {
+    padding: 24px 18px;
+  }
+  .sym-route-state--embedded {
+    min-height: calc(100dvh - 112px);
+  }
+}
