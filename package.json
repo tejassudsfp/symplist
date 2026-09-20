@@ -23,6 +23,8 @@
     "smoke:local": "node scripts/smoke-local.mjs",
     "e2e": "pnpm --filter @symplist/e2e e2e",
     "db:migrate": "node --env-file-if-exists=.env packages/db/src/cli/migrate.ts",
+    "env:check": "node scripts/distribute-env.mjs --check",
+    "env:distribute": "node scripts/distribute-env.mjs",
     "secrets:generate": "node scripts/secrets-generate.mjs",
     "trigger:dev": "pnpm --filter @symplist/worker dev"
   },
