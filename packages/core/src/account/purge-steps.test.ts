@@ -199,7 +199,10 @@ describe("provider purge step (§5.6 step 2)", () => {
     await expect(step.run(input)).rejects.toMatchObject({ code: "integration.unavailable" });
   });
 
-  it("is driven by the registered purge contributors, where no domain holds provider state yet", async () => {
-    expect(await providerPurgeStep({ dependencies }).run(input)).toBe("done");
+  it("consults registered provider state and refuses to skip a configured domain's cleanup", async () => {
+    const first = vi.fn(async () => ({ has_provider_state: 1, session_id: "session_pending" }));
+    const registered = { ...dependencies, db: { first } as unknown as DbClient };
+    expect(await providerPurgeStep({ dependencies: registered }).run(input)).toBe("incomplete");
+    expect(first).toHaveBeenCalledOnce();
   });
 });

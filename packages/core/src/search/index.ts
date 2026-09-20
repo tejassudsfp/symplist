@@ -6,6 +6,7 @@ export * from "./enqueue.ts";
 export * from "./errors.ts";
 export * from "./intents.ts";
 export * from "./log.ts";
+export * from "./request-signal.ts";
 export * from "./service.ts";
 export * from "./sources/contributors/index.ts";
 export * from "./sources/memory.ts";

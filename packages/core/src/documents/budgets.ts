@@ -113,6 +113,9 @@ export class GrantRetrievalBudgets {
       remaining: () => Math.max(0, cap - state.used),
       consume: (bytes) => {
         const amount = Math.max(0, Math.trunc(bytes));
+        // Concurrent reads can both clamp before either finishes. Refuse the later delivery,
+        // not merely the next request, so a grant cannot overdraw its shared window.
+        if (amount > cap - state.used) throw new DocumentError("document.budget_exhausted");
         state.used += amount;
         consumed += amount;
       },

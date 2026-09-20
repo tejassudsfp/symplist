@@ -40,7 +40,7 @@ export class RouteClassProbeController {
     return seen(req);
   }
 
-  @Get("connections/callback")
+  @Get("connections/callback/guard-probe")
   @RouteClass("connection_callback")
   @Access("identity")
   callback(@Req() req: Request) {
@@ -59,19 +59,19 @@ export class RouteClassProbeController {
     return seen(req);
   }
 
-  @Post("oauth/token")
+  @Post("oauth/token/guard-probe")
   @RouteClass("oauth_public")
   token(@Req() req: Request) {
     return seen(req);
   }
 
-  @Get("oauth/authorize")
+  @Get("oauth/authorize/guard-probe")
   @RouteClass("oauth_authorize")
   authorize(@Req() req: Request) {
     return seen(req);
   }
 
-  @All("mcp")
+  @All("mcp/guard-probe")
   @RouteClass("mcp")
   mcp(@Req() req: Request) {
     return seen(req);

@@ -14,6 +14,7 @@ import {
   eventsContributors,
 } from "@symplist/core/events";
 import { type DbClient, sql } from "@symplist/db";
+import type { ConnectionPurgeProvider } from "@symplist/integrations";
 import type { ObjectStore } from "@symplist/storage";
 import { z } from "zod";
 import { WorkerError, withMappedErrors } from "./errors.ts";
@@ -38,6 +39,7 @@ export interface AccountPurgeTriggerRuns {
 }
 
 export interface AccountPurgeTaskDependencies {
+  readonly connections?: ConnectionPurgeProvider;
   readonly db: DbClient;
   readonly objects: ObjectStore;
   readonly runs: AccountPurgeTriggerRuns;
@@ -140,7 +142,11 @@ export async function runAccountPurgeTask(
       },
     }),
     composio: providerPurgeStep({
-      dependencies: { db, now },
+      dependencies: {
+        db,
+        now,
+        ...(dependencies.connections ? { connections: dependencies.connections } : {}),
+      },
       contributors: dependencies.purgeContributors ?? purgeContributors,
     }),
     ...(dependencies.purgeContributors ? { contributors: dependencies.purgeContributors } : {}),

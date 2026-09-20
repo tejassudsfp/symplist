@@ -105,12 +105,12 @@ describe("pre_session route class (§5.3)", () => {
 
 describe("connection_callback and oauth_authorize route classes (§5.3)", () => {
   it("accepts the callback's top-level GET without Origin but only with a session", async () => {
-    expect((await app.get("/v1/connections/callback", { session })).status).toBe(200);
-    expect((await app.get("/v1/connections/callback")).status).toBe(401);
+    expect((await app.get("/v1/connections/callback/guard-probe", { session })).status).toBe(200);
+    expect((await app.get("/v1/connections/callback/guard-probe")).status).toBe(401);
   });
 
   it("lets /oauth/authorize read only the session cookie", async () => {
-    const response = await app.get("/oauth/authorize", {
+    const response = await app.get("/oauth/authorize/guard-probe", {
       session,
       headers: { cookie: "sym_vault=v", authorization: "Bearer x" },
     });
@@ -177,7 +177,7 @@ describe("credential-free route classes (§5.2, §5.3)", () => {
   it("strips cookies from oauth_public, signed and public_read routes and bearer from all but mcp", async () => {
     const headers = { cookie: session.cookie, authorization: "Bearer sym_grant_secret" };
     for (const [method, path] of [
-      ["POST", "/oauth/token"],
+      ["POST", "/oauth/token/guard-probe"],
       ["POST", "/internal/v1/probe"],
       ["GET", "/.well-known/probe"],
     ] as const) {
@@ -193,7 +193,7 @@ describe("credential-free route classes (§5.2, §5.3)", () => {
 
   it("keeps bearer credentials on /mcp and refuses a present Origin that is not allowlisted", async () => {
     const headers = { cookie: session.cookie, authorization: "Bearer sym_grant_secret" };
-    const ok = await app.request("POST", "/mcp", { headers, origin: null });
+    const ok = await app.request("POST", "/mcp/guard-probe", { headers, origin: null });
     expect(ok.json()).toEqual({
       cookies: [],
       rawCookieHeader: null,
@@ -201,9 +201,13 @@ describe("credential-free route classes (§5.2, §5.3)", () => {
       rawHeaderNames: ["authorization"],
     });
     expect(
-      (await app.request("POST", "/mcp", { headers, origin: app.config.WEB_ORIGIN })).status,
+      (await app.request("POST", "/mcp/guard-probe", { headers, origin: app.config.WEB_ORIGIN }))
+        .status,
     ).toBe(200);
-    const evil = await app.request("POST", "/mcp", { headers, origin: "https://evil.example" });
+    const evil = await app.request("POST", "/mcp/guard-probe", {
+      headers,
+      origin: "https://evil.example",
+    });
     expect(evil.status).toBe(403);
     expect(code(evil)).toBe("auth.origin_forbidden");
   });
@@ -244,14 +248,14 @@ describe("CORS (§5.3, §6)", () => {
     const origin = app.config.WEB_ORIGIN;
     for (const response of [
       await app.get("/healthz", { origin }),
-      await app.request("POST", "/oauth/token", { origin }),
+      await app.request("POST", "/oauth/token/guard-probe", { origin }),
       await app.get("/artifact/_probe/abc", { origin, shareHost: true }),
       await app.get("/v1/probe/app", { origin, shareHost: true }),
     ]) {
       expect(response.headers.get("access-control-allow-origin")).toBeNull();
       expect(response.headers.get("access-control-allow-credentials")).toBeNull();
     }
-    const preflight = await fetch(`${app.baseUrl}/oauth/token`, {
+    const preflight = await fetch(`${app.baseUrl}/oauth/token/guard-probe`, {
       method: "OPTIONS",
       headers: { origin, "access-control-request-method": "POST" },
     });

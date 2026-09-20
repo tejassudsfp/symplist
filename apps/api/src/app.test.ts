@@ -141,7 +141,7 @@ describe("api bootstrap (§6, §16.1)", () => {
 
     // OAuth forms: 64 KiB, parsed flat.
     const form = (bytes: number) =>
-      fetch(`${app?.baseUrl}/oauth/token`, {
+      fetch(`${app?.baseUrl}/oauth/token/body-probe`, {
         method: "POST",
         headers: { "content-type": "application/x-www-form-urlencoded" },
         body: `grant_type=authorization_code&code=${"c".repeat(bytes)}`,

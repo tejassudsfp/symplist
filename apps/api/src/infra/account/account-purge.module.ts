@@ -6,6 +6,7 @@ import {
   stragglerRunsPurgeStep,
 } from "@symplist/core/account";
 import type { DbClient } from "@symplist/db";
+import { createConnectionPurgeProvider } from "@symplist/integrations";
 import type { ObjectStore } from "@symplist/storage";
 import { CLOCK, type Clock } from "../../common/clock.ts";
 import { AppLogger } from "../../common/logging/logger.ts";
@@ -34,7 +35,7 @@ export const ACCOUNT_PURGE_JOB = Object.freeze({ name: "account-purge", minute: 
  * api's executor, and provider-side state through the purge contributors' provider purges.
  */
 export function createApiAccountPurgeRunner(dependencies: {
-  readonly config: Pick<ApiConfig, "DURABLE">;
+  readonly config: Pick<ApiConfig, "DURABLE"> & Partial<Pick<ApiConfig, "COMPOSIO_API_KEY">>;
   readonly db: DbClient;
   readonly store: ObjectStore;
   readonly clock: Clock;
@@ -72,7 +73,15 @@ export function createApiAccountPurgeRunner(dependencies: {
         });
       },
     }),
-    composio: providerPurgeStep({ dependencies: { db, now } }),
+    composio: providerPurgeStep({
+      dependencies: {
+        db,
+        now,
+        ...(dependencies.config.COMPOSIO_API_KEY
+          ? { connections: createConnectionPurgeProvider(dependencies.config.COMPOSIO_API_KEY) }
+          : {}),
+      },
+    }),
   });
 }
 
