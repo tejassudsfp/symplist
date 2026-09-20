@@ -1,12 +1,16 @@
 import {
   type TaskCreateToolOutput,
   type TaskMoveToolOutput,
+  taskCreateResponseSchema,
   taskCreateToolInputSchema,
+  taskIdSchema,
+  taskMoveResponseSchema,
   taskMoveToolInputSchema,
 } from "@symplist/contracts";
 import type { z } from "zod";
+import type { TaskAuthorization } from "./authorization.ts";
 import { TaskOperationError } from "./errors.ts";
-import type { TaskActor, TaskService } from "./service.ts";
+import type { TaskActor, TaskService, TaskWriteFold } from "./service.ts";
 
 /** Simon or a connected agent (§8.7, §14.6); tools never act as the user. */
 export type TaskToolActor = Exclude<TaskActor, { readonly kind: "user" }>;
@@ -32,6 +36,8 @@ export async function taskCreateTool(
     readonly arguments: z.input<typeof taskCreateToolInputSchema>;
     /** A UUIDv7 derived from the tool call, stable across retries. */
     readonly taskId: string;
+    readonly authorization?: TaskAuthorization;
+    readonly fold?: TaskWriteFold;
   },
 ): Promise<TaskCreateToolOutput> {
   const args = taskCreateToolInputSchema.parse(input.arguments);
@@ -47,21 +53,24 @@ export async function taskCreateTool(
       actor: input.actor,
       title: args.title,
       taskId: input.taskId,
+      ...(input.authorization ? { authorization: input.authorization } : {}),
+      ...(input.fold ? { fold: input.fold } : {}),
       ...(collection === undefined ? {} : { collection }),
       ...(args.parentTaskId === undefined ? {} : { parentId: args.parentTaskId }),
     });
-    if (result.kind !== "applied") throw new TaskOperationError("task.conflict");
-    const { task } = result.body;
+    const { task } = taskCreateResponseSchema.parse(result.body);
     return {
       taskId: task.id,
       collection: task.collection,
       parentTaskId: task.parentId,
-      created: true,
+      created: result.kind === "applied",
     };
   } catch (error) {
+    // A folded replay/mismatch is decided atomically; never turn a mismatch into an ID lookup.
+    if (input.fold) throw error;
     // The refusal a retry gets: its first attempt committed, so the id is taken. Every other
     // refusal (an archived parent, paused access) finds no task and is passed on unchanged.
-    const found = await findOwn(service, input.ownerId, input.taskId);
+    const found = await findOwn(service, input.ownerId, input.taskId, input.authorization);
     if (found) return found;
     throw error;
   }
@@ -71,9 +80,14 @@ async function findOwn(
   service: TaskService,
   ownerId: string,
   taskId: string,
+  authorization?: TaskAuthorization,
 ): Promise<TaskCreateToolOutput | null> {
   try {
-    const { task } = await service.getTask(ownerId, taskId);
+    const { task } = await service.getTask(
+      ownerId,
+      taskId,
+      authorization ?? { sql: "1 = 1", params: {} },
+    );
     return {
       taskId: task.id,
       collection: task.collection,
@@ -97,21 +111,48 @@ export async function taskMoveTool(
     readonly ownerId: string;
     readonly actor: TaskToolActor;
     readonly arguments: z.input<typeof taskMoveToolInputSchema>;
+    readonly authorization?: TaskAuthorization;
+    readonly fold?: TaskWriteFold;
   },
 ): Promise<TaskMoveToolOutput> {
   const args = taskMoveToolInputSchema.parse(input.arguments);
-  const { task } = await service.getTask(input.ownerId, args.taskId);
+  const { task } = await service.getTask(input.ownerId, args.taskId, input.authorization);
+  if (input.fold) {
+    const result = await service.move({
+      ownerId: input.ownerId,
+      actor: input.actor,
+      taskId: args.taskId,
+      collection: args.collection,
+      parentId: null,
+      collectionOnly: true,
+      ...(input.authorization ? { authorization: input.authorization } : {}),
+      fold: input.fold,
+    });
+    const body = taskMoveResponseSchema.parse(result.body);
+    return {
+      taskId: body.taskId,
+      collection: body.collection,
+      parentTaskId: body.parentId,
+      movedTaskIds: body.movedTaskIds,
+    };
+  }
   if (task.status === "archived") throw new TaskOperationError("task.archived");
   if (task.collection === args.collection && task.parentId === null) {
-    const tree = await service.listCollection(input.ownerId, args.collection);
-    const own = tree.tasks.findIndex((node) => node.id === task.id);
-    const moved = [task.id];
-    const baseDepth = tree.tasks[own]?.depth ?? 0;
-    for (let index = own + 1; index < tree.tasks.length; index += 1) {
-      const node = tree.tasks[index];
-      if (!node || node.depth <= baseDepth) break;
-      moved.push(node.id);
-    }
+    const state = await service.state(input.ownerId);
+    const current = state.tree.get(task.id);
+    const moved = [
+      task.id,
+      ...state.tree.descendantsOf(task.id).map((child) => taskIdSchema.parse(child.id)),
+    ];
+    // The public list is paginated: it cannot stand in for this complete subtree. The version
+    // witness also prevents a cached, formerly authorized subtree leaking after a concurrent move.
+    await service.authorize(input.ownerId, input.authorization, state.version);
+    if (
+      !current ||
+      current.collection !== args.collection ||
+      state.tree.effectiveParent(current) !== null
+    )
+      throw new TaskOperationError("task.conflict");
     return {
       taskId: task.id,
       collection: task.collection,
@@ -125,6 +166,7 @@ export async function taskMoveTool(
     taskId: args.taskId,
     collection: args.collection,
     parentId: null,
+    ...(input.authorization ? { authorization: input.authorization } : {}),
   });
   if (result.kind !== "applied") throw new TaskOperationError("task.conflict");
   return {

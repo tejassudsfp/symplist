@@ -3,6 +3,7 @@
 export * from "./calendar.ts";
 export * from "./cleanup.ts";
 export * from "./email.ts";
+export * from "./feature-cleanup.ts";
 export * from "./notifications.ts";
 export * from "./scanner.ts";
 export * from "./service.ts";

@@ -47,13 +47,13 @@ export class RouteClassProbeController {
     return seen(req);
   }
 
-  @Post("artifact/:id/password")
+  @Post("artifact/_probe/:id/password")
   @RouteClass("share_form")
   shareForm(@Req() req: Request) {
     return seen(req);
   }
 
-  @Get("artifact/:id")
+  @Get("artifact/_probe/:id")
   @RouteClass("share_read")
   shareRead(@Req() req: Request) {
     return seen(req);

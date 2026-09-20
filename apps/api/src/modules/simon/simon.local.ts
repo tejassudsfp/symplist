@@ -15,7 +15,7 @@ export function createLocalSimonHandler(
 ): LocalExecutionHandler {
   return async (job, context) => {
     if (config.DURABLE) throw new Error("simon.local_disabled");
-    const { createSimonModels, runSimonTurn } = await import("@symplist/agent");
+    const { createSimonModels, runSimonTurn, simonNativeTools } = await import("@symplist/agent");
     await runSimonTurn(job.subjectId, {
       repository,
       executor: "local",
@@ -23,6 +23,20 @@ export function createLocalSimonHandler(
       signal: context.signal,
       telemetryEnabled: config.AI_TELEMETRY_ENABLED,
       documents: () => ({ tools: documents, git: null }),
+      tools: async (toolContext) =>
+        simonNativeTools(toolContext, {
+          scheduling: {
+            remindersEnabled: config.REMINDERS_ENABLED,
+            emailEnabled: config.REMINDER_EMAIL_ENABLED,
+            defaultZone: config.DEFAULT_TIMEZONE,
+          },
+          onScheduleChanged: async (ownerId, taskId, version) => {
+            await hub.publishToUser(ownerId, {
+              type: "schedule.changed",
+              data: { taskId, version },
+            });
+          },
+        }),
       log: (event) => logger.warn("simon.run_event", { code: event.code, runId: job.subjectId }),
       sink: (claim) => ({
         write: async (chunk) => {

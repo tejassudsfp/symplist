@@ -458,6 +458,7 @@ export function planRename(
  * --------------------------------------------------------------------------------------------- */
 
 export interface MovePlanInput {
+  readonly collectionOnly?: boolean;
   readonly taskId: string;
   readonly collection?: TaskCollection;
   readonly parentId?: string | null;
@@ -554,6 +555,35 @@ export function planMove(
   };
 
   const descendants = tree.descendantsOf(task.id);
+  if (
+    input.collectionOnly &&
+    targetParentId === null &&
+    previous.parentId === null &&
+    targetCollection === task.collection &&
+    input.afterId === undefined &&
+    input.beforeId === undefined
+  ) {
+    return {
+      lock: "none",
+      requires: {
+        sql: "EXISTS (SELECT 1 FROM users WHERE id = :move_owner AND task_tree_version = CAST(:move_version AS INTEGER))",
+        params: { move_owner: ctx.ownerId, move_version: int(state.version) },
+      },
+      effects: [],
+      status: 200,
+      body: {
+        taskId: task.id,
+        collection: task.collection,
+        parentId: null,
+        position: task.position,
+        movedTaskIds: [task.id, ...descendants.map((child) => child.id)],
+        previous,
+      } as TaskMoveResponse,
+      changedTaskIds: [],
+      analytics: null,
+      apply: (current) => current,
+    };
+  }
   const collectionChanged = targetCollection !== task.collection;
   const params = {
     ...ctx.guardParams,

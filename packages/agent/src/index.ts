@@ -3,6 +3,7 @@
  */
 
 export * from "./loop.ts";
+export * from "./native.ts";
 export * from "./policy.ts";
 export * from "./providers.ts";
 export * from "./rules.ts";

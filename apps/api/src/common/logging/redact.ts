@@ -40,7 +40,7 @@ const keyPattern = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
  * user-authored content. Matching is on the lower-cased name.
  */
 const sensitiveNamePattern =
-  /pass(?:word|phrase)?|secret|token|otp|pin|key|authoriz|bearer|cookie|csrf|nonce|signature|credential|prompt|body|text|content|markdown|document|message|argument|result|payload|email|address|recipient|subject|query|url|href|header|title|name|note|reason|value|preview|code/;
+  /analytics_?id|pass(?:word|phrase)?|secret|token|otp|pin|key|authoriz|bearer|cookie|csrf|nonce|signature|credential|prompt|body|text|content|markdown|document|message|argument|result|payload|email|address|recipient|subject|query|url|href|header|title|name|note|reason|value|preview|code/;
 
 /** Names that look sensitive but always hold a value restricted to a safe shape. */
 const shapeRestrictedNames: Readonly<Record<string, RegExp>> = {

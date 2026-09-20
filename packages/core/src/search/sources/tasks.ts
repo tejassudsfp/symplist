@@ -1,20 +1,24 @@
-import { type AccountDataKey, decryptFieldText, type FieldEnvelopeContext } from "@symplist/crypto";
+import { type AccountDataKey, decryptFieldText } from "@symplist/crypto";
 import { type DbClient, type DbRow, int, type Statement, sql } from "@symplist/db";
 import type { SearchTaskRecord } from "@symplist/search";
+import { taskTitleContext } from "../../tasks/sql.ts";
 import { type SearchLog, searchErrorCode } from "../log.ts";
 import type { SearchPage, SearchTaskSource } from "./types.ts";
 
 /** D1 caps a statement at 100 parameters (§3.2); the owner takes one. */
 export const TASK_READ_CHUNK = 90;
 
-/**
- * The field envelope binding of `tasks.title_enc` (§4.1, §4.2): purpose `title`, table `tasks`, row id =
- * task id, column `title_enc`, owner = the task owner. The workspace feature writes titles with the
- * same binding.
+/*
+ * The binding of `tasks.title_enc` comes from the module that writes it (`tasks/sql.ts`), and is
+ * re-exported here only so this source's callers keep one import.
+ *
+ * It used to be declared again in this file with purpose `title`, while the writer used
+ * `task_title`. AAD is authenticated, so every task title written by the workspace failed to
+ * decrypt here — search saw `crypto.decryption_failed` for every task an account owned. Nothing
+ * caught it because each side's tests sealed *and* opened with its own copy of the context, so
+ * neither suite ever crossed the boundary. One definition, imported, is what keeps that honest.
  */
-export function taskTitleContext(ownerId: string, taskId: string): FieldEnvelopeContext {
-  return { purpose: "title", ownerId, table: "tasks", rowId: taskId, column: "title_enc" };
-}
+export { taskTitleContext };
 
 const collections = new Set(["now", "later", "unclassified"]);
 

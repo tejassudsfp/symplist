@@ -88,9 +88,13 @@ export class SimonViews {
     const result = await repository.options.db.batch([
       sql(
         `SELECT c.*, r.status AS run_status, r.tier AS run_tier, r.cancel_requested_at,
+        latest.id AS latest_run_id, latest.status AS latest_status, latest.tier AS latest_tier,
+        latest.cancel_requested_at AS latest_cancel, latest.outcome_code AS latest_outcome,
         (SELECT a.id FROM approvals a WHERE a.run_id = c.active_run_id AND a.owner_id = c.owner_id AND a.status = 'pending' LIMIT 1) AS approval_id,
         (SELECT a.id FROM user_asks a WHERE a.run_id = c.active_run_id AND a.owner_id = c.owner_id AND a.status = 'pending' LIMIT 1) AS ask_id
-        FROM conversations c LEFT JOIN runs r ON r.id = c.active_run_id AND r.owner_id = c.owner_id WHERE ${allowed}`,
+        FROM conversations c LEFT JOIN runs r ON r.id = c.active_run_id AND r.owner_id = c.owner_id
+        LEFT JOIN runs latest ON latest.id=(SELECT id FROM runs WHERE conversation_id=c.id AND owner_id=c.owner_id ORDER BY created_at DESC,id DESC LIMIT 1)
+        WHERE ${allowed}`,
         params,
       ),
       repository.accountKeys.selectStatement(ownerId),
@@ -149,6 +153,22 @@ export class SimonViews {
         conversationId,
         kind: conversation.kind,
         taskId: conversation.task_id,
+        latestRun:
+          conversation.latest_run_id === null
+            ? null
+            : {
+                runId: conversation.latest_run_id,
+                conversationId,
+                taskId: conversation.task_id,
+                status: conversation.latest_status,
+                tier: conversation.latest_tier,
+                stopRequested: conversation.latest_cancel !== null,
+                outcomeCode:
+                  conversation.latest_outcome === "ai.unavailable" ||
+                  conversation.latest_outcome === "ai.provider_failed"
+                    ? conversation.latest_outcome
+                    : null,
+              },
         activeRun:
           conversation.active_run_id === null
             ? null

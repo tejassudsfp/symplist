@@ -384,7 +384,7 @@ function ChatFrame({
           </button>
         </HintTooltip>
       </div>
-      <div className="flex min-h-0 flex-1 flex-col overflow-auto p-3.5">{slots.chat?.(taskId)}</div>
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{slots.chat?.(taskId)}</div>
     </aside>
   );
 }

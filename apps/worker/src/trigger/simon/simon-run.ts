@@ -1,4 +1,4 @@
-import { createSimonModels, runSimonTurn } from "@symplist/agent";
+import { createSimonModels, runSimonTurn, simonNativeTools } from "@symplist/agent";
 import { simonRunPayloadSchema } from "@symplist/contracts";
 import { DocumentRepository, DocumentTools, DurableDocumentGit } from "@symplist/core/documents";
 import { SimonRepository } from "@symplist/core/simon";
@@ -7,6 +7,7 @@ import { AbortTaskRunError, task, tasks } from "@trigger.dev/sdk";
 import { reportingD1Counters } from "../../infra/d1-counters.ts";
 import { toWorkerError, WorkerError } from "../../infra/errors.ts";
 import { type WorkerRuntime, workerRuntime } from "../../infra/runtime.ts";
+import { simonTaskAnnouncements } from "../../infra/simon-events.ts";
 import { d1 } from "../../queues.ts";
 
 /** IDs enter, enums/counts leave; all content uses D1 envelopes and the encrypted API push. */
@@ -26,6 +27,7 @@ export async function runDurableSimon(
     policy: { betaAccessRequired: runtime.config.BETA_ACCESS_REQUIRED },
     quickChatTtlHours: runtime.config.QUICK_CHAT_TTL_HOURS,
   });
+  const flushAnnouncements = simonTaskAnnouncements(runtime);
   try {
     return await runSimonTurn(parsed.data.runId, {
       repository,
@@ -35,6 +37,21 @@ export async function runDurableSimon(
         ? AbortSignal.any([signal, AbortSignal.timeout(890_000)])
         : AbortSignal.timeout(890_000),
       telemetryEnabled: runtime.config.AI_TELEMETRY_ENABLED,
+      tools: async (context) =>
+        simonNativeTools(context, {
+          scheduling: {
+            remindersEnabled: runtime.config.REMINDERS_ENABLED,
+            emailEnabled: runtime.config.REMINDER_EMAIL_ENABLED,
+            defaultZone: runtime.config.DEFAULT_TIMEZONE,
+          },
+          onScheduleChanged: async (ownerId, taskId, version) => {
+            await runtime.events.announce({
+              type: "schedule.changed",
+              ownerId,
+              payload: { taskId, version },
+            });
+          },
+        }),
       documents: () => {
         const documents = new DocumentRepository({
           db: runtime.db,
@@ -72,6 +89,8 @@ export async function runDurableSimon(
     });
   } catch (error) {
     throw toWorkerError(error);
+  } finally {
+    await flushAnnouncements();
   }
 }
 

@@ -15,7 +15,7 @@ export class LoggingProbeController {
     return { ok: true };
   }
 
-  @Get("artifact/:id")
+  @Get("artifact/_probe/:id")
   @RouteClass("share_read")
   share(@Query("key") key: string) {
     this.logger.info("probe.share_read", { key, length: key.length });

@@ -9,6 +9,7 @@ import {
 import { ApiError } from "@/lib/api";
 import type { WorkspaceApi } from "./api.ts";
 import { classifyFailure, type Failure } from "./errors.ts";
+import { reportSavedAppearance } from "./telemetry.ts";
 
 /**
  * How a group's local state relates to the account (§10.3). `previewing` is the honest state after a
@@ -134,6 +135,29 @@ export class PreferencesStore {
       entry.timer = null;
     }
     this.listeners.clear();
+  }
+
+  /**
+   * Undoes a `dispose()` for a store that is mounted again rather than replaced.
+   *
+   * React's development Strict Mode mounts, unmounts and remounts, while the provider keeps this
+   * instance in a `useMemo` whose dependencies did not change. Without this the store came back
+   * permanently dead: the first mount's load resolved into `if (this.disposed) return`, so the
+   * status stayed `loading`, `ensureLoaded()` (which only acts on `idle` or `error`) never asked
+   * again, and the account's preferences never arrived — skeletons forever, with no second request
+   * and nothing in the console. A status stranded that way is reset here so the next
+   * `ensureLoaded()` starts a real load.
+   */
+  reopen(): void {
+    if (!this.disposed) return;
+    this.disposed = false;
+    if (this.statusValue === "loading" && this.loading === null) this.statusValue = "idle";
+    for (const [group, entry] of this.entries) {
+      if (entry.state === "saving" && !entry.inFlight && entry.timer === null) {
+        entry.again = false;
+        this.schedule(group, false);
+      }
+    }
   }
 
   get status(): PreferencesStatus {
@@ -324,6 +348,11 @@ export class PreferencesStore {
       if (this.disposed) return;
       // Drop a response older than one already applied (§10.3 request ordering).
       if (response.clientSeq >= entry.applied) {
+        if (group === "appearance")
+          reportSavedAppearance(
+            parseGroup("appearance", entry.saved),
+            parseGroup("appearance", response.data),
+          );
         entry.applied = response.clientSeq;
         entry.version = response.version;
         entry.saved = parseGroup(group, response.data);

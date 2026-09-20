@@ -83,10 +83,10 @@ test("Vault setup, edit, lock, fresh-OTP recovery and preserved contents", async
   await page.getByRole("button", { name: "Send reset code", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Verify vault reset" })).toBeVisible();
   const delivered = await context.request.post(`${apiOrigin}/v1/auth/test/otp`, {
-    headers: { Origin: webOrigin, "X-Sym-CSRF": "1" },
+    headers: { Origin: webOrigin, "X-Symplist-CSRF": "1" },
     data: { email: identity.email, purpose: "vault_reset" },
   });
-  expect(delivered.ok()).toBe(true);
+  expect(delivered.status(), await delivered.text()).toBe(200);
   const body: { code: string } = await delivered.json();
   await page.getByLabel("Verification code", { exact: true }).fill(body.code);
   await page.getByRole("button", { name: "Verify", exact: true }).click();

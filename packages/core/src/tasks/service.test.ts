@@ -16,6 +16,7 @@ import { IdempotencyStore } from "../idempotency/store.ts";
 import { ARCHIVE_MEMBERS_PER_GROUP } from "./archive.ts";
 import type { ArchiveContributor } from "./archive-contributors/types.ts";
 import { archiveGuard } from "./archive-runner.ts";
+import type { TaskAuthorization } from "./authorization.ts";
 import { TaskOperationError } from "./errors.ts";
 import { POSITION_REBALANCE_LENGTH, restorableCollection } from "./plans.ts";
 import { type TaskActor, TaskService, type TaskWriteFold } from "./service.ts";
@@ -786,6 +787,164 @@ describe("idempotent writes folded into the batch", () => {
       },
     };
   }
+
+  const authority = {
+    sql: "EXISTS (SELECT 1 FROM executor_state WHERE id = 1 AND generation = CAST(:task_auth_generation AS INTEGER))",
+    params: { task_auth_generation: "1" },
+  };
+
+  it.each(["create", "move"] as const)(
+    "fences %s at the deciding batch and refuses recorded replay after revocation",
+    async (operation) => {
+      const owner = await insertUser();
+      const tasks = service();
+      const existing = await create(tasks, owner, "Existing", { collection: "now" });
+      const id = uuidv7(clock);
+      const key = `guarded-${operation}-request`;
+      const execute = () =>
+        operation === "create"
+          ? tasks.create({
+              ownerId: owner,
+              actor: user,
+              title: "Guarded",
+              collection: "unclassified",
+              taskId: id,
+              authorization: authority,
+              fold: fold(owner, key, { operation }),
+            })
+          : tasks.move({
+              ownerId: owner,
+              actor: user,
+              taskId: existing,
+              collection: "later",
+              authorization: authority,
+              fold: fold(owner, key, { operation }),
+            });
+      const first = await execute();
+      expect(first.kind).toBe("applied");
+      expect(await execute()).toEqual({ kind: "replay", body: first.body });
+      await db.run(sql("UPDATE executor_state SET generation = 2 WHERE id = 1"));
+      await expectRefused(execute(), "not_found");
+      expect(await db.all(sql("SELECT status FROM idempotency_records"))).toEqual([
+        { status: "completed" },
+      ]);
+    },
+  );
+
+  it.each(["create", "move"] as const)(
+    "refuses %s when authority changes after the warm tree was read, without a success record",
+    async (operation) => {
+      const owner = await insertUser();
+      const tasks = service();
+      const existing = await create(tasks, owner, "Existing", { collection: "now" });
+      const before = await rows(owner);
+      const original = db.batch.bind(db);
+      const spy = vi.spyOn(db, "batch").mockImplementationOnce(async (statements) => {
+        await original([sql("UPDATE executor_state SET generation = 2 WHERE id = 1")]);
+        return original(statements);
+      });
+      const input = {
+        ownerId: owner,
+        actor: user,
+        authorization: authority,
+        fold: fold(owner, `race-${operation}-request`, { operation }),
+      };
+      await expectRefused(
+        operation === "create"
+          ? tasks.create({ ...input, title: "Refused", collection: "unclassified" })
+          : tasks.move({ ...input, taskId: existing, collection: "later" }),
+        "not_found",
+      );
+      spy.mockRestore();
+      expect(await rows(owner)).toEqual(before);
+      expect(await db.all(sql("SELECT key FROM idempotency_records"))).toEqual([]);
+    },
+  );
+
+  it("denies an exact archived completion replay after access is relocked", async () => {
+    const owner = await insertUser();
+    const tasks = service();
+    const id = await create(tasks, owner, "Private title", { collection: "now" });
+    const execute = () =>
+      tasks.complete({
+        ownerId: owner,
+        taskId: id,
+        mode: "all" as const,
+        stopRun: false,
+        fold: fold(owner, "completion-access-replay", { id }),
+      });
+    expect((await execute()).kind).toBe("applied");
+    await db.run(sql("UPDATE users SET beta_state = 'relocked' WHERE id = :owner", { owner }));
+    await expectRefused(execute(), "not_found");
+  });
+
+  it("does not let a foreign folded claim record another owner's task", async () => {
+    const owner = await insertUser();
+    const other = await insertUser();
+    await expectRefused(
+      service().create({
+        ownerId: owner,
+        actor: user,
+        title: "No",
+        fold: fold(other, "foreign-owner-request", {}),
+      }),
+      "not_found",
+    );
+    expect(await rows(owner)).toEqual([]);
+    expect(await db.all(sql("SELECT key FROM idempotency_records"))).toEqual([]);
+  });
+
+  it("rejects guard bind shadowing and borrowing before any write", async () => {
+    const owner = await insertUser();
+    const guards: TaskAuthorization[] = [
+      { sql: ":tree_owner = :tree_owner", params: { tree_owner: owner } },
+      { sql: ":task_auth_owner = :task_auth_owner", params: { task_auth_owner: owner } },
+      { sql: ":tree_owner = :task_auth_id", params: { task_auth_id: owner } },
+    ];
+    for (const authorization of guards) {
+      await expect(
+        service().create({ ownerId: owner, actor: user, title: "No", authorization }),
+      ).rejects.toThrow();
+    }
+    expect(await rows(owner)).toEqual([]);
+  });
+
+  it("does not serve a cached task through a revoked authorization", async () => {
+    const owner = await insertUser();
+    const tasks = service();
+    const id = await create(tasks, owner, "Cached title", { collection: "now" });
+    expect((await tasks.getTask(owner, id, authority)).task.title).toBe("Cached title");
+    await db.run(sql("UPDATE executor_state SET generation = 2 WHERE id = 1"));
+    await expectRefused(tasks.getTask(owner, id, authority), "not_found");
+  });
+
+  it("does not reveal archived task or hierarchy errors through an unauthorized non-fold plan", async () => {
+    const owner = await insertUser();
+    const tasks = service();
+    const id = await create(tasks, owner, "Archived", { collection: "now" });
+    await tasks.complete({ ownerId: owner, taskId: id, mode: "all", stopRun: false });
+    const authorization = { sql: "0 = 1", params: {} };
+    await expectRefused(
+      tasks.create({ ownerId: owner, actor: user, title: "No", parentId: id, authorization }),
+      "not_found",
+    );
+    await expectRefused(
+      tasks.move({ ownerId: owner, actor: user, taskId: id, collection: "later", authorization }),
+      "not_found",
+    );
+    await expectRefused(
+      tasks.create({
+        ownerId: owner,
+        actor: user,
+        title: "No",
+        taskId: id,
+        collection: "now",
+        authorization,
+      }),
+      "not_found",
+    );
+    expect(await rows(owner)).toHaveLength(1);
+  });
 
   it("replays an exact retry of a completion instead of refusing the archived task", async () => {
     const owner = await insertUser();

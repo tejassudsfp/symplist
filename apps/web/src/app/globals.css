@@ -2472,6 +2472,12 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  min-height: 32px;
+}
+.sym-schedule-check input[type="checkbox"] {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
 }
 .sym-schedule-row {
   display: flex;
@@ -2610,7 +2616,7 @@
   gap: 16px;
   align-items: center;
 }
-.sym-calendar > header p {
+.sym-calendar > :where(header) p {
   font-size: 12px;
   color: var(--sym-muted);
 }
@@ -2707,7 +2713,7 @@
 .sym-calendar-day[data-outside="true"] > button {
   color: var(--sym-muted);
 }
-.sym-calendar-entry[data-completed="true"] a {
+.sym-calendar-entry:where([data-completed="true"]) a {
   text-decoration: line-through;
 }
 .sym-calendar-agenda h3 {
@@ -2759,4 +2765,474 @@
   .sym-notification-summary {
     display: none;
   }
+}
+
+/* D2 Sharing / Analytics — single appended feature block; independent theme tokens throughout. */
+.sym-artifacts-manager,
+.sym-handoff-screen,
+.sym-privacy-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  color: var(--sym-text);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.sym-handoff-screen {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 28px 32px 64px;
+}
+
+.sym-sharing-buttons,
+.sym-artifact-heading,
+.sym-grants-list li,
+.sym-handoff-artifact {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.sym-artifact-heading,
+.sym-grants-list li {
+  justify-content: space-between;
+}
+
+.sym-artifact-row {
+  padding: 20px 0;
+  border-bottom: 1px solid var(--sym-line);
+}
+
+.sym-artifact-row h2,
+.sym-privacy-settings h2 {
+  margin: 0;
+  font-family: var(--sym-head-font);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.sym-artifact-row p,
+.sym-privacy-settings p,
+.sym-handoff-screen p {
+  margin: 0;
+}
+
+.sym-sharing-meta {
+  color: var(--sym-muted);
+  font-size: 12px;
+}
+
+.sym-sharing-notice {
+  padding: 12px 14px;
+  background: var(--sym-surface);
+  border: 1px solid var(--sym-line);
+  border-radius: var(--sym-r);
+}
+
+.sym-sharing-error {
+  color: var(--sym-danger);
+}
+
+.sym-sharing-empty {
+  padding: 30px 0;
+  max-width: 48ch;
+  color: var(--sym-muted);
+}
+
+.sym-grants-list {
+  list-style: none;
+  padding: 0;
+  margin: 16px 0 0;
+}
+
+.sym-grants-list li {
+  padding: 12px 0;
+  border-top: 1px solid var(--sym-line);
+}
+
+.sym-grant-state {
+  display: inline-block;
+  margin-left: 10px;
+  font-size: 12px;
+  color: var(--sym-muted);
+}
+
+.sym-grant-active {
+  color: var(--sym-ok);
+}
+
+.sym-share-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(700px, calc(100vw - 40px));
+  max-height: calc(100dvh - 48px);
+  overflow: auto;
+}
+
+.sym-share-dialog h3 {
+  margin: 4px 0 0;
+  font-size: 16px;
+}
+
+.sym-share-dialog p {
+  margin: 0;
+}
+
+.sym-share-dialog label,
+.sym-sharing-fieldset label,
+.sym-privacy-settings label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sym-share-dialog input:not([type="checkbox"], [type="radio"]),
+.sym-share-dialog select,
+.sym-handoff-screen input:not([type="checkbox"]),
+.sym-handoff-screen select,
+.sym-handoff-screen textarea {
+  width: 100%;
+  padding: 9px 11px;
+  color: var(--sym-text);
+  background: var(--sym-surface);
+  border: 1px solid var(--sym-line-strong);
+  border-radius: var(--sym-r);
+  font: inherit;
+}
+
+.sym-handoff-screen textarea {
+  resize: vertical;
+  min-height: 320px;
+  font-family: var(--sym-mono);
+  line-height: 1.65;
+}
+
+.sym-sharing-fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0;
+  margin: 8px 0;
+  border: none;
+}
+
+.sym-sharing-fieldset legend {
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+.sym-sharing-preview {
+  max-height: 350px;
+  overflow: auto;
+  padding: 16px;
+  margin-top: 10px;
+  border: 1px solid var(--sym-line);
+  border-radius: var(--sym-r);
+  background: var(--sym-bg);
+}
+
+.sym-share-dialog summary {
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.sym-consent-banner {
+  position: fixed;
+  z-index: 45;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(720px, calc(100vw - 32px));
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 18px 20px;
+  color: var(--sym-text);
+  background: var(--sym-surface);
+  border: 1px solid var(--sym-line-strong);
+  border-radius: var(--sym-r);
+  box-shadow: 0 4px 22px rgb(0 0 0 / 10%);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.sym-consent-banner h2 {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.sym-consent-banner p {
+  margin: 0;
+}
+
+.sym-consent-banner a,
+.sym-privacy-settings a {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+@media (max-width: 767px) {
+  .sym-handoff-screen {
+    padding: 20px 18px 48px;
+  }
+
+  .sym-share-dialog {
+    width: calc(100vw - 24px);
+    max-height: calc(100dvh - 24px);
+  }
+
+  .sym-consent-banner {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+    bottom: 12px;
+  }
+}
+
+/* D2 Simon: AI Elements presentation in the supplied workspace's component language. */
+.sym-simon-conversation {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  font-size: 13.5px;
+}
+.sym-simon-note {
+  color: var(--sym-muted);
+  font-size: 11.5px;
+  line-height: 1.5;
+  margin: 0;
+}
+.sym-simon-empty {
+  margin: auto 0;
+  padding: 10px 4px;
+  color: var(--sym-muted);
+  line-height: 1.55;
+}
+.sym-simon-empty p {
+  margin: 0 0 12px;
+}
+.sym-chat-response {
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+.sym-chat-response > :first-child {
+  margin-top: 0;
+}
+.sym-chat-response > :last-child {
+  margin-bottom: 0;
+}
+.sym-simon-composer {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--sym-line);
+}
+.sym-simon-composer textarea {
+  display: block;
+  width: 100%;
+  min-height: 64px;
+  max-height: 180px;
+  resize: vertical;
+  padding: 10px 12px;
+  background: var(--sym-surface);
+  color: var(--sym-text);
+  border: 1px solid var(--sym-muted);
+  border-radius: var(--sym-rl);
+  font: inherit;
+  line-height: 1.5;
+}
+.sym-simon-composer textarea:focus-visible,
+.sym-simon-composer select:focus-visible,
+.sym-simon-approval textarea:focus-visible,
+.sym-simon-approval select:focus-visible,
+.sym-simon-title-input:focus-visible,
+.sym-quick-chat-footer select:focus-visible {
+  outline: 2px solid var(--sym-focus);
+  outline-offset: 2px;
+}
+.sym-simon-composer-controls,
+.sym-simon-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.sym-simon-tier {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--sym-muted);
+}
+.sym-simon-tier select {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--sym-surface);
+  color: var(--sym-text);
+  border: 1px solid var(--sym-muted);
+}
+.sym-simon-tool {
+  padding: 6px 10px;
+  border: 1px solid var(--sym-line);
+  border-radius: var(--sym-r);
+  background: var(--sym-surface);
+  font-size: 12.5px;
+}
+.sym-simon-tool summary {
+  cursor: pointer;
+}
+.sym-simon-tool p {
+  margin: 6px 0 0;
+  color: var(--sym-muted);
+}
+.sym-simon-approval,
+.sym-simon-question {
+  padding: 12px;
+  border: 1px solid var(--sym-muted);
+  border-radius: var(--sym-rl);
+  background: var(--sym-surface);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.sym-simon-approval h3,
+.sym-simon-question h3 {
+  margin: 0 0 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.sym-simon-approval dl {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px 12px;
+}
+.sym-simon-approval dt {
+  color: var(--sym-muted);
+}
+.sym-simon-approval dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.sym-simon-preview {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 240px;
+  overflow: auto;
+  padding: 9px;
+  background: var(--sym-panel);
+  border-radius: var(--sym-r);
+  font-size: 12px;
+}
+.sym-simon-actions {
+  margin-top: 12px;
+}
+.sym-simon-edit label,
+.sym-simon-vault label,
+.sym-quick-chat-footer label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 8px 0;
+}
+.sym-simon-edit textarea,
+.sym-simon-vault select,
+.sym-simon-title-input,
+.sym-quick-chat-footer select {
+  max-width: 100%;
+  width: 100%;
+  padding: 7px;
+  background: var(--sym-surface);
+  color: var(--sym-text);
+  border: 1px solid var(--sym-muted);
+  border-radius: var(--sym-r);
+}
+.sym-quick-chat-launcher {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 20;
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 999px;
+  box-shadow: 0 4px 14px rgb(0 0 0 / 10%);
+}
+.sym-quick-chat-dialog {
+  top: auto;
+  left: auto;
+  right: 18px;
+  bottom: 18px;
+  transform: none;
+  transform-origin: bottom right;
+  width: min(390px, calc(100vw - 36px));
+  height: min(680px, calc(100dvh - 36px));
+  max-height: calc(100dvh - 36px);
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+  background: var(--sym-panel);
+}
+.sym-quick-chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--sym-line);
+}
+.sym-quick-chat-header .sym-dialog-title {
+  margin: 0;
+}
+.sym-quick-chat-header .sym-dialog-description {
+  margin: 2px 0 0;
+}
+.sym-quick-chat-notice {
+  padding: 8px 14px 0;
+}
+.sym-quick-chat-footer {
+  flex: none;
+  padding: 8px 12px;
+  border-top: 1px solid var(--sym-line);
+  max-height: 40dvh;
+  overflow: auto;
+}
+.sym-quick-chat-footer form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 6px;
+}
+.sym-quick-chat-footer label {
+  flex: 1 1 120px;
+}
+@media (max-width: 640px) {
+  .sym-quick-chat-dialog {
+    inset: 0;
+    width: 100%;
+    height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* Phase E visual audit: notification controls live on chrome, not the page surface. */
+.sym-topbar .sym-notification-control {
+  color: var(--sym-chrome-muted);
+}
+.sym-topbar .sym-notification-control:hover {
+  color: var(--sym-chrome-text);
+  background: var(--sym-chrome-hover);
+}
+.sym-topbar .sym-notification-control:focus-visible {
+  outline-color: var(--sym-chrome-accent);
 }

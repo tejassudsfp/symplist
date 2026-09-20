@@ -1,9 +1,176 @@
 "use client";
+import { MessageCircleIcon, XIcon } from "lucide-react";
+import { useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { useOptionalWorkspace } from "@/features/workspace/workspace-provider";
+import type { SimonApi } from "./api.ts";
+import { SimonConversation } from "./conversation.tsx";
+import { useChatState, useSimon } from "./provider.tsx";
+import type { SimonStore } from "./store.ts";
 
-/**
- * The floating quick chat launcher in the shell's bottom-right slot, shown only while no task is
- * selected (§8.7, decision D1). PLACEHOLDER: renders nothing until the Simon feature implements it.
- */
 export function QuickChatLauncher() {
-  return null;
+  const store = useSimon();
+  const workspace = useOptionalWorkspace();
+  const [open, setOpen] = useState(false);
+  const launcher = useRef<HTMLButtonElement>(null);
+  if (!store || workspace?.openTaskId) return null;
+  return (
+    <>
+      <Button
+        ref={launcher}
+        className="sym-quick-chat-launcher"
+        onClick={() => setOpen(true)}
+        aria-expanded={open}
+      >
+        <MessageCircleIcon size={16} aria-hidden="true" />
+        Ask Simon
+      </Button>
+      {open ? (
+        <QuickChatDialog
+          store={store}
+          onClose={() => setOpen(false)}
+          finalFocus={launcher}
+          onSaved={(saved) => workspace?.openTask(saved.collection, saved.taskId)}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function QuickChatDialog({
+  store,
+  onClose,
+  finalFocus,
+  onSaved,
+}: {
+  store: SimonStore;
+  onClose: () => void;
+  finalFocus: React.RefObject<HTMLButtonElement | null>;
+  onSaved: (saved: Awaited<ReturnType<SimonApi["save"]>>) => void;
+}) {
+  const state = useChatState(store, null);
+  const [saving, setSaving] = useState(false);
+  const [title, setTitle] = useState("");
+  const [collection, setCollection] = useState<"now" | "later" | "unclassified">("now");
+  const disabled = state.busy || state.uncertain || !state.conversationId;
+  const close = async () => {
+    if (state.busy || state.uncertain) return;
+    await store.closeQuick(onClose);
+  };
+  const save = async () => {
+    const id = state.conversationId;
+    if (!id || !title.trim() || disabled || state.projection.view?.activeRun) return;
+    let saved: Awaited<ReturnType<SimonApi["save"]>> | null = null;
+    await store.command(
+      null,
+      async (key) => {
+        saved = await store.api.save(id, { title: title.trim(), collection }, key);
+        return saved;
+      },
+      () => {
+        onClose();
+        store.forgetQuick();
+        if (saved) onSaved(saved);
+      },
+    );
+  };
+  return (
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) void close();
+      }}
+    >
+      <DialogContent className="sym-quick-chat-dialog" finalFocus={finalFocus}>
+        <header className="sym-quick-chat-header">
+          <div>
+            <DialogTitle>Simon</DialogTitle>
+            <DialogDescription>Workspace helper · temporary chat</DialogDescription>
+          </div>
+          <Button
+            size="icon"
+            variant="ghost"
+            aria-label="Close and delete quick chat"
+            disabled={state.busy || state.uncertain}
+            onClick={() => void close()}
+          >
+            <XIcon size={16} aria-hidden="true" />
+          </Button>
+        </header>
+        <p className="sym-simon-note sym-quick-chat-notice">
+          Deleted when you close it. Otherwise expires after 24 hours without activity.
+        </p>
+        <SimonConversation store={store} taskId={null} />
+        <footer className="sym-quick-chat-footer">
+          {saving ? (
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void save();
+              }}
+            >
+              <label>
+                Task title
+                <input
+                  className="sym-simon-title-input"
+                  value={title}
+                  onChange={(event) => setTitle(event.target.value)}
+                  required
+                  maxLength={200}
+                  disabled={disabled}
+                />
+              </label>
+              <label>
+                Collection
+                <select
+                  value={collection}
+                  onChange={(event) =>
+                    setCollection(
+                      event.target.value === "later"
+                        ? "later"
+                        : event.target.value === "unclassified"
+                          ? "unclassified"
+                          : "now",
+                    )
+                  }
+                  disabled={disabled}
+                >
+                  <option value="now">Now</option>
+                  <option value="later">Later</option>
+                  <option value="unclassified">Unclassified</option>
+                </select>
+              </label>
+              <Button
+                type="submit"
+                disabled={disabled || !title.trim() || !!state.projection.view?.activeRun}
+              >
+                Save task
+              </Button>
+              <Button
+                type="button"
+                disabled={state.busy || state.uncertain}
+                onClick={() => setSaving(false)}
+              >
+                Cancel
+              </Button>
+            </form>
+          ) : (
+            <Button
+              size="sm"
+              disabled={disabled || !!state.projection.view?.activeRun}
+              onClick={() => setSaving(true)}
+            >
+              Save as task
+            </Button>
+          )}
+          {state.projection.view?.activeRun ? (
+            <p className="sym-simon-note">
+              Finish or stop the current work before saving as a task.
+            </p>
+          ) : null}
+        </footer>
+      </DialogContent>
+    </Dialog>
+  );
 }

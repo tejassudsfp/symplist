@@ -1,12 +1,15 @@
 import { Inject, Injectable, Module, type OnModuleInit } from "@nestjs/common";
+import type { ServerAnalyticsEmitter } from "@symplist/analytics/server";
+import { AnalyticsService } from "@symplist/core/analytics";
 import { DocumentRepository, DocumentTools } from "@symplist/core/documents";
-import { SimonRepository } from "@symplist/core/simon";
+import { SimonQuickChats, SimonRepository } from "@symplist/core/simon";
 import type { KeyProvider } from "@symplist/crypto";
 import type { DbClient } from "@symplist/db";
 import type { GitService } from "@symplist/docs";
 import type { ObjectStore } from "@symplist/storage";
 import { CLOCK, type Clock } from "../../common/clock.ts";
 import { AppLogger } from "../../common/logging/logger.ts";
+import { SERVER_ANALYTICS } from "../../infra/analytics/analytics.providers.ts";
 import { API_CONFIG, type ApiConfig } from "../../infra/config/api-config.ts";
 import { KEY_PROVIDER } from "../../infra/crypto/crypto.providers.ts";
 import { DB_CLIENT } from "../../infra/db/db.providers.ts";
@@ -49,6 +52,30 @@ export class SimonLifecycle implements OnModuleInit {
 @Module({
   controllers: [SimonController, SimonUserAsksController, SimonApprovalsController],
   providers: [
+    {
+      provide: SimonQuickChats,
+      inject: [SimonRepository, API_CONFIG, SERVER_ANALYTICS],
+      useFactory: (
+        repository: SimonRepository,
+        config: ApiConfig,
+        emitter: ServerAnalyticsEmitter,
+      ) => {
+        const analytics = new AnalyticsService({
+          ...repository.options,
+          emitter,
+          enabled: config.ANALYTICS_ENABLED && Boolean(config.POSTHOG_PROJECT_KEY),
+        });
+        return new SimonQuickChats(repository, async (owner, collection, eventId) => {
+          await analytics.capture(owner, "quick_chat_saved", { collection }, eventId);
+          await analytics.capture(
+            owner,
+            "task_created",
+            { collection, source: "quick_chat", is_subtask: false },
+            repository.nextId(),
+          );
+        });
+      },
+    },
     {
       provide: DocumentTools,
       inject: [

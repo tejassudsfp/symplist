@@ -40,7 +40,7 @@ export class LimitsProbeController {
     return { ip: clientIp(req) };
   }
 
-  @Post("artifact/:id/password")
+  @Post("artifact/_probe/:id/password")
   @RouteClass("share_form")
   password(@Req() req: Request) {
     this.failures.assertAllowed("share_password_failure", req);

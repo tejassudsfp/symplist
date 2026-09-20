@@ -423,13 +423,21 @@ export class TestApp {
  * `afterEach`/`afterAll`.
  */
 export async function bootTestApp(options: TestAppOptions = {}): Promise<TestApp> {
-  const config = loadApiConfig(testApiEnv(options.env));
+  const validatedConfig = loadApiConfig(testApiEnv(options.env));
   const clock = options.clock ?? new FakeClock();
   const trigger = options.trigger ?? new FakeTriggerClient({ clock });
   const email = createCaptureEmailTransport();
   const logs = new CapturedLogs();
   const ownsDataDir = options.dataDir === undefined;
   const dataDir = options.dataDir ?? mkdtempSync(join(tmpdir(), "symplist-api-test-"));
+  // Git is disposable state too. A different app's advanced fake clock must not sweep
+  // this app's active repositories from the process-global production default.
+  const config = {
+    ...validatedConfig,
+    GIT_TMP_DIR: options.env?.GIT_TMP_DIR?.trim()
+      ? validatedConfig.GIT_TMP_DIR
+      : join(dataDir, "git"),
+  };
 
   let builder = Test.createTestingModule({
     imports: [

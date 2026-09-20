@@ -8,6 +8,63 @@ function store(api = new FakeWorkspaceApi()) {
 }
 
 describe("PreferencesStore", () => {
+  it("reloads a request that settled while disposed instead of staying loading", async () => {
+    const { preferences, api } = store();
+    const pending = preferences.load();
+    preferences.dispose();
+    await pending;
+    expect(preferences.status).toBe("loading");
+    preferences.reopen();
+    expect(preferences.status).toBe("idle");
+    const listener = vi.fn();
+    preferences.subscribe(listener);
+    preferences.ensureLoaded();
+    await vi.waitFor(() => expect(preferences.status).toBe("ready"));
+    expect(listener).toHaveBeenCalled();
+    expect(api.calls.filter((call) => call.method === "getPreferences")).toHaveLength(2);
+  });
+
+  it("accepts its pending load after immediate cleanup and reopen", async () => {
+    const { preferences, api } = store();
+    api.setPreference("appearance", { themeId: "paper", mode: "dark", accent: "violet" }, 3);
+    const pending = preferences.load();
+    preferences.dispose();
+    preferences.reopen();
+    const listener = vi.fn();
+    preferences.subscribe(listener);
+    await pending;
+    expect(preferences.status).toBe("ready");
+    expect(preferences.get("appearance").themeId).toBe("paper");
+    expect(listener).toHaveBeenCalledOnce();
+  });
+
+  it("resumes a debounced save cancelled by cleanup", async () => {
+    const { preferences, api } = store();
+    await preferences.load();
+    preferences.set("appearance", { themeId: "paper", mode: "dark", accent: "violet" });
+    preferences.dispose();
+    preferences.reopen();
+    await vi.waitFor(() => expect(preferences.snapshot("appearance").state).toBe("saved"));
+    expect(api.storedPreference("appearance").themeId).toBe("paper");
+    expect(api.calls.filter((call) => call.method === "putPreference")).toHaveLength(1);
+  });
+
+  it("reconciles a save that committed while disposed without losing the preview", async () => {
+    const { preferences, api } = store();
+    await preferences.load();
+    preferences.set(
+      "appearance",
+      { themeId: "paper", mode: "dark", accent: "violet" },
+      { immediate: true },
+    );
+    preferences.dispose();
+    await vi.waitFor(() => expect(api.storedPreference("appearance").themeId).toBe("paper"));
+    preferences.reopen();
+    await vi.waitFor(() => expect(preferences.snapshot("appearance").state).toBe("saved"));
+    expect(preferences.snapshot("appearance").saved).toEqual(preferences.get("appearance"));
+    expect(preferences.snapshot("appearance").version).toBe(1);
+  });
+
   it("loads every group once and reports the defaults until something is saved", async () => {
     const { preferences, api } = store();
     preferences.ensureLoaded();

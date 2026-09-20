@@ -8,6 +8,7 @@ import { NotificationControl } from "@/features/scheduling/notification-control"
 import { SchedulingProvider } from "@/features/scheduling/provider";
 import { CommandPalette } from "@/features/search/command-palette";
 import { ChatPane } from "@/features/simon/chat-pane";
+import { SimonProvider } from "@/features/simon/provider";
 import { QuickChatLauncher } from "@/features/simon/quick-chat";
 import { VaultStatus } from "@/features/vault/vault-status";
 import { WorkspaceDialogs } from "@/features/workspace/dialogs";
@@ -28,15 +29,21 @@ export function FeatureSlots({ children }: { children: ReactNode }) {
   return (
     <WorkspaceProvider userId={user?.id ?? null}>
       <SchedulingProvider key={user?.id ?? "signed-out"} userId={user?.id ?? null}>
-        <MountedSlots
-          identity={
-            status === "signed_in" && user
-              ? { displayName: user.displayName, email: user.email, isAdmin: user.role === "admin" }
-              : null
-          }
-        >
-          {children}
-        </MountedSlots>
+        <SimonProvider key={user?.id ?? "signed-out"} userId={user?.id ?? null}>
+          <MountedSlots
+            identity={
+              status === "signed_in" && user
+                ? {
+                    displayName: user.displayName,
+                    email: user.email,
+                    isAdmin: user.role === "admin",
+                  }
+                : null
+            }
+          >
+            {children}
+          </MountedSlots>
+        </SimonProvider>
       </SchedulingProvider>
     </WorkspaceProvider>
   );
