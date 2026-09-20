@@ -168,10 +168,10 @@ export function runSecretsGenerate(args: readonly string[] = [], cwd = repoRoot)
   });
 }
 
-/** Parses a checked-in `.env.example` with Node's env file parser (the `--env-file` semantics). */
+/** Parses a checked-in environment template with Node's env file parser. */
 export function readEnvExample(app: "api" | "worker" | "web") {
   const text = readFileSync(
-    new URL(`../../../../apps/${app}/.env.example`, import.meta.url),
+    new URL(`../../../../apps/${app}/env.example`, import.meta.url),
     "utf8",
   );
   return { text, variables: parseEnv(text) as Record<string, string> };

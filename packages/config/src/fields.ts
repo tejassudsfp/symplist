@@ -11,7 +11,7 @@ export type EnvRecord = Readonly<Record<string, string | undefined>>;
 
 /**
  * The variables that have a value. An empty value (`KEY=` in an env file) counts as unset, so
- * `.env.example` files can list every variable without configuring it.
+ * Checked-in environment templates can list every variable without configuring it.
  */
 export function presentVariables(env: EnvRecord): Record<string, string> {
   const present: Record<string, string> = {};

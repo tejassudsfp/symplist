@@ -97,7 +97,7 @@ async function examples() {
     await Promise.all(
       ["api", "worker", "web"].map(async (runtime) => [
         runtime,
-        await readFile(join(repoRoot, `apps/${runtime}/.env.example`), "utf8"),
+        await readFile(join(repoRoot, `apps/${runtime}/env.example`), "utf8"),
       ]),
     ),
   );
@@ -107,8 +107,8 @@ async function fixture(sourceOverrides = {}) {
   const root = await mkdtemp(join(tmpdir(), "symplist-env-"));
   scratch.add(root);
   for (const runtime of ["api", "worker", "web"]) {
-    const destination = join(root, `apps/${runtime}/.env.example`);
-    await cp(join(repoRoot, `apps/${runtime}/.env.example`), destination, {
+    const destination = join(root, `apps/${runtime}/env.example`);
+    await cp(join(repoRoot, `apps/${runtime}/env.example`), destination, {
       force: true,
       recursive: true,
     });

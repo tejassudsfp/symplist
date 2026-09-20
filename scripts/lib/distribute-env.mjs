@@ -22,9 +22,9 @@ import {
 } from "../../packages/config/src/worker.ts";
 
 const appTargets = Object.freeze({
-  api: Object.freeze({ example: "apps/api/.env.example", output: "apps/api/.env" }),
-  worker: Object.freeze({ example: "apps/worker/.env.example", output: "apps/worker/.env" }),
-  web: Object.freeze({ example: "apps/web/.env.example", output: "apps/web/.env" }),
+  api: Object.freeze({ example: "apps/api/env.example", output: "apps/api/.env" }),
+  worker: Object.freeze({ example: "apps/worker/env.example", output: "apps/worker/.env" }),
+  web: Object.freeze({ example: "apps/web/env.example", output: "apps/web/.env" }),
 });
 
 const privateMode = 0o600;

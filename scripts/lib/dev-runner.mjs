@@ -10,7 +10,7 @@ export const DEFAULT_SHUTDOWN_TIMEOUT_MS = 10_000;
 
 /** What to check when a command fails to start. */
 const startupHints = {
-  api: "check apps/api/.env: copy apps/api/.env.example and fill the secret families with pnpm secrets:generate",
+  api: "check apps/api/.env: copy apps/api/env.example and fill the secret families with pnpm secrets:generate",
   trigger:
     "check the Trigger.dev login (pnpm --filter @symplist/worker exec trigger login) and apps/worker/.env",
 };

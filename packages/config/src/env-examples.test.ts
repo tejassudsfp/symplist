@@ -57,7 +57,7 @@ describe.each([
     names: [...webVariableNames].sort(),
     load: (env: Record<string, string>) => loadWebConfig(env),
   },
-])("apps/$app/.env.example", ({ app, names, load }) => {
+])("apps/$app/env.example", ({ app, names, load }) => {
   const { text, variables } = readEnvExample(app);
 
   it("lists every variable the runtime reads, and nothing else", () => {
