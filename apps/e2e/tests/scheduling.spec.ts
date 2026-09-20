@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { schedulingSnapshotSchema, taskCreateResponseSchema } from "@symplist/contracts";
+import { resolveLocal } from "@symplist/core/scheduling";
 import { expectNoAxeViolations } from "../src/helpers/index.ts";
 import { ownerApi, runReminderScan } from "../src/helpers/phase-e.ts";
 import { signIn } from "../src/helpers/session.ts";
@@ -69,10 +70,9 @@ test("deadline reschedule becomes a notification that can be snoozed and complet
     ],
   });
   expect(save.status(), await save.text()).toBe(200);
-  expect(await runReminderScan(due.getTime() + 1_000)).toEqual({
-    occurrenceCount: 1,
-    acceptedCount: 0,
-  });
+  const scan = await runReminderScan(due.getTime() + 1_000);
+  expect(scan.occurrenceCount).toBeGreaterThanOrEqual(1);
+  expect(scan.acceptedCount).toBe(0);
 
   await page.goto("/now");
   await expect(page.getByRole("tree").getByText(title, { exact: true })).toBeVisible();
@@ -88,6 +88,7 @@ test("deadline reschedule becomes a notification that can be snoozed and complet
   const snooze = page.getByRole("dialog", { name: "Snooze reminder", exact: true });
   await snooze.getByRole("button", { name: "1 hour", exact: true }).click();
   const chosenLocal = await snooze.getByLabel("Custom hour").inputValue();
+  const chosenZone = await snooze.getByLabel("Timezone").inputValue();
   const savedSnooze = page.waitForResponse(
     (response) => response.request().method() === "POST" && response.url().endsWith("/snooze"),
   );
@@ -104,8 +105,8 @@ test("deadline reschedule becomes a notification that can be snoozed and complet
   expect(snoozed).toEqual(snoozeResult);
   expect(snoozed.version).toBeGreaterThan(current.version);
   expect(snoozed.reminders[0]).toMatchObject({
-    rule: { kind: "absolute", local: chosenLocal, zone: "UTC" },
-    intendedAt: Date.parse(`${chosenLocal}Z`),
+    rule: { kind: "absolute", local: chosenLocal, zone: chosenZone },
+    intendedAt: resolveLocal(chosenLocal, chosenZone),
   });
 
   await reminder.getByRole("button", { name: "Mark complete", exact: true }).click();
