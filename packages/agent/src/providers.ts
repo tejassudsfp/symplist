@@ -204,6 +204,126 @@ export function createSimonModels(
   };
 }
 
+const DOCUMENT_EDIT_DIRECTIVE = "symplist-e2e-document-edit:";
+
+interface DevelopmentDocumentEdit {
+  readonly taskId: string;
+  readonly sectionId: string;
+  readonly revision: string;
+  readonly markdown: string;
+}
+
+function stringsIn(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) return value.flatMap(stringsIn);
+  if (value && typeof value === "object") return Object.values(value).flatMap(stringsIn);
+  return [];
+}
+
+function developmentDocumentEdit(prompt: unknown): DevelopmentDocumentEdit | null {
+  const text = stringsIn(prompt).find((value) => value.includes(DOCUMENT_EDIT_DIRECTIVE));
+  if (!text) return null;
+  const encoded = text
+    .slice(text.indexOf(DOCUMENT_EDIT_DIRECTIVE) + DOCUMENT_EDIT_DIRECTIVE.length)
+    .trim()
+    .split(/\s/, 1)[0];
+  if (!encoded) return null;
+  try {
+    const value = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) as Record<
+      string,
+      unknown
+    >;
+    if (
+      typeof value.taskId !== "string" ||
+      !/^[0-9a-f-]{36}$/.test(value.taskId) ||
+      typeof value.sectionId !== "string" ||
+      !/^s[A-Za-z0-9_-]{25}$/.test(value.sectionId) ||
+      typeof value.revision !== "string" ||
+      !/^[0-9a-f]{40}$/.test(value.revision) ||
+      typeof value.markdown !== "string" ||
+      value.markdown.length > 65_536
+    )
+      return null;
+    return {
+      taskId: value.taskId,
+      sectionId: value.sectionId,
+      revision: value.revision,
+      markdown: value.markdown,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function developmentStream(prompt: unknown): Awaited<ReturnType<SimonModel["doStream"]>> {
+  const directive = developmentDocumentEdit(prompt);
+  const serialized = JSON.stringify(prompt) ?? "";
+  const readFinished = serialized.includes('"toolName":"task_document_read_section"');
+  const updateFinished = serialized.includes('"toolName":"task_document_update_section"');
+  const tool =
+    directive && !readFinished
+      ? {
+          id: "scripted_document_read",
+          name: "task_document_read_section",
+          input: {
+            taskId: directive.taskId,
+            sectionId: directive.sectionId,
+            revision: directive.revision,
+          },
+        }
+      : directive && !updateFinished
+        ? {
+            id: "scripted_document_update",
+            name: "task_document_update_section",
+            input: {
+              taskId: directive.taskId,
+              sectionId: directive.sectionId,
+              expectedRevision: directive.revision,
+              placement: "replace",
+              markdown: directive.markdown,
+            },
+          }
+        : null;
+  return {
+    stream: new ReadableStream({
+      start(controller) {
+        controller.enqueue({ type: "stream-start", warnings: [] });
+        if (tool) {
+          const input = JSON.stringify(tool.input);
+          controller.enqueue({ type: "tool-input-start", id: tool.id, toolName: tool.name });
+          controller.enqueue({ type: "tool-input-delta", id: tool.id, delta: input });
+          controller.enqueue({ type: "tool-input-end", id: tool.id });
+          controller.enqueue({
+            type: "tool-call",
+            toolCallId: tool.id,
+            toolName: tool.name,
+            input,
+          });
+        } else {
+          controller.enqueue({ type: "text-start", id: "text" });
+          controller.enqueue({
+            type: "text-delta",
+            id: "text",
+            delta: directive
+              ? "Updated the document section."
+              : "Scripted development response. No model or external action was called.",
+          });
+          controller.enqueue({ type: "text-end", id: "text" });
+        }
+        controller.enqueue({
+          type: "finish",
+          finishReason: { unified: tool ? "tool-calls" : "stop", raw: undefined },
+          usage: {
+            inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 },
+            outputTokens: { total: 0, text: 0, reasoning: 0 },
+          },
+        });
+        controller.close();
+      },
+    }),
+  };
+}
+
 /** Explicit development mode only: no inference from a missing production credential. */
 function developmentModel(): SimonModel {
   return {
@@ -214,28 +334,6 @@ function developmentModel(): SimonModel {
     doGenerate: async () => {
       throw new SimonModelError("ai.unavailable");
     },
-    doStream: async () => ({
-      stream: new ReadableStream({
-        start(controller) {
-          controller.enqueue({ type: "stream-start", warnings: [] });
-          controller.enqueue({ type: "text-start", id: "text" });
-          controller.enqueue({
-            type: "text-delta",
-            id: "text",
-            delta: "Scripted development response. No model or external action was called.",
-          });
-          controller.enqueue({ type: "text-end", id: "text" });
-          controller.enqueue({
-            type: "finish",
-            finishReason: { unified: "stop", raw: undefined },
-            usage: {
-              inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 },
-              outputTokens: { total: 0, text: 0, reasoning: 0 },
-            },
-          });
-          controller.close();
-        },
-      }),
-    }),
+    doStream: async ({ prompt }) => developmentStream(prompt),
   };
 }

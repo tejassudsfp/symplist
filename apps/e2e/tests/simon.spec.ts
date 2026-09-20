@@ -1,6 +1,10 @@
 import { fileURLToPath } from "node:url";
 import { type BrowserContext, expect, type Page, test } from "@playwright/test";
-import { taskCreateResponseSchema } from "@symplist/contracts";
+import {
+  documentHeadResponseSchema,
+  documentPublishResponseSchema,
+  taskCreateResponseSchema,
+} from "@symplist/contracts";
 import { captureEvidence, expectNoAxeViolations } from "../src/helpers/index.ts";
 import { readRunEnv } from "../src/helpers/local-api.ts";
 import { signIn } from "../src/helpers/session.ts";
@@ -132,6 +136,60 @@ test("task chat sends with Mod+Enter, suppresses IME submission and restores his
     { screen: "task_chat", state: "completed" },
     { keepIn: evidenceDir },
   );
+});
+
+test("Simon reads and updates a saved section and the open page receives the new revision", async ({
+  context,
+  page,
+}) => {
+  await signIn(context);
+  const http = await api(context);
+  const created = await http.post("/tasks", {
+    title: "Simon document browser contract",
+    collection: "now",
+  });
+  expect(created.status(), await created.text()).toBe(201);
+  const { task } = taskCreateResponseSchema.parse(await created.json());
+  const publishedResponse = await http.post(`/tasks/${task.id}/document/commits`, {
+    baseRevision: null,
+    markdown: "## Projects\n\nOriginal browser section.\n",
+  });
+  expect(publishedResponse.status(), await publishedResponse.text()).toBe(201);
+  const published = documentPublishResponseSchema.parse(await publishedResponse.json());
+  const headResponse = await http.get(`/tasks/${task.id}/document`);
+  expect(headResponse.status(), await headResponse.text()).toBe(200);
+  const head = documentHeadResponseSchema.parse(await headResponse.json());
+  const section = head.sections.find((item) => item.heading === "Projects");
+  expect(section).toBeTruthy();
+  const markdown = "## Projects\n\nUpdated through the real Simon document tool path.\n";
+  const directive = Buffer.from(
+    JSON.stringify({
+      taskId: task.id,
+      sectionId: section?.sectionId,
+      revision: published.revision,
+      markdown,
+    }),
+    "utf8",
+  ).toString("base64url");
+
+  await openChat(page, task.id);
+  await page
+    .getByLabel("Message Simon", { exact: true })
+    .fill(`Update the Projects section. symplist-e2e-document-edit:${directive}`);
+  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await expect(page.getByText("Updated the document section.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Reading a section · Done", { exact: true })).toBeVisible();
+  await expect(page.getByText("Updating a section · Done", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Markdown", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "Markdown source", exact: true })).toContainText(
+    "Updated through the real Simon document tool path.",
+  );
+  const updatedResponse = await http.get(`/tasks/${task.id}/document`);
+  expect(updatedResponse.status(), await updatedResponse.text()).toBe(200);
+  expect(documentHeadResponseSchema.parse(await updatedResponse.json())).toMatchObject({
+    author: "simon",
+    markdown,
+  });
 });
 
 test("quick chat closes with deletion and opens a fresh conversation", async ({

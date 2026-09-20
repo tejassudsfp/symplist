@@ -1,5 +1,5 @@
 import { createOpenAI } from "@ai-sdk/openai";
-import { generateText, jsonSchema, streamText, tool } from "ai";
+import { generateText, isStepCount, jsonSchema, streamText, tool } from "ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   assertNoProviderExecutedTools,
@@ -122,6 +122,52 @@ describe("Simon provider registry", () => {
     expect(
       await streamText({ model, prompt: "Hi", telemetry: { isEnabled: false } }).text,
     ).toContain("Scripted development");
+  });
+  it("runs the browser document contract through two separate scripted tool steps", async () => {
+    const model = createSimonModels({ ...base, AI_PROVIDER_MODE: "scripted" }).resolve(
+      "fast",
+    ).model;
+    const taskId = "01234567-89ab-7def-8123-456789abcdef";
+    const sectionId = "s0123456789abcdefghijklmno";
+    const revision = "0123456789abcdef0123456789abcdef01234567";
+    const markdown = "## Projects\n\nUpdated through Simon.\n";
+    const directive = Buffer.from(
+      JSON.stringify({ taskId, sectionId, revision, markdown }),
+      "utf8",
+    ).toString("base64url");
+    const calls: Array<{ name: string; input: unknown }> = [];
+    const inputSchema = jsonSchema<Record<string, unknown>>({ type: "object" });
+    const result = streamText({
+      model,
+      prompt: `Please update this section. symplist-e2e-document-edit:${directive}`,
+      tools: {
+        task_document_read_section: tool({
+          inputSchema,
+          execute: async (input) => {
+            calls.push({ name: "read", input });
+            return { text: "Original section" };
+          },
+        }),
+        task_document_update_section: tool({
+          inputSchema,
+          execute: async (input) => {
+            calls.push({ name: "update", input });
+            return { status: "published" };
+          },
+        }),
+      },
+      stopWhen: isStepCount(3),
+      telemetry: { isEnabled: false },
+    });
+
+    await expect(result.text).resolves.toBe("Updated the document section.");
+    expect(calls).toEqual([
+      { name: "read", input: { taskId, sectionId, revision } },
+      {
+        name: "update",
+        input: { taskId, sectionId, expectedRevision: revision, placement: "replace", markdown },
+      },
+    ]);
   });
   it("refuses scripted mode in production", () => {
     expect(() =>
