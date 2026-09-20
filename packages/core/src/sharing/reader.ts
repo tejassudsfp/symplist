@@ -30,6 +30,10 @@ export type ShareReadResult =
       readonly createdAt: number;
       readonly expiresAt: number | null;
     };
+interface ShareSessionProof {
+  readonly id: string;
+  readonly candidates: string;
+}
 
 export class SharingReader {
   private readonly unknown = new Map<string, number>();
@@ -70,7 +74,9 @@ export class SharingReader {
     }
     const row = await repo.options.db.first(
       sql(
-        `SELECT a.*, g.id AS grant_id, g.mode AS grant_mode, g.generation AS grant_generation, g.expires_at AS grant_expires_at, g.password_hash, k.kek_version, k.wrapped_key
+        `SELECT a.*, g.id AS grant_id, g.mode AS grant_mode, g.generation AS grant_generation, g.expires_at AS grant_expires_at,
+        g.token_digest AS grant_token_digest, g.token_version AS grant_token_version, g.publication_id AS grant_publication_id,
+        g.password_hash, k.kek_version, k.wrapped_key
       FROM share_grants g JOIN artifacts a ON a.id = g.artifact_id AND a.owner_id = g.owner_id JOIN account_keys k ON k.owner_id = a.owner_id
       WHERE a.id = :artifact AND ${lookup} AND ${this.active()}`,
         { ...params, artifact: input.artifactId, now: int(now) },
@@ -94,6 +100,58 @@ export class SharingReader {
       throw new SharingError("sharing.unavailable");
     }
     return row;
+  }
+
+  private async reauthorize(row: DbRow, session?: ShareSessionProof): Promise<void> {
+    const mode = String(row.grant_mode);
+    const credential =
+      mode === "public"
+        ? "g.publication_id = :publication"
+        : "g.token_digest = :token_digest AND g.token_version = CAST(:token_version AS INTEGER)";
+    const passwordSession =
+      mode === "password"
+        ? `AND EXISTS (SELECT 1 FROM share_sessions s WHERE s.id = :session AND s.owner_id = g.owner_id
+          AND s.grant_id = g.id AND s.grant_generation = g.generation AND s.revoked_at IS NULL AND s.expires_at > :now
+          AND EXISTS (SELECT 1 FROM json_each(:session_candidates) c WHERE json_extract(c.value, '$.digest') = s.digest AND json_extract(c.value, '$.version') = s.digest_version))`
+        : "";
+    if (mode === "password" && !session) throw new SharingError("sharing.unavailable");
+    const allowed = await this.repository.options.db.first(
+      sql(
+        `SELECT 1 AS allowed FROM share_grants g
+        JOIN artifacts a ON a.id = g.artifact_id AND a.owner_id = g.owner_id
+        JOIN account_keys k ON k.owner_id = g.owner_id
+        WHERE g.id = :grant AND g.owner_id = :owner AND g.artifact_id = :artifact
+        AND g.mode = :mode AND g.generation = CAST(:generation AS INTEGER)
+        AND COALESCE(g.expires_at,-1) = CAST(:expires AS INTEGER) AND ${credential}
+        AND a.object_key = :object AND a.source_revision = :revision
+        AND k.kek_version = CAST(:kek_version AS INTEGER) AND k.wrapped_key = :wrapped_key
+        AND ${this.active()} ${passwordSession}`,
+        {
+          grant: String(row.grant_id),
+          owner: String(row.owner_id),
+          artifact: String(row.id),
+          mode,
+          generation: int(Number(row.grant_generation)),
+          expires: int(row.grant_expires_at === null ? -1 : Number(row.grant_expires_at)),
+          object: String(row.object_key),
+          revision: String(row.source_revision),
+          kek_version: int(Number(row.kek_version)),
+          wrapped_key: String(row.wrapped_key),
+          now: int(this.repository.options.now()),
+          ...(mode === "public"
+            ? { publication: String(row.grant_publication_id) }
+            : {
+                token_digest: String(row.grant_token_digest),
+                token_version: int(Number(row.grant_token_version)),
+              }),
+          ...(mode === "password" && session
+            ? { session: session.id, session_candidates: session.candidates }
+            : {}),
+        },
+      ),
+      { priority: "unauthenticated" },
+    );
+    if (!allowed) throw new SharingError("sharing.unavailable");
   }
 
   private nonce(row: DbRow): string {
@@ -135,9 +193,9 @@ export class SharingReader {
 
   async read(input: ShareReadInput): Promise<ShareReadResult> {
     const row = await this.resolve(input);
+    let session: ShareSessionProof | undefined;
     if (row.grant_mode === "password") {
       const cookie = input.cookies?.[`__Host-sym_share_${row.grant_id}`];
-      let valid = false;
       if (cookie && /^[A-Za-z0-9_-]{43}$/.test(cookie)) {
         const candidates = computeDigestCandidates(
           this.repository.options.keys,
@@ -145,31 +203,33 @@ export class SharingReader {
           "share-session",
           cookie,
         );
-        valid = Boolean(
-          await this.repository.options.db.first(
-            sql(
-              `SELECT s.id FROM share_sessions s JOIN share_grants g ON g.id = s.grant_id
+        const proof = await this.repository.options.db.first(
+          sql(
+            `SELECT s.id FROM share_sessions s JOIN share_grants g ON g.id = s.grant_id
           WHERE s.grant_id = :grant AND s.grant_generation = g.generation AND s.revoked_at IS NULL AND s.expires_at > :now AND ${this.active()}
           AND EXISTS (SELECT 1 FROM json_each(:candidates) c WHERE json_extract(c.value, '$.digest') = s.digest AND json_extract(c.value, '$.version') = s.digest_version)`,
-              {
-                grant: String(row.grant_id),
-                now: int(this.repository.options.now()),
-                candidates: JSON.stringify(candidates),
-              },
-            ),
-            { priority: "unauthenticated" },
+            {
+              grant: String(row.grant_id),
+              now: int(this.repository.options.now()),
+              candidates: JSON.stringify(candidates),
+            },
           ),
+          { priority: "unauthenticated" },
         );
+        if (proof) session = { id: String(proof.id), candidates: JSON.stringify(candidates) };
       }
-      if (!valid)
+      if (!session)
         return { kind: "password", grantId: String(row.grant_id), nonce: this.nonce(row) };
     }
     const key = this.repository.accountKeys.unwrapRow(row);
     try {
+      const markdown = await this.repository.content(row, key, () =>
+        this.reauthorize(row, session),
+      );
       return {
         kind: "content",
         title: artifactView({ ...row, current_head: null }, key).title,
-        markdown: await this.repository.content(row, key),
+        markdown,
         sourceRevision: String(row.source_revision),
         createdAt: Number(row.created_at),
         expiresAt: row.grant_expires_at as number | null,

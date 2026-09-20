@@ -286,6 +286,47 @@ describe("password grants", () => {
         .status,
     ).toBe(404);
   });
+  it("rechecks the exact password session after object storage returns", async () => {
+    const { app, artifact, release } = await fixture();
+    const released = sharingReleaseSchema.parse(
+      (await release({ mode: "password", password: "calm-private-password" })).json(),
+    );
+    if (released.secretUnavailable) throw new Error("Missing secret");
+    const value = new URL(released.url).searchParams.get("key");
+    const form = await app.get(path(released.url), { shareHost: true });
+    const nonce = /name="nonce" value="([^"]+)"/.exec(form.text)?.[1];
+    const success = await app.post(`/artifact/${artifact.id}/password`, {
+      shareHost: true,
+      origin: app.config.ARTIFACT_ORIGIN,
+      body: { key: value, nonce, password: "calm-private-password" },
+    });
+    expect(success.status, success.text).toBe(303);
+    const cookie = success.headers.get("set-cookie")?.split(";")[0] ?? "";
+    const get = app.objects.get.bind(app.objects);
+    let revoked = false;
+    vi.spyOn(app.objects, "get").mockImplementationOnce(async (objectKey) => {
+      const stored = await get(objectKey);
+      revoked = true;
+      await app.db.run(
+        sql(
+          "UPDATE share_sessions SET revoked_at=:now,write_id=:write WHERE grant_id=:grant AND revoked_at IS NULL",
+          {
+            grant: released.grant.id,
+            now: int(app.clock.now()),
+            write: uuidv7(),
+          },
+        ),
+      );
+      return stored;
+    });
+    const raw = await app.get(`/artifact/${artifact.id}/raw?key=${value}`, {
+      shareHost: true,
+      headers: { cookie },
+    });
+    expect(revoked).toBe(true);
+    expect(raw.status).toBe(404);
+    expect(raw.text).not.toContain(marker);
+  });
 });
 
 describe("adversarial sharing boundaries", () => {
@@ -391,6 +432,43 @@ describe("adversarial sharing boundaries", () => {
     await app.db.run(sql("DELETE FROM account_keys WHERE owner_id = :id", { id: owner.id }));
     expect((await app.get(path(released.url), { shareHost: true })).status).toBe(404);
   });
+  it.each(["grant revocation", "owner restriction"] as const)(
+    "rechecks %s after object storage returns and before decrypting",
+    async (change) => {
+      const { app, owner, release } = await fixture();
+      const released = sharingReleaseSchema.parse(
+        (await release({ mode: "public", publicConfirmed: true, expiresAt: null })).json(),
+      );
+      if (released.secretUnavailable) throw new Error("Missing URL");
+      const get = app.objects.get.bind(app.objects);
+      let changed = false;
+      vi.spyOn(app.objects, "get").mockImplementationOnce(async (objectKey) => {
+        const stored = await get(objectKey);
+        changed = true;
+        if (change === "grant revocation") {
+          await app.db.run(
+            sql(
+              "UPDATE share_grants SET status='revoked',generation=generation+1,write_id=:write WHERE id=:grant",
+              { grant: released.grant.id, write: uuidv7() },
+            ),
+          );
+        } else {
+          await app.db.run(
+            sql("UPDATE users SET suspended_at=:now WHERE id=:owner", {
+              owner: owner.id,
+              now: int(app.clock.now()),
+            }),
+          );
+        }
+        return stored;
+      });
+      const response = await app.get(path(released.url), { shareHost: true });
+      expect(changed).toBe(true);
+      expect(response.status).toBe(404);
+      expect(response.text).not.toContain(marker);
+      expect(response.text).not.toContain("Reviewed brief");
+    },
+  );
   it("durable password limits survive a fresh reader; successful verification does not spend a failure", async () => {
     const { app, artifact, release } = await fixture();
     const released = sharingReleaseSchema.parse(
