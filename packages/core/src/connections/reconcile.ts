@@ -24,6 +24,8 @@ function executor(fence?: ConnectionExecutorFence) {
 
 const inactive = new Set(["EXPIRED", "FAILED", "REVOKED", "INACTIVE"]);
 const chunkSize = 8;
+const cycleId = "connections-reconcile";
+const cycleLeaseMs = 15 * 60_000;
 
 /** Shared local/Trigger maintenance. Every deciding write is fenced, with bounded D1 batches. */
 export class ConnectionReconciler {
@@ -148,6 +150,68 @@ export class ConnectionReconciler {
     ));
   }
 
+  private async claimCycle(
+    fence: ConnectionExecutorFence,
+  ): Promise<{ token: string; cursor: string } | null> {
+    const { db, now } = this.options.repository.options;
+    const guard = executor(fence);
+    const token = uuidv7(now());
+    const time = now();
+    const results = await db.batch([
+      sql(
+        `INSERT INTO cleanup_cursors(id,owner_id,object_cursor,lease_token,lease_until,write_id)
+        SELECT :id,'',NULL,:token,:until,:token WHERE ${guard.sql}
+        ON CONFLICT(id) DO UPDATE SET lease_token=:token,lease_until=:until,write_id=:token
+        WHERE cleanup_cursors.lease_until<=:now AND ${guard.sql}`,
+        {
+          id: cycleId,
+          token,
+          until: int(time + cycleLeaseMs),
+          now: int(time),
+          ...guard.params,
+        },
+      ),
+      sql(
+        "SELECT owner_id FROM cleanup_cursors WHERE id=:id AND lease_token=:token AND lease_until>:now",
+        { id: cycleId, token, now: int(time) },
+      ),
+    ]);
+    const row = results[1]?.results[0];
+    return row ? { token, cursor: String(row.owner_id) } : null;
+  }
+
+  private async saveCycle(
+    fence: ConnectionExecutorFence,
+    token: string,
+    cursor: string,
+    release: boolean,
+  ): Promise<boolean> {
+    const { db, now } = this.options.repository.options;
+    const guard = executor(fence);
+    const time = now();
+    const write = uuidv7(time);
+    const results = await db.batch([
+      sql(
+        `UPDATE cleanup_cursors SET owner_id=:cursor,lease_until=:until,write_id=:write
+        WHERE id=:id AND lease_token=:token AND lease_until>:now AND ${guard.sql}`,
+        {
+          id: cycleId,
+          cursor,
+          token,
+          now: int(time),
+          until: int(release ? 0 : time + cycleLeaseMs),
+          write,
+          ...guard.params,
+        },
+      ),
+      sql("SELECT 1 AS saved FROM cleanup_cursors WHERE id=:id AND write_id=:write", {
+        id: cycleId,
+        write,
+      }),
+    ]);
+    return results[1]?.results[0]?.saved === 1;
+  }
+
   /** Claims twenty ids at once, deletes upstream in-process, then acknowledges in one batch. */
   async drain(fence?: ConnectionExecutorFence, ownerId?: string): Promise<number> {
     const { db, now } = this.options.repository.options;
@@ -203,36 +267,49 @@ export class ConnectionReconciler {
   ): Promise<{ owners: number; updated: number; revoked: number }> {
     const { db, now } = this.options.repository.options;
     const guard = executor(fence);
-    let cursor = "";
     const count = { owners: 0, updated: 0, revoked: 0 };
-    while (!signal?.aborted && (await this.current(fence))) {
-      const owners = await db.all(
-        sql(
-          `SELECT id FROM users WHERE id > :cursor AND ${guard.sql} AND (
-        EXISTS (SELECT 1 FROM connections WHERE owner_id = users.id) OR
-        EXISTS (SELECT 1 FROM connection_attempts WHERE user_id = users.id) OR
-        EXISTS (SELECT 1 FROM composio_sessions WHERE user_id = users.id)) ORDER BY id LIMIT 25`,
-          { cursor, ...guard.params },
-        ),
-      );
-      if (!owners.length) break;
-      for (const row of owners) {
-        if (signal?.aborted) return count;
-        count.updated += await this.owner(String(row.id), fence);
-        count.owners++;
+    const claim = await this.claimCycle(fence);
+    if (!claim) return count;
+    let cursor = claim.cursor;
+    let released = false;
+    try {
+      let complete = false;
+      while (!signal?.aborted && (await this.current(fence))) {
+        const owners = await db.all(
+          sql(
+            `SELECT id FROM users WHERE id > :cursor AND ${guard.sql} AND (
+          EXISTS (SELECT 1 FROM connections WHERE owner_id = users.id) OR
+          EXISTS (SELECT 1 FROM connection_attempts WHERE user_id = users.id) OR
+          EXISTS (SELECT 1 FROM composio_sessions WHERE user_id = users.id)) ORDER BY id LIMIT 25`,
+            { cursor, ...guard.params },
+          ),
+        );
+        if (!owners.length) {
+          complete = true;
+          break;
+        }
+        for (const row of owners) {
+          if (signal?.aborted) return count;
+          count.updated += await this.owner(String(row.id), fence);
+          count.owners++;
+          cursor = String(row.id);
+          if (!(await this.saveCycle(fence, claim.token, cursor, false))) return count;
+        }
       }
-      cursor = String(owners.at(-1)?.id);
+      if (complete && !signal?.aborted && (await this.current(fence))) {
+        await db.run(
+          sql(
+            `UPDATE connection_attempts SET status = 'expired', updated_at = :now, write_id = :write
+          WHERE id IN (SELECT id FROM connection_attempts WHERE status IN ('starting', 'pending', 'completing') AND expires_at <= :now LIMIT 100) AND ${guard.sql}`,
+            { now: int(now()), write: uuidv7(now()), ...guard.params },
+          ),
+        );
+        count.revoked = await this.drain(fence);
+        released = await this.saveCycle(fence, claim.token, "", true);
+      }
+      return count;
+    } finally {
+      if (!released) await this.saveCycle(fence, claim.token, cursor, true).catch(() => false);
     }
-    if (!signal?.aborted) {
-      await db.run(
-        sql(
-          `UPDATE connection_attempts SET status = 'expired', updated_at = :now, write_id = :write
-        WHERE id IN (SELECT id FROM connection_attempts WHERE status IN ('starting', 'pending', 'completing') AND expires_at <= :now LIMIT 100) AND ${guard.sql}`,
-          { now: int(now()), write: uuidv7(now()), ...guard.params },
-        ),
-      );
-      count.revoked = await this.drain(fence);
-    }
-    return count;
   }
 }

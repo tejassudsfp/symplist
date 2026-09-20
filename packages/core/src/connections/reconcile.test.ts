@@ -98,6 +98,37 @@ describe("generation-fenced connection reconciliation", () => {
       ),
     ).toEqual({ status: "expired" });
   });
+  it("persists owner progress across an aborted run so later owners are not starved", async () => {
+    const owners = [owner, await env.createUser(), await env.createUser()].sort();
+    for (const user of owners) await native(`ca_${user}`, user);
+    const firstCalls: string[] = [];
+    const stop = new AbortController();
+    provider.accounts = vi.fn(async (userId) => {
+      firstCalls.push(userId);
+      stop.abort();
+      return { items: [], cursor: null };
+    });
+    expect(await reconciler.run(fence, stop.signal)).toMatchObject({ owners: 1 });
+    expect(firstCalls).toEqual([owners[0]]);
+    expect(
+      await env.db.first(
+        sql("SELECT owner_id,lease_until FROM cleanup_cursors WHERE id='connections-reconcile'"),
+      ),
+    ).toEqual({ owner_id: owners[0], lease_until: 0 });
+
+    const resumed: string[] = [];
+    provider.accounts = vi.fn(async (userId) => {
+      resumed.push(userId);
+      return { items: [], cursor: null };
+    });
+    expect(await reconciler.run(fence)).toMatchObject({ owners: 2 });
+    expect(resumed).toEqual(owners.slice(1));
+    expect(
+      await env.db.first(
+        sql("SELECT owner_id,lease_until FROM cleanup_cursors WHERE id='connections-reconcile'"),
+      ),
+    ).toEqual({ owner_id: "", lease_until: 0 });
+  });
   it.each(["EXPIRED", "FAILED", "REVOKED", "INACTIVE"])(
     "maps %s without trusting another owner's account",
     async (status) => {
