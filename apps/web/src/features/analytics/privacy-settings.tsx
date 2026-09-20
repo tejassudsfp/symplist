@@ -42,6 +42,17 @@ export function PrivacySettings() {
               Try again
             </Button>
           )}
+          {state.settings && state.failedChoice && (
+            <Button
+              variant="secondary"
+              disabled={state.pending}
+              onClick={() => void chooseAnalytics(state.failedChoice ?? "denied")}
+            >
+              {state.failedChoice === "denied"
+                ? "Retry turning off analytics"
+                : "Retry turning on analytics"}
+            </Button>
+          )}
         </div>
       )}
       {state.pending && state.settings && <p role="status">Saving…</p>}

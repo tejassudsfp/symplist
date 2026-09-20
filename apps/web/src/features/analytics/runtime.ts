@@ -17,8 +17,16 @@ export interface AnalyticsSnapshot {
   readonly settings: AnalyticsSettings | null;
   readonly pending: boolean;
   readonly error: boolean;
+  /** The choice whose write failed. Retained so a retry cannot invert a privacy withdrawal. */
+  readonly failedChoice: "granted" | "denied" | null;
 }
-const initial: AnalyticsSnapshot = { ownerId: null, settings: null, pending: false, error: false };
+const initial: AnalyticsSnapshot = {
+  ownerId: null,
+  settings: null,
+  pending: false,
+  error: false,
+  failedChoice: null,
+};
 let snapshot = initial;
 let generation = 0;
 const listeners = new Set<() => void>();
@@ -49,14 +57,16 @@ setAppearanceReporter((event) => track("appearance_changed", event));
 export async function loadAnalytics(ownerId: string): Promise<void> {
   if (snapshot.ownerId === ownerId && (snapshot.pending || snapshot.settings)) return;
   const token = ++generation;
-  publish({ ownerId, settings: null, pending: true, error: false });
+  publish({ ownerId, settings: null, pending: true, error: false, failedChoice: null });
   try {
     const settings = await getApiClient().get("/v1/analytics/consent", {
       schema: analyticsSettingsSchema,
     });
-    if (token === generation) publish({ ownerId, settings, pending: false, error: false });
+    if (token === generation)
+      publish({ ownerId, settings, pending: false, error: false, failedChoice: null });
   } catch {
-    if (token === generation) publish({ ownerId, settings: null, pending: false, error: true });
+    if (token === generation)
+      publish({ ownerId, settings: null, pending: false, error: true, failedChoice: null });
   }
 }
 
@@ -69,6 +79,7 @@ export async function chooseAnalytics(state: "granted" | "denied"): Promise<void
     ...before,
     pending: true,
     error: false,
+    failedChoice: null,
     settings:
       state === "denied" && before.settings
         ? { ...before.settings, consent: { state: "denied", decidedAt: Date.now() } }
@@ -79,13 +90,15 @@ export async function chooseAnalytics(state: "granted" | "denied"): Promise<void
       body: { state },
       schema: analyticsSettingsSchema,
     });
-    if (token === generation) publish({ ...before, settings, pending: false, error: false });
+    if (token === generation)
+      publish({ ...before, settings, pending: false, error: false, failedChoice: null });
   } catch {
     if (token === generation)
       publish({
         ...(before.settings?.consent.state === "unset" ? before : snapshot),
         pending: false,
         error: true,
+        failedChoice: state,
       });
   }
 }

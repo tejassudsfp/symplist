@@ -69,4 +69,25 @@ describe("mandatory equal-choice consent", () => {
     expect(screen.queryByRole("button", { name: "Accept" })).not.toBeInTheDocument();
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
   });
+  it("retries a failed withdrawal without turning analytics back on", async () => {
+    api.get.mockResolvedValue({
+      enabled: true,
+      consent: { state: "granted", decidedAt: 123 },
+    });
+    api.put.mockRejectedValueOnce(new Error("offline"));
+    renderAccess(<PrivacySettings />, { me: mayaMe() });
+
+    const checkbox = await screen.findByRole("checkbox", { name: "Share product usage" });
+    await userEvent.click(checkbox);
+    const retry = await screen.findByRole("button", { name: "Retry turning off analytics" });
+    expect(checkbox).not.toBeChecked();
+
+    await userEvent.click(retry);
+    await waitFor(() => expect(api.put).toHaveBeenCalledTimes(2));
+    expect(api.put.mock.calls.map((call) => call[1].body)).toEqual([
+      { state: "denied" },
+      { state: "denied" },
+    ]);
+    expect(await screen.findByText(/Product usage sharing is off/)).toBeVisible();
+  });
 });

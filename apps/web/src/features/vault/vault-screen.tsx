@@ -28,6 +28,7 @@ export function VaultScreen({
   const [status, setStatus] = useState<VaultStatus | null>(null);
   const [page, setPage] = useState<VaultItemsResponse | null>(null);
   const [selected, setSelected] = useState<VaultItem | null>(null);
+  const [detailTarget, setDetailTarget] = useState<string | null>(null);
   const [editor, setEditor] = useState(false);
   const [revealed, setRevealed] = useState(false);
   const [query, setQuery] = useState("");
@@ -46,6 +47,7 @@ export function VaultScreen({
     epoch.current++;
     setPage(null);
     setSelected(null);
+    setDetailTarget(null);
     setEditor(false);
     setRevealed(false);
     setQuery("");
@@ -76,6 +78,7 @@ export function VaultScreen({
       setError("");
       setRevealed(false);
       setSelected(null);
+      setDetailTarget(id);
       try {
         const item = await api.read(id);
         if (request === epoch.current) {
@@ -105,11 +108,13 @@ export function VaultScreen({
         setPage(result);
         setScreen("items");
         setEditor(addItem);
+        setDetailTarget(itemId ?? null);
         arm(result.idleExpiresAt);
         if (itemId) await openItem(itemId);
       } else {
         setPage(null);
         setSelected(null);
+        setDetailTarget(null);
         setScreen(
           state.state === "not_created" ? "setup" : initial === "reset" ? "reset" : "unlock",
         );
@@ -131,8 +136,8 @@ export function VaultScreen({
     if (screen !== "loading") title.current?.focus();
   }, [screen]);
   useEffect(() => {
-    if (selected?.id || editor) detail.current?.focus();
-  }, [selected?.id, editor]);
+    if (selected?.id || editor || detailTarget) detail.current?.focus();
+  }, [selected?.id, editor, detailTarget]);
   useEffect(() => {
     const url = realtimeUrl();
     if (!url) return;
@@ -206,6 +211,7 @@ export function VaultScreen({
       deleteKey.current = null;
       setDeleteOpen(false);
       setSelected(null);
+      setDetailTarget(null);
       setNotice("Item deleted");
       const next = await api.list();
       if (request === epoch.current) setPage(next);
@@ -223,6 +229,7 @@ export function VaultScreen({
     page?.items.filter((item) =>
       item.title.toLocaleLowerCase().includes(query.toLocaleLowerCase()),
     ) ?? [];
+  const hasDetail = Boolean(selected || editor || detailTarget);
   return (
     <main
       className="vault-screen"
@@ -317,7 +324,7 @@ export function VaultScreen({
         />
       )}
       {screen === "items" && (
-        <div className={`vault-workspace ${selected || editor ? "vault-has-detail" : ""}`}>
+        <div className={`vault-workspace ${hasDetail ? "vault-has-detail" : ""}`}>
           <aside className="vault-list">
             <header>
               <label className="vault-field">
@@ -341,6 +348,7 @@ export function VaultScreen({
                 disabled={editor}
                 onClick={() => {
                   setSelected(null);
+                  setDetailTarget(null);
                   setEditor(true);
                   setError("");
                 }}
@@ -395,6 +403,7 @@ export function VaultScreen({
                 Load more
               </button>
             )}
+            {error && !hasDetail ? <p role="alert">{error}</p> : null}
           </aside>
           <section
             className="vault-detail"
@@ -408,14 +417,18 @@ export function VaultScreen({
               hidden={editor}
               onClick={() => {
                 setSelected(null);
+                setDetailTarget(null);
                 setEditor(false);
+                setError("");
                 search.current?.focus();
               }}
             >
               Back to items
             </button>
-            {error && <p role="alert">{error}</p>}
-            {busy && !selected && !editor && <p role="status">Loading item…</p>}
+            {error && hasDetail ? <p role="alert">{error}</p> : null}
+            {busy && detailTarget && !selected && !editor ? (
+              <p role="status">Loading item…</p>
+            ) : null}
             {editor ? (
               <VaultItemEditor
                 key={selected?.id ?? "new"}

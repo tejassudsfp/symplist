@@ -85,6 +85,8 @@ describe("private first-party analytics relay", () => {
     client.put.mockRejectedValue(new Error("offline"));
     await chooseAnalytics("denied");
     expect(analyticsSnapshot().error).toBe(true);
+    expect(analyticsSnapshot().failedChoice).toBe("denied");
+    expect(analyticsSnapshot().settings?.consent.state).toBe("denied");
     track("quick_chat_started", { entry: "button" });
     expect(client.post).not.toHaveBeenCalled();
     resetAnalytics();

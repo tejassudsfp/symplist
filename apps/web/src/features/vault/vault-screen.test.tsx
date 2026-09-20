@@ -174,6 +174,32 @@ describe("Vault screen briefs", () => {
     );
     expect(screen.queryByText(item.title)).not.toBeInTheDocument();
   });
+  it("keeps mobile item loading and read failures on the visible detail surface", async () => {
+    let reject: ((error: unknown) => void) | undefined;
+    const api = fake({
+      read: vi.fn(
+        () =>
+          new Promise<typeof item>((_resolve, fail) => {
+            reject = fail;
+          }),
+      ),
+    });
+    const user = userEvent.setup();
+    render(<VaultScreen api={api} />);
+    await user.click(await screen.findByRole("button", { name: /Personal API key/ }));
+
+    const detail = screen.getByRole("region", { name: "Vault item detail" });
+    expect(detail.closest(".vault-workspace")).toHaveClass("vault-has-detail");
+    expect(screen.getByRole("status")).toHaveTextContent("Loading item");
+
+    reject?.({ code: "vault.unavailable" });
+    expect(await screen.findByRole("alert")).toBeVisible();
+    expect(detail.closest(".vault-workspace")).toHaveClass("vault-has-detail");
+
+    await user.click(screen.getByRole("button", { name: "Back to items" }));
+    expect(detail.closest(".vault-workspace")).not.toHaveClass("vault-has-detail");
+    expect(screen.getByRole("searchbox")).toHaveFocus();
+  });
   it("key setup rejects mismatch/weak key without API calls and submits only deliberate valid input", async () => {
     const onSubmit = vi.fn();
     const user = userEvent.setup();
