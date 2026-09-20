@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { AnchorHTMLAttributes, ReactNode } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppProviders } from "@/components/app-providers";
 import { FakeWorkspaceApi } from "@/features/workspace/test-support";
 
@@ -76,6 +76,14 @@ function slot(name: string): HTMLElement {
 }
 
 beforeEach(async () => {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn(() => ({
+      matches: true,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })),
+  );
   navigation.pathname = "/now";
   navigation.push.mockReset();
   workspace.api.current = new FakeWorkspaceApi([{ id: taskId, title: "Refresh my portfolio" }]);
@@ -86,6 +94,7 @@ beforeEach(async () => {
   resetSharedSessionStoreForTests();
   resetAnalytics();
 });
+afterEach(() => vi.unstubAllGlobals());
 
 /*
  * The shell with today's seam placeholders (§2.3). A feature that replaces its placeholder updates
@@ -100,16 +109,16 @@ describe("the (app) layout with the feature placeholders", () => {
     // language rather than throwing inside the shell (system_states.md).
     expect(await within(main).findByText("This page isn't available here")).toBeInTheDocument();
     const chat = screen.getByRole("complementary", { name: "Simon" });
-    expect(within(chat).getByText("No messages yet")).toBeInTheDocument();
+    expect(within(chat).getByRole("textbox", { name: "Message Simon" })).toBeInTheDocument();
+    expect(await within(chat).findByRole("alert")).toHaveTextContent(/Could not|unavailable/);
     // The quick chat launcher belongs to the no-selection view.
     expect(document.querySelector('[data-slot="quick-chat"]')).toBeNull();
   });
 
   it("leaves unbuilt slots empty and exposes the consent load failure safely", async () => {
     await renderAppLayout("/now");
-    for (const name of ["quick-chat", "command-palette"]) {
-      expect(slot(name)).toBeEmptyDOMElement();
-    }
+    expect(within(slot("quick-chat")).getByRole("button", { name: "Ask Simon" })).toBeEnabled();
+    expect(slot("command-palette")).toBeEmptyDOMElement();
     expect(slot("vault-status")).toHaveTextContent("Vault uses a separate key");
     expect(
       within(slot("notification-control")).getByRole("button", { name: "Notifications" }),

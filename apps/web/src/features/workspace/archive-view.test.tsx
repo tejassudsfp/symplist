@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import type { AnchorHTMLAttributes, ReactNode } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ArchiveView } from "./archive-view.tsx";
 import { FakeWorkspaceApi, findInlineError, renderWorkspace } from "./test-support.tsx";
 
@@ -48,9 +48,12 @@ async function archived() {
 }
 
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-09-16T12:00:00"));
   navigation.pathname = "/archive";
   navigation.push.mockClear();
 });
+afterEach(() => vi.useRealTimers());
 
 /*
  * The archive (archive.md): completed tasks by the day they were completed, keeping their hierarchy,
