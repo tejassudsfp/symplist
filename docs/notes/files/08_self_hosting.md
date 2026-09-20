@@ -1,49 +1,89 @@
 # Self-hosting Symplist
 
-Symplist is MIT licensed. This is the deployment preparation guide; application packages, migrations, and runnable setup commands do not exist yet. Do not treat this as a completed installation manual. The release must include a tested walkthrough from a clean checkout.
+Symplist is MIT licensed and ships as a runnable monorepo. The maintained installation and
+operations manual is the root [self-hosting guide](../../../SELF_HOSTING.md); this note records the
+product requirements that guide implements.
 
-## Intended simplest deployment
+## Simplest deployment
 
-Next.js frontend + NestJS backend + D1 via REST + R2 objects. Set `BILLING_ENABLED=false`, `PAYWALL_ENABLED=false`, `AI_USAGE_LIMITS_ENABLED=false`, and `DURABLE=false`: no Razorpay account, paid Symplist subscription, or Trigger account is required. Supply your own provider credentials for AI and Composio configuration for integrations. Email OTP uses Resend.
+The smallest installation runs the Next.js frontend and NestJS API with local SQLite/filesystem
+drivers, console OTP delivery and `DURABLE=false`. It requires no Cloudflare, Resend, Trigger,
+Composio, PostHog or Symplist billing account. Simon still needs one configured model provider.
 
-Set `BETA_ACCESS_REQUIRED=false` for an open self-hosted installation, or keep it true to use locally managed invite codes. Multi-user authorization and encryption remain enabled. Invite tracking is separate from optional AI telemetry; plan monitoring stays disabled when billing/paywall is off. Self-hosting changes who operates the services; it does not remove their infrastructure/API costs.
+Production uses the same application with Cloudflare D1 and private R2 storage. The checked-in
+deployment defaults place the web app on Vercel, the API and isolated artifact hostname on one
+always-on Render service, and durable background/model execution on Trigger.dev. Other Node and
+container hosts remain supported when they preserve the documented hostname, proxy, TLS, storage,
+queue and shutdown contracts.
 
-## Prepare service configuration
+`BILLING_ENABLED=false`, `PAYWALL_ENABLED=false` and `AI_USAGE_LIMITS_ENABLED=false` are binding for
+the free beta. Self-hosting changes who operates the services; it does not eliminate provider or
+infrastructure charges. Operators should use a dedicated AI-provider project with an enforced hard
+spend limit in addition to Symplist's per-run output, history, step, connector-result and request
+burst bounds.
 
-1. Create D1 and an R2 bucket. Store Cloudflare account/database IDs, scoped D1 REST credentials, and scoped R2 S3 credentials server-side.
-2. Set up Resend with a verified sending domain, sender address, and API key for login/signup/vault-reset OTPs.
-3. Configure Fast/Smart provider and model IDs and their credentials. Beta has no weekly paid quota or tier monitoring; see [ACCESS-AND-BILLING.md](03_access_and_billing.md).
-4. Configure Composio and the deployment's approved connector authentication/callback settings. Users connect their own accounts during onboarding or later.
-5. Generate deployment-specific auth/session, OTP-digest, content-encryption, and vault-recovery secrets using the release's documented tooling. Keep them out of Git and separate from ciphertext storage. Back up recovery material securely.
-6. Configure frontend/API origins, cookies, CORS/CSRF rules, public URLs, and HTTPS. Host Nest on Render initially or another suitable Node/container host; avoid dependencies on local persistent files.
-7. If enabling durable execution, configure and deploy the Trigger executor with the required secrets and storage access. Billing is deferred for beta; no Razorpay setup is required. Trigger must not be required when durable execution is off.
+## Configuration and operations
 
-## Required runnable release documentation
+The release includes:
 
-Ship a complete `.env.example`, pinned runtime/package-manager versions, installation/build commands, D1 migration/seed commands, local development instructions, production startup/health-check settings, and Docker instructions suitable for Render and later AWS.
+- pinned Node and pnpm versions, a frozen lockfile and clean-checkout install/build commands;
+- `.env.example` plus separate API, worker and web templates with enforced secret placement;
+- local development and production startup commands, Docker configuration and `/healthz` liveness;
+- expand-only D1 migrations, an idempotent migration runner and a main-branch migration CI job;
+- exact Resend, Composio, MCP and artifact callback/webhook paths;
+- admin bootstrap, invite, relock and executor-mode-switch procedures;
+- local smoke, deployment validation, browser, provider-contract and troubleshooting commands;
+- backup/restore, upgrade/rollback and versioned-secret operational guidance.
 
-Include exact callback/webhook URLs, admin bootstrap instructions, invite generation/redemption and admin unlock/relock instructions, example billing-disabled and durable-disabled setups, and a smoke test covering signup, OTP, task editing, AI/MCP section reads, and vault reset. Include upgrade, rollback, export, backup/restore, secret rotation, and troubleshooting steps.
+Backup and restore are provider/operator procedures. Symplist does not ship a backup orchestrator,
+an account-wide export endpoint, down migrations or a production bulk-rewrap command. A local
+backup must consistently capture both `d1.sqlite` and the object directory while writers are
+stopped. A production backup must cover D1 and R2 together. Code rollback must remain compatible
+with the forward schema. Old content and Vault recovery key versions must remain configured until
+all material has been rewrapped by a future supported facility.
 
-Verify that a clean self-hosted installation can use AI without Razorpay credentials and can run locally in Nest without Trigger credentials. Never publish a setup guide that depends on unpublished hosted components or shared default encryption keys.
+## Git document history
 
-## Git document-history runtime
+Document versioning uses a hermetic Git runtime. API and worker images include Git, use private
+bounded temporary workspaces and store only encrypted bundles in private object storage. D1 tracks
+publication heads and indexed commits. No Git hosting subscription or agent shell is required.
+Startup and hourly maintenance check the executable and remove bounded stale/orphan state.
 
-The selected versioning engine is actual Git. The eventual Nest and Trigger deployment images must include the supported Git runtime, a private temporary directory, resource limits, and cleanup/recovery behavior. Store only encrypted Git bundles durably in R2; D1 tracks indexed commits and publication heads. No Git hosting subscription or agent shell is required. The tested installation guide must include Git-version verification, encryption-key setup, D1 migrations, and a commit/diff/restore smoke test. See [11_document_versioning.md](11_document_versioning.md). These are build requirements, not commands already implemented.
+## Reminders and executor mode
 
-## Reminder deployment requirements
+Local mode runs reminders, cleanup and document maintenance in the always-on API and makes no
+Trigger calls. Durable mode disables those local jobs and runs the registered Trigger schedules:
+reminders at `:00`, `:15` and `:30` UTC, cleanup at `:05`, and document maintenance at `:35`.
+Changing mode requires the generation-safe executor switch command before restart; flipping the
+environment variable alone is not supported.
 
-Configure the [reminder settings and delivery contract](15_deadlines_reminders_calendar.md), Resend sender/webhook verification, and timezone defaults. Durable deployments must deploy the reconciliation schedule and delivery tasks. Local mode requires an always-running Nest process and no Trigger credentials. Document late-delivery behavior, queue recovery, safe executor-mode switching, email suppression, and diagnostics without private contents. These remain requirements for the future runnable guide.
+Resend is optional. When its webhook secret is absent, `/webhooks/resend` returns 404 and accepted
+outbox rows remain at that state. When configured, webhook signatures and receipt ids are verified
+before the six supported delivery events are processed.
 
-## Artifact sharing configuration
+## Artifact sharing
 
-Add a configured HTTPS artifact origin, server-held share-digest key/version, link lifetime limits, protected password-session settings, proxy log redaction, cache bypass, and encrypted snapshot cleanup. Document [grant expiry/revocation](16_simon_handoffs_and_artifact_sharing.md) independently of cron health, plus anonymous HTML/raw smoke tests. Keep R2 private. These are build requirements, not configured live services.
+Production requires an HTTPS `ARTIFACT_ORIGIN` on a hostname distinct from both the web and API
+hosts. It serves only `/artifact/*`, receives no application cookies and uses restrictive CSP,
+referrer, cache and indexing headers. R2 remains private; grants, password sessions, expiry,
+revocation and orphan cleanup are enforced by the API.
 
-## Product analytics
+## Analytics and privacy
 
-Use optional PostHog analytics following [note 17](17_analytics.md). Default off until configured with user opt-in; no private contents, automatic URL capture, replay, or billing dependency. No PostHog account is needed for analytics-disabled self-hosting. SDK integration remains to be built.
+Analytics is optional and defaults off. The browser has no PostHog SDK: after consent it sends only
+schema-allowlisted events to the first-party API relay. API and worker capture are server-side,
+re-check consent and become no-ops when disabled or unconfigured. Private content, arbitrary URLs,
+identity-derived analytics ids, session replay and automatic capture are forbidden.
 
-## Confirmed hosting and version policy
+Stored product content is encrypted, but this is not a blanket end-to-end-encryption claim. Model,
+email and integration providers receive the plaintext required for requested work under their own
+retention policies. Vault recovery is service-managed and must never be described as inaccessible
+to the service.
 
-Host the Next.js frontend on Vercel and NestJS backend on Render; preserve later AWS backend portability and independent self-hosting. Nest retains WebSocket ownership and API authorization. Specify HTTPS API/WS origins, explicit cross-origin authentication/CORS/CSRF handling, isolated preview environments, and server-only credentials. Do not move agent loops or reminder workers into frontend functions.
+## Release boundary
 
-At implementation time verify the latest stable, mutually compatible releases against official documentation and registries, including supported Node.js LTS, Next.js/React, NestJS, TypeScript, AI SDK, Trigger.dev, Composio, and PostHog. Pin runtime/dependency versions and lockfiles; avoid prereleases and floating production tags. Record verification dates and justify compatibility constraints instead of blindly upgrading to incompatible releases.
+The repository contains the application, 46 expand-only migrations, Vercel/Render/Trigger
+configuration, runnable operations guide and automated gates. Publishing still requires the owner
+to configure provider projects, secrets, domains, spend limits and backups; merge the reviewed
+feature branch; and run the post-deploy durable/API/artifact/MCP smoke checks. No shared default
+secret or unpublished hosted component is required.

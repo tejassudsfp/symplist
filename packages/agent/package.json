@@ -1,0 +1,48 @@
+{
+  "name": "@symplist/agent",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    "./policy": {
+      "source": "./src/policy.ts",
+      "types": "./dist/policy.d.ts",
+      "default": "./dist/policy.js"
+    },
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -p tsconfig.typecheck.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@ai-sdk/amazon-bedrock": "5.0.82",
+    "@ai-sdk/anthropic": "4.0.53",
+    "@ai-sdk/google-vertex": "5.0.82",
+    "@ai-sdk/openai": "4.0.66",
+    "@ai-sdk/togetherai": "3.0.49",
+    "@symplist/config": "workspace:*",
+    "@symplist/contracts": "workspace:*",
+    "@symplist/core": "workspace:*",
+    "@symplist/integrations": "workspace:*",
+    "ai": "7.0.101",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@symplist/crypto": "workspace:*",
+    "@symplist/testing": "workspace:*",
+    "@types/json-schema": "7.0.15",
+    "@types/node": "24.13.4",
+    "typescript": "7.0.2",
+    "vitest": "5.0.1"
+  }
+}

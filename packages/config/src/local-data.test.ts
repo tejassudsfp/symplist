@@ -1,0 +1,69 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+import { loadApiConfig } from "./api.ts";
+import {
+  defaultLocalDataDir,
+  isValidLocalDataDir,
+  localDataDirName,
+  localDataPaths,
+  workspaceMarkerFile,
+} from "./local-data.ts";
+import { localApiEnv, localWorkerEnv, repoRoot } from "./testing/fixtures.ts";
+import { loadWorkerConfig } from "./worker.ts";
+
+describe("LOCAL_DATA_DIR (decision A7)", () => {
+  it("defaults to <repo>/.local-data as an absolute path for both runtimes", () => {
+    const expected = join(repoRoot, localDataDirName);
+    expect(existsSync(join(repoRoot, workspaceMarkerFile))).toBe(true);
+    expect(defaultLocalDataDir()).toBe(expected);
+    expect(loadApiConfig(localApiEnv()).LOCAL_DATA_DIR).toBe(expected);
+    expect(loadWorkerConfig(localWorkerEnv()).LOCAL_DATA_DIR).toBe(expected);
+  });
+
+  it("resolves the same directory from the api, the worker and a nested Trigger build directory", () => {
+    const root = "/work/symplist";
+    const exists = (path: string) => path === join(root, workspaceMarkerFile);
+    for (const cwd of [
+      root,
+      join(root, "apps", "api"),
+      join(root, "apps", "worker"),
+      join(root, "apps", "worker", ".trigger", "tmp", "build-1"),
+    ]) {
+      expect(defaultLocalDataDir({ cwd, exists })).toBe(join(root, ".local-data"));
+    }
+  });
+
+  it("falls back to the working directory outside a workspace", () => {
+    expect(defaultLocalDataDir({ cwd: "/srv/app", exists: () => false })).toBe(
+      "/srv/app/.local-data",
+    );
+  });
+
+  it("keeps an explicit absolute directory in both runtimes and refuses relative ones", () => {
+    const dir = "/var/tmp/symplist-shared";
+    expect(loadApiConfig(localApiEnv({ LOCAL_DATA_DIR: dir })).LOCAL_DATA_DIR).toBe(dir);
+    expect(loadWorkerConfig(localWorkerEnv({ LOCAL_DATA_DIR: dir })).LOCAL_DATA_DIR).toBe(dir);
+    expect(() => loadWorkerConfig(localWorkerEnv({ LOCAL_DATA_DIR: "data" }))).toThrow(
+      /LOCAL_DATA_DIR/,
+    );
+    expect(isValidLocalDataDir("/tmp/a\u0000b")).toBe(false);
+    expect(isValidLocalDataDir("./data")).toBe(false);
+  });
+
+  it("derives the SQLite file and object store root identically in every runtime", () => {
+    expect(localDataPaths("/data/symplist")).toEqual({
+      database: "/data/symplist/d1.sqlite",
+      objects: "/data/symplist/objects",
+    });
+    expect(() => localDataPaths("relative")).toThrow(TypeError);
+  });
+
+  it("stays ignored by git", async () => {
+    const { spawnSync } = await import("node:child_process");
+    const result = spawnSync("git", ["check-ignore", "-q", join(repoRoot, localDataDirName)], {
+      cwd: repoRoot,
+    });
+    expect(result.status).toBe(0);
+  });
+});

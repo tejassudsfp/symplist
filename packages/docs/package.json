@@ -1,0 +1,47 @@
+{
+  "name": "@symplist/docs",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./markdown": {
+      "source": "./src/markdown/index.ts",
+      "types": "./dist/markdown/index.d.ts",
+      "default": "./dist/markdown/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -p tsconfig.typecheck.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@symplist/contracts": "workspace:*",
+    "@symplist/crypto": "workspace:*",
+    "@symplist/db": "workspace:*",
+    "@symplist/storage": "workspace:*",
+    "rehype-sanitize": "6.0.0",
+    "rehype-stringify": "10.0.1",
+    "remark-gfm": "4.0.1",
+    "remark-parse": "11.0.0",
+    "remark-rehype": "11.1.2",
+    "remark-stringify": "11.0.0",
+    "unified": "11.0.5"
+  },
+  "devDependencies": {
+    "@symplist/testing": "workspace:*",
+    "@types/mdast": "4.0.4",
+    "@types/node": "24.13.4",
+    "typescript": "7.0.2",
+    "vitest": "5.0.1"
+  }
+}

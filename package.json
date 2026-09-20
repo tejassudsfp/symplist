@@ -1,0 +1,37 @@
+{
+  "name": "symplist",
+  "private": true,
+  "license": "MIT",
+  "author": "Tejas Parthasarathi Sudarshan (https://tejassuds.com)",
+  "packageManager": "pnpm@12.4.2",
+  "engines": {
+    "node": ">=24.15.0 <25"
+  },
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:api": "node scripts/dev.mjs api",
+    "dev:web": "node scripts/dev.mjs web",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "biome ci .",
+    "format": "biome check --write .",
+    "test": "pnpm -r test && pnpm test:scripts",
+    "test:scripts": "node --test \"scripts/**/*.test.mjs\"",
+    "build": "pnpm --filter @symplist/web build && tsc -b tsconfig.build.json",
+    "build:web:clean": "node scripts/clean-dist.mjs && pnpm --filter @symplist/web build",
+    "check:api-deploy": "node scripts/check-api-deploy.mjs",
+    "check:api-image": "node scripts/check-api-image.mjs",
+    "smoke:local": "node scripts/smoke-local.mjs",
+    "e2e": "pnpm --filter @symplist/e2e e2e",
+    "db:migrate": "node --env-file-if-exists=.env packages/db/src/cli/migrate.ts",
+    "env:check": "node scripts/distribute-env.mjs --check",
+    "env:distribute": "node scripts/distribute-env.mjs",
+    "secrets:generate": "node scripts/secrets-generate.mjs",
+    "trigger:dev": "pnpm --filter @symplist/worker dev"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.13",
+    "@types/node": "24.13.4",
+    "typescript": "7.0.2",
+    "vitest": "5.0.1"
+  }
+}

@@ -1,0 +1,1 @@
+ALTER TABLE notification_prefs ADD COLUMN last_quiet_summary_start_at INTEGER;

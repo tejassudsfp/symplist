@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "customConditions": ["source"],
+    "types": ["node"],
+    "erasableSyntaxOnly": true
+  },
+  "include": ["src", "vitest.config.ts"]
+}

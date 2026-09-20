@@ -1,0 +1,41 @@
+# Build context for apps/api/Dockerfile (the repository root). The image build installs dependencies
+# and compiles from sources itself, so nothing installed or built locally is sent, and no local
+# configuration, credentials or development data can reach an image layer.
+
+# Version control and CI
+.git
+.github
+
+# Local configuration and credentials
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+symplist_env_and_decisions.csv
+
+# Dependencies and build output
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+**/.next
+**/.trigger
+**/next-env.d.ts
+**/coverage
+
+# Local development data and test output
+**/.local-data
+**/playwright-report
+**/test-results
+apps/e2e/evidence
+**/*.log
+
+# Documentation and design sources the api build never reads
+design
+docs
+
+# Editor and system state
+**/.DS_Store
+.idea
+.vscode
+.vercel
+.wrangler

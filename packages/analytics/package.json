@@ -1,0 +1,40 @@
+{
+  "name": "@symplist/analytics",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./server": {
+      "source": "./src/server.ts",
+      "types": "./dist/server.d.ts",
+      "default": "./dist/server.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -p tsconfig.typecheck.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@symplist/contracts": "workspace:*",
+    "posthog-js": "1.433.4",
+    "posthog-node": "5.52.3",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@symplist/testing": "workspace:*",
+    "@types/node": "24.13.4",
+    "jsdom": "30.0.1",
+    "typescript": "7.0.2",
+    "vitest": "5.0.1"
+  }
+}

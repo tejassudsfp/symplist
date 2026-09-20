@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "customConditions": ["source"],
+    "types": ["node"],
+    "jsx": "react-jsx"
+  },
+  "include": ["src", "vitest.config.ts"]
+}

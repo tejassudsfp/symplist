@@ -1,0 +1,53 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "rootDir": "src",
+    "outDir": "dist",
+    "tsBuildInfoFile": "dist/tsconfig.tsbuildinfo",
+    "types": ["node"],
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "strictPropertyInitialization": false
+  },
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts"],
+  "references": [
+    {
+      "path": "../../packages/agent"
+    },
+    {
+      "path": "../../packages/analytics"
+    },
+    {
+      "path": "../../packages/config"
+    },
+    {
+      "path": "../../packages/contracts"
+    },
+    {
+      "path": "../../packages/core"
+    },
+    {
+      "path": "../../packages/crypto"
+    },
+    {
+      "path": "../../packages/db"
+    },
+    {
+      "path": "../../packages/docs"
+    },
+    {
+      "path": "../../packages/email"
+    },
+    {
+      "path": "../../packages/integrations"
+    },
+    {
+      "path": "../../packages/search"
+    },
+    {
+      "path": "../../packages/storage"
+    }
+  ]
+}

@@ -5,3 +5,4 @@
 *.html text eol=lf
 *.js text eol=lf
 .thumbnail binary
+docs/build/decisions.md merge=union

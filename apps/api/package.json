@@ -1,0 +1,63 @@
+{
+  "name": "@symplist/api",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "start": "node --enable-source-maps dist/main.js",
+    "executor:switch": "node --enable-source-maps --env-file-if-exists=.env dist/infra/executors/executor-switch.cli.js",
+    "typecheck": "tsc -p tsconfig.typecheck.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@fontsource-variable/geist": "5.3.0",
+    "@modelcontextprotocol/express": "2.0.0",
+    "@modelcontextprotocol/node": "2.0.0",
+    "@modelcontextprotocol/server": "2.0.0",
+    "@nestjs/common": "12.0.3",
+    "@nestjs/config": "12.0.0",
+    "@nestjs/core": "12.0.3",
+    "@nestjs/platform-express": "12.0.3",
+    "@nestjs/platform-ws": "12.0.3",
+    "@nestjs/throttler": "6.5.0",
+    "@nestjs/websockets": "12.0.3",
+    "@symplist/agent": "workspace:*",
+    "@symplist/analytics": "workspace:*",
+    "@symplist/config": "workspace:*",
+    "@symplist/contracts": "workspace:*",
+    "@symplist/core": "workspace:*",
+    "@symplist/crypto": "workspace:*",
+    "@symplist/db": "workspace:*",
+    "@symplist/docs": "workspace:*",
+    "@symplist/email": "workspace:*",
+    "@symplist/integrations": "workspace:*",
+    "@symplist/search": "workspace:*",
+    "@symplist/storage": "workspace:*",
+    "@trigger.dev/sdk": "4.6.0",
+    "cookie-parser": "1.4.7",
+    "express": "5.2.1",
+    "helmet": "8.3.0",
+    "hono": "4.13.8",
+    "jose": "6.2.12",
+    "reflect-metadata": "0.2.2",
+    "resend": "6.28.0",
+    "rxjs": "7.8.2",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "2.0.0",
+    "@nestjs/testing": "12.0.3",
+    "@symplist/testing": "workspace:*",
+    "@types/cookie-parser": "1.4.10",
+    "@types/express": "5.0.6",
+    "@types/node": "24.13.4",
+    "@types/ws": "8.18.1",
+    "typescript": "7.0.2",
+    "vitest": "5.0.1"
+  }
+}

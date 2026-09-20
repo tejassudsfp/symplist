@@ -1,0 +1,166 @@
+"use client";
+
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { classifySearchError, type SearchFailure } from "./api.ts";
+
+/*
+ * One request at a time per surface (note 14: debounce briefly, cancel superseded requests and
+ * disregard late responses, and never replace results with an empty-state flash on every keystroke).
+ *
+ * Every outcome is filed under the request that produced it, and the status is derived by comparing
+ * that request with the one the caller is asking about now. So the moment a query or a filter
+ * changes the surface reads "loading", before the effect that starts the request has even run: a
+ * result list is never described as the answer to a question it was not asked.
+ */
+
+export interface AsyncSearchState<Data> {
+  readonly status: "idle" | "loading" | "ready" | "error";
+  /** The last successful data for the current key, or the previous key's while a new one loads. */
+  readonly data: Data | null;
+  /** True while the shown data belongs to an earlier request. */
+  readonly stale: boolean;
+  readonly failure: SearchFailure | null;
+}
+
+/** A request's identity: the key, plus the refresh counter so re-running the same key is a new one. */
+function requestId(key: string, nonce: number): string {
+  return `${nonce}\u0000${key}`;
+}
+
+interface Internal<Data> {
+  /** The request currently in flight, or null when nothing is running. */
+  readonly running: string | null;
+  /** The request whose outcome the fields below hold, or null before anything has settled. */
+  readonly settled: string | null;
+  readonly data: Data | null;
+  readonly failure: SearchFailure | null;
+}
+
+type Action<Data> =
+  | { readonly type: "reset" }
+  | { readonly type: "start"; readonly request: string }
+  | { readonly type: "resolved"; readonly request: string; readonly data: Data }
+  | { readonly type: "failed"; readonly request: string; readonly failure: SearchFailure };
+
+const initial: Internal<never> = { running: null, settled: null, data: null, failure: null };
+
+function reducer<Data>(state: Internal<Data>, action: Action<Data>): Internal<Data> {
+  switch (action.type) {
+    case "reset":
+      return initial;
+    case "start":
+      return { ...state, running: action.request };
+    case "resolved":
+      return {
+        running: state.running === action.request ? null : state.running,
+        settled: action.request,
+        data: action.data,
+        failure: null,
+      };
+    case "failed":
+      return {
+        running: state.running === action.request ? null : state.running,
+        settled: action.request,
+        // A failure never discards what is on screen; the surface shows both (system_states.md).
+        data: state.data,
+        failure: action.failure,
+      };
+  }
+}
+
+export interface AsyncSearchOptions<Data> {
+  /** A new key starts a new request; an unchanged key keeps the current result. */
+  readonly key: string;
+  readonly enabled: boolean;
+  /** Runs the request; rejects with an API client error, which is classified for the UI. */
+  readonly run: (signal: AbortSignal) => Promise<Data>;
+  /** Keeps the previous result on screen while the next one loads (default true). */
+  readonly keepPrevious?: boolean;
+}
+
+export interface AsyncSearchResult<Data> extends AsyncSearchState<Data> {
+  /** Runs the current key again, for a Try again button or a freshness refresh. */
+  readonly refresh: () => void;
+}
+
+export function useAsyncSearch<Data>({
+  key,
+  enabled,
+  run,
+  keepPrevious = true,
+}: AsyncSearchOptions<Data>): AsyncSearchResult<Data> {
+  const [state, dispatch] = useReducer(reducer<Data>, initial);
+  const [nonce, setNonce] = useState(0);
+  const runRef = useRef(run);
+  runRef.current = run;
+
+  const request = requestId(key, nonce);
+
+  // The request identity is the only trigger: the request function is read from a ref, so a new
+  // closure on every render never starts a second request.
+  useEffect(() => {
+    if (!enabled) {
+      dispatch({ type: "reset" });
+      return;
+    }
+    const controller = new AbortController();
+    let cancelled = false;
+    dispatch({ type: "start", request });
+    runRef.current(controller.signal).then(
+      (data) => {
+        if (!cancelled) dispatch({ type: "resolved", request, data });
+      },
+      (error: unknown) => {
+        if (cancelled) return;
+        const failure = classifySearchError(error);
+        // A cancelled request is never an error the reader sees.
+        if (failure) dispatch({ type: "failed", request, failure });
+      },
+    );
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [request, enabled]);
+
+  const refresh = useCallback(() => setNonce((value) => value + 1), []);
+
+  if (!enabled) {
+    return { status: "idle", data: null, stale: false, failure: null, refresh };
+  }
+  // Settled for this exact request, or still answering an older one.
+  const matched = state.settled === request;
+  const data = matched || keepPrevious ? state.data : null;
+  const settledStatus = state.failure ? "error" : "ready";
+  const status = matched && state.running !== request ? settledStatus : "loading";
+  return {
+    status,
+    data,
+    stale: data !== null && !matched,
+    failure: matched ? state.failure : null,
+    refresh,
+  };
+}
+
+/**
+ * A value that follows `input` after it stops changing for `delayMs` (note 14: debounce queries
+ * briefly). The first value and clearing the query apply at once, so the recent list and the empty
+ * prompt never wait.
+ */
+export function useDebouncedValue<Value>(
+  input: Value,
+  delayMs: number,
+  immediate?: (value: Value) => boolean,
+): Value {
+  const [value, setValue] = useState(input);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the predicate reads the current input.
+  useEffect(() => {
+    if (immediate?.(input) === true) {
+      setValue(input);
+      return;
+    }
+    const timer = setTimeout(() => setValue(input), delayMs);
+    return () => clearTimeout(timer);
+  }, [input, delayMs]);
+  return value;
+}
