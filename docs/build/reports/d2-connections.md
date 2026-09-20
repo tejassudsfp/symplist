@@ -1,11 +1,146 @@
 # D2 Connections and MCP stream
 
-Status: **checkpointed at the owner's usage-limit stop; backend implemented, final gates unfinished**. Sole writer at
+Status: **backend ready for root integration; local review complete, combined/live gates remain**. Sole writer at
 `symplist-wt/connections`, branch `wip/d2-connections`, original base `8e26f4f`.
+
+## Final backend review — September 20
+
+This section supersedes the historical September 16 checkpoint below. Connections UI remains a
+separate stream. This is backend integration readiness, not a claim that D2 or E is finished.
+
+Commit `fb35529` fixes a confirmation race: the existing 500-connection bound is now checked in
+the deciding INSERT, not just before the provider callback. A regression fills the capacity after
+an attempt starts and proves confirmation cannot overflow inventory, the inventory remains readable,
+and the unconfirmed provider account is revoked. The same commit gives the analytics test double
+its actual callback type, fixing the final checkpoint's inferred zero-argument tuple type error
+without removing assertions. No dependencies, timeouts or test expectations were weakened.
+
+The resumed whole-diff adversarial review covered callback/session ownership, generation/lease
+fencing, disconnect approval expiry, raw webhook receipt/effect atomicity, provider error/secret
+boundaries, OAuth code/refresh reuse and JWT claims, pinned metadata fetching/SSRF, grant scope in
+deciding writes and replay, post-I/O authorization, retrieval budgets, bounded D1 batches, and
+single-reveal secret scans. The capacity race above was the additional defect found and fixed.
+The earlier corrections documented below remain intact. No TODO/FIXME or biome-ignore additions
+remain in owned production areas; root-owned UI is not represented as reviewed by this stream.
+
+### Verification and coverage
+
+- Original Git-history suite: **14/14 passed** without changing its timeout; the prior timeout did
+  not reproduce.
+- All **17 project typechecks passed**. Whole core **733/733**, integrations **19/19**, worker
+  **97/97**, agent **78/78**, and pure API metadata/SSRF plus JWT tests **61/61** passed.
+  Contracts **164** and config **276** also passed before the recursive run reached blocked tests.
+- Lint checked **1,357 files**, zero errors and warnings. Production TypeScript build
+  `node_modules/.bin/tsc -b tsconfig.build.json`, docs links/44-screen check, and whitespace check
+  passed.
+- Full recursive tests could not finish: storage R2 test servers and script loopback/websocket
+  probes fail with **`listen EPERM 127.0.0.1`** in the restricted environment. The blocked script
+  run was interrupted; no listeners or dev servers were started successfully.
+- Web tests: **1,557/1,558 passed**. The one failure is the root-owned archive test at
+  `apps/web/src/features/workspace/archive-view.test.tsx:67`: its September 16 fixture expects
+  “Today” on September 20. Production correctly renders “Wednesday, September 16, 2026”. Root was
+  notified to freeze the fixture clock; this stream did not change web tests.
+- Next's production build stalled at “Creating an optimized production build ...” and was
+  interrupted (exit 130); no more specific cause was established. Smoke then lacked
+  `.next/BUILD_ID`. Clean web build/deploy checker, browser/executor parity and live suites remain
+  root gates, not passes claimed here. The last unrestricted September 16 results below are
+  historical evidence only.
+- Exact pnpm 12.4.2 frozen install was not repeated: the available shim runs pnpm 11.1.2 and its
+  bootstrap needs unavailable network access. Local gates used existing binaries or
+  `COREPACK_ROOT=1 pnpm --pm-on-fail=ignore` as a script orchestrator. The shim's accidental lockfile
+  bootstrap edits were removed; no lockfile/dependency changes remain.
+
+### Root-only integration work
+
+1. Wire owner/run-scoped Composio authority, `ConnectionTools`, and the metadata-only approval
+   validator into Simon. The primitive-schema Vault-handle masking/schema adapter remains a
+   fail-closed integration seam; API code must never resolve Vault contents or execute a tool.
+2. In maintenance-owned `apps/worker/src/infra/scheduling-runtime.ts`, call
+   `cleanupMcp({db,now,mode:'durable',generation})` and
+   `connectionReconcilerFor(runtime)?.drain({mode:'durable',generation})` under the hourly fence.
+   Local hourly cleanup and daily durable reconciliation are already wired.
+3. Merge backend, then Connections UI, preserving newer root TaskAuthorization/Simon fixes rather
+   than restoring this branch's older `4c49738` dependency snapshot. Freeze the archive fixture
+   clock and run combined exact-tooling, browser, executor-parity, visual and live gates.
+4. Verify the live Composio project's callback identity configuration during E. This branch used
+   no live credentials and performed no live provider mutations.
+
+All specified MCP backend tools, including concrete scheduling and artifact services, are wired;
+the remaining items above are explicit root-owned integration or environment validation, not
+unimplemented backend tool stubs.
+
+### Commit and shared-file inventory
+
+First-parent stream commits through the final source fix (the report-only completion commit
+follows this list):
+
+```text
+b801b9e Build safe Composio execution and fenced session persistence
+7a09647 Build Simon question commands and scoped authorization seam
+bc340a5 Validate approval edits and pin OAuth metadata fetches
+5e0d663 Bind hosted connection callbacks to the initiating session
+7e77300 Fence reconnect and disconnect with atomic approval expiry
+a5d21b2 Wire connection HTTP routes and update the pre-D2 callback probe
+f06b438 Verify Composio webhook receipts with atomic connection expiry
+df96c3d Reconcile connections and implement provider purge, updating pre-D2 purge expectations
+6f6d821 Fence task tool writes and replay with trusted runtime authority
+131818d Add scoped MCP grants and single-reveal API key management
+29fd1ec Pin MCP JWT validation to issuer audience and live grants
+1322884 Define the trusted OAuth consent UI contract
+182216c Build session-bound OAuth consent and single-use token exchange; move pre-D2 route probes
+71e975f Build grant-scoped MCP transport and tools; preserve pre-D2 guard probes
+5e82a14 Merge integrated D2 services for concrete MCP tool wiring
+ed5abf3 Checkpoint concrete MCP integrations; focused tests pass, final gates unverified
+fb35529 Fence connection capacity at confirmation and type analytics test callbacks
+```
+
+`7a09647` and `6f6d821` are parent-owned seam cherry-picks. `5e82a14` merged only committed root
+`4c49738`, not dirty files. Every shared path outside the owned Connections/MCP, contracts
+Connections, integrations and worker Connections feature directories in the feature delta against
+that root snapshot is listed here:
+
+```text
+apps/api/src/app.test.ts
+apps/api/src/common/guards/route-class.guard.test.ts
+apps/api/src/common/http/global-prefix.ts
+apps/api/src/infra/account/account-purge.module.ts
+apps/api/src/modules/search/search.module.ts
+apps/api/test/probes/bootstrap.probe.ts
+apps/api/test/probes/route-classes.probe.ts
+apps/worker/src/infra/account-purge.ts
+apps/worker/src/trigger/account-purge.ts
+docs/build/decisions.md
+docs/build/reports/d2-connections.md
+packages/contracts/src/index.ts
+packages/core/src/access/restrict-contributors/connections.ts
+packages/core/src/access/restrict-contributors/mcp.ts
+packages/core/src/access/session-revoke-contributors/connections.ts
+packages/core/src/access/session-revoke-contributors/index.ts
+packages/core/src/access/session-revoke-contributors/mcp.ts
+packages/core/src/account/purge-contributors/connections.ts
+packages/core/src/account/purge-contributors/mcp.ts
+packages/core/src/account/purge-contributors/types.ts
+packages/core/src/account/purge-steps.test.ts
+packages/core/src/documents/budgets.test.ts
+packages/core/src/documents/budgets.ts
+packages/core/src/search/index.ts
+packages/core/src/search/request-signal.test.ts
+packages/core/src/search/request-signal.ts
+packages/core/src/search/service.ts
+packages/db/migrations/0901_connection_lifecycle.sql
+packages/db/migrations/0902_connection_revocation.sql
+packages/db/migrations/0910_mcp_grants.sql
+```
+
+Historical dependency copies include the byte-identical Scheduling 0601 receipt migration and
+root search-source AAD fix; both already match the merged root snapshot. Merge-only resolutions
+retained root progress/coverage/parallel/integration reports, Simon files, and visual evidence;
+they are not Connections feature edits. Earlier per-checkpoint inventories below retain details
+of these shared dependency touches.
 
 ## Resume here — September 16 checkpoint
 
-The historical checkpoints below are superseded by this section. Root committed `4c49738` was
+The historical checkpoints below were superseded by this September 16 section. Root committed `4c49738` was
 merged at `5e82a14`; no later root commits or dirty files were copied. Connections UI is separately
 owned by `/root/d2_vault` in `connections-ui` and must merge after this backend.
 
