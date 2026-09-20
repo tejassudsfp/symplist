@@ -4,7 +4,8 @@ import { captureEvidence } from "../src/helpers/evidence.ts";
 import { expectNoAxeViolations } from "../src/helpers/index.ts";
 import { signIn } from "../src/helpers/session.ts";
 
-const apiOrigin = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:4000";
+const apiOrigin =
+  process.env.NEXT_PUBLIC_API_URL ?? `http://127.0.0.1:${process.env.E2E_API_PORT ?? 4000}`;
 const webOrigin = process.env.E2E_WEB_URL ?? `http://127.0.0.1:${process.env.E2E_WEB_PORT ?? 3000}`;
 const originalKey = "a fictional vault phrase for browser tests";
 const newKey = "a different fictional vault phrase after recovery";

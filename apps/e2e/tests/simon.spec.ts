@@ -351,7 +351,9 @@ test("approval exposes exact action details and denial never authorizes the acti
   await openChat(page, fixture.taskId);
   const card = page.getByRole("region", { name: "Action needs your approval" });
   await expect(card).toBeVisible();
-  await expect(card.locator("pre").first()).toContainText("collaborator@example.test");
+  await expect(card.getByRole("textbox", { name: "Action preview" })).toHaveValue(
+    /collaborator@example\.test/,
+  );
   await expectNoAxeViolations(page, testInfo);
   await captureEvidence(
     page,
