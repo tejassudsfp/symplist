@@ -118,6 +118,8 @@ export const simonApprovalViewSchema = z.strictObject({
   toolSlug: z.string(),
   connectionId: idSchema,
   connectedAccountId: z.string(),
+  connectionToolkit: z.string().nullable(),
+  connectionAlias: z.string().nullable(),
   connectionGeneration: z.number().int(),
   status: z.enum(["pending", "approved", "denied", "dismissed", "expired", "superseded"]),
   argDigest: z.string(),

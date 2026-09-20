@@ -1,4 +1,4 @@
-import { zeroize } from "@symplist/crypto";
+import { encryptFieldText, zeroize } from "@symplist/crypto";
 import { int, sql, uuidv7 } from "@symplist/db";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type ConfirmedConnection, confirmedConnection } from "../connections/authority.ts";
@@ -115,6 +115,35 @@ describe("approved external action ledger", () => {
       expect(send).toHaveBeenCalledTimes(reconnected ? 0 : 1);
     },
   );
+
+  it("returns the encrypted account alias and service label without changing approval binding", async () => {
+    const alias = "Maya's work inbox";
+    const key = await repository.accountKeys.require(owner);
+    try {
+      await env.db.run(
+        sql("UPDATE connections SET alias_enc=:alias WHERE id=:id", {
+          id: connection.id,
+          alias: encryptFieldText(
+            key,
+            {
+              ownerId: owner,
+              table: "connections",
+              rowId: connection.id,
+              column: "alias_enc",
+              purpose: "connection_alias",
+            },
+            alias,
+          ),
+        }),
+      );
+    } finally {
+      zeroize(key.key);
+    }
+    const id = await pause();
+    const view = await approvals.load(owner, id);
+    expect(view).toMatchObject({ connectionToolkit: "gmail", connectionAlias: alias });
+    expect(view.argDigest).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  });
 
   it("sends exactly the stored arguments once, and encrypts its durable result", async () => {
     const id = await continueApproval();

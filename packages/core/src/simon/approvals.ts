@@ -36,6 +36,8 @@ export interface ApprovalView {
   readonly toolSlug: string;
   readonly connectionId: string;
   readonly connectedAccountId: string;
+  readonly connectionToolkit: string | null;
+  readonly connectionAlias: string | null;
   readonly connectionGeneration: number;
   readonly status: "pending" | "approved" | "denied" | "dismissed" | "expired" | "superseded";
   readonly argDigest: string;
@@ -159,6 +161,22 @@ export class SimonApprovals {
       toolSlug: String(row.tool_slug),
       connectionId: String(row.connection_id),
       connectedAccountId: String(row.connected_account_id),
+      connectionToolkit: row.display_connection_toolkit
+        ? String(row.display_connection_toolkit)
+        : null,
+      connectionAlias: row.display_connection_alias_enc
+        ? decryptFieldText(
+            key,
+            {
+              ownerId: String(row.owner_id),
+              table: "connections",
+              rowId: String(row.connection_id),
+              column: "alias_enc",
+              purpose: "connection_alias",
+            },
+            String(row.display_connection_alias_enc),
+          )
+        : null,
       connectionGeneration: Number(row.connection_generation ?? 1),
       status: row.status as ApprovalView["status"],
       argDigest: String(row.arg_digest),
@@ -173,9 +191,12 @@ export class SimonApprovals {
     const { db } = this.repository.options;
     const results = await db.batch([
       sql(
-        `SELECT * FROM approvals WHERE id = :id AND owner_id = :owner AND ${this.repository.access()}
-        AND EXISTS (SELECT 1 FROM conversations c WHERE c.id = approvals.conversation_id
-          AND (c.expires_at IS NULL OR c.expires_at > :now))`,
+        `SELECT a.*,c.toolkit AS display_connection_toolkit,
+        c.alias_enc AS display_connection_alias_enc
+        FROM approvals a LEFT JOIN connections c ON c.id=a.connection_id AND c.owner_id=a.owner_id
+        WHERE a.id = :id AND a.owner_id = :owner AND ${this.repository.access()}
+        AND EXISTS (SELECT 1 FROM conversations conversation WHERE conversation.id = a.conversation_id
+          AND (conversation.expires_at IS NULL OR conversation.expires_at > :now))`,
         { id: approvalId, owner: ownerId, now: int(this.repository.options.now()) },
       ),
       this.repository.accountKeys.selectStatement(ownerId),
@@ -226,9 +247,16 @@ export class SimonApprovals {
     if (!approvalRow || !runRow || !keyRow) throw new SimonError("not_found");
     const key = this.repository.accountKeys.unwrapRow(keyRow);
     try {
-      const approval = this.decode(approvalRow, key);
-      const run = runFromRow(runRow);
       const connectionRow = loaded[3]?.results[0];
+      const approval = this.decode(
+        {
+          ...approvalRow,
+          display_connection_toolkit: connectionRow?.toolkit ?? null,
+          display_connection_alias_enc: connectionRow?.alias_enc ?? null,
+        },
+        key,
+      );
+      const run = runFromRow(runRow);
       const connection: ConfirmedConnection | null = connectionRow
         ? {
             id: String(connectionRow.id),

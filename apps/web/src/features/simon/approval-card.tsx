@@ -7,6 +7,18 @@ import type { ChatState, SimonStore } from "./store.ts";
 function preview(value: unknown): string {
   return JSON.stringify(value, (key, item) => (key === "$vault" ? "Limited vault grant" : item), 2);
 }
+function words(value: string): string {
+  const phrase = value.replaceAll(/[_-]+/g, " ").trim().toLocaleLowerCase();
+  return phrase ? `${phrase[0]?.toLocaleUpperCase()}${phrase.slice(1)}` : "Connected service";
+}
+function actionLabel(toolSlug: string, toolkit: string | null): string {
+  const prefix = toolkit ? `${toolkit}_` : "";
+  return words(
+    prefix && toolSlug.toLocaleLowerCase().startsWith(prefix.toLocaleLowerCase())
+      ? toolSlug.slice(prefix.length)
+      : toolSlug,
+  );
+}
 export function ApprovalCard({ state, store }: { state: ChatState; store: SimonStore }) {
   const approval = state.approval;
   const [editing, setEditing] = useState(false);
@@ -63,9 +75,15 @@ export function ApprovalCard({ state, store }: { state: ChatState; store: SimonS
       <p>Nothing is sent until you approve these exact details.</p>
       <dl>
         <dt>Action</dt>
-        <dd>{approval.toolSlug.replaceAll("_", " ").toLowerCase()}</dd>
+        <dd>{actionLabel(approval.toolSlug, approval.connectionToolkit)}</dd>
         <dt>Connected account</dt>
-        <dd>{approval.connectedAccountId}</dd>
+        <dd>
+          {approval.connectionAlias ??
+            (approval.connectionToolkit ? words(approval.connectionToolkit) : "Connected service")}
+          {approval.connectionAlias && approval.connectionToolkit
+            ? ` · ${words(approval.connectionToolkit)}`
+            : null}
+        </dd>
       </dl>
       <pre className="sym-simon-preview">{preview(approval.preview)}</pre>
       <details>
