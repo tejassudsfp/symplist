@@ -440,7 +440,8 @@ export class ConnectionsService {
             sql(
               `INSERT INTO connections (id, owner_id, toolkit, connected_account_id, alias_enc, status, confirmed_at, created_at, updated_at, write_id)
         SELECT :id, :owner, :toolkit, :account, ${alias === null ? "NULL" : ":alias"}, 'active', :now, :now, :now, :write
-        WHERE ${guard} AND ${this.access()} AND ${this.session()} AND EXISTS (SELECT 1 FROM account_keys WHERE owner_id = :owner)`,
+        WHERE ${guard} AND ${this.access()} AND ${this.session()} AND EXISTS (SELECT 1 FROM account_keys WHERE owner_id = :owner)
+        AND (SELECT COUNT(*) FROM connections WHERE owner_id = :owner) < 500`,
               {
                 id,
                 owner: actor.ownerId,

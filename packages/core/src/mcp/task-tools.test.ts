@@ -75,7 +75,7 @@ async function create(title: string, parentId?: string) {
 
 describe("MCP task scope at the read, write and replay decision", () => {
   it("emits confirmed server events once, without failing a committed write on analytics failure", async () => {
-    const confirmed = vi.fn(async () => {
+    const confirmed = vi.fn<NonNullable<McpTaskTools["onConfirmed"]>>(async () => {
       throw new Error("analytics unavailable");
     });
     const service = new McpTaskTools(grants, tasks, confirmed);

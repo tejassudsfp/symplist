@@ -140,6 +140,22 @@ function mutations() {
 }
 
 describe("native connection callback authority", () => {
+  it("rechecks the connection capacity at confirmation instead of overflowing the bounded inventory", async () => {
+    const attempt = await begin();
+    await env.db.run(
+      sql(
+        `INSERT INTO connections (id, owner_id, toolkit, connected_account_id, status, confirmed_at, created_at, updated_at, write_id)
+       SELECT value, :owner, 'gmail', 'ca_capacity_' || value, 'active', 1, 1, 1, value FROM json_each(:ids)`,
+        { owner: actor.ownerId, ids: JSON.stringify(Array.from({ length: 500 }, () => uuidv7())) },
+      ),
+    );
+    await expect(service.callback(actor, attempt)).rejects.toMatchObject({
+      code: "integration.unauthorized",
+    });
+    expect(await env.count("connections")).toBe(500);
+    expect(await service.list(actor)).toHaveLength(500);
+    expect(provider.revoke).toHaveBeenCalledWith("ca_1");
+  });
   it("reconnects the exact version of an existing connection while preserving its encrypted alias", async () => {
     const id = await service.callback(actor, await begin("Work"));
     const next = await service.start(actor, { toolkit: "gmail", replacesConnectionId: id });
