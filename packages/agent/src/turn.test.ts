@@ -5,7 +5,7 @@ import {
   createDocumentsTestEnvironment,
   type DocumentsTestEnvironment,
 } from "../../core/src/documents/test-support.ts";
-import type { SimonModel } from "./providers.ts";
+import { type SimonModel, SimonModelError } from "./providers.ts";
 import { runSimonTurn, type SimonTurnDependencies } from "./turn.ts";
 
 let env: DocumentsTestEnvironment;
@@ -84,6 +84,75 @@ function dependencies(model: SimonModel): SimonTurnDependencies {
 }
 
 describe("claimed Simon turn integration", () => {
+  describe.each(["local", "trigger"] as const)("stable provider outcomes under %s", (executor) => {
+    it.each(["ai.unavailable", "ai.provider_failed"] as const)(
+      "persists %s without provider details on a rejected setup",
+      async (code) => {
+        await env.db.run({
+          sql: "UPDATE executor_state SET mode=?",
+          params: [executor === "local" ? "local" : "durable"],
+        });
+        const runId = await submit();
+        const deps = { ...dependencies(new MockLanguageModelV4()), executor };
+        deps.models.resolve = () => {
+          if (code === "ai.unavailable") throw new SimonModelError("ai.unavailable");
+          throw Object.assign(new Error("PRIVATE-PROVIDER-ERROR-MARKER"), {
+            code: "provider.private_secret",
+          });
+        };
+        const error = await runSimonTurn(runId, deps).catch((value: unknown) => value);
+        expect(error).toMatchObject({ code, message: code });
+        expect(error).not.toHaveProperty("cause");
+        expect(
+          await env.db.first({
+            sql: "SELECT status,outcome_code FROM runs WHERE id=?",
+            params: [runId],
+          }),
+        ).toEqual({ status: "interrupted", outcome_code: code });
+        expect(JSON.stringify(error)).not.toContain("PRIVATE-PROVIDER-ERROR-MARKER");
+        expect(JSON.stringify(vi.mocked(deps.log).mock.calls)).not.toContain(
+          "PRIVATE-PROVIDER-ERROR-MARKER",
+        );
+      },
+    );
+
+    it("persists a terminal stream failure in its checkpoint and preserves Stop precedence", async () => {
+      await env.db.run({
+        sql: "UPDATE executor_state SET mode=?",
+        params: [executor === "local" ? "local" : "durable"],
+      });
+      const runId = await submit();
+      const model = new MockLanguageModelV4({
+        doStream: scripted([{ type: "error", error: new Error("PRIVATE-STREAM-ERROR-MARKER") }]),
+      });
+      const deps = { ...dependencies(model), executor };
+      expect((await runSimonTurn(runId, deps)).status).toBe("failed");
+      expect(
+        await env.db.first({
+          sql: "SELECT status,outcome_code FROM runs WHERE id=?",
+          params: [runId],
+        }),
+      ).toEqual({ status: "failed", outcome_code: "ai.provider_failed" });
+      expect(JSON.stringify(vi.mocked(deps.log).mock.calls)).not.toContain(
+        "PRIVATE-STREAM-ERROR-MARKER",
+      );
+      const stopped = await submit("Stop before provider failure", "stop-precedence");
+      const stoppedDeps = { ...dependencies(new MockLanguageModelV4()), executor };
+      // Cancellation is injected at the next awaited history read.
+      const read = repository.executionHistory.bind(repository);
+      vi.spyOn(repository, "executionHistory").mockImplementationOnce(async (run, key) => {
+        await repository.stop(owner, run.id);
+        return read(run, key);
+      });
+      await runSimonTurn(stopped, stoppedDeps).catch(() => {});
+      expect(
+        await env.db.first({
+          sql: "SELECT status,outcome_code FROM runs WHERE id=?",
+          params: [stopped],
+        }),
+      ).toEqual({ status: "stopped", outcome_code: "stopped" });
+    });
+  });
   it.each(["local", "trigger"] as const)(
     "runs the same encrypted history and checkpoint contract under %s",
     async (executor) => {

@@ -72,7 +72,10 @@ export type ExecutionOutcomeCode =
   /** The executor switch moved the generation while the run was active. */
   | "executor_switched"
   /** A local handler threw instead of checkpointing its own outcome. */
-  | "executor_error";
+  | "executor_error"
+  /** Stable model availability/outcome codes; never a provider exception message. */
+  | "ai.unavailable"
+  | "ai.provider_failed";
 
 /** One active subject (for Simon: a `queued` or `running` run) as the executors see it. */
 export interface ActiveExecution {

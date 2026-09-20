@@ -11,6 +11,7 @@ export * from "./quick.ts";
 export * from "./quick-delete.ts";
 export * from "./repository.ts";
 export * from "./retries.ts";
+export * from "./sharing.ts";
 export * from "./types.ts";
 export * from "./user-asks.ts";
 export * from "./views.ts";

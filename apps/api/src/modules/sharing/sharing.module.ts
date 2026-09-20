@@ -16,11 +16,13 @@ import { REALTIME_PUBLISHER } from "../realtime/realtime.tokens.ts";
 import { ArtifactController } from "./artifact.controller.ts";
 import { ArtifactAssetsController } from "./artifact-assets.controller.ts";
 import { SharingController } from "./sharing.controller.ts";
+import { SharingEvents } from "./sharing.events.ts";
 
 /** The sharing feature: controllers, gateway handlers and providers live in this folder (§2.3). */
 @Module({
   controllers: [SharingController, ArtifactAssetsController, ArtifactController],
   providers: [
+    SharingEvents,
     {
       provide: SharingRepository,
       inject: [

@@ -31,6 +31,8 @@ export class SimonLifecycle implements OnModuleInit {
     @Inject(ExecutionRegistry) private readonly registry: ExecutionRegistry,
     @Inject(TopicHub) private readonly hub: TopicHub,
     @Inject(DocumentTools) private readonly documents: DocumentTools,
+    @Inject(OBJECT_STORE) private readonly objects: ObjectStore,
+    @Inject(SERVER_ANALYTICS) private readonly emitter: ServerAnalyticsEmitter,
     private readonly logger: AppLogger,
   ) {}
   onModuleInit(): void {
@@ -43,6 +45,8 @@ export class SimonLifecycle implements OnModuleInit {
           this.hub,
           this.logger,
           this.documents,
+          this.objects,
+          this.emitter,
         ),
       );
   }

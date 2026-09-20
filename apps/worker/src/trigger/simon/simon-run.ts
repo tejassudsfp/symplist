@@ -1,9 +1,15 @@
-import { createSimonModels, runSimonTurn, simonNativeTools } from "@symplist/agent";
+import {
+  createSimonModels,
+  runSimonTurn,
+  simonNativeTools,
+  simonSharingTools,
+} from "@symplist/agent";
 import { simonRunPayloadSchema } from "@symplist/contracts";
 import { DocumentRepository, DocumentTools, DurableDocumentGit } from "@symplist/core/documents";
 import { SimonRepository } from "@symplist/core/simon";
 import { GitService } from "@symplist/docs";
 import { AbortTaskRunError, task, tasks } from "@trigger.dev/sdk";
+import { workerAnalytics } from "../../infra/analytics.ts";
 import { reportingD1Counters } from "../../infra/d1-counters.ts";
 import { toWorkerError, WorkerError } from "../../infra/errors.ts";
 import { type WorkerRuntime, workerRuntime } from "../../infra/runtime.ts";
@@ -37,8 +43,8 @@ export async function runDurableSimon(
         ? AbortSignal.any([signal, AbortSignal.timeout(890_000)])
         : AbortSignal.timeout(890_000),
       telemetryEnabled: runtime.config.AI_TELEMETRY_ENABLED,
-      tools: async (context) =>
-        simonNativeTools(context, {
+      tools: async (context) => ({
+        ...simonNativeTools(context, {
           scheduling: {
             remindersEnabled: runtime.config.REMINDERS_ENABLED,
             emailEnabled: runtime.config.REMINDER_EMAIL_ENABLED,
@@ -52,6 +58,21 @@ export async function runDurableSimon(
             });
           },
         }),
+        ...simonSharingTools(context, {
+          objects: runtime.objects,
+          privateOrigins: [runtime.config.WEB_ORIGIN, runtime.config.API_ORIGIN],
+          maxBytes: runtime.config.DOC_MAX_BYTES,
+          onConfirmed: (ownerId, event, properties, eventId) =>
+            workerAnalytics(runtime).capture(ownerId, event, properties, eventId),
+          onGrantChanged: async (ownerId, taskId, artifactId) => {
+            await runtime.events.announce({
+              type: "share_grant.changed",
+              ownerId,
+              payload: { taskId, artifactId },
+            });
+          },
+        }),
+      }),
       documents: () => {
         const documents = new DocumentRepository({
           db: runtime.db,

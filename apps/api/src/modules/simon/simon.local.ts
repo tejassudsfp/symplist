@@ -1,6 +1,9 @@
+import type { ServerAnalyticsEmitter } from "@symplist/analytics/server";
+import { AnalyticsService } from "@symplist/core/analytics";
 import type { DocumentTools } from "@symplist/core/documents";
 import type { LocalExecutionHandler } from "@symplist/core/events";
 import type { SimonRepository } from "@symplist/core/simon";
+import type { ObjectStore } from "@symplist/storage";
 import type { AppLogger } from "../../common/logging/logger.ts";
 import type { ApiConfig } from "../../infra/config/api-config.ts";
 import type { TopicHub } from "../realtime/topic-hub.ts";
@@ -12,10 +15,19 @@ export function createLocalSimonHandler(
   hub: TopicHub,
   logger: AppLogger,
   documents: DocumentTools,
+  objects: ObjectStore,
+  emitter: ServerAnalyticsEmitter,
 ): LocalExecutionHandler {
   return async (job, context) => {
     if (config.DURABLE) throw new Error("simon.local_disabled");
-    const { createSimonModels, runSimonTurn, simonNativeTools } = await import("@symplist/agent");
+    const analytics = new AnalyticsService({
+      ...repository.options,
+      emitter,
+      enabled: emitter.enabled,
+    });
+    const { createSimonModels, runSimonTurn, simonNativeTools, simonSharingTools } = await import(
+      "@symplist/agent"
+    );
     await runSimonTurn(job.subjectId, {
       repository,
       executor: "local",
@@ -23,8 +35,8 @@ export function createLocalSimonHandler(
       signal: context.signal,
       telemetryEnabled: config.AI_TELEMETRY_ENABLED,
       documents: () => ({ tools: documents, git: null }),
-      tools: async (toolContext) =>
-        simonNativeTools(toolContext, {
+      tools: async (toolContext) => ({
+        ...simonNativeTools(toolContext, {
           scheduling: {
             remindersEnabled: config.REMINDERS_ENABLED,
             emailEnabled: config.REMINDER_EMAIL_ENABLED,
@@ -37,6 +49,19 @@ export function createLocalSimonHandler(
             });
           },
         }),
+        ...simonSharingTools(toolContext, {
+          objects,
+          privateOrigins: [config.WEB_ORIGIN, config.API_ORIGIN],
+          maxBytes: config.DOC_MAX_BYTES,
+          onConfirmed: (ownerId, event, properties, eventId) =>
+            analytics.capture(ownerId, event, properties, eventId),
+          onGrantChanged: (ownerId, taskId, artifactId) =>
+            hub.publishToUser(ownerId, {
+              type: "share_grant.changed",
+              data: { taskId, artifactId },
+            }),
+        }),
+      }),
       log: (event) => logger.warn("simon.run_event", { code: event.code, runId: job.subjectId }),
       sink: (claim) => ({
         write: async (chunk) => {
