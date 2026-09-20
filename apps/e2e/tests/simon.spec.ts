@@ -8,7 +8,7 @@ import {
 import { captureEvidence, expectNoAxeViolations } from "../src/helpers/index.ts";
 import { readRunEnv } from "../src/helpers/local-api.ts";
 import { signIn } from "../src/helpers/session.ts";
-import { seedSimonPause } from "../src/helpers/simon.ts";
+import { expireQuickChat, seedSimonPause } from "../src/helpers/simon.ts";
 
 const responseText = "Scripted development response. No model or external action was called.";
 const evidenceDir = fileURLToPath(new URL("../evidence/simon", import.meta.url));
@@ -226,6 +226,42 @@ test("quick chat closes with deletion and opens a fresh conversation", async ({
   await expect(
     dialog.getByText("Your workspace helper. Ask a question or turn an idea into a task."),
   ).toBeVisible();
+  await expect(dialog.getByText(responseText, { exact: true })).toHaveCount(0);
+});
+
+test("hourly cleanup expires an unsaved quick chat after 24 hours", async ({ context, page }) => {
+  const { userId } = await signIn(context);
+  const http = await api(context);
+  await page.goto("/now");
+  const created = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" && response.url().endsWith("/v1/conversations"),
+  );
+  await page.getByRole("button", { name: "Ask Simon", exact: true }).click();
+  const { conversationId } = (await (await created).json()) as { conversationId: string };
+  const dialog = page.getByRole("dialog", { name: "Simon", exact: true });
+  const oldMessage = "This temporary plan must expire with its quick chat.";
+  await dialog.getByLabel("Message Simon", { exact: true }).fill(oldMessage);
+  await dialog.getByRole("button", { name: "Send message", exact: true }).click();
+  await expect(dialog.getByText(responseText, { exact: true })).toBeVisible();
+
+  await expireQuickChat(userId, conversationId);
+  expect((await http.get(`/conversations/${conversationId}`)).status()).toBe(404);
+
+  // A reload drops the browser's in-memory handle to the server-expired chat. Opening from the
+  // launcher must create a different empty conversation, never resurrect encrypted old history.
+  await page.reload();
+  const recreated = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" && response.url().endsWith("/v1/conversations"),
+  );
+  await page.getByRole("button", { name: "Ask Simon", exact: true }).click();
+  const fresh = (await (await recreated).json()) as { conversationId: string };
+  expect(fresh.conversationId).not.toBe(conversationId);
+  await expect(
+    dialog.getByText("Your workspace helper. Ask a question or turn an idea into a task."),
+  ).toBeVisible();
+  await expect(dialog.getByText(oldMessage, { exact: true })).toHaveCount(0);
   await expect(dialog.getByText(responseText, { exact: true })).toHaveCount(0);
 });
 

@@ -1,5 +1,6 @@
 import { localDataPaths } from "@symplist/config";
 import { apiSecretFamilies } from "@symplist/config/api";
+import { cleanupHourly } from "@symplist/core/scheduling";
 import { SimonApprovals, SimonRepository, SimonUserAsks } from "@symplist/core/simon";
 import { createEnvKeyProvider } from "@symplist/crypto";
 import { createLocalSqliteClient, int, sql, uuidv7 } from "@symplist/db";
@@ -128,6 +129,61 @@ export async function seedSimonPause(
     } finally {
       repository.releaseClaim(claim);
     }
+  } finally {
+    keys.destroy();
+    db.close();
+  }
+}
+
+/** Ages one real unsaved quick chat and runs the same fenced hourly cleanup as the local API. */
+export async function expireQuickChat(
+  ownerId: string,
+  conversationId: string,
+  env: RunEnv = readRunEnv(),
+): Promise<void> {
+  const db = createLocalSqliteClient({
+    path: localDataPaths(env.LOCAL_DATA_DIR ?? "").database,
+    env,
+  });
+  const keys = createEnvKeyProvider(env, { families: apiSecretFamilies });
+  const now = Date.now();
+  const ttlHours = Number(env.QUICK_CHAT_TTL_HOURS ?? 24);
+  if (!Number.isFinite(ttlHours) || ttlHours <= 0) throw new Error("invalid quick-chat TTL");
+  const agedAt = now - ttlHours * 3_600_000 - 1_000;
+  try {
+    const aged = await db.batch([
+      sql(
+        `UPDATE conversations SET created_at=:aged,updated_at=:aged,expires_at=:expired,write_id=:write
+         WHERE id=:id AND owner_id=:owner AND kind='quick' AND task_id IS NULL`,
+        {
+          id: conversationId,
+          owner: ownerId,
+          aged: int(agedAt),
+          expired: int(agedAt + ttlHours * 3_600_000),
+          write: uuidv7(now),
+        },
+      ),
+      sql(
+        "SELECT id FROM conversations WHERE id=:id AND owner_id=:owner AND kind='quick' AND expires_at<=:now",
+        { id: conversationId, owner: ownerId, now: int(now) },
+      ),
+      sql("SELECT mode,generation FROM executor_state WHERE id=1"),
+    ]);
+    if (!aged[1]?.results[0]) throw new Error("quick-chat fixture was not aged");
+    const execution = aged[2]?.results[0];
+    if (execution?.mode !== "local") throw new Error("the e2e executor is not in local mode");
+    await cleanupHourly(
+      {
+        db,
+        keys,
+        now: () => now,
+        policy: { betaAccessRequired: true },
+        quickChatTtlHours: ttlHours,
+      },
+      { executor: "local", generation: Number(execution.generation) },
+    );
+    if (await db.first(sql("SELECT id FROM conversations WHERE id=:id", { id: conversationId })))
+      throw new Error("hourly cleanup did not remove the expired quick chat");
   } finally {
     keys.destroy();
     db.close();
