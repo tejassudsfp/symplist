@@ -21,7 +21,15 @@ const schema: ExternalToolSchema = {
   description: "Synthetic contract action",
   schema: {
     type: "object",
-    properties: { recipient: { type: "string" } },
+    properties: {
+      recipient: { type: "string" },
+      nested: {
+        type: "object",
+        properties: { keep: { type: "boolean" } },
+        required: ["keep"],
+        additionalProperties: false,
+      },
+    },
     required: ["recipient"],
     additionalProperties: false,
   },
