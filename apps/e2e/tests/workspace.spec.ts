@@ -290,7 +290,10 @@ test.describe("the workspace", () => {
     await page.getByLabel("Search shortcuts").fill("Rename");
     const renameRow = page.getByRole("listitem").filter({ hasText: "Rename task" }).first();
     await renameRow.getByRole("button", { name: "Change" }).click();
-    await page.keyboard.press("Control+Shift+R");
+    // Use a chord that is safe on every platform. Control is `Mod` on Linux/Windows, where
+    // Control+Shift+R is the browser's hard-reload shortcut and must be rejected by the app.
+    await page.keyboard.press("Alt+Shift+R");
+    await expect(renameRow).toContainText(/⌥⇧R|Alt\+Shift\+R/i);
     await expect(renameRow.getByText("Previewing here")).toBeHidden();
     await expect(page.getByText("Saved to your account")).toBeVisible();
 
@@ -299,7 +302,7 @@ test.describe("the workspace", () => {
     await expect(taskTitle(page, "Refresh my portfolio")).toBeVisible();
     await openTaskMenu(page, "Refresh my portfolio");
     const item = page.getByRole("menuitem", { name: /Rename/ });
-    await expect(item).toContainText(/⌃⇧R|Ctrl\+Shift\+R/i);
+    await expect(item).toContainText(/⌥⇧R|Alt\+Shift\+R/i);
   });
 
   test("passes axe WCAG 2.2 AA with a populated list", async ({ page }, testInfo) => {

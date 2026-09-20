@@ -25,6 +25,15 @@ Checkpoint file for the end-to-end build. Read this first when resuming; update 
 
 ## Log
 
+- 2026-09-21: **Release PR E2E corrected for the Linux browser platform.** The keyboard-remap
+  journey had attempted `Control+Shift+R`; on Linux/Windows that is `Mod+Shift+R`, the browser's
+  reserved hard-reload chord, so the product correctly rejected it while two pre-existing status
+  assertions let the test continue with the default binding. The journey now uses cross-platform
+  safe `Alt+Shift+R`, first proves the row adopted it, then proves the saved binding survives a
+  navigation and appears in the task menu. Explicit unit coverage keeps `Mod+Shift+R` reserved.
+  The focused journey passes at all three viewports, the complete web suite passes, and lint plus
+  whitespace checks are clean; PR CI is being rerun before the owner-only merge.
+
 - 2026-09-20: **Protected-release follow-up fixed the linked Trigger build boundary.** PR #2's first
   preview exposed that GitHub-linked image builds receive no runtime secrets, while the config
   required a complete worker environment during `syncEnvVars`; every automatic deployment therefore

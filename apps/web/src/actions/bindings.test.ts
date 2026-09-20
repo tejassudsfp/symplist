@@ -117,6 +117,7 @@ describe("validateRemap", () => {
     ["mod+w", "mac"],
     ["mod+l", "other"],
     ["mod+r", "mac"],
+    ["mod+shift+r", "other"],
     ["tab", "other"],
     ["escape", "other"],
     ["mod+c", "other"],
