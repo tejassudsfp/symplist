@@ -1,3 +1,4 @@
+import type { AccessPolicy } from "@symplist/core/access";
 import {
   createSearchSources,
   SEARCH_INDEX_PUBLISHED_EVENT,
@@ -32,6 +33,8 @@ export interface SearchIndexTaskDependencies {
   readonly db: DbClient;
   readonly objects: ObjectStore;
   readonly keys: KeyProvider;
+  /** The runtime's admission policy, shared with every other worker service. */
+  readonly accessPolicy?: AccessPolicy;
   readonly logger: WorkerLogger;
   /** Announces `search.index_published` to the api (§6.2). */
   readonly announce: (input: {
@@ -84,7 +87,9 @@ export async function runSearchIndexTask(
     db,
     objects,
     keys,
-    sources: dependencies.sources ?? createSearchSources({ db, objects, keys, log }),
+    sources:
+      dependencies.sources ??
+      createSearchSources({ db, objects, keys, accessPolicy: dependencies.accessPolicy, log }),
     now: () => timers.now(),
     log,
     ...(dependencies.batchLimit === undefined ? {} : { batchLimit: dependencies.batchLimit }),

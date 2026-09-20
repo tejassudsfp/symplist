@@ -39,6 +39,7 @@ export const searchIndex = task({
               db: runtime.db,
               objects: runtime.objects,
               keys: runtime.keys,
+              accessPolicy: { betaAccessRequired: runtime.config.BETA_ACCESS_REQUIRED },
               logger: runtime.logger,
               announce: (input) => runtime.events.announce(input),
               enqueue: async (ownerId) => {
