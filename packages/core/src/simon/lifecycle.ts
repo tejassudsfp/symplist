@@ -75,6 +75,12 @@ export function releaseSimonStatements(
         WHERE c.active_run_id = :next AND c.write_id = :w AND m.status = 'queued' ORDER BY m.seq LIMIT 1)`,
       { next: nextRun, w: writeId },
     ),
+    sql(
+      `INSERT INTO search_intents (owner_id, entity, entity_id, revision_or_seq, op, created_at)
+       SELECT m.owner_id, 'message', m.id, m.seq, 'upsert', :now FROM messages m
+       WHERE m.run_id = :next AND m.write_id = :w AND m.status = 'accepted'`,
+      { next: nextRun, w: writeId, now: int(now) },
+    ),
     ...dispatchSimonStatements(nextRun, now),
   ];
 }

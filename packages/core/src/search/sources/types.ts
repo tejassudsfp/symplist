@@ -3,6 +3,7 @@ import type { AccountDataKey, KeyProvider } from "@symplist/crypto";
 import type { DbClient, DbRow, Statement } from "@symplist/db";
 import type { SearchDocumentInput, SearchMessageRecord, SearchTaskRecord } from "@symplist/search";
 import type { ObjectStore } from "@symplist/storage";
+import type { AccessPolicy } from "../../access/evaluate.ts";
 import type { CoreDomain } from "../../domains.ts";
 
 /**
@@ -109,6 +110,8 @@ export interface SearchSourceDependencies {
   readonly db: DbClient;
   readonly objects: ObjectStore;
   readonly keys: KeyProvider;
+  /** The same admission policy used by the runtime that owns this source. */
+  readonly accessPolicy?: AccessPolicy;
 }
 
 /**

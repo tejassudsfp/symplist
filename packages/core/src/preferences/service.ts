@@ -17,6 +17,7 @@ import { assertIdentifier, int, sql, uuidv7 } from "@symplist/db";
 import { type AccessDenialCode, type AccessPolicy, evaluateAccess } from "../access/evaluate.ts";
 import { ACCESS_STATE_COLUMNS, accessCondition, accessStateFromRow } from "../access/sql.ts";
 import { AccountKeyStore, AccountKeyUnavailableError } from "../account/keys.ts";
+import { announcePreferenceCommitted } from "./signals.ts";
 
 /** Field envelope purpose of `user_preferences.data_enc` (§4.4, §10.3). */
 export const PREFERENCES_PURPOSE = "preferences";
@@ -339,6 +340,11 @@ export class PreferencesService {
           updatedAt: Number(verified.updated_at),
         };
         this.remember(state, keyRow, entry);
+        announcePreferenceCommitted(this.db, {
+          ownerId: input.ownerId,
+          group: input.group,
+          version: entry.version,
+        });
         return { kind: "saved", entry, clientSeq: input.clientSeq, changed: true };
       }
       if (!keyRow || !userRow) throw new PreferencesAccessError("not_found");

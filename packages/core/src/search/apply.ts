@@ -117,7 +117,10 @@ export async function loadAllRecords(
   readonly complete: boolean;
 }> {
   const { ownerId, key, sources } = input;
-  const pageSize = input.pageSize ?? 500;
+  // Every feature-owned source has the same bounded 100-row cursor contract. Keeping the rebuild
+  // page at that ceiling is essential: a source must never return a smaller capped page that looks
+  // like the end of its corpus to the generic loop.
+  const pageSize = input.pageSize ?? 100;
   let tasks = 0;
   let documents = 0;
   let messages = 0;

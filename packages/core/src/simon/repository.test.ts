@@ -118,6 +118,11 @@ describe("message acceptance", () => {
     expect(await env.count("runs")).toBe(1);
     expect(await env.count("dispatch_intents")).toBe(1);
     expect(
+      await env.db.all(
+        sql(`SELECT entity, entity_id, op FROM search_intents WHERE owner_id = :owner`, { owner }),
+      ),
+    ).toEqual([{ entity: "message", entity_id: accepted.messageId, op: "upsert" }]);
+    expect(
       (
         await env.db.first(
           sql("SELECT active_run_id FROM conversations WHERE id = :id", { id: conversation }),

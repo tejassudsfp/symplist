@@ -13,6 +13,7 @@ import { evaluateAccess } from "../access/evaluate.ts";
 import { accessCondition, accessStateFromRow, accessStateSelectList } from "../access/sql.ts";
 import { AccountKeyStore } from "../account/keys.ts";
 import type { ExecutorKind } from "../events/execution.ts";
+import { searchIntentStatement } from "../search/intents.ts";
 import {
   assertAuthorization,
   assertFoldOwner,
@@ -381,6 +382,21 @@ export class SimonRepository {
             now: int(now),
           },
         ),
+        searchIntentStatement(
+          {
+            ownerId,
+            entity: "message",
+            entityId: messageId,
+            revisionOrSeq: 0,
+            op: "upsert",
+            now,
+          },
+          {
+            exists:
+              "EXISTS (SELECT 1 FROM messages WHERE id = :simon_message_intent AND owner_id = :simon_message_owner AND write_id = :w)",
+            params: { simon_message_intent: messageId, simon_message_owner: ownerId, w: writeId },
+          },
+        ),
         ...this.dispatchStatements(runId, now),
         ...completions,
         ...(fold
@@ -699,6 +715,25 @@ export class SimonRepository {
             simonField(run.ownerId, "messages", messageId, "request_fingerprint_enc"),
             "assistant",
           ),
+        },
+      ),
+      searchIntentStatement(
+        {
+          ownerId: run.ownerId,
+          entity: "message",
+          entityId: messageId,
+          revisionOrSeq: steps,
+          op: "upsert",
+          now,
+        },
+        {
+          exists:
+            "EXISTS (SELECT 1 FROM messages WHERE id = :simon_checkpoint_message AND owner_id = :simon_checkpoint_owner AND write_id = :w)",
+          params: {
+            simon_checkpoint_message: messageId,
+            simon_checkpoint_owner: run.ownerId,
+            w: writeId,
+          },
         },
       ),
       ...(extra?.snapshotJson !== undefined
