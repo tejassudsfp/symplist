@@ -3,13 +3,13 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const render = readFileSync(new URL("../render.yaml", import.meta.url), "utf8");
-const vercel = JSON.parse(readFileSync(new URL("../apps/web/vercel.json", import.meta.url), "utf8"));
+const vercel = JSON.parse(
+  readFileSync(new URL("../apps/web/vercel.json", import.meta.url), "utf8"),
+);
 
 function envEntry(name) {
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = render.match(
-    new RegExp(`      - key: ${escaped}\\n((?:        [^\\n]+\\n?)+)`),
-  );
+  const match = render.match(new RegExp(`      - key: ${escaped}\\n((?:        [^\\n]+\\n?)+)`));
   assert.ok(match, `render.yaml must declare ${name}`);
   return match[1];
 }
@@ -23,7 +23,10 @@ test("Render deploys the paid Docker API only after checks, with both public hos
   assert.match(render, /dockerfilePath: \.\/apps\/api\/Dockerfile/);
   assert.match(render, /dockerContext: \./);
   assert.match(render, /healthCheckPath: \/healthz/);
-  assert.match(render, /preDeployCommand: node node_modules\/@symplist\/db\/dist\/cli\/migrate\.js --driver d1/);
+  assert.match(
+    render,
+    /preDeployCommand: node node_modules\/@symplist\/db\/dist\/cli\/migrate\.js --driver d1/,
+  );
   assert.match(render, /- api\.symplist\.tejassuds\.com/);
   assert.match(render, /- artifacts\.symplist\.tejassuds\.com/);
 });
@@ -32,10 +35,7 @@ test("Render keeps production origins and durable executor placement explicit", 
   assert.match(envEntry("WEB_ORIGIN"), /value: https:\/\/symplist\.tejassuds\.com/);
   assert.match(envEntry("API_ORIGIN"), /value: https:\/\/api\.symplist\.tejassuds\.com/);
   assert.match(envEntry("WS_ORIGIN"), /value: wss:\/\/api\.symplist\.tejassuds\.com/);
-  assert.match(
-    envEntry("ARTIFACT_ORIGIN"),
-    /value: https:\/\/artifacts\.symplist\.tejassuds\.com/,
-  );
+  assert.match(envEntry("ARTIFACT_ORIGIN"), /value: https:\/\/artifacts\.symplist\.tejassuds\.com/);
   assert.match(envEntry("DURABLE"), /value: "true"/);
   assert.match(envEntry("DATA_DRIVER"), /value: d1/);
   assert.match(envEntry("EMAIL_DRIVER"), /value: resend/);
