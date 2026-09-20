@@ -17,9 +17,16 @@ test("consent is explicit: decline sends no events, then an allowlisted appearan
   await banner.getByRole("button", { name: "Decline" }).click();
   await expect(banner).toBeHidden();
   await page.goto("/settings/appearance");
+  const deniedCapture = page
+    .waitForRequest((request) => request.url().endsWith("/v1/analytics/events"), { timeout: 750 })
+    .then(
+      () => true,
+      () => false,
+    );
   await page.getByRole("radio", { name: /Meadow/ }).check({ force: true });
   await expect(page.getByText("Saved to your account")).toBeVisible();
-  await expect.poll(() => eventBodies).toEqual([]);
+  expect(await deniedCapture).toBe(false);
+  expect(eventBodies).toEqual([]);
 
   const api = await ownerApi(context);
   const denied = await api.post("/analytics/events", {
