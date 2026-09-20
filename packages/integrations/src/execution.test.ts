@@ -35,10 +35,11 @@ async function fixture() {
     { id: "connection-1", ownerId, toolkit: "gmail", connectedAccountId: link.id, generation: 1 },
   ];
   const check = vi.fn(async () => true);
+  const connectionsRead = vi.fn(async () => connections);
   const authority = {
     ownerId,
     check,
-    connections: async () => connections,
+    connections: connectionsRead,
     schema: vi.fn(async () => schema),
   };
   const tools = new ConnectionTools(client, session, authority);
@@ -56,6 +57,7 @@ async function fixture() {
     session,
     tools,
     check,
+    connectionsRead,
     authority,
     setConnections: (value: ExternalConnection[]) => {
       connections = value;
@@ -82,6 +84,30 @@ describe("owner-bound Composio wrapper", () => {
       code: "integration.tool_unavailable",
     });
     expect(await f.tools.getToolSchemas([schema.slug])).toEqual([schema]);
+  });
+
+  it("resolves a bounded action batch from one authority snapshot", async () => {
+    const f = await fixture();
+    f.check.mockClear();
+    f.connectionsRead.mockClear();
+    f.authority.schema.mockClear();
+    const actions = await f.tools.resolveActions([
+      { slug: schema.slug, arguments: { recipient: "first@example.test" } },
+      { slug: schema.slug, arguments: { recipient: "second@example.test" } },
+    ]);
+    expect(actions).toHaveLength(2);
+    expect(f.check).toHaveBeenCalledOnce();
+    expect(f.connectionsRead).toHaveBeenCalledOnce();
+    expect(f.authority.schema).toHaveBeenCalledTimes(2);
+  });
+
+  it("checks authority a constant number of times for a schema batch", async () => {
+    const f = await fixture();
+    f.check.mockClear();
+    f.authority.schema.mockClear();
+    await f.tools.getToolSchemas(Array.from({ length: 20 }, () => schema.slug));
+    expect(f.authority.schema).toHaveBeenCalledTimes(20);
+    expect(f.check).toHaveBeenCalledTimes(2);
   });
 
   it("strips substituted identity without changing the input and injects the trusted account", async () => {

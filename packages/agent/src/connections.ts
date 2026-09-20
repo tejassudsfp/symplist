@@ -125,8 +125,7 @@ export function simonConnectionTools(
           const external = await options.external();
           // Resolve and validate the whole batch before any effect. This also freezes exact account
           // choices and prevents a gated action from being mixed with another action.
-          const actions = [];
-          for (const action of input.actions) actions.push(await external.resolveAction(action));
+          const actions = await external.resolveActions(input.actions);
           const policy = executionBatchPolicy(
             actions.map((action) => ({ slug: action.tool.slug, arguments: action.arguments })),
             actions.map((action) => action.tool),

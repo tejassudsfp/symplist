@@ -1,6 +1,10 @@
 import type { DbClient } from "@symplist/db";
 import { int, sql } from "@symplist/db";
-import type { ConnectionToolAuthority, ExternalToolSchema } from "@symplist/integrations";
+import type {
+  ConnectionToolAuthority,
+  ExternalConnection,
+  ExternalToolSchema,
+} from "@symplist/integrations";
 import { IntegrationError } from "@symplist/integrations";
 import type { AccessPolicy } from "../access/evaluate.ts";
 import { accessCondition } from "../access/sql.ts";
@@ -28,6 +32,21 @@ function rowsToConnections(rows: readonly Record<string, unknown>[]): ConfirmedC
   }));
 }
 
+function exactConnection(
+  rows: readonly Record<string, unknown>[],
+  expected: ExternalConnection,
+): ConfirmedConnection | null {
+  const current = rowsToConnections(rows)[0];
+  return current &&
+    current.id === expected.id &&
+    current.ownerId === expected.ownerId &&
+    current.toolkit === expected.toolkit &&
+    current.connectedAccountId === expected.connectedAccountId &&
+    current.generation === expected.generation
+    ? current
+    : null;
+}
+
 /** Fresh run-scoped authority shared by the local and durable Simon adapters. */
 export function createSimonConnectionAuthority(
   repository: SimonRepository,
@@ -35,29 +54,67 @@ export function createSimonConnectionAuthority(
   schema: SchemaReader,
 ): ConnectionToolAuthority {
   const { run } = claim;
-  const connections = async () =>
-    rowsToConnections(
-      await repository.options.db.all(
-        sql(
-          `SELECT c.id,c.owner_id,c.toolkit,c.connected_account_id,c.generation FROM connections c
+  const params = () => ({
+    connection_owner: run.ownerId,
+    connection_run: run.id,
+    connection_generation: int(run.generation),
+    now: int(repository.options.now()),
+  });
+  const connectionQuery = () =>
+    sql(
+      `SELECT c.id,c.owner_id,c.toolkit,c.connected_account_id,c.generation FROM connections c
           WHERE c.owner_id=:connection_owner AND c.status='active'
           AND EXISTS (SELECT 1 FROM account_keys WHERE owner_id=:connection_owner)
           AND EXISTS (SELECT 1 FROM runs WHERE id=:connection_run AND owner_id=:connection_owner
             AND executor_generation=:connection_generation AND ${repository.runGuard()})
           ORDER BY c.toolkit,c.id LIMIT 501`,
-          {
-            connection_owner: run.ownerId,
-            connection_run: run.id,
-            connection_generation: int(run.generation),
-            now: int(repository.options.now()),
-          },
-        ),
-      ),
+      params(),
     );
+  const checkQuery = () =>
+    sql(
+      `SELECT id FROM runs WHERE id=:connection_run AND owner_id=:connection_owner
+      AND executor_generation=:connection_generation AND ${repository.runGuard()}`,
+      params(),
+    );
+  const connections = async () =>
+    rowsToConnections(await repository.options.db.all(connectionQuery()));
   return {
     ownerId: run.ownerId,
     check: () => repository.mayExecute(run),
     connections,
+    snapshot: async () => {
+      const [authorized, active] = await repository.options.db.batch([
+        checkQuery(),
+        connectionQuery(),
+      ]);
+      return {
+        authorized: Boolean(authorized?.results.length),
+        connections: rowsToConnections(active?.results ?? []),
+      };
+    },
+    authorize: async (expected) =>
+      exactConnection(
+        await repository.options.db.all(
+          sql(
+            `SELECT c.id,c.owner_id,c.toolkit,c.connected_account_id,c.generation
+            FROM connections c WHERE c.id=:expected_id AND c.owner_id=:connection_owner
+            AND c.toolkit=:expected_toolkit AND c.connected_account_id=:expected_account
+            AND c.generation=:expected_generation AND c.status='active'
+            AND EXISTS (SELECT 1 FROM account_keys WHERE owner_id=:connection_owner)
+            AND EXISTS (SELECT 1 FROM runs WHERE id=:connection_run
+              AND owner_id=:connection_owner AND executor_generation=:connection_generation
+              AND ${repository.runGuard()}) LIMIT 1`,
+            {
+              ...params(),
+              expected_id: expected.id,
+              expected_toolkit: expected.toolkit,
+              expected_account: expected.connectedAccountId,
+              expected_generation: int(expected.generation),
+            },
+          ),
+        ),
+        expected,
+      ),
     schema,
   };
 }
@@ -100,6 +157,46 @@ export function createOwnerConnectionAuthority(options: {
       );
       return rowsToConnections(rows);
     },
+    snapshot: async () => {
+      const [authorized, active] = await options.db.batch([
+        sql(
+          `SELECT id FROM users WHERE id=:connection_owner AND ${access}
+          AND EXISTS (SELECT 1 FROM account_keys WHERE owner_id=:connection_owner)`,
+          { connection_owner: options.ownerId },
+        ),
+        sql(
+          `SELECT c.id,c.owner_id,c.toolkit,c.connected_account_id,c.generation FROM connections c
+          WHERE c.owner_id=:connection_owner AND c.status='active' AND ${access}
+          AND EXISTS (SELECT 1 FROM account_keys WHERE owner_id=:connection_owner)
+          ORDER BY c.toolkit,c.id LIMIT 501`,
+          { connection_owner: options.ownerId },
+        ),
+      ]);
+      return {
+        authorized: Boolean(authorized?.results.length),
+        connections: rowsToConnections(active?.results ?? []),
+      };
+    },
+    authorize: async (expected) =>
+      exactConnection(
+        await options.db.all(
+          sql(
+            `SELECT c.id,c.owner_id,c.toolkit,c.connected_account_id,c.generation FROM connections c
+            WHERE c.id=:expected_id AND c.owner_id=:connection_owner
+            AND c.toolkit=:expected_toolkit AND c.connected_account_id=:expected_account
+            AND c.generation=:expected_generation AND c.status='active' AND ${access}
+            AND EXISTS (SELECT 1 FROM account_keys WHERE owner_id=:connection_owner) LIMIT 1`,
+            {
+              connection_owner: options.ownerId,
+              expected_id: expected.id,
+              expected_toolkit: expected.toolkit,
+              expected_account: expected.connectedAccountId,
+              expected_generation: int(expected.generation),
+            },
+          ),
+        ),
+        expected,
+      ),
   };
 }
 

@@ -69,6 +69,21 @@ describe("Simon connection authority", () => {
         expect(await authority.connections()).toEqual([
           expect.objectContaining({ id: own, ownerId: owner, connectedAccountId: "ca_owner" }),
         ]);
+        const expected = {
+          id: own,
+          ownerId: owner,
+          toolkit: "mail",
+          connectedAccountId: "ca_owner",
+          generation: 1,
+        };
+        await expect(authority.snapshot?.()).resolves.toEqual({
+          authorized: true,
+          connections: [expect.objectContaining(expected)],
+        });
+        await expect(authority.authorize?.(expected)).resolves.toEqual(
+          expect.objectContaining(expected),
+        );
+        await expect(authority.authorize?.({ ...expected, generation: 2 })).resolves.toBeNull();
         await env.db.run(
           sql("UPDATE executor_state SET mode=:mode,generation=generation+1", {
             mode: executor === "trigger" ? "local" : "durable",
@@ -76,6 +91,11 @@ describe("Simon connection authority", () => {
         );
         expect(await authority.check()).toBe(false);
         expect(await authority.connections()).toEqual([]);
+        await expect(authority.snapshot?.()).resolves.toEqual({
+          authorized: false,
+          connections: [],
+        });
+        await expect(authority.authorize?.(expected)).resolves.toBeNull();
       } finally {
         repository.releaseClaim(claim);
       }
@@ -95,9 +115,24 @@ describe("Simon connection authority", () => {
     });
     expect(await authority.check()).toBe(true);
     expect(await authority.connections()).toEqual([expect.objectContaining({ id: own })]);
+    const expected = {
+      id: own,
+      ownerId: owner,
+      toolkit: "mail",
+      connectedAccountId: "ca_owner",
+      generation: 1,
+    };
+    await expect(authority.snapshot?.()).resolves.toEqual({
+      authorized: true,
+      connections: [expect.objectContaining(expected)],
+    });
+    await expect(authority.authorize?.(expected)).resolves.toEqual(
+      expect.objectContaining(expected),
+    );
     await env.db.run(sql("UPDATE users SET beta_state='relocked' WHERE id=:owner", { owner }));
     expect(await authority.check()).toBe(false);
     expect(await authority.connections()).toEqual([]);
+    await expect(authority.authorize?.(expected)).resolves.toBeNull();
     expect(schema).not.toHaveBeenCalled();
   });
 });

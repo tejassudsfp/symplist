@@ -30,6 +30,13 @@ export interface ConnectionToolAuthority {
   check(): Promise<boolean>;
   /** Fresh, active, confirmed records only. Never upstream-inferred ownership. */
   connections(): Promise<readonly ExternalConnection[]>;
+  /** One provider-free D1 batch for resolving several actions in the same tool call. */
+  snapshot?(): Promise<{
+    readonly authorized: boolean;
+    readonly connections: readonly ExternalConnection[];
+  }>;
+  /** One exact fresh authority read immediately before a provider effect. */
+  authorize?(expected: ExternalConnection): Promise<ExternalConnection | null>;
   /** SDK tool metadata, not a model-supplied schema or guessed toolkit prefix. */
   schema(slug: string): Promise<ExternalToolSchema>;
 }
@@ -227,12 +234,36 @@ export class ConnectionTools {
     });
     const output: ExternalToolSchema[] = [];
     for (const slug of slugs) {
-      await this.check();
       const tool = await this.authority.schema(slug);
       if (tool.slug !== slug) throw new IntegrationError("integration.invalid_response");
       output.push(tool);
     }
+    // Provider metadata may be slow. Recheck once after the bounded batch, not once per slug.
+    await this.check();
     return output;
+  }
+
+  async resolveActions(
+    inputs: readonly {
+      readonly slug: string;
+      readonly arguments: unknown;
+      readonly connection?: string;
+    }[],
+  ): Promise<readonly ResolvedExternalAction[]> {
+    if (inputs.length < 1 || inputs.length > 10)
+      throw new IntegrationError("integration.invalid_arguments");
+    for (const input of inputs) this.requireDiscovered(input.slug);
+    const snapshot = this.authority.snapshot
+      ? await this.authority.snapshot()
+      : {
+          authorized: await this.authority.check(),
+          connections: await this.authority.connections(),
+        };
+    if (!snapshot.authorized) throw new IntegrationError("integration.unauthorized");
+    const actions: ResolvedExternalAction[] = [];
+    for (const input of inputs)
+      actions.push(await this.prepareFrom(input, true, snapshot.connections));
+    return actions;
   }
 
   async resolveAction(input: {
@@ -288,10 +319,22 @@ export class ConnectionTools {
     allowVaultHandles: boolean,
   ): Promise<ResolvedExternalAction> {
     await this.check();
+    return this.prepareFrom(input, allowVaultHandles, await this.authority.connections());
+  }
+
+  private async prepareFrom(
+    input: {
+      slug: string;
+      arguments: unknown;
+      connection?: string;
+    },
+    allowVaultHandles: boolean,
+    available: readonly ExternalConnection[],
+  ): Promise<ResolvedExternalAction> {
     const tool = await this.authority.schema(input.slug);
     if (tool.slug !== input.slug) throw new IntegrationError("integration.invalid_response");
     const args = validateExternalArguments(tool.schema, input.arguments, { allowVaultHandles });
-    const choices = (await this.authority.connections()).filter(
+    const choices = available.filter(
       (connection) =>
         connection.ownerId === this.authority.ownerId && connection.toolkit === tool.toolkit,
     );
@@ -325,10 +368,14 @@ export class ConnectionTools {
     const stored = this.resolved.get(action);
     if (!stored) throw new IntegrationError("integration.tool_unavailable");
     action = stored;
-    await this.check();
-    const current = (await this.authority.connections()).find(
-      (entry) => entry.id === action.connection.id,
-    );
+    const current = this.authority.authorize
+      ? await this.authority.authorize(action.connection)
+      : await (async () => {
+          await this.check();
+          return (await this.authority.connections()).find(
+            (entry) => entry.id === action.connection.id,
+          );
+        })();
     if (
       !current ||
       current.ownerId !== this.authority.ownerId ||
