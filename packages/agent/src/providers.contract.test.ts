@@ -57,6 +57,7 @@ const live = liveOpenAiSettings();
 describeAiProviderContract({
   name: "OpenAI Responses",
   skipReason: "skipReason" in live ? live.skipReason : undefined,
+  testTimeoutMs: 30_000,
   create: () => {
     if (!("settings" in live)) throw new Error("live OpenAI target was skipped");
     const config: SimonModelConfig = {

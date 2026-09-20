@@ -21,6 +21,8 @@ export interface AiProviderContractTarget {
   readonly name: string;
   /** Set for live targets when the flag or credential is absent. */
   readonly skipReason?: string;
+  /** Network-backed targets may opt into a longer deadline without weakening scripted targets. */
+  readonly testTimeoutMs?: number;
   readonly create: () => Promise<AiProviderContractSubject> | AiProviderContractSubject;
 }
 
@@ -52,7 +54,7 @@ export function liveOpenAiSettings(
  */
 export function describeAiProviderContract(target: AiProviderContractTarget): void {
   const title = `AI provider contract: ${target.name}${target.skipReason ? ` (skipped: ${target.skipReason})` : ""}`;
-  describe.skipIf(target.skipReason !== undefined)(title, () => {
+  describe.skipIf(target.skipReason !== undefined)(title, { timeout: target.testTimeoutMs }, () => {
     let subject: AiProviderContractSubject;
     const marker = "symplist-contract-marker-7f9d";
     let logs: ReturnType<typeof vi.spyOn>[];
@@ -65,7 +67,7 @@ export function describeAiProviderContract(target: AiProviderContractTarget): vo
         vi.spyOn(console, "debug"),
       ];
       subject = await target.create();
-    });
+    }, target.testTimeoutMs);
 
     afterEach(() => {
       for (const log of logs) {

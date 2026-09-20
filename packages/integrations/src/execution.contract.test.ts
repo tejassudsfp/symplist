@@ -96,6 +96,7 @@ const live = liveComposioSettings();
 describeComposioWrapperContract({
   name: "live Composio metadata",
   skipReason: "skipReason" in live ? live.skipReason : undefined,
+  testTimeoutMs: 30_000,
   liveProbe: async () => {
     if (!("settings" in live)) throw new Error("live Composio target was skipped");
     const client = createComposioClient(live.settings.apiKey);

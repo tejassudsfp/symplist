@@ -49,6 +49,8 @@ export interface ComposioContractSubject {
 export interface ComposioContractTarget {
   readonly name: string;
   readonly skipReason?: string;
+  /** Network-backed targets may opt into a longer deadline without weakening fake targets. */
+  readonly testTimeoutMs?: number;
   /** Full wrapper subject for fakes; live targets may provide only a bounded probe. */
   readonly create?: () => Promise<ComposioContractSubject> | ComposioContractSubject;
   /** Content-free live catalogue/metadata probe; never executes an external connector action. */
@@ -75,12 +77,12 @@ export function liveComposioSettings(
  */
 export function describeComposioWrapperContract(target: ComposioContractTarget): void {
   const title = `Composio wrapper contract: ${target.name}${target.skipReason ? ` (skipped: ${target.skipReason})` : ""}`;
-  describe.skipIf(target.skipReason !== undefined)(title, () => {
+  describe.skipIf(target.skipReason !== undefined)(title, { timeout: target.testTimeoutMs }, () => {
     let subject: ComposioContractSubject | undefined;
 
     beforeEach(async () => {
       subject = target.create ? await target.create() : undefined;
-    });
+    }, target.testTimeoutMs);
 
     afterEach(() => {
       if (!subject) return;
