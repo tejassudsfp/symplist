@@ -11,7 +11,7 @@ concurrency:
 # Actions are pinned to full commit SHAs of the releases verified in the ops research note
 # (docs/build/research/ops-testing.md), with the release in a comment.
 jobs:
-  # Deployment checks and later jobs (e2e, api-image, migrate, deploy-trigger) depend on this job name.
+  # Deployment checks and later jobs (e2e, api-image and migrate) depend on this job name.
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -118,3 +118,29 @@ jobs:
         run: pnpm check:api-deploy
       - name: Build and smoke-test the api image
         run: pnpm check:api-image --image symplist-api:ci-${{ github.sha }}
+
+  # Main-only production gate: migrations are expand-only and land before independent platform
+  # auto-deploys. Render repeats the same idempotent runner as a pre-deploy safety net.
+  migrate:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [verify, e2e, api-image]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    concurrency:
+      group: d1-migrate-production
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      D1_DATABASE_ID: ${{ vars.D1_DATABASE_ID }}
+      CLOUDFLARE_D1_MIGRATE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_MIGRATE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          check-latest: true
+      - name: Apply pending D1 migrations
+        run: node packages/db/src/cli/migrate.ts --driver d1
