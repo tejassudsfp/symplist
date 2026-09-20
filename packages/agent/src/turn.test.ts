@@ -197,14 +197,29 @@ describe("claimed Simon turn integration", () => {
     expect(deps.sink).not.toHaveBeenCalled();
     expect(tools).not.toHaveBeenCalled();
   });
-  it("refuses relocked accounts and the wrong executor before provider work", async () => {
-    const runId = await submit();
-    const deps = dependencies(new MockLanguageModelV4({ doStream: answer("no") }));
-    expect((await runSimonTurn(runId, { ...deps, executor: "trigger" })).status).toBe("noop");
-    await env.relock(owner);
-    expect((await runSimonTurn(runId, deps)).status).toBe("noop");
-    expect(deps.models.resolve).not.toHaveBeenCalled();
-  });
+  it.each(["local", "trigger"] as const)(
+    "refuses relocked accounts and the wrong executor before provider or tool work under %s",
+    async (executor) => {
+      await env.db.run({
+        sql: "UPDATE executor_state SET mode=?",
+        params: [executor === "local" ? "local" : "durable"],
+      });
+      const runId = await submit();
+      const tools = vi.fn(async () => ({}));
+      const deps = {
+        ...dependencies(new MockLanguageModelV4({ doStream: answer("no") })),
+        executor,
+        tools,
+      };
+      const other = executor === "local" ? "trigger" : "local";
+      expect((await runSimonTurn(runId, { ...deps, executor: other })).status).toBe("noop");
+      await env.relock(owner);
+      expect((await runSimonTurn(runId, deps)).status).toBe("noop");
+      expect(deps.models.resolve).not.toHaveBeenCalled();
+      expect(deps.sink).not.toHaveBeenCalled();
+      expect(tools).not.toHaveBeenCalled();
+    },
+  );
   it("excludes queued messages until their turn and places them after the preceding reply", async () => {
     const runId = await submit("first user marker");
     await repository.acceptMessage(owner, conversation, "second", {
