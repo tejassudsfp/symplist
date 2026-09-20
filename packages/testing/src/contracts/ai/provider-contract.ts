@@ -99,6 +99,9 @@ export function describeAiProviderContract(target: AiProviderContractTarget): vo
         maxOutputTokens: 64,
         maxRetries: 0,
         telemetry: { isEnabled: false },
+        // The SDK default console handler serializes provider errors, including request input.
+        // Production always replaces it with a stable-code handler; the contract must do the same.
+        onError: () => {},
       });
       const text = await result.text;
       expect(text.length).toBeLessThanOrEqual(16_384);

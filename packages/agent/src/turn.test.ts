@@ -6,7 +6,13 @@ import {
   type DocumentsTestEnvironment,
 } from "../../core/src/documents/test-support.ts";
 import { type SimonModel, SimonModelError } from "./providers.ts";
-import { runSimonTurn, type SimonTurnDependencies } from "./turn.ts";
+import {
+  boundSimonHistory,
+  runSimonTurn,
+  SIMON_MAX_HISTORY_BYTES,
+  SIMON_MAX_HISTORY_MESSAGES,
+  type SimonTurnDependencies,
+} from "./turn.ts";
 
 let env: DocumentsTestEnvironment;
 let repository: SimonRepository;
@@ -82,6 +88,46 @@ function dependencies(model: SimonModel): SimonTurnDependencies {
     })),
   };
 }
+
+describe("Simon model history bounds", () => {
+  const row = (seq: number, text: string, snapshotJson: string | null = null) => ({
+    id: `message-${seq}`,
+    seq,
+    role: "user" as const,
+    text,
+    snapshotJson,
+  });
+
+  it("retains only the newest forty messages and exposes the real retained floor", () => {
+    const history = Array.from({ length: SIMON_MAX_HISTORY_MESSAGES + 5 }, (_, index) =>
+      row(index + 1, `message ${index + 1}`),
+    );
+    const bounded = boundSimonHistory(history);
+    expect(bounded.rows).toHaveLength(SIMON_MAX_HISTORY_MESSAGES);
+    expect(bounded.rows[0]?.seq).toBe(6);
+    expect(bounded.rows.at(-1)?.seq).toBe(45);
+    expect(bounded.floorSeq).toBe(6);
+  });
+
+  it("uses encrypted snapshot size for the sixty-four KiB model-context ceiling", () => {
+    const bounded = boundSimonHistory([
+      row(1, "small", JSON.stringify({ value: "a".repeat(SIMON_MAX_HISTORY_BYTES / 2) })),
+      row(2, "small", JSON.stringify({ value: "b".repeat(SIMON_MAX_HISTORY_BYTES / 2) })),
+      row(3, "current"),
+    ]);
+    expect(bounded.rows.map(({ seq }) => seq)).toEqual([2, 3]);
+    expect(bounded.floorSeq).toBe(2);
+  });
+
+  it("always retains the current message even when that message alone exceeds the byte ceiling", () => {
+    const bounded = boundSimonHistory([
+      row(1, "older"),
+      row(2, "x".repeat(SIMON_MAX_HISTORY_BYTES + 1)),
+    ]);
+    expect(bounded.rows.map(({ seq }) => seq)).toEqual([2]);
+    expect(bounded.floorSeq).toBe(2);
+  });
+});
 
 describe("claimed Simon turn integration", () => {
   describe.each(["local", "trigger"] as const)("stable provider outcomes under %s", (executor) => {
@@ -174,11 +220,13 @@ describe("claimed Simon turn integration", () => {
       expect(release.mock.calls[0]?.[0].key.key.every((value) => value === 0)).toBe(true);
       expect(
         await env.db.first({
-          sql: "SELECT input_tokens, output_tokens, provider, rules_version FROM runs WHERE id = ?",
+          sql: "SELECT input_tokens, cached_input_tokens, cache_write_tokens, output_tokens, provider, rules_version FROM runs WHERE id = ?",
           params: [runId],
         }),
       ).toMatchObject({
         input_tokens: 4,
+        cached_input_tokens: 0,
+        cache_write_tokens: 0,
         output_tokens: 2,
         provider: "scripted",
         rules_version: "2026-09-16.1",

@@ -1,4 +1,5 @@
 import { createOpenAI } from "@ai-sdk/openai";
+import { generateText } from "ai";
 import {
   type AiProviderContractSubject,
   createScriptedModel,
@@ -83,6 +84,46 @@ describeAiProviderContract({
         ).toThrow("ai.tool_forbidden"),
     };
   },
+});
+
+describe.skipIf("skipReason" in live)("OpenAI live prompt-cache telemetry", () => {
+  it(
+    "reuses an eligible stable conversation prefix and reports cached input tokens",
+    { timeout: 45_000 },
+    async () => {
+      if (!("settings" in live)) throw new Error("live OpenAI target was skipped");
+      const selected = createSimonModels({
+        ...base,
+        NODE_ENV: "test",
+        AI_PROVIDER_MODE: "live",
+        AI_FAST_PROVIDER: "openai",
+        AI_FAST_MODEL: live.settings.model,
+        AI_SMART_PROVIDER: "openai",
+        AI_SMART_MODEL: live.settings.model,
+        OPENAI_API_KEY: live.settings.apiKey,
+      }).resolve("fast");
+      const stablePrefix = Array.from(
+        { length: 1_600 },
+        (_, index) => `cache-contract-token-${index % 16}`,
+      ).join(" ");
+      let cacheReadTokens = 0;
+      for (let attempt = 0; attempt < 3 && cacheReadTokens === 0; attempt += 1) {
+        const result = await generateText({
+          model: selected.model,
+          instructions: stablePrefix,
+          prompt: "Reply with OK.",
+          maxOutputTokens: 16,
+          maxRetries: 0,
+          telemetry: { isEnabled: false },
+        });
+        cacheReadTokens = Math.max(
+          cacheReadTokens,
+          result.usage.inputTokenDetails.cacheReadTokens ?? 0,
+        );
+      }
+      expect(cacheReadTokens).toBeGreaterThan(0);
+    },
+  );
 });
 
 describe("AI live-contract gating", () => {

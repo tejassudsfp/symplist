@@ -53,6 +53,33 @@ type Pause =
   | { kind: "ask"; id: string; toolCallId: string; question: string }
   | { kind: "approval"; id: string; proposal: ApprovalProposal };
 
+/** Model context stays useful and predictable instead of growing with the lifetime of a task. */
+export const SIMON_MAX_HISTORY_MESSAGES = 40;
+export const SIMON_MAX_HISTORY_BYTES = 64 * 1_024;
+
+export function boundSimonHistory<
+  T extends { readonly seq: number; readonly text: string; readonly snapshotJson: string | null },
+>(rows: readonly T[]): { readonly rows: readonly T[]; readonly floorSeq: number | null } {
+  let start = rows.length;
+  let bytes = 0;
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index];
+    if (!row) continue;
+    const size = Buffer.byteLength(row.snapshotJson ?? row.text, "utf8");
+    if (
+      start < rows.length &&
+      (rows.length - index > SIMON_MAX_HISTORY_MESSAGES || bytes + size > SIMON_MAX_HISTORY_BYTES)
+    )
+      break;
+    bytes += size;
+    start = index;
+  }
+  return {
+    rows: rows.slice(start),
+    floorSeq: start > 0 ? (rows[start]?.seq ?? null) : null,
+  };
+}
+
 /** Claim before resolving a model or a tool; duplicate Trigger deliveries are a true no-op. */
 export async function runSimonTurn(
   runId: string,
@@ -78,7 +105,15 @@ export async function runSimonTurn(
     sink = deps.sink(owned);
     const output = sink;
     const selected = deps.models.resolve(owned.run.tier);
-    const history = (await repository.executionHistory(owned.run, owned.key)).map((row) =>
+    const boundedHistory = boundSimonHistory(
+      await repository.executionHistory(owned.run, owned.key),
+    );
+    if (
+      boundedHistory.floorSeq !== null &&
+      !(await repository.advanceHistoryFloor(owned.run, boundedHistory.floorSeq))
+    )
+      throw new SimonError("simon.stale");
+    const history = boundedHistory.rows.map((row) =>
       row.snapshotJson
         ? (JSON.parse(row.snapshotJson) as UIMessage)
         : {
@@ -229,6 +264,8 @@ export async function runSimonTurn(
                   model: selected.modelId,
                   rulesVersion: SIMON_RULES_VERSION,
                   inputTokens: snapshot.inputTokens,
+                  cachedInputTokens: snapshot.cachedInputTokens,
+                  cacheWriteTokens: snapshot.cacheWriteTokens,
                   outputTokens: snapshot.outputTokens,
                 },
               }

@@ -49,8 +49,21 @@ function stableFailure(error: unknown) {
   throw error;
 }
 
-function providerData(ref: string, value: unknown): string {
-  return untrustedData("composio", ref, JSON.stringify(value));
+export const SIMON_CONNECTION_RESULT_BUDGET_BYTES = 96 * 1_024;
+export const SIMON_CONNECTION_RESULT_BUDGET_EXHAUSTED = "integration.result_budget_exhausted";
+
+/** One run-scoped encoder bounds all provider-controlled data that can re-enter model context. */
+export function createConnectionResultEncoder(
+  maxBytes = SIMON_CONNECTION_RESULT_BUDGET_BYTES,
+): (ref: string, value: unknown) => string {
+  let usedBytes = 0;
+  return (ref, value) => {
+    const encoded = untrustedData("composio", ref, JSON.stringify(value));
+    const bytes = Buffer.byteLength(encoded, "utf8");
+    if (bytes > maxBytes - usedBytes) return SIMON_CONNECTION_RESULT_BUDGET_EXHAUSTED;
+    usedBytes += bytes;
+    return encoded;
+  };
 }
 
 async function nativeConnections(authority: ConnectionToolAuthority, toolkit?: string) {
@@ -71,6 +84,7 @@ export function simonConnectionTools(
   context: SimonToolContext,
   options: SimonConnectionOptions,
 ): ToolSet {
+  const providerData = createConnectionResultEncoder();
   const result = async (work: () => Promise<unknown>) => {
     if (context.signal.aborted) return { status: "failed", code: "simon.stale" };
     try {
@@ -182,6 +196,7 @@ export function simonApprovedConnectionEffect(
   context: Pick<SimonToolContext, "claim" | "repository" | "signal">,
   options: SimonConnectionOptions,
 ): ApprovedEffect {
+  const providerData = createConnectionResultEncoder();
   return async (input) => {
     if (context.signal.aborted)
       return { status: "failed", result: { status: "failed", code: "simon.stale" } };

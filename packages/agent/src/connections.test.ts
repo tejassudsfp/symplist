@@ -20,7 +20,12 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { vaultFixture } from "../../core/src/vault/test-support.ts";
 import { int, sql, uuidv7 } from "../../db/src/index.ts";
-import { simonApprovedConnectionEffect, simonConnectionTools } from "./connections.ts";
+import {
+  createConnectionResultEncoder,
+  SIMON_CONNECTION_RESULT_BUDGET_EXHAUSTED,
+  simonApprovedConnectionEffect,
+  simonConnectionTools,
+} from "./connections.ts";
 import { APPROVAL_POLICY_VERSION, actionPolicy } from "./policy.ts";
 import { runSimonTurn, type SimonApprovedEffectFactory, type SimonToolContext } from "./turn.ts";
 
@@ -43,6 +48,15 @@ const fixtures: Array<Awaited<ReturnType<typeof vaultFixture>>> = [];
 afterEach(() => {
   vi.restoreAllMocks();
   for (const fixture of fixtures.splice(0)) fixture.close();
+});
+
+it("bounds cumulative provider-controlled data before it can re-enter model context", () => {
+  const encode = createConnectionResultEncoder(1_024);
+  const first = encode("first", { value: "a".repeat(700) });
+  const second = encode("second", { value: "b".repeat(700) });
+  expect(first).toContain("<untrusted_data");
+  expect(second).toBe(SIMON_CONNECTION_RESULT_BUDGET_EXHAUSTED);
+  expect(Buffer.byteLength(first, "utf8")).toBeLessThanOrEqual(1_024);
 });
 
 async function setup(executor: "local" | "trigger", outcome: "success" | "timeout" = "success") {

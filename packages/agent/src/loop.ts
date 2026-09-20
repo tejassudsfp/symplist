@@ -27,6 +27,8 @@ export interface SimonLoopCheckpoint {
   readonly message: UIMessage;
   readonly steps: number;
   readonly inputTokens: number;
+  readonly cachedInputTokens: number;
+  readonly cacheWriteTokens: number;
   readonly outputTokens: number;
   readonly status: SimonLoopStatus;
 }
@@ -51,6 +53,11 @@ export interface SimonLoopDependencies {
   }) => void;
 }
 
+/** Hard execution bounds are safety controls, independent of deferred billing or plan quotas. */
+export const SIMON_MAX_STEPS = 10;
+export const SIMON_MAX_OUTPUT_TOKENS_PER_STEP = 4_096;
+export const SIMON_MAX_OUTPUT_TOKENS_PER_RUN = 8_192;
+
 /** The only model loop, shared unchanged by local and durable execution (§8.1). */
 export async function runSimonModelLoop(
   deps: SimonLoopDependencies,
@@ -64,6 +71,8 @@ export async function runSimonModelLoop(
   let fenced = false;
   let steps = 0;
   let inputTokens = 0;
+  let cachedInputTokens = 0;
+  let cacheWriteTokens = 0;
   let outputTokens = 0;
   let callsInStep = 0;
   let partialText = "";
@@ -123,6 +132,8 @@ export async function runSimonModelLoop(
         message: structuredClone(message),
         steps,
         inputTokens,
+        cachedInputTokens,
+        cacheWriteTokens,
         outputTokens,
         status,
       });
@@ -137,18 +148,36 @@ export async function runSimonModelLoop(
     instructions: [simonInstructions(deps.kind), deps.initialContext].filter(Boolean).join("\n\n"),
     messages: modelMessages,
     tools,
-    stopWhen: [isStepCount(10), () => deps.pauseStatus() !== null || failure || fenced],
+    stopWhen: [
+      isStepCount(SIMON_MAX_STEPS),
+      ({ steps: completed }) =>
+        completed.reduce((total, step) => total + boundedCount(step.usage.outputTokens), 0) >=
+        SIMON_MAX_OUTPUT_TOKENS_PER_RUN,
+      () => deps.pauseStatus() !== null || failure || fenced,
+    ],
     abortSignal: signal,
+    maxOutputTokens: SIMON_MAX_OUTPUT_TOKENS_PER_STEP,
     maxRetries: 0,
     streamRetries: 0,
     telemetry: { isEnabled: false },
-    providerOptions: { openai: { parallelToolCalls: false, store: false, reasoningSummary: null } },
+    providerOptions: {
+      openai: {
+        parallelToolCalls: false,
+        store: false,
+        reasoningSummary: null,
+      },
+    },
     prepareStep: async () => {
       await assertActive();
       assertNoProviderExecutedTools(tools);
       callsInStep = 0;
       partialText = "";
-      return {};
+      return {
+        maxOutputTokens: Math.min(
+          SIMON_MAX_OUTPUT_TOKENS_PER_STEP,
+          SIMON_MAX_OUTPUT_TOKENS_PER_RUN - outputTokens,
+        ),
+      };
     },
     onChunk: ({ chunk }) => {
       if (chunk.type === "text-delta") partialText += chunk.text;
@@ -159,6 +188,8 @@ export async function runSimonModelLoop(
     onStepEnd: async (step) => {
       steps += 1;
       inputTokens += boundedCount(step.usage.inputTokens);
+      cachedInputTokens += boundedCount(step.usage.inputTokenDetails.cacheReadTokens);
+      cacheWriteTokens += boundedCount(step.usage.inputTokenDetails.cacheWriteTokens);
       outputTokens += boundedCount(step.usage.outputTokens);
       message = { ...message, parts: [...message.parts, ...stepParts(step)] };
       partialText = "";

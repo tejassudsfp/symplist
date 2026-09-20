@@ -644,9 +644,12 @@ export class SimonRepository {
       throw new SimonError("validation");
     if (
       telemetry &&
-      (![telemetry.inputTokens, telemetry.outputTokens].every(
-        (n) => Number.isSafeInteger(n) && n >= 0,
-      ) ||
+      (![
+        telemetry.inputTokens,
+        telemetry.cachedInputTokens,
+        telemetry.cacheWriteTokens,
+        telemetry.outputTokens,
+      ].every((n) => Number.isSafeInteger(n) && n >= 0) ||
         !/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,199}$/.test(telemetry.model) ||
         !/^[A-Za-z0-9._-]{1,80}$/.test(telemetry.rulesVersion))
     )
@@ -656,7 +659,7 @@ export class SimonRepository {
         `UPDATE runs SET status = :status, steps = :steps, heartbeat_at = :now,
         finished_at = CASE WHEN :status = 'running' THEN NULL ELSE :now END, write_id = :w,
         outcome_code = CASE WHEN :status = 'failed' THEN 'ai.provider_failed' ELSE outcome_code END
-        ${telemetry ? ", provider = :provider, model = :model, rules_version = :rules, input_tokens = :input_tokens, output_tokens = :output_tokens" : ""}
+        ${telemetry ? ", provider = :provider, model = :model, rules_version = :rules, input_tokens = :input_tokens, cached_input_tokens = :cached_input_tokens, cache_write_tokens = :cache_write_tokens, output_tokens = :output_tokens" : ""}
         ${extra?.retrievedBytes !== undefined ? ", retrieved_bytes = MAX(retrieved_bytes, CAST(:retrieved_bytes AS INTEGER))" : ""}
         WHERE id = :run AND owner_id = :owner AND executor_generation = :generation AND ${stopGuard}
         ${extra?.guard ? `AND ${extra.guard.sql}` : ""}`,
@@ -677,6 +680,8 @@ export class SimonRepository {
                 model: telemetry.model,
                 rules: telemetry.rulesVersion,
                 input_tokens: int(telemetry.inputTokens),
+                cached_input_tokens: int(telemetry.cachedInputTokens),
+                cache_write_tokens: int(telemetry.cacheWriteTokens),
                 output_tokens: int(telemetry.outputTokens),
               }
             : {}),
@@ -770,8 +775,6 @@ export class SimonRepository {
 
   /** Model history excludes queued/cancelled follow-ups and uses encrypted structured checkpoints. */
   async executionHistory(run: SimonRun, key: AccountDataKey) {
-    const eligible = `owner_id = :owner AND conversation_id = :conversation AND status IN ('accepted', 'completed')`;
-    const floor = `(SELECT MIN(seq) FROM (SELECT seq FROM messages WHERE ${eligible} ORDER BY seq DESC LIMIT 100))`;
     const guard = `EXISTS (SELECT 1 FROM runs WHERE id = :run AND owner_id = :owner AND executor_generation = :generation AND ${this.runGuard()})`;
     const params = {
       owner: run.ownerId,
@@ -780,27 +783,19 @@ export class SimonRepository {
       generation: int(run.generation),
       now: int(this.options.now()),
     };
-    const results = await this.options.db.batch([
+    const rows = await this.options.db.all(
       sql(
-        `UPDATE conversations SET context_epoch=context_epoch+1, history_floor_seq=${floor}, write_id=:history_write
-      WHERE id=:conversation AND owner_id=:owner AND ${guard}
-        AND (${floor}) IS NOT NULL
-        AND EXISTS (SELECT 1 FROM messages WHERE ${eligible} AND seq < (${floor}))
-        AND COALESCE(history_floor_seq,0) < (${floor})`,
-        { ...params, history_write: this.nextId() },
-      ),
-      sql(
-        `SELECT m.id, m.role, m.content_enc, p.content_enc AS snapshot_enc FROM messages m
+        `SELECT m.id, m.seq, m.role, m.content_enc, p.content_enc AS snapshot_enc FROM messages m
       LEFT JOIN message_parts p ON p.message_id = m.id AND p.owner_id = m.owner_id AND p.seq = 0
       WHERE m.owner_id = :owner AND m.conversation_id = :conversation AND m.status IN ('accepted', 'completed')
       AND ${guard}
       ORDER BY m.seq DESC LIMIT 100`,
         params,
       ),
-    ]);
-    const rows = results[1]?.results ?? [];
+    );
     return [...rows].reverse().map((row) => ({
       id: String(row.id),
+      seq: Number(row.seq),
       role: row.role as "user" | "assistant" | "tool",
       text: decryptFieldText(
         key,
@@ -816,6 +811,47 @@ export class SimonRepository {
               String(row.snapshot_enc),
             ),
     }));
+  }
+
+  /** A byte/count history compaction invalidates older document read receipts exactly once. */
+  async advanceHistoryFloor(run: SimonRun, floorSeq: number): Promise<boolean> {
+    if (!Number.isSafeInteger(floorSeq) || floorSeq < 1) throw new SimonError("validation");
+    const now = this.options.now();
+    const params = {
+      run: run.id,
+      owner: run.ownerId,
+      conversation: run.conversationId,
+      generation: int(run.generation),
+      floor: int(floorSeq),
+      now: int(now),
+      write: this.nextId(),
+    };
+    const guardParams = {
+      run: params.run,
+      owner: params.owner,
+      conversation: params.conversation,
+      generation: params.generation,
+      floor: params.floor,
+      now: params.now,
+    };
+    const currentRun = `EXISTS (SELECT 1 FROM runs WHERE id=:run AND owner_id=:owner
+      AND executor_generation=:generation AND ${this.runGuard()})`;
+    const results = await this.options.db.batch([
+      sql(
+        `UPDATE conversations SET context_epoch=context_epoch+1, history_floor_seq=:floor, write_id=:write
+        WHERE id=:conversation AND owner_id=:owner
+        AND COALESCE(history_floor_seq,0) < CAST(:floor AS INTEGER)
+        AND ${currentRun}`,
+        params,
+      ),
+      sql(
+        `SELECT 1 AS current WHERE ${currentRun}
+        AND EXISTS (SELECT 1 FROM conversations WHERE id=:conversation AND owner_id=:owner
+          AND history_floor_seq >= CAST(:floor AS INTEGER))`,
+        guardParams,
+      ),
+    ]);
+    return results[1]?.results[0]?.current === 1;
   }
 
   /** A continuation replaces only its own paused tool result, under its live execution guard. */

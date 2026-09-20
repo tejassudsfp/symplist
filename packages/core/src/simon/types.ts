@@ -54,6 +54,8 @@ export interface SimonCheckpointData {
     readonly model: string;
     readonly rulesVersion: string;
     readonly inputTokens: number;
+    readonly cachedInputTokens: number;
+    readonly cacheWriteTokens: number;
     readonly outputTokens: number;
   };
 }

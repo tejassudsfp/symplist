@@ -1,12 +1,31 @@
 import { jsonSchema, type ToolSet, tool, type UIMessageChunk } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { runSimonModelLoop, type SimonLoopCheckpoint, type SimonLoopDependencies } from "./loop.ts";
+import {
+  runSimonModelLoop,
+  SIMON_MAX_OUTPUT_TOKENS_PER_RUN,
+  SIMON_MAX_OUTPUT_TOKENS_PER_STEP,
+  type SimonLoopCheckpoint,
+  type SimonLoopDependencies,
+} from "./loop.ts";
 import type { SimonModel } from "./providers.ts";
 
 type ModelChunk =
   Awaited<ReturnType<SimonModel["doStream"]>>["stream"] extends ReadableStream<infer T> ? T : never;
-function response(chunks: ModelChunk[], finish: "stop" | "tool-calls" = "stop") {
+function response(
+  chunks: ModelChunk[],
+  finish: "stop" | "tool-calls" = "stop",
+  usage: {
+    readonly input?: number;
+    readonly cacheRead?: number;
+    readonly cacheWrite?: number;
+    readonly output?: number;
+  } = {},
+) {
+  const input = usage.input ?? 5;
+  const cacheRead = usage.cacheRead ?? 0;
+  const cacheWrite = usage.cacheWrite ?? 0;
+  const output = usage.output ?? 3;
   return {
     stream: new ReadableStream<ModelChunk>({
       start(controller) {
@@ -16,8 +35,13 @@ function response(chunks: ModelChunk[], finish: "stop" | "tool-calls" = "stop") 
           type: "finish",
           finishReason: { unified: finish, raw: undefined },
           usage: {
-            inputTokens: { total: 5, noCache: 5, cacheRead: 0, cacheWrite: 0 },
-            outputTokens: { total: 3, text: 2, reasoning: 1 },
+            inputTokens: {
+              total: input,
+              noCache: Math.max(0, input - cacheRead),
+              cacheRead,
+              cacheWrite,
+            },
+            outputTokens: { total: output, text: output, reasoning: 0 },
           },
         });
         controller.close();
@@ -81,6 +105,8 @@ describe("shared Simon streaming loop", () => {
     expect(f.snapshots.map((s) => s.status)).toEqual(["running", "completed"]);
     expect(f.snapshots[1]).toMatchObject({
       inputTokens: 5,
+      cachedInputTokens: 0,
+      cacheWriteTokens: 0,
       outputTokens: 3,
       message: {
         id: "run-test",
@@ -97,6 +123,29 @@ describe("shared Simon streaming loop", () => {
       parallelToolCalls: false,
       store: false,
       reasoningSummary: null,
+    });
+    expect(model.doStreamCalls[0]?.maxOutputTokens).toBe(SIMON_MAX_OUTPUT_TOKENS_PER_STEP);
+  });
+  it("persists provider-reported prompt-cache usage", async () => {
+    const model = new MockLanguageModelV4({
+      doStream: response(text("Cached"), "stop", {
+        input: 1_500,
+        cacheRead: 1_024,
+        cacheWrite: 256,
+        output: 8,
+      }),
+    });
+    const f = fixture(model);
+    f.deps = {
+      ...f.deps,
+      selectedModel: { provider: "openai", modelId: "gpt-5.6-luna", model },
+    };
+    await runSimonModelLoop(f.deps);
+    expect(f.snapshots.at(-1)).toMatchObject({
+      inputTokens: 1_500,
+      cachedInputTokens: 1_024,
+      cacheWriteTokens: 256,
+      outputTokens: 8,
     });
   });
   it("checkpoints a tool step before permitting the next model call", async () => {
@@ -165,6 +214,24 @@ describe("shared Simon streaming loop", () => {
     expect(effect).toHaveBeenCalledTimes(10);
     expect(model.doStreamCalls).toHaveLength(10);
     expect(f.snapshots.at(-1)).toMatchObject({ inputTokens: 50, outputTokens: 30, steps: 10 });
+  });
+  it("stops a tool loop at the cumulative output-token safety budget", async () => {
+    const model = new MockLanguageModelV4({
+      doStream: async (options) =>
+        response([call(`budget-${model.doStreamCalls.length}`)], "tool-calls", {
+          output: Math.min(3_000, options.maxOutputTokens ?? 3_000),
+        }),
+    });
+    const effect = vi.fn(async () => ({ ok: true }));
+    const f = fixture(model, { read: native(effect) });
+    await runSimonModelLoop(f.deps);
+    expect(model.doStreamCalls).toHaveLength(3);
+    expect(model.doStreamCalls.map((call) => call.maxOutputTokens)).toEqual([
+      SIMON_MAX_OUTPUT_TOKENS_PER_STEP,
+      SIMON_MAX_OUTPUT_TOKENS_PER_STEP,
+      SIMON_MAX_OUTPUT_TOKENS_PER_RUN - 6_000,
+    ]);
+    expect(f.snapshots.at(-1)?.outputTokens).toBe(SIMON_MAX_OUTPUT_TOKENS_PER_RUN);
   });
   it("refuses a second simultaneous tool from a noncompliant provider", async () => {
     const model = new MockLanguageModelV4({

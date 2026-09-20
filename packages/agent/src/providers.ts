@@ -79,6 +79,14 @@ export interface SelectedSimonModel {
   readonly model: SimonModel;
 }
 
+function supportsModernOpenAiPromptCache(modelId: string): boolean {
+  const match = /^gpt-(\d+)(?:\.(\d+))?(?:[-.]|$)/u.exec(modelId);
+  if (!match) return false;
+  const major = Number(match[1]);
+  const minor = Number(match[2] ?? 0);
+  return major > 5 || (major === 5 && minor >= 6);
+}
+
 /** Credentials come only from validated configuration; no ambient SDK gateway or fallback. */
 export function createSimonModels(
   config: SimonModelConfig,
@@ -180,6 +188,9 @@ export function createSimonModels(
                     reasoningSummary: null,
                     store: false,
                     parallelToolCalls: false,
+                    ...(provider === "openai" && supportsModernOpenAiPromptCache(modelId)
+                      ? { promptCacheOptions: { mode: "implicit" as const, ttl: "30m" as const } }
+                      : {}),
                   },
                 },
               },

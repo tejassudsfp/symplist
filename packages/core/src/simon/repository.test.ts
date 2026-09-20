@@ -285,7 +285,7 @@ describe("execution fencing and checkpoints", () => {
       zeroize(claimed.key.key);
     }
   });
-  it("advances context epoch once when bounded model history drops older messages", async () => {
+  it("loads at most one hundred history rows without guessing the final byte-bounded floor", async () => {
     for (let index = 0; index < 50; index += 1) {
       const accepted = await send(`history-${index}`, `question ${index}`);
       const owned = await repository.claim(accepted.runId ?? "", "local");
@@ -310,7 +310,7 @@ describe("execution fencing and checkpoints", () => {
             id: conversation,
           }),
         ),
-      ).toEqual({ context_epoch: 1, history_floor_seq: 2 });
+      ).toEqual({ context_epoch: 0, history_floor_seq: null });
       await repository.executionHistory(current.run, current.key);
       expect(
         (
@@ -318,7 +318,32 @@ describe("execution fencing and checkpoints", () => {
             sql("SELECT context_epoch FROM conversations WHERE id=:id", { id: conversation }),
           )
         )?.context_epoch,
+      ).toBe(0);
+    } finally {
+      zeroize(current.key.key);
+    }
+  });
+  it("advances a byte-bounded history floor exactly once under the live run fence", async () => {
+    const current = await claim();
+    try {
+      expect(await repository.advanceHistoryFloor(current.run, 1)).toBe(true);
+      expect(
+        await env.db.first(
+          sql("SELECT context_epoch,history_floor_seq FROM conversations WHERE id=:id", {
+            id: conversation,
+          }),
+        ),
+      ).toEqual({ context_epoch: 1, history_floor_seq: 1 });
+      expect(await repository.advanceHistoryFloor(current.run, 1)).toBe(true);
+      expect(
+        (
+          await env.db.first(
+            sql("SELECT context_epoch FROM conversations WHERE id=:id", { id: conversation }),
+          )
+        )?.context_epoch,
       ).toBe(1);
+      await repository.stop(owner, current.run.id);
+      expect(await repository.advanceHistoryFloor(current.run, 2)).toBe(false);
     } finally {
       zeroize(current.key.key);
     }

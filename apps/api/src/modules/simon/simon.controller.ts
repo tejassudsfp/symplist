@@ -27,6 +27,7 @@ import { Idempotent } from "../../common/idempotent.decorator.ts";
 import { AppLogger } from "../../common/logging/logger.ts";
 import { RouteClass } from "../../common/route-classes.ts";
 import { ExecutionDispatcher } from "../../infra/executors/dispatcher.ts";
+import { IpLimit } from "../../infra/limits/ip-limits.ts";
 import { RunOutputRelay } from "../internal/run-output.relay.ts";
 import { TopicHub } from "../realtime/topic-hub.ts";
 import { simonCall, simonWriteFold } from "./simon.http.ts";
@@ -77,6 +78,7 @@ export class SimonController {
   @Post("conversations/:id/messages")
   @HttpCode(202)
   @Access("admitted")
+  @IpLimit("simon_submit")
   @Idempotent({ folded: true })
   message(
     @Req() req: Request,

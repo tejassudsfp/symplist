@@ -79,6 +79,7 @@ describe("Simon provider registry", () => {
           model: tier === "fast" ? "gpt-5.6-luna" : "gpt-5.6-terra",
           store: false,
           parallel_tool_calls: false,
+          prompt_cache_options: { mode: "implicit", ttl: "30m" },
           reasoning: { effort: tier === "fast" ? "low" : "medium" },
         },
       });

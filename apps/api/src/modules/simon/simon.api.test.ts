@@ -18,7 +18,9 @@ import {
 } from "../../../test/harness.ts";
 import { WsTestClient } from "../../../test/ws-client.ts";
 import { ExecutionDispatcher } from "../../infra/executors/dispatcher.ts";
+import { IP_LIMIT_METADATA } from "../../infra/limits/ip-limits.ts";
 import { TopicHub } from "../realtime/topic-hub.ts";
+import { SimonController } from "./simon.controller.ts";
 
 const apps: TestApp[] = [];
 const sockets: WsTestClient[] = [];
@@ -26,6 +28,12 @@ afterEach(async () => {
   for (const socket of sockets.splice(0)) socket.close();
   for (const app of apps.splice(0)) await app.close();
   vi.restoreAllMocks();
+});
+
+it("rate-limits Simon submissions before they can create D1 or model work", () => {
+  expect(Reflect.getMetadata(IP_LIMIT_METADATA, SimonController.prototype.message)).toEqual([
+    "simon_submit",
+  ]);
 });
 
 describe("Simon conversation history and realtime", () => {
