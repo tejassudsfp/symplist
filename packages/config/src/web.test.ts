@@ -133,6 +133,7 @@ describe("live suite flags (§17)", () => {
       LIVE_TRIGGER: false,
       LIVE_COMPOSIO: false,
       LIVE_OPENAI: false,
+      LIVE_POSTHOG: false,
     });
   });
 

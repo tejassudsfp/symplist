@@ -128,7 +128,14 @@ describe("§16.2 variable coverage", () => {
       ]),
     );
     expect(sorted(liveTestFlagNames)).toEqual(
-      sorted(["LIVE_D1", "LIVE_R2", "LIVE_TRIGGER", "LIVE_COMPOSIO", "LIVE_OPENAI"]),
+      sorted([
+        "LIVE_D1",
+        "LIVE_R2",
+        "LIVE_TRIGGER",
+        "LIVE_COMPOSIO",
+        "LIVE_OPENAI",
+        "LIVE_POSTHOG",
+      ]),
     );
   });
 });

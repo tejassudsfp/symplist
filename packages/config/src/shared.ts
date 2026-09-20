@@ -104,4 +104,5 @@ export interface LiveTestFlags {
   LIVE_TRIGGER: boolean;
   LIVE_COMPOSIO: boolean;
   LIVE_OPENAI: boolean;
+  LIVE_POSTHOG: boolean;
 }

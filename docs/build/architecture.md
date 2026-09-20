@@ -857,7 +857,7 @@ The foundation implements this complete schema (§2.3). "Both" means api and wor
 | `MCP_OAUTH_SIGNING_KEY_<n>`, `MCP_OAUTH_SIGNING_KEY_CURRENT` | api | JWT `kid` = version |
 | `IDEMPOTENCY_SECRET_<n>`, `IDEMPOTENCY_SECRET_CURRENT` | api | |
 | `ENABLE_EXPERIMENTAL_COREPACK` | web (Vercel) | `1` (§1) |
-| `LIVE_D1`, `LIVE_R2`, `LIVE_TRIGGER`, `LIVE_COMPOSIO`, `LIVE_OPENAI` | tests | Enable live suites |
+| `LIVE_D1`, `LIVE_R2`, `LIVE_TRIGGER`, `LIVE_COMPOSIO`, `LIVE_OPENAI`, `LIVE_POSTHOG` | tests | Enable live suites |
 
 ### 16.3 Local development
 
