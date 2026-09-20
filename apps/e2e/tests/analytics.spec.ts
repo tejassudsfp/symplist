@@ -49,7 +49,14 @@ test("consent is explicit: decline sends no events, then an allowlisted appearan
 
   await page.goto("/settings/account");
   const toggle = page.getByLabel("Share product usage");
-  await toggle.check();
+  const grantSaved = page.waitForResponse(
+    (response) =>
+      response.request().method() === "PUT" && response.url().endsWith("/analytics/consent"),
+  );
+  // This is a controlled checkbox: while the write is in flight it deliberately stays unchecked
+  // and disabled with "Saving…" visible. `check()` incorrectly requires it to change synchronously.
+  await toggle.click();
+  expect((await grantSaved).status()).toBe(200);
   await expect(toggle).toBeChecked();
   await page.goto("/settings/appearance");
   await page.getByRole("radio", { name: "Dark", exact: true }).check({ force: true });

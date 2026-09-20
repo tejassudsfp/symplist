@@ -28,7 +28,8 @@ import { E2E_ADMIN_EMAIL } from "../src/helpers/local-api.ts";
 const evidenceDir = fileURLToPath(new URL("../evidence/access/", import.meta.url));
 
 const webOrigin = process.env.E2E_WEB_URL ?? `http://127.0.0.1:${process.env.E2E_WEB_PORT ?? 3000}`;
-const apiOrigin = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:4000";
+const apiOrigin =
+  process.env.NEXT_PUBLIC_API_URL ?? `http://127.0.0.1:${process.env.E2E_API_PORT ?? 4000}`;
 const adminEmail = E2E_ADMIN_EMAIL;
 
 /** One admin session per Playwright run, shared by every project's worker. */
