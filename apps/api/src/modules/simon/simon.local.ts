@@ -1,3 +1,5 @@
+import type { ServerAnalyticsEmitter } from "@symplist/analytics/server";
+import { AnalyticsService } from "@symplist/core/analytics";
 import type { DocumentTools } from "@symplist/core/documents";
 import type { LocalExecutionHandler } from "@symplist/core/events";
 import type { SimonRepository } from "@symplist/core/simon";
@@ -14,9 +16,15 @@ export function createLocalSimonHandler(
   logger: AppLogger,
   documents: DocumentTools,
   objects: ObjectStore,
+  emitter: ServerAnalyticsEmitter,
 ): LocalExecutionHandler {
   return async (job, context) => {
     if (config.DURABLE) throw new Error("simon.local_disabled");
+    const analytics = new AnalyticsService({
+      ...repository.options,
+      emitter,
+      enabled: emitter.enabled,
+    });
     const { createSimonModels, runSimonTurn, simonNativeTools, simonSharingTools } = await import(
       "@symplist/agent"
     );
@@ -45,6 +53,8 @@ export function createLocalSimonHandler(
           objects,
           privateOrigins: [config.WEB_ORIGIN, config.API_ORIGIN],
           maxBytes: config.DOC_MAX_BYTES,
+          onConfirmed: (ownerId, event, properties, eventId) =>
+            analytics.capture(ownerId, event, properties, eventId),
           onGrantChanged: (ownerId, taskId, artifactId) =>
             hub.publishToUser(ownerId, {
               type: "share_grant.changed",

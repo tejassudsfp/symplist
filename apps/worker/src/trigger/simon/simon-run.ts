@@ -9,6 +9,7 @@ import { DocumentRepository, DocumentTools, DurableDocumentGit } from "@symplist
 import { SimonRepository } from "@symplist/core/simon";
 import { GitService } from "@symplist/docs";
 import { AbortTaskRunError, task, tasks } from "@trigger.dev/sdk";
+import { workerAnalytics } from "../../infra/analytics.ts";
 import { reportingD1Counters } from "../../infra/d1-counters.ts";
 import { toWorkerError, WorkerError } from "../../infra/errors.ts";
 import { type WorkerRuntime, workerRuntime } from "../../infra/runtime.ts";
@@ -61,6 +62,8 @@ export async function runDurableSimon(
           objects: runtime.objects,
           privateOrigins: [runtime.config.WEB_ORIGIN, runtime.config.API_ORIGIN],
           maxBytes: runtime.config.DOC_MAX_BYTES,
+          onConfirmed: (ownerId, event, properties, eventId) =>
+            workerAnalytics(runtime).capture(ownerId, event, properties, eventId),
           onGrantChanged: async (ownerId, taskId, artifactId) => {
             await runtime.events.announce({
               type: "share_grant.changed",
