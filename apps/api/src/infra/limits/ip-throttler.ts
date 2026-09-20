@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { type ExecutionContext, Inject, Injectable, type Provider } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import {
@@ -16,6 +17,24 @@ import { FixedWindowCounters } from "./fixed-window.ts";
 import { IP_LIMIT_METADATA, type IpRequestBucket, ipRequestBuckets } from "./ip-limits.ts";
 
 type ThrottlerStorageRecord = Awaited<ReturnType<ThrottlerStorage["increment"]>>;
+
+const SESSION_COOKIE_NAMES = ["__Host-sym_session", "sym_session"] as const;
+
+/**
+ * Simon is authenticated, so its pre-D1 limiter can distinguish independent signed-in sessions
+ * without resolving either session. Hashing keeps the bearer token out of the bounded in-memory
+ * counter keys. Requests without a session cookie retain the client-network key and are rejected by
+ * the access guard after this inexpensive limiter.
+ */
+export function simonSubmitTracker(req: Request, network: string): string {
+  const cookies = req.cookies as Record<string, unknown> | undefined;
+  const token = SESSION_COOKIE_NAMES.map((name) => cookies?.[name]).find(
+    (value): value is string => typeof value === "string" && value.length > 0,
+  );
+  if (!token) return network;
+  const sessionDigest = createHash("sha256").update(token).digest("base64url");
+  return `${network}:session:${sessionDigest}`;
+}
 
 /**
  * `@nestjs/throttler` storage over {@link FixedWindowCounters}, so the per-IP buckets use the
@@ -58,6 +77,8 @@ function routeBuckets(reflector: Reflector, context: ExecutionContext): readonly
 /**
  * The throttler options: one named throttler per §5.8 bucket, each skipped unless the route declared
  * it with `@IpLimit`. Keys are `<bucket>:<client network>`, so routes sharing a bucket share counts.
+ * Simon submissions additionally include a one-way session digest: authenticated people behind one
+ * NAT do not spend each other's model budget, while the limiter still runs before any D1 access.
  */
 export function ipThrottlerOptions(reflector: Reflector): ThrottlerModuleOptions {
   return {
@@ -71,8 +92,13 @@ export function ipThrottlerOptions(reflector: Reflector): ThrottlerModuleOptions
         !routeBuckets(reflector, context).includes(name as IpRequestBucket),
     })),
     getTracker: (req: Record<string, unknown>) => ipBucketKey(clientIp(req as unknown as Request)),
-    generateKey: (_context: ExecutionContext, tracker: string, throttlerName: string) =>
-      `${throttlerName}:${tracker}`,
+    generateKey: (context: ExecutionContext, tracker: string, throttlerName: string) => {
+      const scopedTracker =
+        throttlerName === "simon_submit"
+          ? simonSubmitTracker(context.switchToHttp().getRequest<Request>(), tracker)
+          : tracker;
+      return `${throttlerName}:${scopedTracker}`;
+    },
   };
 }
 

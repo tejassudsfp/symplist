@@ -12,7 +12,12 @@ import { clientIp, ipBucketKey } from "./client-ip.ts";
 import { DurableCounterService } from "./durable-counter.ts";
 import { FixedWindowCounters } from "./fixed-window.ts";
 import { ipRequestBuckets } from "./ip-limits.ts";
-import { ClockThrottlerStorage, IpThrottlerGuard, ipThrottlerOptions } from "./ip-throttler.ts";
+import {
+  ClockThrottlerStorage,
+  IpThrottlerGuard,
+  ipThrottlerOptions,
+  simonSubmitTracker,
+} from "./ip-throttler.ts";
 
 const apps: TestApp[] = [];
 afterEach(async () => {
@@ -127,6 +132,23 @@ describe("in-memory per-IP buckets (§5.8)", () => {
 });
 
 describe("client addresses and bucket keys", () => {
+  it("separates Simon sessions behind one network without retaining their bearer tokens", () => {
+    const request = (name: string, token: string) =>
+      ({ cookies: { [name]: token } }) as unknown as Request;
+    const network = "203.0.113.9";
+    const firstToken = "first-session-secret";
+    const first = simonSubmitTracker(request("sym_session", firstToken), network);
+    const production = simonSubmitTracker(
+      request("__Host-sym_session", "second-session-secret"),
+      network,
+    );
+
+    expect(first).not.toBe(production);
+    expect(first).toBe(simonSubmitTracker(request("sym_session", firstToken), network));
+    expect(first).not.toContain(firstToken);
+    expect(simonSubmitTracker({ cookies: {} } as unknown as Request, network)).toBe(network);
+  });
+
   it("unmaps IPv4-mapped IPv6 and groups IPv6 clients by /64", () => {
     const request = (ip: string | undefined) => ({ ip, socket: {} }) as unknown as Request;
     expect(clientIp(request("::ffff:203.0.113.9"))).toBe("203.0.113.9");
