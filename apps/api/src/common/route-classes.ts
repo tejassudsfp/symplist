@@ -53,7 +53,7 @@ export type OriginRule =
   | "web_for_unsafe_methods"
   /** Every method needs `Origin` equal to `WEB_ORIGIN`. */
   | "web"
-  /** `Origin` equal to `ARTIFACT_ORIGIN`, or absent with `Sec-Fetch-Site: same-origin`. */
+  /** `Origin` equal to `ARTIFACT_ORIGIN`, or absent/`null` with `Sec-Fetch-Site: same-origin`. */
   | "artifact_or_same_origin"
   /** A present `Origin` must be allowlisted; an absent one is fine. */
   | "allowlisted_if_present"

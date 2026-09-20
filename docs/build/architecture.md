@@ -304,7 +304,7 @@ SameSite gives no CSRF protection here: the registrable domain is `tejassuds.com
 | `app` | Cookie-authenticated `/v1/*` unsafe methods | `Origin` present and equal to `WEB_ORIGIN` (missing means 403), plus `X-Symplist-CSRF` equal to the session-bound token from `GET /v1/auth/csrf` (`HMAC(SESSION_DIGEST_SECRET, 'csrf' ‖ sessionId)`) |
 | `pre_session` | `POST /v1/auth/lookup`, `/signup`, `/otp`, `/otp/verify` | `Origin` present and equal to `WEB_ORIGIN`, plus `X-Symplist-CSRF: 1` to force a preflight; verify also requires the challenge id returned by the send response |
 | `connection_callback` | `GET /v1/connections/callback` | No effect from the cookie alone: requires the single-use attempt nonce, the same user and the same auth session (§14.2); redirects only to a fixed web path |
-| `share_form` | `POST /artifact/:id/password` on the share host | `Origin` equal to `ARTIFACT_ORIGIN` (when `Origin` is absent, `Sec-Fetch-Site: same-origin` is required), key in the body, a valid per-render form nonce (`share-form` digest, 10-minute life); the app session cookie is never read |
+| `share_form` | `POST /artifact/:id/password` on the share host | `Origin` equal to `ARTIFACT_ORIGIN`; a navigation POST may instead carry absent or literal `null` Origin only when `Sec-Fetch-Site: same-origin` independently witnesses the share origin. Key in the body, a valid per-render form nonce (`share-form` digest, 10-minute life); the app session cookie is never read |
 | `share_read` | Share host GET routes | Reads only the share session cookie |
 | `oauth_public` | `/oauth/token`, `/oauth/register`, `/oauth/revoke` | No cookies read, no credentialed CORS |
 | `oauth_authorize` | `GET /oauth/authorize` | Reads the session cookie only to create a pending request |
