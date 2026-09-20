@@ -122,6 +122,20 @@ test("OAuth consent issues a bearer JWT which works until relock", async ({ cont
   if (!consentUrl) throw new Error("OAuth authorization did not return a consent location");
   expect(consentUrl).toContain("/oauth/consent?request=");
 
+  // The native client's callback server is not part of this browser fixture. Fulfil only that
+  // callback navigation so the page can prove it followed the API's redirect without racing the
+  // decision response body against the navigation that intentionally replaces the consent page.
+  const callbackOrigin = new URL(redirect).origin;
+  await page.route(
+    (url) => url.origin === callbackOrigin && url.pathname === "/callback",
+    (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "text/html",
+        body: "<!doctype html><title>OAuth callback received</title>",
+      }),
+  );
+
   await page.goto(consentUrl);
   await expect(page.getByRole("heading", { name: "Authorize agent access" })).toBeVisible();
   await expect(page.getByText("Unverified client")).toBeVisible();
@@ -130,13 +144,16 @@ test("OAuth consent issues a bearer JWT which works until relock", async ({ cont
     (response) =>
       response.url().includes("/v1/oauth/requests/") && response.url().endsWith("/decision"),
   );
+  const callbackReached = page.waitForURL(
+    (url) => url.origin === callbackOrigin && url.pathname === "/callback",
+  );
   await page.getByRole("button", { name: "Allow selected access" }).click();
-  const decision = await decided;
-  expect(decision.status(), await decision.text()).toBe(200);
-  const redirectUrl = ((await decision.json()) as { redirectUrl?: string }).redirectUrl;
-  expect(redirectUrl).toBeTruthy();
-  const callback = new URL(redirectUrl ?? "");
+  const [decision] = await Promise.all([decided, callbackReached]);
+  expect(decision.status()).toBe(200);
+  const callback = new URL(page.url());
   expect(callback.searchParams.get("iss")).toBe(env.API_ORIGIN);
+  expect(callback.searchParams.get("state")).toBe("browser-oauth-state");
+  expect(callback.searchParams.get("code")).toBeTruthy();
 
   const exchange = await context.request.post(`${env.API_ORIGIN}/oauth/token`, {
     data: {

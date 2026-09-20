@@ -82,11 +82,17 @@ export async function seedSimonPause(
         );
       } else {
         const connectionId = uuidv7();
+        const connectedAccountId = `ca_browser_${connectionId}`;
         await db.run(
           sql(
             `INSERT INTO connections(id,owner_id,toolkit,connected_account_id,status,confirmed_at,created_at,updated_at,write_id)
-          VALUES(:id,:owner,'gmail','ca_browser_fixture','active',:now,:now,:now,:id)`,
-            { id: connectionId, owner: ownerId, now: int(Date.now()) },
+          VALUES(:id,:owner,'gmail',:connectedAccount,'active',:now,:now,:now,:id)`,
+            {
+              id: connectionId,
+              owner: ownerId,
+              connectedAccount: connectedAccountId,
+              now: int(Date.now()),
+            },
           ),
         );
         await new SimonApprovals(repository).pause(
@@ -99,7 +105,7 @@ export async function seedSimonPause(
               id: connectionId,
               ownerId,
               toolkit: "gmail",
-              connectedAccountId: "ca_browser_fixture",
+              connectedAccountId,
               generation: 1,
             },
             arguments: {

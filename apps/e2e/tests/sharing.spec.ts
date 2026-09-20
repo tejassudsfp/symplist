@@ -125,10 +125,12 @@ test("password and public variants keep independent access rules, while relock d
   await passwordDialog.getByRole("radio", { name: "Link and password" }).check();
   await passwordDialog.getByLabel(/Share password/).fill("separate-password");
   await passwordDialog.getByRole("button", { name: "Create expiring link" }).click();
-  const passwordUrl = await passwordDialog
+  const passwordResult = page.getByRole("dialog", { name: "Your read-only link" });
+  await expect(passwordResult).toBeVisible();
+  const passwordUrl = await passwordResult
     .getByRole("textbox", { name: "Keep this link before closing" })
     .inputValue();
-  await passwordDialog.getByRole("button", { name: "Done" }).click();
+  await passwordResult.getByRole("button", { name: "Done" }).click();
 
   const passwordRecipient = await browser.newContext();
   const passwordViewer = await passwordRecipient.newPage();
@@ -144,7 +146,9 @@ test("password and public variants keep independent access rules, while relock d
   await publicDialog.getByRole("radio", { name: "Public artifact" }).check();
   await publicDialog.getByLabel("I understand anyone can read this public artifact.").check();
   await publicDialog.getByRole("button", { name: "Publish read-only artifact" }).click();
-  const publicUrl = await publicDialog
+  const publicResult = page.getByRole("dialog", { name: "Your read-only link" });
+  await expect(publicResult).toBeVisible();
+  const publicUrl = await publicResult
     .getByRole("textbox", { name: "Keep this link before closing" })
     .inputValue();
   expect(new URL(publicUrl).searchParams.has("key")).toBe(false);

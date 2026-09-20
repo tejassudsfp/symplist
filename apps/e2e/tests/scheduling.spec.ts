@@ -40,7 +40,9 @@ test("deadline reschedule becomes a notification that can be snoozed and complet
   await page.getByRole("button", { name: "Change date" }).click();
   await editor.getByLabel("Deadline date", { exact: true }).fill("2030-04-18");
   await editor.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(page.getByText("No deadlines in this range. Dates are optional.")).toBeVisible();
+  await expect(page.getByRole("heading", { level: 3, name: "2030-04-17" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { level: 3, name: "2030-04-18" })).toBeVisible();
+  await expect(page.getByRole("link", { name: title })).toBeVisible();
   await page.goto("/calendar?date=2030-04-18&view=agenda");
   await expect(page.getByRole("link", { name: title })).toBeVisible();
 
