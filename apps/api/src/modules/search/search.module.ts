@@ -27,6 +27,7 @@ import { RestrictionEffectRegistry } from "../../common/access/access.providers.
 import { CLOCK, type Clock } from "../../common/clock.ts";
 import { AppLogger } from "../../common/logging/logger.ts";
 import { appOperationalLog } from "../../common/logging/operational-log.ts";
+import { API_CONFIG, type ApiConfig } from "../../infra/config/api-config.ts";
 import { KEY_PROVIDER } from "../../infra/crypto/crypto.providers.ts";
 import { DB_CLIENT } from "../../infra/db/db.providers.ts";
 import { OBJECT_STORE } from "../../infra/storage/storage.providers.ts";
