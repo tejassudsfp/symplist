@@ -328,7 +328,7 @@ test.describe("the command palette", () => {
     await expect(action).toContainText("Navigation");
     await evidence(page, testInfo, "palette-actions");
     await page.keyboard.press("Enter");
-    await expect(page.getByRole("combobox")).toHaveCount(0);
+    await expect(page.getByRole("combobox", { name: "Search tasks" })).toHaveCount(0);
     await expect(page.getByRole("complementary", { name: "Simon" })).toBeVisible();
 
     expect(requests.some((path) => path.startsWith("/v1/search/titles?q=portfolio"))).toBe(true);
