@@ -1,3 +1,4 @@
+import { AgentConnections } from "@/features/connections/agent-connections";
 export default function AgentConnectionsPage() {
-  return <h1>Agent connections</h1>;
+  return <AgentConnections />;
 }
