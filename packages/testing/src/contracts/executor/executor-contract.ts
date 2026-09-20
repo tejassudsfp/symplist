@@ -80,6 +80,8 @@ export interface ExecutorContractTarget {
    * runs a deployed task the suite cannot hold, so it runs the dispatch checks only.
    */
   readonly controlledJobs: boolean;
+  /** Network-backed targets may opt into a longer deadline without weakening local contracts. */
+  readonly testTimeoutMs?: number;
   create(): Promise<ExecutorContractHarness>;
 }
 
@@ -89,12 +91,12 @@ const interruptedOutcomes = ["executor_error", "executor_failed", "executor_lost
 /** Registers the executor contract suite for one target. */
 export function describeExecutorContract(target: ExecutorContractTarget): void {
   const title = `executor contract: ${target.name}${target.skipReason ? ` (skipped: ${target.skipReason})` : ""}`;
-  describe.skipIf(target.skipReason !== undefined)(title, () => {
+  describe.skipIf(target.skipReason !== undefined)(title, { timeout: target.testTimeoutMs }, () => {
     let harness: ExecutorContractHarness;
 
     beforeEach(async () => {
       harness = await target.create();
-    });
+    }, target.testTimeoutMs);
 
     afterEach(async () => {
       const counts = harness.counts();
@@ -110,7 +112,7 @@ export function describeExecutorContract(target: ExecutorContractTarget): void {
       } finally {
         await harness.close();
       }
-    });
+    }, target.testTimeoutMs);
 
     it("starts a recorded intent exactly once, whatever later passes and reconciliation do", async () => {
       const subjectId = await harness.record();

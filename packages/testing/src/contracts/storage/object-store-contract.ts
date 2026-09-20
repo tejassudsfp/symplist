@@ -9,6 +9,11 @@ export interface ObjectStoreContractTarget {
   readonly close?: () => void | Promise<void>;
 }
 
+export interface ObjectStoreContractOptions {
+  /** Network-backed targets may opt into a longer deadline without weakening local contracts. */
+  readonly testTimeoutMs?: number;
+}
+
 export interface LiveR2Settings {
   readonly accountId: string;
   readonly bucket: string;
@@ -62,8 +67,9 @@ async function storageCode(
 export function describeObjectStoreContract(
   name: string,
   createTarget: () => Promise<ObjectStoreContractTarget>,
+  options: ObjectStoreContractOptions = {},
 ): void {
-  describe(`ObjectStore contract: ${name}`, () => {
+  describe(`ObjectStore contract: ${name}`, { timeout: options.testTimeoutMs }, () => {
     const root = `contract-tests/${randomBytes(8).toString("hex")}/`;
     let target: ObjectStoreContractTarget;
     let store: ObjectStore;
@@ -71,7 +77,7 @@ export function describeObjectStoreContract(
     beforeAll(async () => {
       target = await createTarget();
       store = target.store;
-    });
+    }, options.testTimeoutMs);
 
     afterAll(async () => {
       if (!target) return;
@@ -85,7 +91,7 @@ export function describeObjectStoreContract(
       } finally {
         await target.close?.();
       }
-    });
+    }, options.testTimeoutMs);
 
     it("stores bodies with content type and metadata and reads them back", async () => {
       const key = `${root}roundtrip/object.md.sym`;

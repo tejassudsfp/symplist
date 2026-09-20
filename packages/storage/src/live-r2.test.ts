@@ -11,10 +11,14 @@ const live = liveR2Settings();
 
 if ("settings" in live) {
   const { settings } = live;
-  describeObjectStoreContract("live R2", async () => {
-    const maxBodyBytes = 1024 * 1024;
-    return { store: new R2ObjectStore({ ...settings, maxBodyBytes }), maxBodyBytes };
-  });
+  describeObjectStoreContract(
+    "live R2",
+    async () => {
+      const maxBodyBytes = 1024 * 1024;
+      return { store: new R2ObjectStore({ ...settings, maxBodyBytes }), maxBodyBytes };
+    },
+    { testTimeoutMs: 30_000 },
+  );
 } else {
   describe.skip(`live R2 contract (skipped: ${live.skipReason})`, () => {
     it("runs the ObjectStore contract against live R2", () => {});

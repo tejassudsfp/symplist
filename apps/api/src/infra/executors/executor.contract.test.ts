@@ -291,6 +291,7 @@ describeExecutorContract({
   name: "Trigger executor over live Trigger.dev",
   mode: "durable",
   controlledJobs: false,
+  testTimeoutMs: 30_000,
   ...("skipReason" in live ? { skipReason: live.skipReason } : {}),
   create: () => {
     if (!("settings" in live)) throw new Error(live.skipReason);
