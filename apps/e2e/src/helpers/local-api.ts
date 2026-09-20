@@ -57,6 +57,7 @@ export function e2eApiEnv(options: { readonly apiPort: number; readonly webPort:
     DATA_DRIVER: "local",
     EMAIL_DRIVER: "log",
     DURABLE: "false",
+    AI_PROVIDER_MODE: "scripted",
     KEY_PROVIDER: "env",
     ADMIN_BOOTSTRAP_EMAIL: E2E_ADMIN_EMAIL,
     EMAIL_FROM_SECURITY: "Symplist <security@example.test>",

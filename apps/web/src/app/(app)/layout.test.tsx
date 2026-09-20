@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { AnchorHTMLAttributes, ReactNode } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppProviders } from "@/components/app-providers";
 import { FakeWorkspaceApi } from "@/features/workspace/test-support";
 
@@ -83,6 +83,14 @@ function slot(name: string): HTMLElement {
 }
 
 beforeEach(async () => {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn(() => ({
+      matches: true,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })),
+  );
   navigation.pathname = "/now";
   navigation.push.mockReset();
   workspace.api.current = new FakeWorkspaceApi([{ id: taskId, title: "Refresh my portfolio" }]);
@@ -108,6 +116,7 @@ beforeEach(async () => {
   resetSharedSessionStoreForTests();
   resetAnalytics();
 });
+afterEach(() => vi.unstubAllGlobals());
 
 /*
  * The shell with today's seam placeholders (§2.3). A feature that replaces its placeholder updates

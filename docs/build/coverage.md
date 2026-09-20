@@ -72,7 +72,7 @@ merged core/API/worker regressions; quick-chat and MCP cleanup integration remai
 | [signup_confirmation](../../design/mockups/signup_confirmation.md) | Verified | `apps/web/src/app/(auth)/signin/create/page.tsx` | `access.spec.ts` with axe; `apps/e2e/evidence/access/*-signup-confirmation.png` |
 | [system_states](../../design/mockups/system_states.md) | Not started | | |
 | [task_actions](../../design/mockups/task_actions.md) | Verified | `apps/web/src/features/workspace/task-menu.tsx`, `commands.ts` | `workspace.spec.ts` (complete, undo, move, rename, subtasks); `apps/e2e/evidence/workspace/task_actions*`, `workspace_now--completed-undo--*.png` |
-| [task_chat](../../design/mockups/task_chat.md) | Not started | | |
+| [task_chat](../../design/mockups/task_chat.md) | Implemented; browser verification pending | Real Simon composer, history, runtime activity and pause controls | `simon.spec.ts`: send/IME/reconnect/Stop/question journeys authored at three viewports; socket sandbox blocks execution. [Report](reports/e-simon-browser.md) |
 | [task_document](../../design/mockups/task_document.md) | Implemented | `apps/web/src/features/documents/document-pane.tsx` | documents component suite; the task page header is the shell/workspace feature's `taskHeader` slot and the two halves are composed in `shell.spec.ts` |
 | [task_schedule](../../design/mockups/task_schedule.md) | Implemented; browser verification pending | [Scheduling report](reports/d2-scheduling.md) | Combined unit/HTTP/UI checks pass; visual evidence pending |
 | [transactional_emails](../../design/mockups/transactional_emails.md) | Implemented; browser verification pending | [Scheduling report](reports/d2-scheduling.md) | Combined unit/HTTP/UI checks pass; visual evidence pending |
@@ -84,7 +84,7 @@ merged core/API/worker regressions; quick-chat and MCP cleanup integration remai
 | [workspace_later](../../design/mockups/workspace_later.md) | Verified | `apps/web/src/app/(app)/later/` | `workspace.spec.ts` "moves a task from Now to Later and back with Undo"; `apps/e2e/evidence/workspace/workspace_later--moved-in--*.png` |
 | [workspace_now](../../design/mockups/workspace_now.md) | Verified | `apps/web/src/app/(app)/now/`, `apps/web/src/features/workspace/task-inbox.tsx` | `workspace.spec.ts` with axe and a screen-reader tree check; `apps/e2e/evidence/workspace/workspace_now--*.png` |
 | [workspace_unclassified](../../design/mockups/workspace_unclassified.md) | Verified | `apps/web/src/app/(app)/unclassified/` | `workspace.spec.ts` shares the collection surface; `shell.spec.ts` rail navigation |
-| quick_chat (new brief, decision D1) | Not started | | |
+| quick_chat (new brief, decision D1) | Implemented; browser verification pending | Temporary conversation launcher, delete on close, save as task | Real-API browser journeys authored at three viewports, not run; [report](reports/e-simon-browser.md) |
 | cookie_consent (decision D5) | Not started | | |
 | mcp_oauth_consent (decision D4) | Not started | | |
 
@@ -97,8 +97,8 @@ merged core/API/worker regressions; quick-chat and MCP cleanup integration remai
 | Edit page → saved → history → compare → restore as new commit | Implemented | `apps/web/src/features/documents/**/*.test.tsx`, `packages/docs/src/**/*.test.ts` | Component level only; no Playwright journey |
 | Concurrent edit conflict → review → keep draft | Implemented | `apps/web/src/features/documents/conflict-review.test.tsx` | Component level only |
 | Simon reads a section → edits a section → page updates | In progress | `packages/agent/src/documents.ts`, `packages/core/src/simon/documents.ts`, local/Trigger adapters | `packages/agent/src/documents.test.ts` runs the same read → atomic receipt/checkpoint → edit → stale-revision conflict flow under both executors. Durable Git uses real encrypted job objects and the child handler. Browser page-update journey remains Phase E. |
-| Simon connector action → exact-argument approval → per-action outcome | Not started | | |
-| Quick chat → save as task → end → 24-hour expiry | Not started | | |
+| Simon connector action → exact-argument approval → per-action outcome | In progress | Encrypted seeded approval → trusted owner denial journey authored | Browser execution pending; live connector execution and other outcomes remain open. [Report](reports/e-simon-browser.md) |
+| Quick chat → save as task → end → 24-hour expiry | In progress | Real-API close/delete and save/reload journeys authored | Browser execution pending; 24-hour expiry remains covered separately by core tests, not a browser time-advance journey. [Report](reports/e-simon-browser.md) |
 | Drag Now → Later with Undo; keyboard Move to | Verified | `workspace.spec.ts` "moves a task from Now to Later and back with Undo" | `apps/e2e/evidence/workspace/workspace_later--moved-in--*.png` |
 | Complete → archive → restore to original collection | Verified | `workspace.spec.ts` "completes a task, finds it in the archive and restores it" | `apps/e2e/evidence/workspace/archive--record-open--*.png` |
 | Keyboard-only journey (note 13 acceptance) | Verified | `workspace.spec.ts` "runs the whole list from the keyboard, with no pointer at all"; `shell.spec.ts` focus order and sequences | `apps/e2e/evidence/workspace/keyboard_shortcuts--list-journey--*.png` (desktop and laptop; the phone run is skipped, it has no keyboard) |
