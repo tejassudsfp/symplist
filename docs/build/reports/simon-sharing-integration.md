@@ -42,3 +42,17 @@ Relative to checkpoint e61264b:
 - This report.
 
 The earlier checkpoint report inventories the original production wiring, exports, optional agent context and quick-delete overlap. No root checkout, UI, contracts, views, progress or coverage edits.
+
+## Final verification and handoff
+
+- Full core suite: **52 files / 645 tests passed**. Full agent suite: **9 files / 88 tests passed**. Full worker suite: **24 files / 97 tests passed**. Initial overlapping core/worker/build runs exceeded a 5-second test timeout; isolated full-suite reruns passed without any timeout/assertion changes.
+- Added `apps/api/src/modules/sharing/sharing.events.unit.test.ts`: **1 passed**, exercising the production registry/handler with real migrated SQLite, encrypted artifact creation and ownership checks. Canonical ids are published; foreign/missing/deleted/relocked records and malformed hints do not publish. This supplements, not replaces, the retained HTTP integration test.
+- All **17 project typechecks passed** after the provider fix; API typecheck was rerun after the final relay test. Final lint: **1298 files, zero errors and warnings**. Docs checker passed; staged whitespace checks passed.
+- Sandbox limits: API `listen(0)` and the existing R2 emulator cannot bind (EPERM). The broader recursive suite stopped on the emulator; no tests were weakened or marked skipped. The scripts suite also encountered loopback permission failures and was interrupted while websocket-upgrade.test.mjs was running. The normal web build remained at its optimization stage without completion and was explicitly interrupted, so no successful build is claimed here.
+- Web unit suite: 1557 passed and one pre-existing deterministic archive-date fixture failure (expected Today for a September 16 fixture on September 20). Root reports that its tree now contains the clock fix; this branch deliberately does not edit root-owned web files.
+- Root accepted the scoped verification and all-project typecheck as sufficient for branch merge; socket-enabled/full-product gates remain root integration work. No live services or credentials were used.
+- Separate provider follow-up is implemented in `ecac017`; see `simon-provider-outcomes.md`. Sharing implementation and analytics verification are in `c3df398`, atop the original `e61264b` checkpoint.
+
+Adversarial review rechecked deciding-batch authority and exact replay, safe-integer receipt lifetime, scoped deletion, task/owner binding, R2-only snapshot behavior, capability-free model projections, proposal-only release boundary, event hint reauthorization, and consent-aware analytics. The missing analytics adapter callback and terminal provider-code persistence were fixed. No further defect was found in the scoped production diff.
+
+Merge overlap: retain both this branch's Sharing registration and any newer Connections tool registration in the local/worker executor factories. Retain the optional trusted document session in agent tool context. Do not discard the provider checkpoint outcome assignment when merging root's newer repository work.
