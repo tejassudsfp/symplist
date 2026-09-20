@@ -81,6 +81,7 @@ test("OAuth consent issues a bearer JWT which works until relock", async ({ cont
   });
   expect(authorize.status()).toBe(303);
   const consentUrl = authorize.headers().location;
+  if (!consentUrl) throw new Error("OAuth authorization did not return a consent location");
   expect(consentUrl).toContain("/oauth/consent?request=");
 
   await page.goto(consentUrl);
