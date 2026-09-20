@@ -6,7 +6,7 @@ import type {
   SharingRelease,
 } from "@symplist/contracts";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { useNavigationGuard } from "@/features/access/ui/navigation-guard";
@@ -14,21 +14,16 @@ import { type DocumentApi, documentApi } from "@/features/documents/api";
 import { createIdempotencyKey } from "@/lib/api";
 import { type SharingApi, sharingApi } from "./api.ts";
 import { registerHandoff } from "./controller.ts";
+import {
+  handoffDraftFailure,
+  handoffDraftHandler,
+  subscribeHandoffDraftHandler,
+} from "./handoff-draft.ts";
 import { ShareDialog } from "./share-dialog.tsx";
 import { SnapshotDialog } from "./snapshot-dialog.tsx";
 import { copySharingText, downloadSharingText, expiryLabel, sharingFailure } from "./ui.ts";
 
-export type HandoffDraftHandler = (input: {
-  taskId: string;
-  revision: string;
-  target: HandoffRequest["target"];
-  outcome: string;
-}) => Promise<string>;
-let draftHandler: HandoffDraftHandler | null = null;
-/** Simon registers its ordinary user-initiated drafting action. No background or external launch. */
-export function setHandoffDraftHandler(handler: HandoffDraftHandler | null): void {
-  draftHandler = handler;
-}
+export { type HandoffDraftHandler, setHandoffDraftHandler } from "./handoff-draft.ts";
 
 export function manualHandoffPrompt(outcome: string): string {
   return `## Objective\n${outcome.trim() || "Describe the result you need."}\n\n## Instructions\nUse the supplied artifact as source context. Distinguish facts from assumptions. Ask about unresolved requirements before making irreversible choices.\n\n## Constraints\nList the scope, limitations and relevant deadline here. Do not invent missing task properties.\n\n## Expected output\nDescribe the deliverable and the checks it should pass.\n\n## Acceptance checks\n- Address the stated objective.\n- Explain assumptions and remaining questions.\n\n## Open questions\nList anything the source does not answer.\n\n## Return instructions\nReturn the result to me to review and paste into Symplist. Shared links are read-only and do not authorize edits or connector use.\n`;
@@ -45,6 +40,11 @@ export function HandoffScreen({
 }) {
   const api = useRef(injected ?? sharingApi()).current;
   const documents = useRef(injectedDocuments ?? documentApi()).current;
+  const draftHandler = useSyncExternalStore(
+    subscribeHandoffDraftHandler,
+    handoffDraftHandler,
+    handoffDraftHandler,
+  );
   const [head, setHead] = useState<DocumentHeadResponse | null>(null);
   const [artifacts, setArtifacts] = useState<readonly SharingArtifact[]>([]);
   const [selected, setSelected] = useState<readonly string[]>([]);
@@ -71,6 +71,7 @@ export function HandoffScreen({
     },
   );
   const request = useRef<{ input: string; key: string } | null>(null);
+  const draftAbort = useRef<AbortController | null>(null);
   const alive = useRef(true);
   useEffect(() => {
     alive.current = true;
@@ -92,6 +93,8 @@ export function HandoffScreen({
       });
     return () => {
       alive.current = false;
+      draftAbort.current?.abort();
+      draftAbort.current = null;
     };
   }, [api, documents, taskId]);
   const assembled = useCallback(() => {
@@ -153,19 +156,37 @@ export function HandoffScreen({
   }
   async function generate() {
     if (!head?.revision || !draftHandler || busy) return;
+    draftAbort.current?.abort();
+    const controller = new AbortController();
+    draftAbort.current = controller;
     setBusy(true);
     setError(null);
     setStatus("Simon is reading the selected task context and drafting…");
     try {
-      const draft = await draftHandler({ taskId, revision: head.revision, target, outcome });
-      if (alive.current) {
+      const draft = await draftHandler({
+        taskId,
+        revision: head.revision,
+        target,
+        outcome: outcome.trim(),
+        artifactIds: selected,
+        signal: controller.signal,
+      });
+      if (alive.current && draftAbort.current === controller) {
         setPrompt(draft);
         setStatus("Draft ready. Review facts, assumptions and the exact context before sharing.");
       }
     } catch (error) {
-      if (alive.current) setError(sharingFailure(error));
+      const drafting = handoffDraftFailure(error);
+      const message = drafting === null ? sharingFailure(error) : drafting;
+      if (alive.current && draftAbort.current === controller && message) {
+        setStatus(null);
+        setError(message);
+      }
     } finally {
-      if (alive.current) setBusy(false);
+      if (alive.current && draftAbort.current === controller) {
+        draftAbort.current = null;
+        setBusy(false);
+      }
     }
   }
   function startDraft(kind: "manual" | "simon") {

@@ -11,6 +11,7 @@ import {
   outlineRequestHandler,
   setOutlineRequestHandler,
 } from "@/features/documents/outline-request";
+import { handoffDraftHandler, setHandoffDraftHandler } from "@/features/sharing/handoff-draft";
 import { createSimonApi, type SimonApi } from "./api.ts";
 import { type SimonRealtime, simonRealtime } from "./realtime.ts";
 import { SimonStore } from "./store.ts";
@@ -34,6 +35,13 @@ export function SimonProvider({
   useEffect(() => {
     store.reopen();
     return () => store.dispose();
+  }, [store]);
+  useEffect(() => {
+    const draft = (input: Parameters<SimonStore["draftHandoff"]>[0]) => store.draftHandoff(input);
+    setHandoffDraftHandler(draft);
+    return () => {
+      if (handoffDraftHandler() === draft) setHandoffDraftHandler(null);
+    };
   }, [store]);
   useEffect(() => {
     const requestOutline = (taskId: string) => {

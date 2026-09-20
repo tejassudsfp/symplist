@@ -3,9 +3,11 @@ import type {
   simonAskViewSchema,
   simonMessageInputSchema,
 } from "@symplist/contracts";
+import { HandoffDraftError, type HandoffDraftInput } from "@/features/sharing/handoff-draft";
 import { ApiError, createIdempotencyKey } from "@/lib/api";
 import type { RealtimeStatus } from "@/lib/realtime";
 import { type SimonApi, simonErrorMessage } from "./api.ts";
+import { handoffDraftFingerprint, handoffDraftMessage } from "./handoff.ts";
 import {
   type ChatProjection,
   emptyProjection,
@@ -35,6 +37,12 @@ interface Pending {
   readonly perform: (idempotencyKey: string) => Promise<unknown>;
   readonly confirmed?: () => void;
 }
+interface HandoffIntent {
+  readonly fingerprint: string;
+  readonly key: string;
+  readonly message: string;
+  accepted: Awaited<ReturnType<SimonApi["send"]>> | null;
+}
 interface Entry {
   state: ChatState;
   readonly createKey: string;
@@ -44,8 +52,41 @@ interface Entry {
   readVersion: number;
   off: (() => void) | null;
   pending: Pending | null;
+  handoff: HandoffIntent | null;
 }
 const quickKey = "quick";
+const HANDOFF_WAIT_MS = 120_000;
+const HANDOFF_POLL_MS = 5_000;
+
+type HandoffOutcome =
+  | { readonly kind: "pending" }
+  | { readonly kind: "complete"; readonly draft: string }
+  | { readonly kind: "failed" }
+  | { readonly kind: "needs_attention" };
+
+interface HandoffWaitOptions {
+  readonly timeoutMs?: number;
+  readonly pollMs?: number;
+}
+
+function waitForHandoffRequest<T>(request: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(new HandoffDraftError("simon.handoff_cancelled"));
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const finish = (done: () => void) => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener("abort", abort);
+      done();
+    };
+    const abort = () => finish(() => reject(new HandoffDraftError("simon.handoff_cancelled")));
+    signal.addEventListener("abort", abort, { once: true });
+    request.then(
+      (value) => finish(() => resolve(value)),
+      (error: unknown) => finish(() => reject(error)),
+    );
+  });
+}
 
 export function canSendChat(state: ChatState): boolean {
   const view = state.projection.view;
@@ -81,6 +122,7 @@ export class SimonStore {
         readVersion: 0,
         off: null,
         pending: null,
+        handoff: null,
         state: {
           taskId,
           conversationId: null,
@@ -333,6 +375,191 @@ export class SimonStore {
       if (current()) this.update(entry, { error: simonErrorMessage(error) });
     } finally {
       if (current()) this.update(entry, { loadingOlder: false });
+    }
+  }
+  private handoffOutcome(entry: Entry, intent: HandoffIntent): HandoffOutcome {
+    const accepted = intent.accepted;
+    const view = entry.state.projection.view;
+    if (!accepted || !view) return { kind: "pending" };
+    const userMessage = view.messages.find((message) => message.id === accepted.messageId);
+    const runId = accepted.runId ?? userMessage?.runId;
+    if (!runId) {
+      return userMessage?.status === "cancelled" ? { kind: "failed" } : { kind: "pending" };
+    }
+    const assistant = view.messages.find(
+      (message) => message.role === "assistant" && message.runId === runId,
+    );
+    const run =
+      view.activeRun?.runId === runId
+        ? view.activeRun
+        : view.latestRun?.runId === runId
+          ? view.latestRun
+          : null;
+    if (run?.status === "awaiting_approval" || run?.status === "awaiting_user")
+      return { kind: "needs_attention" };
+    if (run && ["failed", "interrupted", "stopped"].includes(run.status)) return { kind: "failed" };
+    // A later run can only start after this one became terminal, so its final checkpoint is safe.
+    const terminal = run?.status === "completed" || (!run && Boolean(assistant));
+    if (!terminal) return { kind: "pending" };
+    const draft = assistant?.text.trim() ?? "";
+    return draft && draft.length <= 32_000 ? { kind: "complete", draft } : { kind: "failed" };
+  }
+  private waitForHandoff(
+    taskId: string,
+    entry: Entry,
+    intent: HandoffIntent,
+    signal: AbortSignal,
+    options: HandoffWaitOptions,
+  ): Promise<string> {
+    const timeoutMs = options.timeoutMs ?? HANDOFF_WAIT_MS;
+    const pollMs = options.pollMs ?? HANDOFF_POLL_MS;
+    return new Promise<string>((resolve, reject) => {
+      let settled = false;
+      let unsubscribe = () => {};
+      const poll =
+        pollMs > 0
+          ? setInterval(() => {
+              void this.load(taskId);
+            }, pollMs)
+          : null;
+      const timeout = setTimeout(
+        () => {
+          finish(() => reject(new HandoffDraftError("simon.handoff_timeout")));
+        },
+        Math.max(1, timeoutMs),
+      );
+      const abort = () => finish(() => reject(new HandoffDraftError("simon.handoff_cancelled")));
+      const finish = (done: () => void) => {
+        if (settled) return;
+        settled = true;
+        unsubscribe();
+        if (poll !== null) clearInterval(poll);
+        clearTimeout(timeout);
+        signal.removeEventListener("abort", abort);
+        done();
+      };
+      const check = () => {
+        if (signal.aborted) {
+          abort();
+          return;
+        }
+        const outcome = this.handoffOutcome(entry, intent);
+        if (outcome.kind === "pending") return;
+        if (outcome.kind === "complete") {
+          if (entry.handoff === intent) entry.handoff = null;
+          finish(() => resolve(outcome.draft));
+          return;
+        }
+        if (outcome.kind === "failed") {
+          if (entry.handoff === intent) entry.handoff = null;
+          finish(() => reject(new HandoffDraftError("simon.handoff_failed")));
+          return;
+        }
+        finish(() => reject(new HandoffDraftError("simon.handoff_needs_attention")));
+      };
+      unsubscribe = this.subscribe(check);
+      signal.addEventListener("abort", abort, { once: true });
+      check();
+      if (!settled) void this.load(taskId);
+    });
+  }
+  /**
+   * Starts an ordinary task-conversation turn and returns its terminal assistant checkpoint. The
+   * idempotency intent survives a screen unmount so the same input resumes rather than duplicates.
+   */
+  async draftHandoff(input: HandoffDraftInput, options: HandoffWaitOptions = {}): Promise<string> {
+    if (input.signal.aborted || this.disposed)
+      throw new HandoffDraftError("simon.handoff_cancelled");
+    const entry = this.entry(input.taskId);
+    const stopWatching = this.watch(input.taskId);
+    try {
+      const fingerprint = handoffDraftFingerprint(input);
+      const prior = entry.handoff;
+      if (prior) {
+        const outcome = this.handoffOutcome(entry, prior);
+        if (prior.fingerprint !== fingerprint) {
+          if (outcome.kind === "complete" || outcome.kind === "failed") entry.handoff = null;
+          else throw new HandoffDraftError("simon.handoff_busy");
+        } else if (outcome.kind === "complete") {
+          entry.handoff = null;
+          return outcome.draft;
+        } else if (outcome.kind === "failed") entry.handoff = null;
+        else if (outcome.kind === "needs_attention")
+          throw new HandoffDraftError("simon.handoff_needs_attention");
+      }
+
+      let conversationId = entry.state.conversationId;
+      if (!conversationId) {
+        const created = await waitForHandoffRequest(
+          Promise.resolve().then(() => this.api.create(input.taskId, entry.createKey)),
+          input.signal,
+        );
+        if (input.signal.aborted || this.disposed)
+          throw new HandoffDraftError("simon.handoff_cancelled");
+        conversationId = created.conversationId;
+        this.update(entry, { conversationId });
+      }
+      if (
+        !entry.handoff &&
+        (entry.state.projection.view?.pendingApprovalId ||
+          entry.state.projection.view?.pendingAskId)
+      )
+        throw new HandoffDraftError("simon.handoff_needs_attention");
+
+      let intent = entry.handoff;
+      if (!intent) {
+        if (entry.pending || entry.state.busy || entry.state.uncertain)
+          throw new HandoffDraftError("simon.handoff_busy");
+        intent = {
+          fingerprint,
+          key: createIdempotencyKey(),
+          message: handoffDraftMessage(input),
+          accepted: null,
+        };
+        entry.handoff = intent;
+      }
+      if (!intent.accepted) {
+        const requestGeneration = this.generation;
+        this.update(entry, { busy: true });
+        const sending = Promise.resolve()
+          .then(() =>
+            this.api.send(
+              conversationId,
+              { text: intent.message, tier: entry.state.tier },
+              intent.key,
+            ),
+          )
+          .then(
+            (accepted) => {
+              if (entry.handoff === intent) intent.accepted = accepted;
+              if (requestGeneration === this.generation && !this.disposed)
+                this.update(entry, { busy: false });
+              return accepted;
+            },
+            (error: unknown) => {
+              if (requestGeneration === this.generation && !this.disposed)
+                this.update(entry, { busy: false });
+              throw error;
+            },
+          );
+        try {
+          intent.accepted = await waitForHandoffRequest(sending, input.signal);
+        } catch (error) {
+          if (error instanceof HandoffDraftError && error.code === "simon.handoff_cancelled")
+            throw error;
+          const definitive =
+            error instanceof ApiError &&
+            error.status < 500 &&
+            ![408, 409, 429].includes(error.status);
+          if (definitive && entry.handoff === intent) entry.handoff = null;
+          throw new HandoffDraftError("simon.handoff_failed");
+        }
+      }
+      if (input.signal.aborted || this.disposed)
+        throw new HandoffDraftError("simon.handoff_cancelled");
+      return await this.waitForHandoff(input.taskId, entry, intent, input.signal, options);
+    } finally {
+      stopWatching();
     }
   }
   async command(taskId: string | null, perform: Pending["perform"], confirmed?: () => void) {
