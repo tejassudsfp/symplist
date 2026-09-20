@@ -81,13 +81,26 @@ test("deadline reschedule becomes a notification that can be snoozed and complet
   await reminder.getByRole("button", { name: "Snooze", exact: true }).click();
   const snooze = page.getByRole("dialog", { name: "Snooze reminder", exact: true });
   await snooze.getByRole("button", { name: "1 hour", exact: true }).click();
-  await snooze.getByRole("button", { name: "Snooze", exact: true }).click();
-  await expect(snooze).toBeHidden();
-  const snoozed = schedulingSnapshotSchema.parse(
-    await (await api.get(`/tasks/${task.id}/schedule`)).json(),
+  const chosenLocal = await snooze.getByLabel("Custom hour").inputValue();
+  const savedSnooze = page.waitForResponse(
+    (response) => response.request().method() === "POST" && response.url().endsWith("/snooze"),
   );
+  await snooze.getByRole("button", { name: "Snooze", exact: true }).click();
+  const snoozeResponse = await savedSnooze;
+  expect(snoozeResponse.status(), await snoozeResponse.text()).toBe(200);
+  const snoozeResult = schedulingSnapshotSchema.parse(await snoozeResponse.json());
+  await expect(snooze).toBeHidden();
+  const snoozedResponse = await api.get(`/tasks/${task.id}/schedule`);
+  expect(snoozedResponse.status(), await snoozedResponse.text()).toBe(200);
+  const snoozed = schedulingSnapshotSchema.parse(await snoozedResponse.json());
   expect(snoozed.deadline).toEqual(current.deadline);
   expect(snoozed.reminders).toHaveLength(1);
+  expect(snoozed).toEqual(snoozeResult);
+  expect(snoozed.version).toBeGreaterThan(current.version);
+  expect(snoozed.reminders[0]).toMatchObject({
+    rule: { kind: "absolute", local: chosenLocal, zone: "UTC" },
+    intendedAt: Date.parse(`${chosenLocal}Z`),
+  });
 
   await reminder.getByRole("button", { name: "Mark complete", exact: true }).click();
   await expect(page.getByRole("tree").getByText(title, { exact: true })).toBeHidden();

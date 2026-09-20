@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { expect, test } from "@playwright/test";
+import { taskCreateResponseSchema } from "@symplist/contracts";
 import { readRunEnv } from "../src/helpers/local-api.ts";
-import { mcpRequest, setAccessState } from "../src/helpers/phase-e.ts";
+import { mcpRequest, ownerApi, setAccessState } from "../src/helpers/phase-e.ts";
 import { signIn } from "../src/helpers/session.ts";
 
 const initialize = {
@@ -15,16 +16,51 @@ const initialize = {
   },
 };
 
-async function callTaskList(request: Parameters<typeof mcpRequest>[0], token: string) {
+function rpcResult(exchange: Awaited<ReturnType<typeof mcpRequest>>, id: number) {
+  expect(exchange.status).toBe(200);
+  expect(exchange.body).toMatchObject({ jsonrpc: "2.0", id });
+  expect(exchange.body).not.toHaveProperty("error");
+  const result = exchange.body?.result;
+  expect(result).toBeTruthy();
+  expect(typeof result).toBe("object");
+  return result as Record<string, unknown>;
+}
+
+function taskListOutput(exchange: Awaited<ReturnType<typeof mcpRequest>>, title: string) {
+  const result = rpcResult(exchange, 2);
+  expect(result.isError).not.toBe(true);
+  expect(Array.isArray(result.content)).toBe(true);
+  const text = (result.content as Array<Record<string, unknown>>).find(
+    (item) => item.type === "text",
+  )?.text;
+  expect(typeof text).toBe("string");
+  const output = JSON.parse(String(text)) as Record<string, unknown>;
+  expect(Array.isArray(output.tasks)).toBe(true);
+  expect(output.tasks).toEqual(expect.arrayContaining([expect.objectContaining({ title })]));
+  expect(output).toHaveProperty("nextCursor");
+}
+
+async function seedTask(context: Parameters<typeof ownerApi>[0], title: string) {
+  const api = await ownerApi(context);
+  const response = await api.post("/tasks", { title, collection: "now" });
+  expect(response.status(), await response.text()).toBe(201);
+  return taskCreateResponseSchema.parse(await response.json()).task;
+}
+
+async function callTaskList(
+  request: Parameters<typeof mcpRequest>[0],
+  token: string,
+  title: string,
+) {
   const ready = await mcpRequest(request, token, initialize);
-  expect(ready.status).toBe(200);
-  expect(ready.body).toMatchObject({ jsonrpc: "2.0", id: 1 });
-  return mcpRequest(request, token, {
+  rpcResult(ready, 1);
+  const listed = await mcpRequest(request, token, {
     jsonrpc: "2.0",
     id: 2,
     method: "tools/call",
     params: { name: "task_list", arguments: {} },
   });
+  taskListOutput(listed, title);
 }
 
 test("one-time bearer key calls MCP, then an account relock rejects it", async ({
@@ -32,6 +68,8 @@ test("one-time bearer key calls MCP, then an account relock rejects it", async (
   page,
 }) => {
   const account = await signIn(context);
+  const title = "Bearer MCP list marker";
+  await seedTask(context, title);
   await page.goto("/settings/agents");
   await expect(page.getByRole("heading", { name: "Agent connections" })).toBeVisible();
   await page.getByRole("button", { name: "Add connection" }).click();
@@ -42,9 +80,7 @@ test("one-time bearer key calls MCP, then an account relock rejects it", async (
   const key = await page.getByLabel("One-time API key").inputValue();
   expect(key).toMatch(/^sym_[0-9a-f-]{36}_[A-Za-z0-9_-]+$/);
 
-  const listed = await callTaskList(context.request, key);
-  expect(listed.status).toBe(200);
-  expect(JSON.stringify(listed.body)).toContain("tasks");
+  await callTaskList(context.request, key, title);
 
   await setAccessState(account.userId, "relocked");
   const blocked = await mcpRequest(context.request, key, initialize);
@@ -54,6 +90,8 @@ test("one-time bearer key calls MCP, then an account relock rejects it", async (
 
 test("OAuth consent issues a bearer JWT which works until relock", async ({ context, page }) => {
   const account = await signIn(context);
+  const title = "OAuth MCP list marker";
+  await seedTask(context, title);
   const env = readRunEnv();
   const redirect = "http://127.0.0.1:45678/callback";
   const verifier = "v".repeat(43);
@@ -112,8 +150,7 @@ test("OAuth consent issues a bearer JWT which works until relock", async ({ cont
   });
   expect(exchange.status(), await exchange.text()).toBe(200);
   const token = ((await exchange.json()) as { access_token: string }).access_token;
-  const listed = await callTaskList(context.request, token);
-  expect(listed.status).toBe(200);
+  await callTaskList(context.request, token, title);
 
   await setAccessState(account.userId, "relocked");
   expect((await mcpRequest(context.request, token, initialize)).status).toBe(401);
