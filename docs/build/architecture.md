@@ -95,7 +95,7 @@ packages/
 3. **Typecheck without a build.** Every `noEmit` tsconfig (worker, web, test and typecheck configs) sets `customConditions: ["source"]`.
 4. **Vitest.** The shared config in `packages/testing` sets `resolve.conditions: ['source', ...defaultClientConditions]` and `ssr.resolve.conditions: ['source', ...defaultServerConditions]` (both imported from `vite`); one test asserts that a workspace import resolves to `src`.
 5. **Trigger.** `apps/worker/trigger.config.ts` sets `build: { conditions: ['source'] }`.
-6. **Next.** `next.config.ts` sets `turbopack.resolveAlias` for every web-consumed entry point, for example `'@symplist/contracts': '../../packages/contracts/src/index.ts'`. The foundation adds a clean-clone `next build` smoke test with no `dist` present.
+6. **Next.** `next.config.ts` sets equivalent source aliases for every web-consumed entry point in Turbopack development and the webpack production build, for example `'@symplist/contracts': '../../packages/contracts/src/index.ts'`. Production uses `next build --webpack` because the pinned Turbopack production compiler can deadlock while emitting this application's async entrypoint graph (decision D2M7). The foundation adds a clean-clone `next build` smoke test with no `dist` present.
 7. **`pnpm dev`.** Runs `tsc -b` once, then `tsc -b --watch --preserveWatchOutput`, `node --watch --enable-source-maps --env-file-if-exists=.env dist/main.js` (api), `next dev`, and `trigger dev` only when `DURABLE=true` (§16.3).
 
 ### 2.3 Parallel seams and ownership

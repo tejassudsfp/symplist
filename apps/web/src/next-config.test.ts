@@ -13,7 +13,7 @@ describe("next.config.ts", () => {
     expect(nextConfig.agentRules).toBe(false);
   });
 
-  it("aliases exactly the browser-safe workspace entries to their package source exports (§2, §2.2)", () => {
+  it("aliases exactly the browser-safe workspace entries to their package source exports in Turbopack (§2, §2.2)", () => {
     const aliases = nextConfig.turbopack?.resolveAlias ?? {};
     expect(Object.keys(aliases).sort()).toEqual([
       "@symplist/analytics",
@@ -26,6 +26,23 @@ describe("next.config.ts", () => {
       const aliased = resolve(webDir, String(target));
       expect(existsSync(aliased)).toBe(true);
       expect(aliased).toBe(resolveWorkspaceSource(specifier));
+    }
+  });
+
+  it("mirrors the browser-safe source aliases into the production webpack build (§2, §2.2)", () => {
+    const webpackConfig = { resolve: { alias: {} as Record<string, string> } };
+    const configured = nextConfig.webpack?.(webpackConfig, {} as never);
+    expect(configured).toBe(webpackConfig);
+
+    const aliases = webpackConfig.resolve.alias;
+    expect(Object.keys(aliases).sort()).toEqual([
+      "@symplist/analytics",
+      "@symplist/config/web",
+      "@symplist/contracts",
+      "@symplist/docs/markdown",
+    ]);
+    for (const [specifier, target] of Object.entries(aliases)) {
+      expect(target).toBe(resolveWorkspaceSource(specifier));
     }
   });
 
