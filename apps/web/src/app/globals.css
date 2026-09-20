@@ -3122,14 +3122,26 @@
   margin: 0;
   overflow-wrap: anywhere;
 }
+.sym-simon-approval summary {
+  display: flex;
+  min-height: 24px;
+  align-items: center;
+  cursor: pointer;
+}
 .sym-simon-preview {
+  display: block;
+  width: 100%;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   max-height: 240px;
   overflow: auto;
   padding: 9px;
+  border: 0;
   background: var(--sym-panel);
+  color: inherit;
   border-radius: var(--sym-r);
+  resize: vertical;
+  font-family: inherit;
   font-size: 12px;
 }
 .sym-simon-actions {

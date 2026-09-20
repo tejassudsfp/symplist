@@ -169,6 +169,77 @@ describe("Simon provider registry", () => {
       },
     ]);
   });
+  it.each([
+    ["collaborator@example.test", "succeeded", "The connected action succeeded."],
+    [
+      "uncertain@example.test",
+      "uncertain",
+      "The connected action’s outcome could not be confirmed. Check Gmail before trying again.",
+    ],
+  ] as const)(
+    "runs the browser connection contract through discovery, schema and exact execution for %s",
+    async (recipient, outcome, finalText) => {
+      const model = createSimonModels({ ...base, AI_PROVIDER_MODE: "scripted" }).resolve(
+        "fast",
+      ).model;
+      const connectionId = "01234567-89ab-7def-8123-456789abcdef";
+      const subject = "Reviewed launch outline";
+      const body = "Please review the exact approved outline.";
+      const directive = Buffer.from(
+        JSON.stringify({ connectionId, recipient, subject, body }),
+        "utf8",
+      ).toString("base64url");
+      const calls: Array<{ name: string; input: unknown }> = [];
+      const inputSchema = jsonSchema<Record<string, unknown>>({ type: "object" });
+      const result = streamText({
+        model,
+        prompt: `Prepare the connected action. symplist-e2e-connection-action:${directive}`,
+        tools: {
+          search_tools: tool({
+            inputSchema,
+            execute: async (input) => {
+              calls.push({ name: "search", input });
+              return { results: [{ primary_tool_slugs: ["GMAIL_SEND_EMAIL"] }] };
+            },
+          }),
+          get_tool_schemas: tool({
+            inputSchema,
+            execute: async (input) => {
+              calls.push({ name: "schema", input });
+              return { tool: "GMAIL_SEND_EMAIL" };
+            },
+          }),
+          execute_tools: tool({
+            inputSchema,
+            execute: async (input) => {
+              calls.push({ name: "execute", input });
+              return { status: outcome };
+            },
+          }),
+        },
+        stopWhen: isStepCount(4),
+        telemetry: { isEnabled: false },
+      });
+
+      await expect(result.text).resolves.toBe(finalText);
+      expect(calls).toEqual([
+        { name: "search", input: { query: "send an email through Gmail" } },
+        { name: "schema", input: { slugs: ["GMAIL_SEND_EMAIL"] } },
+        {
+          name: "execute",
+          input: {
+            actions: [
+              {
+                slug: "GMAIL_SEND_EMAIL",
+                connection: connectionId,
+                arguments: { recipient, subject, body },
+              },
+            ],
+          },
+        },
+      ]);
+    },
+  );
   it("refuses scripted mode in production", () => {
     expect(() =>
       createSimonModels({ ...base, NODE_ENV: "production", AI_PROVIDER_MODE: "scripted" }).resolve(

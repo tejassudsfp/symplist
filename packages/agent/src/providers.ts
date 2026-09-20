@@ -205,12 +205,20 @@ export function createSimonModels(
 }
 
 const DOCUMENT_EDIT_DIRECTIVE = "symplist-e2e-document-edit:";
+const CONNECTION_ACTION_DIRECTIVE = "symplist-e2e-connection-action:";
 
 interface DevelopmentDocumentEdit {
   readonly taskId: string;
   readonly sectionId: string;
   readonly revision: string;
   readonly markdown: string;
+}
+
+interface DevelopmentConnectionAction {
+  readonly connectionId: string;
+  readonly recipient: string;
+  readonly subject: string;
+  readonly body: string;
 }
 
 function stringsIn(value: unknown): string[] {
@@ -255,35 +263,107 @@ function developmentDocumentEdit(prompt: unknown): DevelopmentDocumentEdit | nul
   }
 }
 
+function developmentConnectionAction(prompt: unknown): DevelopmentConnectionAction | null {
+  const text = stringsIn(prompt).find((value) => value.includes(CONNECTION_ACTION_DIRECTIVE));
+  if (!text) return null;
+  const encoded = text
+    .slice(text.indexOf(CONNECTION_ACTION_DIRECTIVE) + CONNECTION_ACTION_DIRECTIVE.length)
+    .trim()
+    .split(/\s/, 1)[0];
+  if (!encoded) return null;
+  try {
+    const value = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) as Record<
+      string,
+      unknown
+    >;
+    if (
+      typeof value.connectionId !== "string" ||
+      !/^[0-9a-f-]{36}$/.test(value.connectionId) ||
+      typeof value.recipient !== "string" ||
+      value.recipient.length < 3 ||
+      value.recipient.length > 320 ||
+      typeof value.subject !== "string" ||
+      value.subject.length < 1 ||
+      value.subject.length > 998 ||
+      typeof value.body !== "string" ||
+      value.body.length < 1 ||
+      value.body.length > 32_000
+    )
+      return null;
+    return {
+      connectionId: value.connectionId,
+      recipient: value.recipient,
+      subject: value.subject,
+      body: value.body,
+    };
+  } catch {
+    return null;
+  }
+}
+
 function developmentStream(prompt: unknown): Awaited<ReturnType<SimonModel["doStream"]>> {
-  const directive = developmentDocumentEdit(prompt);
+  const documentDirective = developmentDocumentEdit(prompt);
+  const connectionDirective = developmentConnectionAction(prompt);
   const serialized = JSON.stringify(prompt) ?? "";
   const readFinished = serialized.includes('"toolName":"task_document_read_section"');
   const updateFinished = serialized.includes('"toolName":"task_document_update_section"');
+  const searchFinished = serialized.includes('"toolName":"search_tools"');
+  const schemaFinished = serialized.includes('"toolName":"get_tool_schemas"');
+  const executeFinished = serialized.includes('"toolName":"execute_tools"');
   const tool =
-    directive && !readFinished
+    documentDirective && !readFinished
       ? {
           id: "scripted_document_read",
           name: "task_document_read_section",
           input: {
-            taskId: directive.taskId,
-            sectionId: directive.sectionId,
-            revision: directive.revision,
+            taskId: documentDirective.taskId,
+            sectionId: documentDirective.sectionId,
+            revision: documentDirective.revision,
           },
         }
-      : directive && !updateFinished
+      : documentDirective && !updateFinished
         ? {
             id: "scripted_document_update",
             name: "task_document_update_section",
             input: {
-              taskId: directive.taskId,
-              sectionId: directive.sectionId,
-              expectedRevision: directive.revision,
+              taskId: documentDirective.taskId,
+              sectionId: documentDirective.sectionId,
+              expectedRevision: documentDirective.revision,
               placement: "replace",
-              markdown: directive.markdown,
+              markdown: documentDirective.markdown,
             },
           }
-        : null;
+        : connectionDirective && !searchFinished
+          ? {
+              id: "scripted_connection_search",
+              name: "search_tools",
+              input: { query: "send an email through Gmail" },
+            }
+          : connectionDirective && !schemaFinished
+            ? {
+                id: "scripted_connection_schema",
+                name: "get_tool_schemas",
+                input: { slugs: ["GMAIL_SEND_EMAIL"] },
+              }
+            : connectionDirective && !executeFinished
+              ? {
+                  id: "scripted_connection_execute",
+                  name: "execute_tools",
+                  input: {
+                    actions: [
+                      {
+                        slug: "GMAIL_SEND_EMAIL",
+                        connection: connectionDirective.connectionId,
+                        arguments: {
+                          recipient: connectionDirective.recipient,
+                          subject: connectionDirective.subject,
+                          body: connectionDirective.body,
+                        },
+                      },
+                    ],
+                  },
+                }
+              : null;
   return {
     stream: new ReadableStream({
       start(controller) {
@@ -304,9 +384,17 @@ function developmentStream(prompt: unknown): Awaited<ReturnType<SimonModel["doSt
           controller.enqueue({
             type: "text-delta",
             id: "text",
-            delta: directive
+            delta: documentDirective
               ? "Updated the document section."
-              : "Scripted development response. No model or external action was called.",
+              : connectionDirective
+                ? serialized.includes('"status":"uncertain"')
+                  ? "The connected action’s outcome could not be confirmed. Check Gmail before trying again."
+                  : serialized.includes('"status":"denied"') ||
+                      serialized.includes('"status":"dismissed"') ||
+                      serialized.includes('"status":"expired"')
+                    ? "The connected action was not sent."
+                    : "The connected action succeeded."
+                : "Scripted development response. No model or external action was called.",
           });
           controller.enqueue({ type: "text-end", id: "text" });
         }

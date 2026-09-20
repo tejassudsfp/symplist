@@ -85,10 +85,22 @@ export function ApprovalCard({ state, store }: { state: ChatState; store: SimonS
             : null}
         </dd>
       </dl>
-      <pre className="sym-simon-preview">{preview(approval.preview)}</pre>
+      <textarea
+        className="sym-simon-preview"
+        aria-label="Action preview"
+        value={preview(approval.preview)}
+        readOnly
+        rows={5}
+      />
       <details>
         <summary>Exact action fields</summary>
-        <pre className="sym-simon-preview">{preview(approval.arguments)}</pre>
+        <textarea
+          className="sym-simon-preview"
+          aria-label="Exact action fields"
+          value={preview(approval.arguments)}
+          readOnly
+          rows={8}
+        />
       </details>
       {approval.expiresAt <= now ? (
         <p role="status">This action expired. Ask Simon to prepare it again.</p>

@@ -45,4 +45,13 @@ describe("Simon approval identity", () => {
     expect(screen.getByText("Maya’s work inbox · Gmail")).toBeInTheDocument();
     expect(screen.queryByText("ca_private_provider_identifier")).not.toBeInTheDocument();
   });
+
+  it("makes scrollable approval payloads keyboard reachable", () => {
+    render(<ApprovalCard state={state} store={{} as SimonStore} />);
+
+    expect(screen.getByRole("textbox", { name: "Action preview" })).toHaveAttribute("readonly");
+    expect(screen.getByRole("textbox", { name: "Exact action fields" })).toHaveAttribute(
+      "readonly",
+    );
+  });
 });
