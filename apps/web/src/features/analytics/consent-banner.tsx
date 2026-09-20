@@ -47,9 +47,9 @@ export function ConsentBanner() {
     );
   if (!state.settings?.enabled || state.settings.consent.state !== "unset") return null;
   return (
-    <section className="sym-consent-banner" aria-labelledby="consent-title">
+    <section className="sym-consent-banner" aria-label="Product analytics choice">
       <div>
-        <h2 id="consent-title">Help make Symplist simpler?</h2>
+        <h2>Help make Symplist simpler?</h2>
         <p>
           Allow optional product usage analytics with PostHog (US). No private content, browsing
           history or session replay. <a href="/privacy">Privacy notice</a>

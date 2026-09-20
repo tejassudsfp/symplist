@@ -1,8 +1,14 @@
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import { taskCreateResponseSchema } from "@symplist/contracts";
 import { ownerApi } from "../src/helpers/phase-e.ts";
 import { signIn } from "../src/helpers/session.ts";
 import { seedSimonPause } from "../src/helpers/simon.ts";
+
+async function expectSimonQuestion(page: Page) {
+  const mobileChat = page.getByRole("button", { name: "Chat", exact: true });
+  if (await mobileChat.isVisible()) await mobileChat.click();
+  await expect(page.getByRole("region", { name: "Simon has a question" })).toBeVisible();
+}
 
 test("appearance changes preserve an unsaved page draft and an active Simon pause", async ({
   context,
@@ -23,7 +29,7 @@ test("appearance changes preserve an unsaved page draft and an active Simon paus
   );
   await editor.fill("# Draft\n\nAppearance draft marker stays here.\n");
   await draftSaved;
-  await expect(page.getByRole("region", { name: "Simon has a question" })).toBeVisible();
+  await expectSimonQuestion(page);
 
   await page.goto("/settings/appearance");
   await page.getByRole("radio", { name: /Meadow/ }).check({ force: true });
@@ -34,6 +40,6 @@ test("appearance changes preserve an unsaved page draft and an active Simon paus
 
   await page.goto(`/now/${task.id}`);
   await page.getByRole("button", { name: "Markdown", exact: true }).click();
-  await expect(editor).toHaveValue(/Appearance draft marker stays here/);
-  await expect(page.getByRole("region", { name: "Simon has a question" })).toBeVisible();
+  await expect(editor).toContainText("Appearance draft marker stays here.");
+  await expectSimonQuestion(page);
 });

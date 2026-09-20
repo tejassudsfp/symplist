@@ -32,6 +32,7 @@ describe("mandatory equal-choice consent", () => {
     );
     const accept = await screen.findByRole("button", { name: "Accept" });
     const decline = screen.getByRole("button", { name: "Decline" });
+    expect(screen.getByRole("region", { name: "Product analytics choice" })).toBeVisible();
     expect(accept.className).toBe(decline.className);
     await userEvent.click(decline);
     await waitFor(() =>
