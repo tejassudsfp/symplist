@@ -34,6 +34,99 @@ export interface ConnectionToolAuthority {
   schema(slug: string): Promise<ExternalToolSchema>;
 }
 
+const vaultHandleSchema = {
+  type: "object",
+  properties: { $vault: { type: "string", minLength: 1, maxLength: 128 } },
+  required: ["$vault"],
+  additionalProperties: false,
+} as const;
+
+/**
+ * A Vault handle is a placeholder, not an alternate provider value. We allow it while reviewing a
+ * proposal, then validate the resolved plaintext against the original provider schema immediately
+ * before execution. Object shape is deliberately exact so `$vault` cannot smuggle sibling input.
+ */
+export function hasVaultHandles(value: unknown, depth = 0): boolean {
+  if (depth > 30) throw new IntegrationError("integration.invalid_arguments");
+  if (!value || typeof value !== "object") return false;
+  if (Object.hasOwn(value, "$vault")) {
+    const object = value as Record<string, unknown>;
+    if (
+      Object.keys(object).length !== 1 ||
+      typeof object.$vault !== "string" ||
+      object.$vault.length < 1 ||
+      object.$vault.length > 128
+    )
+      throw new IntegrationError("integration.invalid_arguments");
+    return true;
+  }
+  return Object.values(value).some((child) => hasVaultHandles(child, depth + 1));
+}
+
+export function maskVaultHandles(value: unknown, depth = 0): unknown {
+  if (depth > 30) throw new IntegrationError("integration.invalid_arguments");
+  if (!value || typeof value !== "object") return value;
+  if (Object.hasOwn(value, "$vault")) {
+    hasVaultHandles(value, depth);
+    return "[Vault value]";
+  }
+  if (Array.isArray(value)) return value.map((child) => maskVaultHandles(child, depth + 1));
+  return Object.fromEntries(
+    Object.entries(value).map(([key, child]) => [key, maskVaultHandles(child, depth + 1)]),
+  );
+}
+
+function schemaAllowingVaultHandles(value: unknown, allowHandle: boolean, depth = 0): unknown {
+  if (depth > 30 || !value || typeof value !== "object" || Array.isArray(value)) return value;
+  const schema = value as Record<string, unknown>;
+  const copy: Record<string, unknown> = { ...schema };
+  for (const key of ["properties", "patternProperties", "$defs", "definitions"] as const) {
+    const entries = schema[key];
+    if (entries && typeof entries === "object" && !Array.isArray(entries))
+      copy[key] = Object.fromEntries(
+        Object.entries(entries).map(([name, child]) => [
+          name,
+          schemaAllowingVaultHandles(child, key !== "$defs" && key !== "definitions", depth + 1),
+        ]),
+      );
+  }
+  for (const key of ["items", "contains", "additionalProperties"] as const) {
+    if (schema[key] && typeof schema[key] === "object")
+      copy[key] = schemaAllowingVaultHandles(schema[key], true, depth + 1);
+  }
+  for (const key of ["prefixItems", "allOf", "anyOf", "oneOf"] as const) {
+    if (Array.isArray(schema[key]))
+      copy[key] = schema[key].map((child) => schemaAllowingVaultHandles(child, true, depth + 1));
+  }
+  for (const key of ["not", "if", "then", "else"] as const) {
+    if (schema[key] && typeof schema[key] === "object")
+      copy[key] = schemaAllowingVaultHandles(schema[key], false, depth + 1);
+  }
+  return allowHandle ? { anyOf: [copy, vaultHandleSchema] } : copy;
+}
+
+export function validateExternalArguments(
+  schema: Record<string, unknown>,
+  value: unknown,
+  options: { allowVaultHandles: boolean },
+): Record<string, unknown> {
+  const args = cleanToolArguments(value);
+  try {
+    if (options.allowVaultHandles) hasVaultHandles(args);
+    const reviewedSchema = options.allowVaultHandles
+      ? schemaAllowingVaultHandles(schema, false)
+      : schema;
+    if (
+      !z.fromJSONSchema(reviewedSchema as Parameters<typeof z.fromJSONSchema>[0]).safeParse(args)
+        .success
+    )
+      throw new Error("invalid");
+  } catch {
+    throw new IntegrationError("integration.invalid_arguments");
+  }
+  return args;
+}
+
 const reserved = new Set([
   "session_id",
   "session",
@@ -148,7 +241,7 @@ export class ConnectionTools {
     connection?: string;
   }): Promise<ResolvedExternalAction> {
     this.requireDiscovered(input.slug);
-    return this.prepare(input);
+    return this.prepare(input, true);
   }
 
   /** Only the continuation/edited-approval adapter calls this with arguments loaded from D1. */
@@ -158,23 +251,46 @@ export class ConnectionTools {
     connection: string;
   }): Promise<ResolvedExternalAction> {
     assertAction(input.slug);
-    return this.prepare(input);
+    return this.prepare(input, true);
   }
 
-  private async prepare(input: {
-    slug: string;
-    arguments: unknown;
-    connection?: string;
-  }): Promise<ResolvedExternalAction> {
+  /**
+   * Replace reviewed Vault handles with their just-resolved values without another upstream
+   * metadata or D1 call. The original live schema and exact connection are retained; the
+   * plaintext then exists only across local validation and executeResolved's final native
+   * authority check/provider invocation.
+   */
+  async prepareResolvedAction(
+    reviewed: ResolvedExternalAction,
+    argumentsValue: unknown,
+  ): Promise<ResolvedExternalAction> {
+    const stored = this.resolved.get(reviewed);
+    if (!stored) throw new IntegrationError("integration.tool_unavailable");
+    const action = Object.freeze({
+      tool: stored.tool,
+      connection: Object.freeze({ ...stored.connection }),
+      arguments: structuredClone(
+        validateExternalArguments(stored.tool.schema, argumentsValue, {
+          allowVaultHandles: false,
+        }),
+      ),
+    });
+    this.resolved.set(action, structuredClone(action));
+    return action;
+  }
+
+  private async prepare(
+    input: {
+      slug: string;
+      arguments: unknown;
+      connection?: string;
+    },
+    allowVaultHandles: boolean,
+  ): Promise<ResolvedExternalAction> {
     await this.check();
     const tool = await this.authority.schema(input.slug);
     if (tool.slug !== input.slug) throw new IntegrationError("integration.invalid_response");
-    const args = cleanToolArguments(input.arguments);
-    try {
-      if (!z.fromJSONSchema(tool.schema).safeParse(args).success) throw new Error("invalid");
-    } catch {
-      throw new IntegrationError("integration.invalid_arguments");
-    }
+    const args = validateExternalArguments(tool.schema, input.arguments, { allowVaultHandles });
     const choices = (await this.authority.connections()).filter(
       (connection) =>
         connection.ownerId === this.authority.ownerId && connection.toolkit === tool.toolkit,

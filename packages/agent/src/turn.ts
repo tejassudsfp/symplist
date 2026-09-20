@@ -26,6 +26,9 @@ export interface SimonToolContext {
   readonly documents?: SimonDocumentSession;
   requestApproval(proposal: ApprovalProposal): { status: "awaiting_approval"; approvalId: string };
 }
+export type SimonApprovedEffectFactory = (
+  context: Pick<SimonToolContext, "claim" | "repository" | "signal">,
+) => ApprovedEffect | Promise<ApprovedEffect>;
 export interface SimonTurnDependencies {
   readonly repository: SimonRepository;
   readonly executor: ExecutorKind;
@@ -39,7 +42,7 @@ export interface SimonTurnDependencies {
     close(): Promise<unknown>;
   };
   readonly tools?: (context: SimonToolContext) => Promise<ToolSet>;
-  readonly approvedEffect?: ApprovedEffect;
+  readonly approvedEffect?: SimonApprovedEffectFactory;
   readonly documents?: () => {
     readonly tools: DocumentTools;
     readonly git: DurableDocumentGit | null;
@@ -120,11 +123,14 @@ export async function runSimonTurn(
       );
       if (approval.status === "approved" && !deps.approvedEffect)
         throw new SimonModelError("ai.unavailable");
+      const approvedEffect = deps.approvedEffect
+        ? await deps.approvedEffect({ claim: owned, repository, signal: deps.signal })
+        : undefined;
       const result = await new SimonInvocations(repository).executeApproved(
         owned.run,
         owned.key,
         approval.id,
-        deps.approvedEffect ??
+        approvedEffect ??
           (async () => {
             throw new SimonModelError("ai.unavailable");
           }),

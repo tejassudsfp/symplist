@@ -120,6 +120,47 @@ describe("owner-bound Composio wrapper", () => {
     });
   });
 
+  it("reviews exact Vault handles but validates plaintext only at the final execution seam", async () => {
+    const f = await fixture();
+    const reviewed = await f.tools.resolveAction({
+      slug: schema.slug,
+      arguments: { recipient: { $vault: "grant-id" } },
+    });
+    expect(reviewed.arguments).toEqual({ recipient: { $vault: "grant-id" } });
+    await expect(f.tools.prepareResolvedAction(reviewed, { recipient: 42 })).rejects.toMatchObject({
+      code: "integration.invalid_arguments",
+    });
+    f.check.mockClear();
+    const ready = await f.tools.prepareResolvedAction(reviewed, {
+      recipient: "maya@example.test",
+    });
+    // Decrypted plaintext crosses no provider or D1 operation before executeResolved's final fence.
+    expect(f.check).not.toHaveBeenCalled();
+    await expect(f.tools.executeResolved(ready, { sideEffect: true })).resolves.toEqual({
+      sent: true,
+    });
+    expect(f.check).toHaveBeenCalledTimes(1);
+    expect(f.client.executions.at(-1)).toMatchObject({
+      arguments: { recipient: "maya@example.test" },
+      client: "raw",
+      maxRetries: 0,
+    });
+    expect(JSON.stringify(f.client.executions)).not.toContain("grant-id");
+  });
+
+  it("rejects malformed Vault lookalikes before metadata or execution", async () => {
+    const f = await fixture();
+    for (const recipient of [
+      { $vault: "grant", sibling: "smuggled" },
+      { $vault: 7 },
+      { $vault: "" },
+    ])
+      await expect(
+        f.tools.resolveAction({ slug: schema.slug, arguments: { recipient } }),
+      ).rejects.toMatchObject({ code: "integration.invalid_arguments" });
+    expect(f.client.executions.filter((call) => call.slug === schema.slug)).toHaveLength(0);
+  });
+
   it("requires explicit selection for multiple accounts and rejects foreign or wrong-toolkit records", async () => {
     const f = await fixture();
     const one = f.connections[0];
