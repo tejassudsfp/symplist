@@ -18,6 +18,11 @@ export interface SignedIn {
   readonly email: string;
 }
 
+export interface SignInOptions {
+  /** Most feature specs have already made a privacy choice so the consent banner cannot mask UI. */
+  readonly analyticsConsent?: "unset" | "denied";
+}
+
 /** The api's development session cookie; production's `__Host-` prefix needs HTTPS (§5.1). */
 const SESSION_COOKIE = "sym_session";
 
@@ -27,7 +32,10 @@ const SESSION_COOKIE = "sym_session";
  * The cookie is set on the **api** origin. The web app calls the api cross-origin but same-site
  * (both `127.0.0.1`, different ports), so a `SameSite=Lax` cookie is sent with its requests.
  */
-export async function signIn(context: BrowserContext): Promise<SignedIn> {
+export async function signIn(
+  context: BrowserContext,
+  options: SignInOptions = {},
+): Promise<SignedIn> {
   const env = readRunEnv();
   const now = Date.now();
   const db = createLocalSqliteClient({
@@ -39,12 +47,20 @@ export async function signIn(context: BrowserContext): Promise<SignedIn> {
   try {
     const userId = uuidv7(now);
     const email = `e2e-${userId}@example.test`;
+    const analyticsConsent = options.analyticsConsent ?? "denied";
     await db.batch([
       sql(
         `INSERT INTO users (id, email, email_verified_at, beta_state, onboarding_step,
-           created_at, updated_at, write_id)
-         VALUES (:id, :email, :now, 'unlocked', 'done', :now, :now, :w)`,
-        { id: userId, email, now: int(now), w: uuidv7(now) },
+           analytics_consent, analytics_consent_at, created_at, updated_at, write_id)
+         VALUES (:id, :email, :now, 'unlocked', 'done', :consent, :decided, :now, :now, :w)`,
+        {
+          id: userId,
+          email,
+          now: int(now),
+          consent: analyticsConsent,
+          decided: analyticsConsent === "unset" ? null : int(now),
+          w: uuidv7(now),
+        },
       ),
       new AccountKeyStore({ db, keys }).provisionStatement({ userId, now }),
     ]);

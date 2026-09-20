@@ -1,10 +1,12 @@
 import { expect, test } from "@playwright/test";
 import { documentPublishResponseSchema, taskCreateResponseSchema } from "@symplist/contracts";
 import { readRunEnv } from "../src/helpers/local-api.ts";
+import { setAccessState } from "../src/helpers/phase-e.ts";
 import { signIn } from "../src/helpers/session.ts";
 
 /** Real API and encrypted local object store; no endpoint interception for this cross-feature flow. */
 test("saved document → private snapshot → reviewed link → isolated viewer → revocation", async ({
+  browser,
   page,
   context,
 }) => {
@@ -53,7 +55,9 @@ test("saved document → private snapshot → reviewed link → isolated viewer 
   await expect(link).toBeVisible();
   const url = await link.inputValue();
   expect(new URL(url).hostname).not.toBe(new URL(env.WEB_ORIGIN ?? "").hostname);
-  const viewer = await context.newPage();
+  // Recipients never inherit the owner's app cookie; the capability URL is the complete authority.
+  const recipient = await browser.newContext();
+  const viewer = await recipient.newPage();
   await viewer.goto(url);
   await expect(
     viewer.getByRole("heading", { level: 1, name: "Reviewed launch outline" }),
@@ -61,6 +65,13 @@ test("saved document → private snapshot → reviewed link → isolated viewer 
   await expect(viewer.getByText("A reviewed source for the next collaborator.")).toBeVisible();
   await expect(viewer.locator("script")).toHaveCount(0);
   await expect(viewer.locator("img,iframe,video,audio")).toHaveCount(0);
+  const raw = new URL(url);
+  raw.pathname = `${raw.pathname}/raw`;
+  const rawViewer = await recipient.newPage();
+  await rawViewer.goto(raw.href);
+  await expect(rawViewer.locator("body")).toContainText(
+    "A reviewed source for the next collaborator.",
+  );
   await page.getByRole("button", { name: "Done", exact: true }).click();
   await page.getByRole("button", { name: "Revoke", exact: true }).click();
   await page
@@ -70,5 +81,128 @@ test("saved document → private snapshot → reviewed link → isolated viewer 
   await expect(page.getByText("revoked", { exact: true })).toBeVisible();
   await viewer.reload();
   await expect(viewer.getByRole("heading", { name: "This artifact is unavailable" })).toBeVisible();
-  await viewer.close();
+  await rawViewer.reload();
+  await expect(
+    rawViewer.getByRole("heading", { name: "This artifact is unavailable" }),
+  ).toBeVisible();
+  await recipient.close();
+});
+
+test("password and public variants keep independent access rules, while relock disables both", async ({
+  browser,
+  page,
+  context,
+}) => {
+  const account = await signIn(context);
+  const env = readRunEnv();
+  const origin = env.API_ORIGIN ?? "";
+  const csrf = await context.request.get(`${origin}/v1/auth/csrf`, {
+    headers: { Origin: env.WEB_ORIGIN ?? "" },
+  });
+  const token = ((await csrf.json()) as { token: string }).token;
+  const post = (path: string, data: unknown) =>
+    context.request.post(`${origin}${path}`, {
+      headers: {
+        Origin: env.WEB_ORIGIN ?? "",
+        "X-Symplist-CSRF": token,
+        "Idempotency-Key": crypto.randomUUID(),
+      },
+      data,
+    });
+  const created = await post("/v1/tasks", { title: "Share variants", collection: "now" });
+  const task = taskCreateResponseSchema.parse(await created.json()).task;
+  const saved = await post(`/v1/tasks/${task.id}/document/commits`, {
+    baseRevision: null,
+    markdown: "# Variant source\nA deliberately pinned document.\n",
+  });
+  expect(saved.status(), await saved.text()).toBe(201);
+
+  await page.goto(`/tasks/${task.id}/artifacts`);
+  await page.getByRole("button", { name: "New snapshot" }).click();
+  await page.getByLabel("Snapshot name").fill("Variant snapshot");
+  await page.getByRole("button", { name: "Create private snapshot" }).click();
+  const passwordDialog = page.getByRole("dialog", { name: "Share this snapshot" });
+  await passwordDialog.getByRole("radio", { name: "Link and password" }).check();
+  await passwordDialog.getByLabel(/Share password/).fill("separate-password");
+  await passwordDialog.getByRole("button", { name: "Create expiring link" }).click();
+  const passwordUrl = await passwordDialog
+    .getByRole("textbox", { name: "Keep this link before closing" })
+    .inputValue();
+  await passwordDialog.getByRole("button", { name: "Done" }).click();
+
+  const passwordRecipient = await browser.newContext();
+  const passwordViewer = await passwordRecipient.newPage();
+  await passwordViewer.goto(passwordUrl);
+  await expect(passwordViewer.getByRole("heading", { name: "A password is needed" })).toBeVisible();
+  await passwordViewer.getByLabel("Password").fill("separate-password");
+  await passwordViewer.getByRole("button", { name: "Open artifact" }).click();
+  await expect(passwordViewer.getByRole("heading", { name: "Variant snapshot" })).toBeVisible();
+  await expect(passwordViewer.locator("body")).not.toContainText("separate-password");
+
+  await page.getByRole("button", { name: "Share", exact: true }).click();
+  const publicDialog = page.getByRole("dialog", { name: "Share this snapshot" });
+  await publicDialog.getByRole("radio", { name: "Public artifact" }).check();
+  await publicDialog.getByLabel("I understand anyone can read this public artifact.").check();
+  await publicDialog.getByRole("button", { name: "Publish read-only artifact" }).click();
+  const publicUrl = await publicDialog
+    .getByRole("textbox", { name: "Keep this link before closing" })
+    .inputValue();
+  expect(new URL(publicUrl).searchParams.has("key")).toBe(false);
+  const publicRecipient = await browser.newContext();
+  const publicViewer = await publicRecipient.newPage();
+  await publicViewer.goto(publicUrl);
+  await expect(publicViewer.getByRole("heading", { name: "Variant snapshot" })).toBeVisible();
+
+  await setAccessState(account.userId, "relocked");
+  await passwordViewer.reload();
+  await publicViewer.reload();
+  await expect(
+    passwordViewer.getByRole("heading", { name: "This artifact is unavailable" }),
+  ).toBeVisible();
+  await expect(
+    publicViewer.getByRole("heading", { name: "This artifact is unavailable" }),
+  ).toBeVisible();
+  await passwordRecipient.close();
+  await publicRecipient.close();
+});
+
+test("a manual handoff remains private until its selected artifact is explicitly released", async ({
+  page,
+  context,
+}) => {
+  await signIn(context);
+  const env = readRunEnv();
+  const csrf = await context.request.get(`${env.API_ORIGIN}/v1/auth/csrf`, {
+    headers: { Origin: env.WEB_ORIGIN ?? "" },
+  });
+  const headers = {
+    Origin: env.WEB_ORIGIN ?? "",
+    "X-Symplist-CSRF": ((await csrf.json()) as { token: string }).token,
+    "Idempotency-Key": crypto.randomUUID(),
+  };
+  const created = await context.request.post(`${env.API_ORIGIN}/v1/tasks`, {
+    headers,
+    data: { title: "Prepare a handoff", collection: "now" },
+  });
+  const task = taskCreateResponseSchema.parse(await created.json()).task;
+  const commit = await context.request.post(
+    `${env.API_ORIGIN}/v1/tasks/${task.id}/document/commits`,
+    {
+      headers: { ...headers, "Idempotency-Key": crypto.randomUUID() },
+      data: { baseRevision: null, markdown: "# Brief\nA private handoff source.\n" },
+    },
+  );
+  expect(commit.status(), await commit.text()).toBe(201);
+
+  await page.goto(`/tasks/${task.id}/handoff`);
+  await expect(page.getByRole("heading", { name: "Prepare handoff" })).toBeVisible();
+  await page.getByLabel("Desired outcome").fill("Return a reviewed implementation plan.");
+  await page.getByRole("button", { name: "Start a manual draft" }).click();
+  const prompt = page.getByLabel("Editable prompt");
+  await expect(prompt).toContainText("Return a reviewed implementation plan.");
+  await page.getByRole("button", { name: "Save private prompt" }).click();
+  await expect(
+    page.getByText("Private prompt snapshot saved. No link was created and nothing was sent."),
+  ).toBeVisible();
+  await expect(page.getByText("{{artifact:")).toHaveCount(0);
 });
