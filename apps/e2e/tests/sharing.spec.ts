@@ -1,8 +1,18 @@
 import { expect, test } from "@playwright/test";
-import { documentPublishResponseSchema, taskCreateResponseSchema } from "@symplist/contracts";
+import {
+  documentPublishResponseSchema,
+  sharingListSchema,
+  taskCreateResponseSchema,
+} from "@symplist/contracts";
 import { readRunEnv } from "../src/helpers/local-api.ts";
-import { setAccessState } from "../src/helpers/phase-e.ts";
+import { expireShareGrant, setAccessState } from "../src/helpers/phase-e.ts";
 import { signIn } from "../src/helpers/session.ts";
+
+function rawArtifactUrl(url: string): string {
+  const raw = new URL(url);
+  raw.pathname = `${raw.pathname}/raw`;
+  return raw.href;
+}
 
 /** Real API and encrypted local object store; no endpoint interception for this cross-feature flow. */
 test("saved document → private snapshot → reviewed link → isolated viewer → revocation", async ({
@@ -65,10 +75,8 @@ test("saved document → private snapshot → reviewed link → isolated viewer 
   await expect(viewer.getByText("A reviewed source for the next collaborator.")).toBeVisible();
   await expect(viewer.locator("script")).toHaveCount(0);
   await expect(viewer.locator("img,iframe,video,audio")).toHaveCount(0);
-  const raw = new URL(url);
-  raw.pathname = `${raw.pathname}/raw`;
   const rawViewer = await recipient.newPage();
-  await rawViewer.goto(raw.href);
+  await rawViewer.goto(rawArtifactUrl(url));
   await expect(rawViewer.locator("body")).toContainText(
     "A reviewed source for the next collaborator.",
   );
@@ -84,6 +92,54 @@ test("saved document → private snapshot → reviewed link → isolated viewer 
   await rawViewer.reload();
   await expect(
     rawViewer.getByRole("heading", { name: "This artifact is unavailable" }),
+  ).toBeVisible();
+
+  // Expiry is independent of revocation: issue a fresh grant, prove both surfaces work, then
+  // advance only that grant past its deadline and verify the signed-out recipient loses both.
+  await page.getByRole("button", { name: "Share", exact: true }).click();
+  const expiryReview = page.getByRole("dialog", { name: "Share this snapshot" });
+  await expect(expiryReview).toBeVisible();
+  await expiryReview.getByText("Preview exactly what will be shared").click();
+  await expect(
+    expiryReview.getByText("A reviewed source for the next collaborator."),
+  ).toBeVisible();
+  await expiryReview.getByRole("button", { name: "Create expiring link" }).click();
+  const expiryResult = page.getByRole("dialog", { name: "Your read-only link" });
+  const expiryUrl = await expiryResult
+    .getByRole("textbox", { name: "Keep this link before closing" })
+    .inputValue();
+  await expiryResult.getByRole("button", { name: "Done" }).click();
+
+  const listingResponse = await context.request.get(`${origin}/v1/tasks/${task.id}/artifacts`, {
+    headers: { Origin: env.WEB_ORIGIN ?? "" },
+  });
+  expect(listingResponse.status(), await listingResponse.text()).toBe(200);
+  const listing = sharingListSchema.parse(await listingResponse.json());
+  const expiringGrant = listing.grants.find(
+    (grant) => grant.status === "active" && grant.mode === "link",
+  );
+  expect(expiringGrant).toBeDefined();
+  if (!expiringGrant) throw new Error("Fresh expiring grant was not listed");
+
+  const expiryViewer = await recipient.newPage();
+  await expiryViewer.goto(expiryUrl);
+  await expect(
+    expiryViewer.getByRole("heading", { level: 1, name: "Reviewed launch outline" }),
+  ).toBeVisible();
+  const expiryRawViewer = await recipient.newPage();
+  await expiryRawViewer.goto(rawArtifactUrl(expiryUrl));
+  await expect(expiryRawViewer.locator("body")).toContainText(
+    "A reviewed source for the next collaborator.",
+  );
+
+  await expireShareGrant(expiringGrant.id);
+  await expiryViewer.reload();
+  await expect(
+    expiryViewer.getByRole("heading", { name: "This artifact is unavailable" }),
+  ).toBeVisible();
+  await expiryRawViewer.reload();
+  await expect(
+    expiryRawViewer.getByRole("heading", { name: "This artifact is unavailable" }),
   ).toBeVisible();
   await recipient.close();
 });
@@ -171,6 +227,7 @@ test("password and public variants keep independent access rules, while relock d
 });
 
 test("a manual handoff remains private until its selected artifact is explicitly released", async ({
+  browser,
   page,
   context,
 }) => {
@@ -200,6 +257,49 @@ test("a manual handoff remains private until its selected artifact is explicitly
 
   await page.goto(`/tasks/${task.id}/handoff`);
   await expect(page.getByRole("heading", { name: "Prepare handoff" })).toBeVisible();
+  await page.getByRole("button", { name: "Capture current page or sections" }).click();
+  const capture = page.getByRole("dialog", { name: "Choose the snapshot" });
+  await capture.getByLabel("Snapshot name").fill("Handoff source");
+  await capture.getByText("Review saved source").click();
+  await expect(capture.getByText("A private handoff source.")).toBeVisible();
+  await capture.getByRole("button", { name: "Create private snapshot" }).click();
+
+  const artifactChoice = page.getByRole("checkbox", { name: /Handoff source/ });
+  await expect(artifactChoice).toBeChecked();
+  await artifactChoice.uncheck();
+  await expect(artifactChoice).not.toBeChecked();
+  await artifactChoice.check();
+  await expect(artifactChoice).toBeChecked();
+
+  const privateListingResponse = await context.request.get(
+    `${env.API_ORIGIN}/v1/tasks/${task.id}/artifacts`,
+    { headers: { Origin: env.WEB_ORIGIN ?? "" } },
+  );
+  expect(privateListingResponse.status(), await privateListingResponse.text()).toBe(200);
+  const privateListing = sharingListSchema.parse(await privateListingResponse.json());
+  const sourceArtifact = privateListing.artifacts.find(
+    (artifact) => artifact.kind === "document" && artifact.title === "Handoff source",
+  );
+  expect(sourceArtifact).toBeDefined();
+  if (!sourceArtifact) throw new Error("Private handoff source was not listed");
+  expect(privateListing.grants.filter((grant) => grant.artifactId === sourceArtifact.id)).toEqual(
+    [],
+  );
+
+  const recipient = await browser.newContext();
+  const privateApiRead = await recipient.request.get(
+    `${env.API_ORIGIN}/v1/artifacts/${sourceArtifact.id}`,
+    { headers: { Origin: env.WEB_ORIGIN ?? "" } },
+  );
+  expect(privateApiRead.status()).toBe(401);
+  const guessedViewer = await recipient.newPage();
+  await guessedViewer.goto(
+    new URL(`/artifact/${sourceArtifact.id}`, env.ARTIFACT_ORIGIN ?? env.API_ORIGIN).href,
+  );
+  await expect(
+    guessedViewer.getByRole("heading", { name: "This artifact is unavailable" }),
+  ).toBeVisible();
+
   await page.getByLabel("Desired outcome").fill("Return a reviewed implementation plan.");
   await page.getByRole("button", { name: "Start a manual draft" }).click();
   const prompt = page.getByLabel("Editable prompt");
@@ -209,4 +309,38 @@ test("a manual handoff remains private until its selected artifact is explicitly
     page.getByText("Private prompt snapshot saved. No link was created and nothing was sent."),
   ).toBeVisible();
   await expect(page.getByText("{{artifact:")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Review and create link" }).click();
+  const review = page.getByRole("dialog", { name: "Share this snapshot" });
+  await review.getByText("Preview exactly what will be shared").click();
+  await expect(review.getByText("A private handoff source.")).toBeVisible();
+  await review.getByRole("button", { name: "Create expiring link" }).click();
+  const result = page.getByRole("dialog", { name: "Your read-only link" });
+  const releasedUrl = await result
+    .getByRole("textbox", { name: "Keep this link before closing" })
+    .inputValue();
+  expect(new URL(releasedUrl).hostname).not.toBe(new URL(env.WEB_ORIGIN ?? "").hostname);
+  await result.getByRole("button", { name: "Done" }).click();
+
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], {
+    origin: env.WEB_ORIGIN,
+  });
+  await page.getByRole("button", { name: "Copy prepared prompt" }).click();
+  await expect(
+    page.getByText("Prepared prompt copied. Nothing was sent to another service."),
+  ).toBeVisible();
+  const preparedPrompt = await page.evaluate(() => navigator.clipboard.readText());
+  expect(preparedPrompt).toContain("Return a reviewed implementation plan.");
+  expect(preparedPrompt).toContain(releasedUrl);
+  expect(preparedPrompt).not.toContain(`{{artifact:${sourceArtifact.id}}}`);
+
+  const viewer = await recipient.newPage();
+  await viewer.goto(releasedUrl);
+  await expect(viewer.getByRole("heading", { level: 1, name: "Handoff source" })).toBeVisible();
+  await expect(viewer.getByText("A private handoff source.")).toBeVisible();
+  const rawViewer = await recipient.newPage();
+  await rawViewer.goto(rawArtifactUrl(releasedUrl));
+  await expect(rawViewer.locator("body")).toContainText("# Brief");
+  await expect(rawViewer.locator("body")).toContainText("A private handoff source.");
+  await recipient.close();
 });
