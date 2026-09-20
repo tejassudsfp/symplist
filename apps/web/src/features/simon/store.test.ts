@@ -215,4 +215,74 @@ describe("owner-scoped Simon store", () => {
     expect(store.get(null).conversationId).toBeNull();
     expect(api.create).toHaveBeenCalledTimes(2);
   });
+  it("prepends an older page once and retains it across a live-head refresh", async () => {
+    const api = fakeSimonApi();
+    const recent = {
+      ...view,
+      messages: [
+        {
+          id: run,
+          seq: 51,
+          role: "assistant" as const,
+          status: "accepted" as const,
+          runId: run,
+          text: "Recent",
+          parts: [],
+        },
+      ],
+      nextBeforeSeq: 51,
+    };
+    const oldId = "01995000-0000-7000-8000-000000000004";
+    const older = {
+      ...view,
+      messages: [
+        {
+          id: oldId,
+          seq: 1,
+          role: "user" as const,
+          status: "accepted" as const,
+          runId: null,
+          text: "Old",
+          parts: [],
+        },
+      ],
+      nextBeforeSeq: null,
+    };
+    api.history
+      .mockResolvedValueOnce(recent)
+      .mockResolvedValueOnce(older)
+      .mockResolvedValueOnce(recent);
+    const store = new SimonStore(api, null);
+    store.watch(task);
+    await vi.waitFor(() => expect(store.get(task).projection.view?.nextBeforeSeq).toBe(51));
+    await store.loadOlder(task);
+    expect(api.history.mock.calls[1]).toEqual([id, 51]);
+    expect(store.get(task).projection.view?.messages.map((message) => message.text)).toEqual([
+      "Old",
+      "Recent",
+    ]);
+    await store.load(task);
+    expect(store.get(task).projection.view?.messages.map((message) => message.text)).toEqual([
+      "Old",
+      "Recent",
+    ]);
+    expect(store.get(task).projection.view?.nextBeforeSeq).toBeNull();
+  });
+  it("drops an older-page response after the conversation is released", async () => {
+    const api = fakeSimonApi();
+    api.history.mockResolvedValueOnce({ ...view, nextBeforeSeq: 4 });
+    const waiting = deferred<typeof view>();
+    api.history.mockImplementationOnce(() => waiting.promise);
+    const store = new SimonStore(api, null);
+    const off = store.watch(task);
+    await vi.waitFor(() => expect(store.get(task).projection.view?.nextBeforeSeq).toBe(4));
+    const loading = store.loadOlder(task);
+    off();
+    waiting.resolve(view);
+    await loading;
+    expect(store.get(task)).toMatchObject({
+      projection: { view: null },
+      loadingOlder: false,
+    });
+  });
 });

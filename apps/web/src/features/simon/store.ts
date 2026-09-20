@@ -332,7 +332,7 @@ export class SimonStore {
     } catch (error) {
       if (current()) this.update(entry, { error: simonErrorMessage(error) });
     } finally {
-      if (generation === this.generation) this.update(entry, { loadingOlder: false });
+      if (current()) this.update(entry, { loadingOlder: false });
     }
   }
   async command(taskId: string | null, perform: Pending["perform"], confirmed?: () => void) {

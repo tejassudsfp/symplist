@@ -10,7 +10,8 @@ import { Button } from "@/components/ui/button";
 export function Conversation({ className, ...props }: ComponentProps<typeof StickToBottom>) {
   const [reduceMotion, setReduceMotion] = useState(true);
   useEffect(() => {
-    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const query = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    if (!query) return;
     const update = () => setReduceMotion(query.matches);
     update();
     query.addEventListener("change", update);

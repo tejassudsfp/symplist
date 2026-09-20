@@ -13,12 +13,19 @@ const navigation = vi.hoisted(() => ({ pathname: "/now", push: vi.fn() }));
  * fetches go nowhere in jsdom and the shell never leaves its loading state.
  */
 const workspace = vi.hoisted(() => ({ api: { current: null as unknown } }));
+const simon = vi.hoisted(() => ({ api: { current: null as unknown } }));
 
 vi.mock("@/features/workspace/api", async () => {
   const actual = await vi.importActual<typeof import("@/features/workspace/api")>(
     "@/features/workspace/api",
   );
   return { ...actual, createWorkspaceApi: () => workspace.api.current };
+});
+
+vi.mock("@/features/simon/api", async () => {
+  const actual =
+    await vi.importActual<typeof import("@/features/simon/api")>("@/features/simon/api");
+  return { ...actual, createSimonApi: () => simon.api.current };
 });
 
 /*
@@ -79,6 +86,21 @@ beforeEach(async () => {
   navigation.pathname = "/now";
   navigation.push.mockReset();
   workspace.api.current = new FakeWorkspaceApi([{ id: taskId, title: "Refresh my portfolio" }]);
+  const conversationId = "01995000-0000-7000-8000-000000000001";
+  simon.api.current = {
+    create: async () => ({ conversationId }),
+    history: async () => ({
+      conversationId,
+      kind: "task",
+      taskId,
+      activeRun: null,
+      latestRun: null,
+      pendingApprovalId: null,
+      pendingAskId: null,
+      messages: [],
+      nextBeforeSeq: null,
+    }),
+  };
   const { mayaMe } = await import("@/features/access/test-support");
   const { resetSharedSessionStoreForTests } = await import("@/features/access/session-runtime");
   const { resetAnalytics } = await import("@/features/analytics/runtime");
@@ -100,16 +122,16 @@ describe("the (app) layout with the feature placeholders", () => {
     // language rather than throwing inside the shell (system_states.md).
     expect(await within(main).findByText("This page isn't available here")).toBeInTheDocument();
     const chat = screen.getByRole("complementary", { name: "Simon" });
-    expect(within(chat).getByText("No messages yet")).toBeInTheDocument();
+    expect(within(chat).getByRole("textbox", { name: "Message Simon" })).toBeInTheDocument();
+    expect(within(chat).getByText(/Ask Simon about this task/)).toBeInTheDocument();
     // The quick chat launcher belongs to the no-selection view.
     expect(document.querySelector('[data-slot="quick-chat"]')).toBeNull();
   });
 
-  it("leaves unbuilt slots empty and exposes the consent load failure safely", async () => {
+  it("mounts built shell slots and exposes the consent load failure safely", async () => {
     await renderAppLayout("/now");
-    for (const name of ["quick-chat", "command-palette"]) {
-      expect(slot(name)).toBeEmptyDOMElement();
-    }
+    expect(within(slot("quick-chat")).getByRole("button", { name: "Ask Simon" })).toBeEnabled();
+    expect(slot("command-palette")).toBeEmptyDOMElement();
     expect(slot("vault-status")).toHaveTextContent("Vault uses a separate key");
     expect(
       within(slot("notification-control")).getByRole("button", { name: "Notifications" }),
