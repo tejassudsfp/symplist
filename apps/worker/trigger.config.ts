@@ -30,7 +30,7 @@ export default defineConfig({
       // Linked GitHub builds receive no runtime secrets and preserve Trigger-managed values. A
       // credentialed CLI deploy receives the worker env and must validate the complete allowlist.
       syncEnvVars(guardedSyncEnvVars(() => workerSyncEnvVarsWhenPresent(process.env))),
-      // TRIGGER_AI_SDK_OTEL_AUTOREGISTER=0 is baked into the image, because sync drops TRIGGER_* (§8.3).
+      // TRIGGER_AI_SDK_OTEL_AUTOREGISTER=0 is set for the image and run environment; sync drops TRIGGER_* (§8.3).
       imageEnvExtension(workerImageEnvInstructions),
     ],
   },

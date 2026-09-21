@@ -149,7 +149,8 @@ export const triggerUnsyncablePrefix = "TRIGGER_";
 /**
  * Variables never synced even though the worker reads them: `TRIGGER_SECRET_KEY` is injected by
  * Trigger.dev itself (the api's key must never reach Trigger), `NODE_ENV` is set by the image,
- * `TRIGGER_AI_SDK_OTEL_AUTOREGISTER` comes from `workerImageEnv` because sync would drop it, and
+ * `TRIGGER_AI_SDK_OTEL_AUTOREGISTER` comes from the build extension's deployment environment
+ * because sync would drop it, and
  * `LOCAL_DATA_DIR` names a directory on a developer machine, which means nothing in a deployed image
  * (where the local drivers are refused).
  */
@@ -161,10 +162,10 @@ export const workerSyncExcludedVariables: readonly string[] = Object.freeze(
 );
 
 /**
- * Fixed values the deployed worker image must carry (§8.3): `TRIGGER_AI_SDK_OTEL_AUTOREGISTER=0`.
- * `syncEnvVars` cannot deliver a `TRIGGER_*` name, so `trigger.config.ts` bakes these into the image
- * with a build layer: `context.addLayer({ id: "symplist-env", image: { instructions:
- * workerImageEnvInstructions } })`. The worker schema still requires them at task startup.
+ * Fixed values the deployed worker must carry (§8.3): `TRIGGER_AI_SDK_OTEL_AUTOREGISTER=0`.
+ * `syncEnvVars` cannot deliver a `TRIGGER_*` name, so `trigger.config.ts` supplies this through
+ * a build layer's deployment environment as well as the image. The worker schema still requires it
+ * at task startup.
  */
 export const workerImageEnv: Readonly<{ TRIGGER_AI_SDK_OTEL_AUTOREGISTER: "0" }> = Object.freeze({
   TRIGGER_AI_SDK_OTEL_AUTOREGISTER: "0",

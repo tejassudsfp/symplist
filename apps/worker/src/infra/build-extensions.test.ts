@@ -47,13 +47,14 @@ describe("syncEnvVars guard (§4.5)", () => {
 });
 
 describe("image env extension (§8.3)", () => {
-  it("adds TRIGGER_AI_SDK_OTEL_AUTOREGISTER=0 as an image layer for deploys only", async () => {
+  it("adds TRIGGER_AI_SDK_OTEL_AUTOREGISTER=0 to the image and run environment", async () => {
     const extension = imageEnvExtension(workerImageEnvInstructions);
     const addLayer = vi.fn();
     await extension.onBuildComplete?.({ target: "deploy", addLayer } as never, {} as never);
     expect(addLayer).toHaveBeenCalledWith({
       id: "symplist-image-env",
       image: { instructions: ["ENV TRIGGER_AI_SDK_OTEL_AUTOREGISTER=0"] },
+      deploy: { env: { TRIGGER_AI_SDK_OTEL_AUTOREGISTER: "0" }, override: true },
     });
     const devLayer = vi.fn();
     await extension.onBuildComplete?.({ target: "dev", addLayer: devLayer } as never, {} as never);

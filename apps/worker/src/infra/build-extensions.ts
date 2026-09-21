@@ -48,20 +48,29 @@ export function guardedSyncEnvVars(
 }
 
 /**
- * Bakes fixed `ENV` instructions into the deployed image (§8.3): `syncEnvVars` drops every `TRIGGER_*`
- * name, so `TRIGGER_AI_SDK_OTEL_AUTOREGISTER=0` travels as an image layer instead.
+ * Bakes fixed `ENV` instructions into the deployed image and registers the same values with
+ * Trigger's deployment environment. Trigger's task runner replaces the image environment at run
+ * startup, so the image instruction alone does not reach the task process. `syncEnvVars` drops
+ * every `TRIGGER_*` name, making the deployment layer necessary for this setting.
  */
 export function imageEnvExtension(instructions: readonly string[]): BuildExtension {
+  const deployEnv: Record<string, string> = {};
   for (const instruction of instructions) {
     if (!/^ENV [A-Z][A-Z0-9_]*=[A-Za-z0-9._-]*$/.test(instruction)) {
       throw new Error("Image env instructions must be plain ENV NAME=value lines");
     }
+    const [name, value] = instruction.slice(4).split("=");
+    if (name && value !== undefined) deployEnv[name] = value;
   }
   return {
     name: "symplist-image-env",
     onBuildComplete(context) {
       if (context.target === "dev") return;
-      context.addLayer({ id: "symplist-image-env", image: { instructions: [...instructions] } });
+      context.addLayer({
+        id: "symplist-image-env",
+        image: { instructions: [...instructions] },
+        deploy: { env: deployEnv, override: true },
+      });
     },
   };
 }
