@@ -47,7 +47,7 @@ describe("Content Security Policy (§10.4)", () => {
       "wss://api.symplist.test",
       "https://us.i.posthog.com",
     ]);
-    expect(csp.get("img-src")).toEqual(["'self'", "data:", "blob:"]);
+    expect(csp.get("img-src")).toEqual(["'self'", "data:", "blob:", "https://logos.composio.dev"]);
     expect(csp.get("font-src")).toEqual(["'self'"]);
     expect(csp.get("object-src")).toEqual(["'none'"]);
     expect(csp.get("base-uri")).toEqual(["'none'"]);
@@ -117,6 +117,18 @@ describe("Content Security Policy (§10.4)", () => {
     expect(matcher.test("/oauth/consent")).toBe(true);
     expect(matcher.test("/_next/static/chunks/app.js")).toBe(false);
     expect(matcher.test("/licenses/fonts.txt")).toBe(false);
+    for (const asset of [
+      "/icon.svg",
+      "/apple-icon.png",
+      "/manifest.webmanifest",
+      "/brand/icon.svg",
+      "/brand/icon-512.png",
+      "/brand/icon-maskable-512.png",
+      "/brand/og.png",
+      "/brand/twitter.png",
+    ]) {
+      expect(matcher.test(asset)).toBe(false);
+    }
   });
 });
 

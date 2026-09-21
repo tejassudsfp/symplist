@@ -5,6 +5,7 @@ export interface ToolkitSummary {
   readonly name: string;
   readonly description: string;
   readonly auth: "managed" | "api_key" | "none";
+  readonly logo?: string;
 }
 
 export interface ToolkitPageClient {
@@ -21,11 +22,28 @@ export interface ToolkitPageClient {
         auth_schemes?: readonly string[];
         composio_managed_auth_schemes?: readonly string[];
         no_auth?: boolean;
-        meta?: { description?: string };
+        meta?: { description?: string; logo?: string };
       }[];
       next_cursor?: string | null;
     }>;
   };
+}
+
+function toolkitLogo(value: unknown): string | undefined {
+  if (typeof value !== "string" || value.length > 512) return undefined;
+  try {
+    const url = new URL(value);
+    if (
+      url.origin !== "https://logos.composio.dev" ||
+      !url.pathname.startsWith("/api/") ||
+      url.search ||
+      url.hash
+    )
+      return undefined;
+    return url.href;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Live catalogue, short memory cache only. Never receives a database or object store. */
@@ -72,6 +90,7 @@ export class ToolkitCatalogue {
                 ? "api_key"
                 : null;
           if (!auth) continue;
+          const logo = toolkitLogo(item.meta?.logo);
           items.set(
             item.slug,
             Object.freeze({
@@ -79,6 +98,7 @@ export class ToolkitCatalogue {
               name: item.name.slice(0, 200),
               description: (item.meta?.description ?? "").slice(0, 500),
               auth,
+              ...(logo ? { logo } : {}),
             }),
           );
         }

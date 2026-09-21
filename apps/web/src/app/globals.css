@@ -270,6 +270,14 @@
     outline-offset: 1px;
   }
 
+  .sym-topbar-brand {
+    flex: none;
+    justify-content: center;
+    width: 30px;
+    padding: 0 6px;
+    margin-right: 4px;
+  }
+
   .sym-profile-button {
     gap: 7px;
     padding: 0 8px 0 3px;
@@ -3320,6 +3328,12 @@
   border-radius: var(--sym-r);
   background: var(--sym-surface);
   font-weight: 500;
+}
+.sym-connection-mark img {
+  display: block;
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
 }
 .sym-connection-row {
   display: flex;

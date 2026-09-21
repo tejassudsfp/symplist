@@ -62,6 +62,10 @@ describe("AppShell on a collection route", () => {
   it("renders the top bar, rail, task list and page with a quick chat slot", () => {
     renderShell({ path: "/now", slots: { quickChat: <button type="button">Quick chat</button> } });
     const banner = screen.getByRole("banner");
+    expect(within(banner).getByRole("link", { name: "Symplist home" })).toHaveAttribute(
+      "href",
+      "/now",
+    );
     expect(within(banner).getByRole("button", { name: "Account menu" })).toBeInTheDocument();
     expect(within(banner).getByRole("link", { name: "Vault" })).toHaveAttribute("href", "/vault");
     const rails = screen.getAllByRole("navigation", { name: "Collections" });

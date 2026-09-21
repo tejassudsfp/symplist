@@ -82,12 +82,16 @@ export class ConnectionResource<T> {
   };
 }
 
-export function useConnectionResource<T>(load: (signal: AbortSignal) => Promise<T>) {
+export function useConnectionResource<T>(
+  load: (signal: AbortSignal) => Promise<T>,
+  enabled = true,
+) {
   const store = useMemo(() => new ConnectionResource(load), [load]);
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   useEffect(() => {
+    if (!enabled) return;
     store.open();
     return () => store.close();
-  }, [store]);
+  }, [store, enabled]);
   return { ...state, refresh: store.refresh };
 }

@@ -66,7 +66,7 @@ export interface ConnectionsOptions {
   readonly delay?: (ms: number) => Promise<void>;
 }
 
-/** Explicit callback attestation is the only path from a provider account into native authority. */
+/** A bound callback plus provider-confirmed account ownership is required for native authority. */
 export class ConnectionsService {
   readonly accountKeys: AccountKeyStore;
   readonly configs: ComposioAuthConfigs;
@@ -284,12 +284,14 @@ export class ConnectionsService {
 
   async callback(
     actor: ConnectionActor,
-    input: { attemptId: string; nonce: string; sessionUri: string },
+    input: { attemptId: string; nonce: string; sessionUri?: string; connectedAccountId?: string },
   ): Promise<string> {
     if (
       !/^[A-Za-z0-9_-]{43}$/.test(input.nonce) ||
-      !input.sessionUri ||
-      input.sessionUri.length > 4096
+      (!input.sessionUri && !input.connectedAccountId) ||
+      (input.sessionUri !== undefined && input.sessionUri.length > 4096) ||
+      (input.connectedAccountId !== undefined &&
+        (input.connectedAccountId.length < 1 || input.connectedAccountId.length > 256))
     )
       throw new IntegrationError("integration.invalid_arguments");
     const now = this.options.now();
@@ -309,12 +311,14 @@ export class ConnectionsService {
         WHERE id = :id AND nonce_digest IN (${Object.keys(nonceParams)
           .map((name) => `:${name}`)
           .join(", ")}) AND user_id = :owner AND auth_session_id = :session
-        AND status = 'pending' AND expires_at > :now AND ${this.access()} AND ${this.session()}
+        AND status = 'pending' ${input.connectedAccountId ? "AND connected_account_id = :callback_account" : ""}
+        AND expires_at > :now AND ${this.access()} AND ${this.session()}
         AND EXISTS (SELECT 1 FROM account_keys WHERE owner_id = :owner)`,
         {
           now: int(now),
           write,
           id: input.attemptId,
+          ...(input.connectedAccountId ? { callback_account: input.connectedAccountId } : {}),
           ...nonceParams,
           owner: actor.ownerId,
           session: actor.sessionId,
@@ -332,7 +336,8 @@ export class ConnectionsService {
     const keyRow = result[2]?.results[0];
     if (!attempt || !keyRow) throw new IntegrationError("integration.unauthorized");
     try {
-      await this.options.provider.complete(input.sessionUri, actor.ownerId);
+      if (input.sessionUri) await this.options.provider.complete(input.sessionUri, actor.ownerId);
+      else await this.assertProviderOwner(actor.ownerId, String(attempt.connected_account_id));
       let active = false;
       for (let tries = 0; tries < 4; tries++) {
         const account = await this.options.provider.account(String(attempt.connected_account_id));
@@ -370,6 +375,19 @@ export class ConnectionsService {
           .catch(() => undefined);
       throw error;
     }
+  }
+
+  private async assertProviderOwner(ownerId: string, accountId: string): Promise<void> {
+    const cursors = new Set<string>();
+    let cursor: string | undefined;
+    for (let page = 0; page < 10; page++) {
+      const result = await this.options.provider.accounts(ownerId, cursor);
+      if (result.items.some((item) => item.id === accountId)) return;
+      cursor = result.cursor ?? undefined;
+      if (!cursor || cursors.has(cursor)) break;
+      cursors.add(cursor);
+    }
+    throw new IntegrationError("integration.unauthorized");
   }
 
   private async confirm(

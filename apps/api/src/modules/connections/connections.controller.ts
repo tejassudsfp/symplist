@@ -107,17 +107,22 @@ export class ConnectionsController {
     @Res() response: Response,
   ) {
     let result = "cancelled";
-    if (query.session_uri) {
+    if (query.session_uri || (query.status === "success" && query.connected_account_id)) {
       try {
         await this.required().service.callback(actor(session), {
           attemptId: query.attempt,
           nonce: query.n,
-          sessionUri: query.session_uri,
+          ...(query.session_uri ? { sessionUri: query.session_uri } : {}),
+          ...(query.status === "success" && query.connected_account_id
+            ? { connectedAccountId: query.connected_account_id }
+            : {}),
         });
         result = "connected";
       } catch {
         result = "failed";
       }
+    } else if (query.status) {
+      result = "failed";
     }
     response.setHeader("Cache-Control", "no-store");
     response.setHeader("Referrer-Policy", "no-referrer");

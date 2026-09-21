@@ -50,6 +50,29 @@ describe("service accounts and live catalogue", () => {
     expect(screen.getByText(/No services match/)).toBeInTheDocument();
     other.unmount();
   });
+  it("shows provider logos in available and connected service rows", async () => {
+    const logo = "https://logos.composio.dev/api/gmail";
+    const api = fakeConnectionsApi({
+      list: vi.fn(async () => ({
+        enabled: true,
+        connections: [
+          { id, toolkit: "gmail", alias: "Work", status: "active" as const, createdAt: 1 },
+        ],
+      })),
+      catalogue: vi.fn(async () => ({
+        enabled: true,
+        items: [{ ...toolkit, logo }],
+      })),
+    });
+    renderConnections(<ServiceConnections />, api);
+    const connected = await screen.findByRole("list", { name: "Connected accounts" });
+    await waitFor(() => expect(connected.querySelector("img")).toHaveAttribute("src", logo));
+    await userEvent
+      .setup()
+      .click(screen.getByRole("button", { name: "Browse available services" }));
+    const available = await screen.findByRole("list", { name: "Service catalogue" });
+    expect(available.querySelector("img")).toHaveAttribute("src", logo);
+  });
   it("shows at most four onboarding examples until asked for more", async () => {
     const api = fakeConnectionsApi({
       catalogue: vi.fn(async () => ({
