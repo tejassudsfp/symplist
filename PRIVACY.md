@@ -1,6 +1,6 @@
 # Privacy design and analytics
 
-This document describes requirements for the planned application, not an assertion that a hosted service is operating. A deployment-specific privacy notice must identify its operator, contact channel, processing purposes, vendors/regions, retention, deletion, and analytics choices before launch.
+This document describes the privacy design of the released application. A deployment-specific privacy notice must identify its operator, contact channel, processing purposes, vendors/regions, retention, deletion, and analytics choices.
 
 Task documents, chats, Vault entries, search indexes, and artifact snapshots follow the specified encryption-at-rest model. The authorized service can decrypt ordinary content and supports service-managed Vault recovery; user-only decryption is not promised. Sharing deliberately discloses a reviewed snapshot, and expiry cannot erase copies already fetched by recipients.
 

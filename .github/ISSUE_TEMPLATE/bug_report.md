@@ -9,7 +9,7 @@ about: Report a reproducible problem in the repository or application
 
 ## Reproduction
 
-Include the revision, relevant environment, and steps using fictional data. Current repository status is pre-implementation.
+Include the revision (commit hash), relevant environment (self-hosted topology or hosted beta), and steps using fictional data.
 
 ## Evidence
 
