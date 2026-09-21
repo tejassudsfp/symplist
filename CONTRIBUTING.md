@@ -4,7 +4,7 @@ Thanks for helping make task management simpler. The repository currently contai
 
 ## Before starting
 
-Read the [notes index](docs/notes/files/00_index.md), [design master](design/mockups/overall.md), and the relevant screen briefs. The supplied workspace sample establishes visual direction; it does not cover every required screen. Check issues and open a focused proposal for changes that alter architecture or scope.
+Read the [notes index](docs/notes/files/00_index.md). Check issues and open a focused proposal for changes that alter architecture or scope.
 
 ## Making a change
 

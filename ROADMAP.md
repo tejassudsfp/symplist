@@ -10,4 +10,4 @@ Everything below is pending implementation. This order groups work; it does not 
 6. Time: deadlines, calendar, quiet hours, notifications, Resend reminders, durable/local job recovery.
 7. Release readiness: Vault/recovery, remaining administrative and failure states, optional PostHog analytics, privacy checks, accessibility, clean self-hosting, backup/restore, and deployment guides.
 
-Acceptance is defined in [the numbered notes](docs/notes/files/00_index.md), [44 screen briefs](design/mockups/overall.md). No public release is complete until implementation, tests, and documented setup support the claims made in the README.
+Acceptance is defined in [the numbered notes](docs/notes/files/00_index.md). No public release is complete until implementation, tests, and documented setup support the claims made in the README.

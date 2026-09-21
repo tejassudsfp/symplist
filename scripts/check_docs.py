@@ -1,4 +1,4 @@
-"""Check local Markdown targets and the design screen index; no dependencies."""
+"""Check local Markdown targets; no dependencies."""
 from pathlib import Path
 import re
 import sys
@@ -16,17 +16,7 @@ for source in root.rglob("*.md"):
         path = unquote(target.split("#", 1)[0])
         if path and not (source.parent / path).exists():
             errors.append(f"{source.relative_to(root)}: missing {path}")
-folder = root / "design/mockups"
-master = (folder / "overall.md").read_text()
-screens = [p for p in folder.glob("*.md") if p.name not in {"overall.md", "themes.md"}]
-for screen in screens:
-    if f"]({screen.name})" not in master:
-        errors.append(f"Screen missing from master: {screen.name}")
-for file in [root / "README.md", folder / "overall.md"]:
-    for count in re.findall(r"(?:all )?(\d+) (?:individual )?screen briefs", file.read_text()):
-        if int(count) != len(screens):
-            errors.append(f"{file.relative_to(root)}: stale screen count {count}")
 if errors:
     print("\n".join(errors))
     sys.exit(1)
-print(f"Local Markdown links and {len(screens)} screen briefs verified.")
+print("Local Markdown links verified.")

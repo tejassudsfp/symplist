@@ -16,8 +16,8 @@ most simple.**
 | Phase | State |
 | --- | --- |
 | 0 · Scaffold | Done |
-| A · Research | Done — `docs/build/research/` |
-| B · Architecture | Done — `docs/build/architecture.md`, revised after a 56-issue review |
+| A · Research | Done |
+| B · Architecture | Done, revised after a 56-issue review |
 | C · Foundation | Done; the four deferred provider/executor checks landed in D2/E |
 | D1 · Feature wave 1 | Done and verified |
 | **D2 · Feature wave 2** | **Done and verified** |
@@ -61,9 +61,7 @@ node scripts/check-api-deploy.mjs
 python3 scripts/check_docs.py
 ```
 
-D2/E and the repository-side F/G release work are complete. The resume anchor is
-`docs/build/progress.md`; it records the exact passing focused, browser and live evidence. The owner
-still controls the feature-branch merge, production provider settings and post-deploy smoke.
+D2/E and the repository-side F/G release work are complete. The owner still controls the feature-branch merge, production provider settings and post-deploy smoke.
 
 ---
 
@@ -143,12 +141,10 @@ The account-wide Cloudflare limit is ~1,200 requests / 5 min, so D1 access runs 
 apps/      api (NestJS) · web (Next.js) · worker (Trigger.dev) · e2e (Playwright)
 packages/  contracts config crypto db core storage email analytics search docs
            integrations agent testing
-docs/build/  architecture.md  decisions.md  progress.md  coverage.md  research/  reviews/
-design/      mockups/ (44 screen briefs)  "UI sample/"
 docs/notes/files/  17 product notes
 ```
 
-`docs/build/progress.md` is the resume anchor. Read it before doing anything.
+
 
 ## Commands
 
@@ -207,7 +203,6 @@ Put one in the wrong file and the app refuses to boot.
 - **Inside `packages/contracts`, import `z` only from `src/common/zod.ts`.** That module configures
   `jitless`, which the browser needs because the CSP has no `unsafe-eval`. `zod.test.ts` fails on any
   contracts module importing `"zod"` directly — the fix is the import, never the test.
-- `docs/build/decisions.md` is append-only (`merge=union`). Add rows; never rewrite existing ones.
 
 ## Credentials
 

@@ -22,6 +22,5 @@ Product decisions and implementation specifications. The application is not impl
 | 16 | [Simon handoffs and artifact sharing](16_simon_handoffs_and_artifact_sharing.md) | Facilitator scope, specialist prompts, encrypted snapshots, and read-only grants |
 | 17 | [Product analytics](17_analytics.md) | PostHog event allowlist, privacy, consent, and configuration |
 
-For visual design, start with [the the design tool master prompt](../../../design/mockups/overall.md), then [the theme brief](../../../design/mockups/themes.md) and the individual screen briefs linked there. Those screen filenames retain their descriptive names as requested.
 
 The notes preserve current decisions; the design briefs expand them into visual states and explicitly mark new assumptions. No payment or automatic-invite flows belong in beta. Direct Trigger-to-browser output remains an evaluated alternative, not a confirmed replacement for backend delivery.

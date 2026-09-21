@@ -4,7 +4,7 @@
 
 A calm task workspace for keeping track of what matters, making progress, and handing bigger work to the right tools.
 
-[Self-hosting guide](SELF_HOSTING.md) · [Product specification](docs/notes/files/01_product.md) · [Design reference](<design/UI sample/README.md>) · [Contributing](CONTRIBUTING.md) · [MIT license](LICENSE)
+[Self-hosting guide](SELF_HOSTING.md) · [Product specification](docs/notes/files/01_product.md) · [Contributing](CONTRIBUTING.md) · [MIT license](LICENSE)
 
 ## Project status
 
@@ -47,25 +47,16 @@ Simon is a productivity facilitator. It helps clarify tasks, maintain useful con
 
 `DURABLE=false` runs agent work and scheduled jobs inside Nest without Trigger credentials. `DURABLE=true` delegates that work to Trigger; Nest remains the browser delivery boundary. No agent sandboxes are planned.
 
-See the binding [architecture](docs/build/architecture.md), [document versioning](docs/notes/files/11_document_versioning.md), and [analytics](docs/notes/files/17_analytics.md) for the full contracts.
+See the [document versioning](docs/notes/files/11_document_versioning.md) and [analytics](docs/notes/files/17_analytics.md) contracts.
 
 ## Explore the repository
 
 | Path | Contents |
 | --- | --- |
 | [`docs/notes/files/`](docs/notes/files/00_index.md) | Numbered product decisions and technical specifications |
-| [`design/UI sample/`](<design/UI sample/README.md>) | Supplied workspace reference and its companion runtime |
-| [`design/mockups/`](design/mockups/overall.md) | Master design brief, theme system, and 44 individual screen briefs |
 | [Self-hosting guide](SELF_HOSTING.md) | Tested local setup, production deployment, operations, backup, and recovery |
 | [Roadmap](ROADMAP.md) | Implementation sequence and release gates |
 
-To inspect the design export locally, serve the sample directory with a static HTTP server, for example:
-
-```sh
-python3 -m http.server 8000 --directory "design/UI sample" --bind 127.0.0.1
-```
-
-Then open `http://127.0.0.1:8000/workspace_now.dc.html`. This serves the design reference, not the application. The export references online fonts; its state/theme/viewport controls are design-review tooling.
 
 ## Run locally
 

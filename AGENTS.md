@@ -110,7 +110,6 @@ Known hotspots, every time:
 - `apps/web/src/components/shell/workspace.tsx` — several features extend the same seam.
 - `apps/web/src/app/globals.css` — every feature appends; keep all contributions.
 - `pnpm-lock.yaml` — take every importer's entries, then `pnpm install`.
-- `docs/build/decisions.md` — `merge=union`; keep every row.
 - Migration numbering — no gaps, no duplicates, still expand-only.
 
 **Budget for the integration tail.** On the D1 merge the merges themselves took ~15 minutes; the
