@@ -3,6 +3,7 @@ import {
   taskCreateToolInputSchema,
   taskMoveToolInputSchema,
   taskScheduleToolInputSchema,
+  taskSearchToolInputSchema,
   workspaceErrorCodes,
 } from "@symplist/contracts";
 import { type SimonNativeOptions, SimonNativeSession } from "@symplist/core/simon";
@@ -28,6 +29,12 @@ export function simonNativeTools(context: SimonToolContext, options: SimonNative
     }
   };
   return {
+    task_search: tool({
+      description:
+        "Find the owner's open tasks by title when you have a name but not an id. Returns bounded summaries; use the returned taskId with the other task tools.",
+      inputSchema: taskSearchToolInputSchema,
+      execute: (args) => result(() => session.search(args)),
+    }),
     task_create: tool({
       description:
         "Create an owned task or subtask. Without a parent or collection it goes to Unclassified.",

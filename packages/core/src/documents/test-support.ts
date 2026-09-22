@@ -50,7 +50,7 @@ export interface DocumentsTestEnvironment {
   readonly events: DocumentHeadChanged[];
   clock: number;
   createUser(state?: "admitted" | "relocked" | "locked"): Promise<string>;
-  createTask(ownerId: string): Promise<string>;
+  createTask(ownerId: string, title?: string): Promise<string>;
   archiveTask(taskId: string): Promise<void>;
   relock(userId: string): Promise<void>;
   user(userId: string): { readonly kind: "user"; readonly userId: string };
@@ -118,12 +118,12 @@ export async function createDocumentsTestEnvironment(
       ]);
       return id;
     },
-    async createTask(ownerId) {
+    async createTask(ownerId, taskTitle = "Test task") {
       const id = uuidv7(environment.clock);
       const key = await accountKeys.require(ownerId);
       let title: string;
       try {
-        title = encryptFieldText(key, taskTitleContext(ownerId, id), "Test task");
+        title = encryptFieldText(key, taskTitleContext(ownerId, id), taskTitle);
       } finally {
         zeroize(key.key);
       }
