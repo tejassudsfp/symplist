@@ -14,9 +14,13 @@ import {
   themes,
 } from "./registry.ts";
 
-const samplePath = fileURLToPath(
-  new URL("../../../../design/UI sample/workspace_now.dc.html", import.meta.url),
-);
+/**
+ * The `THEMES` literal of the original UI sample export, extracted verbatim when `design/` was
+ * removed from the repository for the open-source release (c22abfb). The values are byte-identical
+ * to the export; only the container changed, so this stays the independent source the registry is
+ * checked against rather than a copy of the registry itself.
+ */
+const samplePath = fileURLToPath(new URL("./__fixtures__/sample-themes.json", import.meta.url));
 
 interface SampleTheme {
   name: string;
@@ -30,14 +34,9 @@ interface SampleTheme {
   [geometry: string]: unknown;
 }
 
-/** Evaluates the `THEMES` object literal from the committed UI sample export. */
+/** Reads the committed UI sample themes. Key order is the sample's own theme order. */
 function loadSampleThemes(): Record<string, SampleTheme> {
-  const html = readFileSync(samplePath, "utf8");
-  const start = html.indexOf("const THEMES = {");
-  const end = html.indexOf("\n};", start);
-  expect(start).toBeGreaterThan(0);
-  const literal = html.slice(start + "const THEMES = ".length, end + 2);
-  return new Function(`return (${literal});`)() as Record<string, SampleTheme>;
+  return JSON.parse(readFileSync(samplePath, "utf8")) as Record<string, SampleTheme>;
 }
 
 const paletteKeys: ReadonlyArray<keyof ThemePalette> = [
