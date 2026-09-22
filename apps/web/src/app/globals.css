@@ -3483,3 +3483,29 @@
     min-height: calc(100dvh - 112px);
   }
 }
+
+/* Approval card: the plain-language summary decides; exact fields stay one disclosure away. */
+.sym-simon-approval-line {
+  margin: 0 0 8px;
+}
+.sym-simon-approval-subject {
+  color: var(--sym-muted);
+  overflow-wrap: anywhere;
+}
+.sym-simon-approval-details {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--sym-line);
+}
+.sym-simon-approval-details > summary {
+  color: var(--sym-muted);
+}
+.sym-simon-approval-details > * + * {
+  margin-top: 8px;
+}
+.sym-simon-approval-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--sym-muted);
+}
