@@ -51,7 +51,7 @@ async function openChat(page: Page, taskId: string) {
   await expect(page.getByRole("button", { name: "Ask Simon", exact: true })).toHaveCount(0);
 }
 
-test("task chat sends with Mod+Enter, suppresses IME submission and restores history without duplicates", async ({
+test("task chat writes a newline with Shift+Enter, sends with Mod+Enter, suppresses IME submission and restores history without duplicates", async ({
   context,
   page,
 }, testInfo) => {
@@ -86,7 +86,9 @@ test("task chat sends with Mod+Enter, suppresses IME submission and restores his
   await openChat(page, task.id);
   const composer = page.getByLabel("Message Simon", { exact: true });
   await composer.fill("Help me tighten the Projects section.");
-  await composer.press("Enter");
+  // Shift+Enter is the newline gesture: plain Enter now sends, so the draft has to survive this
+  // line break for the IME and Mod+Enter checks below to have anything to act on.
+  await composer.press("Shift+Enter");
   await expect(composer).toHaveValue("Help me tighten the Projects section.\n");
   await expect(page.getByRole("button", { name: "Send message", exact: true })).toBeEnabled();
   const submissions: string[] = [];
