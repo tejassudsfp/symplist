@@ -81,6 +81,72 @@ describe("deterministic external action policy", () => {
       ),
     ).toBe("unavailable");
   });
+  it("lets an owner who chose reads run an untagged-free read without an entry in the allowlist", () => {
+    expect(actionPolicy(read.slug, { id: "123", limit: 4 }, [read], [], "reads")).toBe("exempt");
+    expect(
+      actionPolicy(read.slug, { query: "invoice", ids: ["1", "2"] }, [read], [], "reads"),
+    ).toBe("exempt");
+    // The empty deploy allowlist is the state this ships in, so the owner's choice is the only
+    // thing standing between a read and an approval card.
+    expect(actionPolicy(read.slug, { id: "123" }, [read], [], "all")).toBe("approval_required");
+  });
+  it.each([
+    { slug: send.slug, tags: { readOnlyHint: false } },
+    { slug: send.slug, tags: { readOnlyHint: true, destructiveHint: true } },
+    { slug: send.slug, tags: null },
+    { slug: send.slug, tags: {} },
+  ])("never exempts a write or an untagged action for an owner who chose reads: %j", (action) => {
+    expect(actionPolicy(action.slug, { id: "123" }, [{ ...send, ...action }], [], "reads")).toBe(
+      "approval_required",
+    );
+  });
+  it.each([
+    { id: "https://evil.test" },
+    { id: "x@evil.test" },
+    { id: "mailto:x@evil.test" },
+    { id: "www.evil.test" },
+    { recipient: "123" },
+    { body: "a note" },
+    { nested: { destination: "desk" } },
+    { ids: ["123", "https://evil.test"] },
+    { id: "123", note: "line one\nline two" },
+    { id: "x".repeat(257) },
+    { id: undefined },
+    { limit: Number.NaN },
+  ])("refuses an owner-waived read that carries a destination or prose: %j", (args) => {
+    expect(actionPolicy(read.slug, args, [read], [], "reads")).toBe("approval_required");
+  });
+  it("keeps the slug and schema checks for an owner who chose reads", () => {
+    expect(actionPolicy("COMPOSIO_MULTI_EXECUTE_TOOL", {}, [read], [], "reads")).toBe(
+      "unavailable",
+    );
+    expect(
+      actionPolicy(
+        "COMPOSIO_NEW_TOOL",
+        { id: "123" },
+        [{ ...read, slug: "COMPOSIO_NEW_TOOL" }],
+        [],
+        "reads",
+      ),
+    ).toBe("unavailable");
+    // A reviewed slug whose upstream schema moved is a different action wearing the same name.
+    expect(
+      actionPolicy(
+        read.slug,
+        { id: "123" },
+        [{ ...read, schema: { type: "string" } }],
+        reviewed,
+        "reads",
+      ),
+    ).toBe("approval_required");
+  });
+  it("reads the preference of each action's own connection within a batch", () => {
+    const waived = { slug: read.slug, arguments: { id: "123" }, approvalMode: "reads" as const };
+    const asking = { slug: read.slug, arguments: { id: "456" } };
+    expect(executionBatchPolicy([waived, waived], [read], [])).toBe("exempt");
+    expect(executionBatchPolicy([asking], [read], [])).toBe("approval_required");
+    expect(executionBatchPolicy([waived, asking], [read], [])).toBe("split_required");
+  });
   it("hashes object order canonically, preserving array order and actual changes", () => {
     expect(actionSchemaHash({ b: 2, a: 1 })).toBe(actionSchemaHash({ a: 1, b: 2 }));
     expect(actionSchemaHash([1, 2])).not.toBe(actionSchemaHash([2, 1]));
