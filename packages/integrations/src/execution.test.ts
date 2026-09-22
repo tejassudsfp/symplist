@@ -274,12 +274,33 @@ describe("owner-bound Composio wrapper", () => {
     f.client.setToolHandler("COMPOSIO_SEARCH_TOOLS", () => ({
       data: { text: marker.repeat(12000) },
     }));
-    await expect(f.tools.searchTools("email")).rejects.toThrow("integration.invalid_response");
+    await expect(f.tools.searchTools("email")).rejects.toThrow("integration.result_too_large");
     expect(() => cleanToolArguments({ value: marker.repeat(12000) })).toThrow(
       "integration.invalid_arguments",
     );
     expect(cleanToolArguments({ nested: { account: marker, keep: true } })).toEqual({
       nested: { keep: true },
+    });
+  });
+});
+
+describe("an oversized provider result", () => {
+  it("is a completed action with an unusable result, never an uncertain outcome", async () => {
+    const f = await fixture();
+    // The response arrives and serializes; only its size is the problem. A Gmail fetch with
+    // include_payload over a hundred threads reaches this easily.
+    f.client.setToolHandler(schema.slug, () => ({
+      data: { messages: Array.from({ length: 400 }, (_, i) => ({ id: i, body: "x".repeat(500) })) },
+      error: null,
+    }));
+    const action = await f.tools.resolveAction({
+      slug: schema.slug,
+      arguments: { recipient: "maya@example.test" },
+    });
+    // Reporting this as uncertain would tell the caller the opposite of the truth: that the action
+    // may not have run and must not be retried, when in fact it ran and the query needs narrowing.
+    await expect(f.tools.executeResolved(action, { sideEffect: true })).rejects.toMatchObject({
+      code: "integration.result_too_large",
     });
   });
 });

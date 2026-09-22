@@ -146,6 +146,9 @@ const reserved = new Set([
 ]);
 const actionSlug = /^[A-Z][A-Z0-9_]{1,127}$/;
 
+/** Largest provider result accepted, so one oversized read cannot fill a turn's context. */
+export const MAX_RESULT_BYTES = 128_000;
+
 function assertAction(slug: string): void {
   if (!actionSlug.test(slug) || slug.startsWith("COMPOSIO_")) {
     throw new IntegrationError("integration.tool_unavailable");
@@ -176,10 +179,18 @@ export function cleanToolArguments(value: unknown): Record<string, unknown> {
   return result;
 }
 
+/**
+ * Caps a provider result. Exceeding the cap is not ambiguity about whether the action ran: the
+ * response arrived and serialized, so the action demonstrably completed and only its result is
+ * unusable. Reporting that as uncertain tells the caller the opposite of the truth -- that the
+ * outcome is unknown and must not be retried -- when what they need is to narrow the request.
+ */
 function boundedResult(value: Record<string, unknown>): Record<string, unknown> {
   const encoded = JSON.stringify(value);
-  if (Buffer.byteLength(encoded) > 128_000)
-    throw new IntegrationError("integration.invalid_response");
+  if (Buffer.byteLength(encoded) > MAX_RESULT_BYTES)
+    throw new IntegrationError("integration.result_too_large", {
+      status: 413,
+    });
   return JSON.parse(encoded) as Record<string, unknown>;
 }
 
@@ -415,6 +426,10 @@ export class ConnectionTools {
       }
       return boundedResult(result.data);
     } catch (error) {
+      // A result we could not fit is a completed action, so it keeps its own code. Only a response
+      // we could not make sense of leaves the outcome genuinely unknown.
+      if (error instanceof IntegrationError && error.code === "integration.result_too_large")
+        throw error;
       if (
         options.sideEffect &&
         error instanceof IntegrationError &&

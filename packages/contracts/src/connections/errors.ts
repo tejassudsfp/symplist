@@ -13,6 +13,7 @@ export const connectionsErrorCodes = defineErrorCodes({
   "integration.provider_failed": 502,
   "integration.uncertain": 409,
   "integration.invalid_response": 502,
+  "integration.result_too_large": 413,
   "integration.tool_unavailable": 400,
   "integration.invalid_arguments": 400,
   "integration.account_selection_required": 409,

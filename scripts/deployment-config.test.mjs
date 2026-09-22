@@ -32,7 +32,9 @@ test("Render deploys the paid Docker API only after checks, with both public hos
 });
 
 test("Render keeps production origins and durable executor placement explicit", () => {
-  assert.match(envEntry("WEB_ORIGIN"), /value: https:\/\/symplist\.tejassuds\.com/);
+  // The web app is served from app.symplist…; api and artifacts are the two hostnames on the
+  // single Render service, and ARTIFACT_ORIGIN must differ from both of the others.
+  assert.match(envEntry("WEB_ORIGIN"), /value: https:\/\/app\.symplist\.tejassuds\.com/);
   assert.match(envEntry("API_ORIGIN"), /value: https:\/\/api\.symplist\.tejassuds\.com/);
   assert.match(envEntry("WS_ORIGIN"), /value: wss:\/\/api\.symplist\.tejassuds\.com/);
   assert.match(envEntry("ARTIFACT_ORIGIN"), /value: https:\/\/artifacts\.symplist\.tejassuds\.com/);

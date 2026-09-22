@@ -5,6 +5,7 @@ export type IntegrationCode =
   | "integration.provider_failed"
   | "integration.uncertain"
   | "integration.invalid_response"
+  | "integration.result_too_large"
   | "integration.tool_unavailable"
   | "integration.invalid_arguments"
   | "integration.account_selection_required"

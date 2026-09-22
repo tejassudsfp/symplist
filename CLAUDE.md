@@ -53,11 +53,19 @@ pnpm secrets:generate
 - `DURABLE=true` — **all** model and tool execution happens in the `simon-run` Trigger task. The api only accepts the message, claims the conversation, and dispatches; it never runs model or tool code, and it **rejects `OPENAI_API_KEY`** at boot so it cannot.
 - `DURABLE=false` — the api runs the same loop in process and makes **zero** Trigger calls, needing no Trigger credentials. Used for local development and the Playwright harness; also the simplest self-hosted topology.
 
-**Execution location and content retention are separate questions.** Trigger payloads/outputs/tags stay ids/enums/counts only; encrypted content returns through the signed worker-to-API relay. Trigger Sessions and `chat.agent` are forbidden — their streams would retain user content in plaintext on Trigger, breaking the account-deletion crypto-shred promise. Do not drift into them.
+**Execution location and content retention are separate questions.** Trigger payloads/outputs/tags stay ids/enums/counts only; encrypted content returns through the signed worker-to-API relay.
+
+**`chat.agent` is allowed, under three conditions that are the whole reason it is allowed.** It was previously forbidden outright, because its default persistence writes the accumulated conversation to Trigger's own object storage after every turn — plaintext, overwritten rather than expired, and outside the account-deletion crypto-shred promise. Registering a transcript storage replaces that write entirely, so:
+
+1. **A transcript storage is mandatory.** `simon-chat` stores the conversation in D1 under the account data key (`chat_transcript_messages`, `chat_transcript_state`), and the Simon purge contributor deletes both. `purge-coverage.test.ts` fails if any owner-scoped table is left uncovered.
+2. **Approvals stay ours.** A connector action is gated by an `approvals` row bound to exact arguments, connection and expiry, one pending per run. That row is the authorization; the gate is never delegated to Trigger's human-in-the-loop mechanism.
+3. **Delivery stays Nest.** Chunks reach the browser through the signed relay. Direct Trigger-to-browser streaming remains an evaluated alternative (note 07), not the route.
+
+What still rests on Trigger is the session's `.in` / `.out` streams, which carry turn content in plaintext for the platform's realtime retention window. That is a narrowing of the at-rest promise and is deliberate; it is not the unbounded snapshot the original prohibition was about. Do not remove the transcript storage to "simplify" the agent — that single change reinstates the snapshot.
 
 **Simon's prompts stay in code**, versioned with git and changed only by deploy. Trigger managed prompts are not used: prompt changes must not bypass review, and the prompt behind any run must be recoverable from the commit.
 
-Trigger tasks (`apps/worker/src/trigger/`): `symplist-healthcheck`, `account-purge`, `document-git`, `documents-maintenance`, `search-index`, `simon-run`, `reminder-scan` (concurrency 1), `cleanup-hourly`, `connections-reconcile`.
+Trigger tasks (`apps/worker/src/trigger/`): `symplist-healthcheck`, `account-purge`, `document-git`, `documents-maintenance`, `search-index`, `simon-run`, `simon-chat` (durable chat session), `reminder-scan` (concurrency 1), `cleanup-hourly`, `connections-reconcile`.
 
 ## Secret placement (enforced by config; wrong file = refuses to boot)
 
