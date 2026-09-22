@@ -1,3 +1,4 @@
+import type { ConnectionApprovalMode } from "@symplist/contracts";
 import { z } from "zod";
 import type { ComposioExecutionClient, ComposioSession } from "./client.ts";
 import { IntegrationError, normalizeIntegrationError, upstreamFailureStatus } from "./errors.ts";
@@ -8,6 +9,8 @@ export interface ExternalConnection {
   readonly toolkit: string;
   readonly connectedAccountId: string;
   readonly generation: number;
+  /** The owner's approval preference, carried with the account so the policy never has to ask D1. */
+  readonly approvalMode: ConnectionApprovalMode;
 }
 
 export interface ExternalToolSchema {

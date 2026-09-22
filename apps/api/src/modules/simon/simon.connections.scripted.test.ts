@@ -20,6 +20,7 @@ const connection = {
   toolkit: "gmail",
   connectedAccountId: "ca_scripted_browser",
   generation: 1,
+  approvalMode: "all" as const,
 };
 
 async function tools() {

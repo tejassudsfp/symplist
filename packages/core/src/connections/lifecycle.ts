@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import type { ConnectionApprovalMode } from "@symplist/contracts";
 import {
   computeDigest,
   computeDigestCandidates,
@@ -19,6 +20,7 @@ import { AccountKeyStore } from "../account/keys.ts";
 import { SimonRepository } from "../simon/repository.ts";
 import { connectionApprovalExpiryStatements } from "./approval-expiry.ts";
 import { ComposioAuthConfigs } from "./auth-configs.ts";
+import { connectionApprovalMode } from "./authority.ts";
 import { type ConnectionWriteFold, connectionFoldCompletion } from "./fold.ts";
 import type { ComposioSessions } from "./sessions.ts";
 
@@ -31,6 +33,7 @@ export interface ConnectionView {
   readonly toolkit: string;
   readonly alias: string | null;
   readonly status: "active" | "needs_attention" | "disconnected";
+  readonly approvalMode: ConnectionApprovalMode;
   readonly createdAt: number;
 }
 
@@ -115,6 +118,7 @@ export class ConnectionsService {
             )
           : null,
         status: row.status as ConnectionView["status"],
+        approvalMode: connectionApprovalMode(row.approval_mode),
         createdAt: Number(row.created_at),
       }));
     } finally {

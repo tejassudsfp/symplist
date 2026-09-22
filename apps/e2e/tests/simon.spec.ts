@@ -51,7 +51,7 @@ async function openChat(page: Page, taskId: string) {
   await expect(page.getByRole("button", { name: "Ask Simon", exact: true })).toHaveCount(0);
 }
 
-test("task chat sends with Mod+Enter, suppresses IME submission and restores history without duplicates", async ({
+test("task chat writes a newline with Shift+Enter, sends with Mod+Enter, suppresses IME submission and restores history without duplicates", async ({
   context,
   page,
 }, testInfo) => {
@@ -86,7 +86,9 @@ test("task chat sends with Mod+Enter, suppresses IME submission and restores his
   await openChat(page, task.id);
   const composer = page.getByLabel("Message Simon", { exact: true });
   await composer.fill("Help me tighten the Projects section.");
-  await composer.press("Enter");
+  // Shift+Enter is the newline gesture: plain Enter now sends, so the draft has to survive this
+  // line break for the IME and Mod+Enter checks below to have anything to act on.
+  await composer.press("Shift+Enter");
   await expect(composer).toHaveValue("Help me tighten the Projects section.\n");
   await expect(page.getByRole("button", { name: "Send message", exact: true })).toBeEnabled();
   const submissions: string[] = [];
@@ -351,6 +353,11 @@ test("approval exposes exact action details and denial never authorizes the acti
   await openChat(page, fixture.taskId);
   const card = page.getByRole("region", { name: "Action needs your approval" });
   await expect(card).toBeVisible();
+  // The decision is the default surface: a reader sees what is proposed and both answers without
+  // opening anything. The machine-readable arguments sit one disclosure away, still exact.
+  await expect(card.getByRole("button", { name: "Approve action" })).toBeVisible();
+  await expect(card.getByRole("button", { name: "Don\u2019t do this" })).toBeVisible();
+  await card.getByText("Exact action fields", { exact: true }).click();
   await expect(card.getByRole("textbox", { name: "Action preview" })).toHaveValue(
     /collaborator@example\.test/,
   );

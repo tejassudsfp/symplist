@@ -1,6 +1,11 @@
 "use client";
 
-import type { ConnectionStart, ConnectionView } from "@symplist/contracts";
+import type {
+  ConnectionApprovalMode,
+  ConnectionApprovalModeUpdate,
+  ConnectionStart,
+  ConnectionView,
+} from "@symplist/contracts";
 import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -24,6 +29,20 @@ import { ConnectionReturnTask } from "./return-context.tsx";
 import { useIntent } from "./use-intent.ts";
 
 type Toolkit = Catalogue["items"][number];
+
+/** Plain language for the two settings. The owner is choosing when to be interrupted, not a policy. */
+const approvalModeChoices: readonly { mode: ConnectionApprovalMode; label: string }[] = [
+  { mode: "all", label: "Ask before every action" },
+  { mode: "reads", label: "Run read-only actions without asking" },
+];
+const approvalModeSummary: Record<ConnectionApprovalMode, string> = {
+  all: "Simon asks before every action.",
+  reads: "Simon reads without asking. Sending or changing still waits for you.",
+};
+const approvalModeSaved: Record<ConnectionApprovalMode, string> = {
+  all: "Saved. Simon will ask before every action on this account.",
+  reads: "Saved. Read-only actions on this account will run without asking.",
+};
 
 export function ServiceConnections({ compact = false }: { compact?: boolean }) {
   const session = useSession();
@@ -134,7 +153,7 @@ function Services({ compact }: { compact: boolean }) {
                     {connection.toolkit} ·{" "}
                     {connection.status === "active" ? "Connected" : "Needs attention"}
                   </span>
-                  <span>Simon can use this account's authorized capabilities.</span>
+                  <span>{approvalModeSummary[connection.approvalMode]}</span>
                   <span>Account {connection.id.slice(-8)}</span>
                 </div>
                 <Button
@@ -177,6 +196,10 @@ function Services({ compact }: { compact: boolean }) {
           connection={selected}
           finalFocus={manageFocus}
           onClose={() => setSelected(null)}
+          onApprovalMode={(mode) => {
+            setStatus(approvalModeSaved[mode]);
+            refresh();
+          }}
           onDisconnected={() => {
             setSelected(null);
             setStatus("Account disconnected. Future actions using it are stopped.");
@@ -390,15 +413,81 @@ function ConnectDialog({
   );
 }
 
+/**
+ * The owner's choice for one account. Both options are safe: the stricter one only costs taps, and
+ * the looser one still stops at anything that sends, changes or deletes.
+ */
+function ApprovalModeChoice({
+  connection,
+  onApplied,
+}: {
+  connection: ConnectionView;
+  onApplied: (mode: ConnectionApprovalMode) => void;
+}) {
+  const { api } = useConnectionsEnvironment();
+  const [chosen, setChosen] = useState(connection.approvalMode);
+  const intent = useIntent(
+    (body: ConnectionApprovalModeUpdate, key, signal) =>
+      api.approvalMode(connection.id, body, key, signal),
+    (result) => {
+      setChosen(result.approvalMode);
+      onApplied(result.approvalMode);
+    },
+  );
+  return (
+    <>
+      <fieldset className="sym-connection-fields" disabled={intent.busy || intent.uncertain}>
+        <legend>When Simon uses this account</legend>
+        {approvalModeChoices.map((choice) => (
+          <label key={choice.mode}>
+            <input
+              type="radio"
+              name={`approval-mode-${connection.id}`}
+              checked={chosen === choice.mode}
+              onChange={() => {
+                setChosen(choice.mode);
+                void intent.run({ approvalMode: choice.mode });
+              }}
+            />{" "}
+            {choice.label}
+          </label>
+        ))}
+        <p className="sym-connection-help">
+          Sending, changing and deleting always wait for you. A read runs unasked only when the
+          service marks the action read-only and it carries no address, link or message.
+        </p>
+      </fieldset>
+      {intent.error && (
+        <Notice
+          tone="error"
+          actions={
+            <Button
+              onClick={() => {
+                void intent.run();
+              }}
+            >
+              Check this change
+            </Button>
+          }
+        >
+          {intent.error} Retry checks the same change; it does not make a second one.
+        </Notice>
+      )}
+    </>
+  );
+}
+
 function ManageConnection({
   connection,
   finalFocus,
   onClose,
+  onApprovalMode,
   onDisconnected,
 }: {
   connection: ConnectionView;
   finalFocus: React.RefObject<HTMLElement | null>;
   onClose: () => void;
+  onApprovalMode: (mode: ConnectionApprovalMode) => void;
   onDisconnected: () => void;
 }) {
   const { api } = useConnectionsEnvironment();
@@ -435,6 +524,7 @@ function ManageConnection({
               ? "Connected"
               : "Needs attention — reconnect before Simon can use this account."}
           </DialogDescription>
+          <ApprovalModeChoice connection={connection} onApplied={onApprovalMode} />
           <p className="sym-connection-help">
             Disconnecting stops future actions using this account. It cannot recall content already
             sent. Reconnecting never silently sends a pending action.

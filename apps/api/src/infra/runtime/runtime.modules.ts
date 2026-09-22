@@ -78,6 +78,7 @@ export function runtimeModules(options: RuntimeOptions = {}): DynamicModule[] {
         betaAccessRequired: config.BETA_ACCESS_REQUIRED,
         durable: config.DURABLE,
         trigger,
+        chatSessions: config.SIMON_CHAT_SESSIONS,
         timers,
         log: appOperationalLog(logger),
         contributors,

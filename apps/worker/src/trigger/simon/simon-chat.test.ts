@@ -32,52 +32,42 @@ describe("simon-chat session", () => {
     expect(SIMON_CHAT_IDLE_SECONDS).toBeLessThanOrEqual(300);
   });
 
-  it("runs only a run that already belongs to this chat", async () => {
+  it("finds the conversation's own live run, with no caller able to name one", async () => {
     const env = await createDocumentsTestEnvironment();
     try {
       const { chatId, runId } = await seed(env);
       const runtime = { db: env.db } as never;
-      await expect(runForChat(runtime, chatId, { runId })).resolves.toBe(runId);
+      await expect(runForChat(runtime, chatId)).resolves.toBe(runId);
     } finally {
       await env.close();
     }
   });
 
-  it("refuses a run from another conversation, so client data cannot select one", async () => {
+  it("never reaches another conversation's run", async () => {
     const env = await createDocumentsTestEnvironment();
     try {
       const first = await seed(env);
       const second = await seed(env);
-      const runtime = { db: env.db } as never;
-      // `claim` fences on owner, executor and generation but is reached by run id alone. A session
-      // is addressed by chat id, so a run belonging to a different conversation must not start here
-      // even when it is perfectly valid on its own.
-      await expect(
-        runForChat(runtime, second.chatId, { runId: first.runId }),
-      ).rejects.toMatchObject({
-        code: "simon.not_found",
-      });
-      expect(first.chatId).not.toBe(second.chatId);
+      // Each session resolves only its own conversation's run; there is no argument that could
+      // point this turn at the other one.
+      await expect(runForChat({ db: env.db } as never, first.chatId)).resolves.toBe(first.runId);
+      await expect(runForChat({ db: env.db } as never, second.chatId)).resolves.toBe(second.runId);
     } finally {
       await env.close();
     }
   });
 
-  it("refuses client data that is absent, malformed or not a run id", async () => {
+  it("refuses a chat with no live run, and one that is not a conversation at all", async () => {
     const env = await createDocumentsTestEnvironment();
     try {
-      const { chatId } = await seed(env);
-      const runtime = { db: env.db } as never;
-      for (const clientData of [
-        undefined,
-        {},
-        { runId: 42 },
-        { runId: "../../etc" },
-        { runId: "" },
-      ])
-        await expect(runForChat(runtime, chatId, clientData)).rejects.toMatchObject({
-          code: "simon.payload_invalid",
-        });
+      const { chatId, runId } = await seed(env);
+      await env.db.run({ sql: "UPDATE runs SET status='completed' WHERE id=?", params: [runId] });
+      await expect(runForChat({ db: env.db } as never, chatId)).rejects.toMatchObject({
+        code: "simon.not_found",
+      });
+      await expect(runForChat({ db: env.db } as never, uuidv7())).rejects.toMatchObject({
+        code: "simon.not_found",
+      });
     } finally {
       await env.close();
     }

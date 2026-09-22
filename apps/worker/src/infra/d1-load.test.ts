@@ -256,6 +256,12 @@ describe("combined D1 request budget (§3.1)", () => {
         log,
         executor: new TriggerExecutor({
           runs: { cancel: vi.fn(), retrieve: vi.fn() },
+          // The load shape is the task dispatch; sessions stay off, so a call here is a defect.
+          sessions: {
+            start: async () => {
+              throw new Error("sessions are not enabled for this dispatch");
+            },
+          },
           tasks: {
             trigger: async (id, payload, options) => {
               expect(id).toBe("simon-run");

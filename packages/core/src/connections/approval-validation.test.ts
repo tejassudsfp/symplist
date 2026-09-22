@@ -22,6 +22,7 @@ function fixture() {
     toolkit: "mail",
     connectedAccountId: "ca_1",
     generation: 2,
+    approvalMode: "all" as const,
   };
   const authority: ConnectionToolAuthority = {
     ownerId: "owner",

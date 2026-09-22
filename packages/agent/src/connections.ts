@@ -8,7 +8,12 @@ import {
 } from "@symplist/integrations";
 import { type ToolSet, tool } from "ai";
 import { z } from "zod";
-import { APPROVAL_POLICY_VERSION, actionPolicy, executionBatchPolicy } from "./policy.ts";
+import {
+  APPROVAL_POLICY_VERSION,
+  actionPolicy,
+  executionBatchPolicy,
+  REVIEWED_READ_ACTIONS,
+} from "./policy.ts";
 import { untrustedData } from "./rules.ts";
 import type { SimonToolContext } from "./turn.ts";
 
@@ -141,7 +146,11 @@ export function simonConnectionTools(
           // choices and prevents a gated action from being mixed with another action.
           const actions = await external.resolveActions(input.actions);
           const policy = executionBatchPolicy(
-            actions.map((action) => ({ slug: action.tool.slug, arguments: action.arguments })),
+            actions.map((action) => ({
+              slug: action.tool.slug,
+              arguments: action.arguments,
+              approvalMode: action.connection.approvalMode,
+            })),
             actions.map((action) => action.tool),
           );
           if (policy === "unavailable") throw new IntegrationError("integration.tool_unavailable");
@@ -173,7 +182,13 @@ export function simonConnectionTools(
             if (
               ready.connection.connectedAccountId !== action.connection.connectedAccountId ||
               ready.connection.generation !== action.connection.generation ||
-              actionPolicy(action.tool.slug, action.arguments, [ready.tool]) !== "exempt"
+              actionPolicy(
+                action.tool.slug,
+                action.arguments,
+                [ready.tool],
+                REVIEWED_READ_ACTIONS,
+                ready.connection.approvalMode,
+              ) !== "exempt"
             )
               throw new IntegrationError("integration.tool_unavailable");
             const output = resolved.redact(

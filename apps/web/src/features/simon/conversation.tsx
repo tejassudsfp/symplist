@@ -222,7 +222,9 @@ export function SimonConversation({ store, taskId }: { store: SimonStore; taskId
             // for anyone who remapped it. IME composition must finish first, or Enter picking a
             // candidate would send the half-typed line.
             if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
-            if (event.altKey || event.ctrlKey || event.metaKey) return;
+            // Mod+Enter kept sending long before plain Enter did, so it stays a send gesture: a
+            // habit built on it must not land on a dead key. Alt+Enter is not one, and never was.
+            if (event.altKey) return;
             event.preventDefault();
             if (canSendChat(state)) send();
           }}

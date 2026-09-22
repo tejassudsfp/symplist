@@ -56,7 +56,14 @@ describe("service accounts and live catalogue", () => {
       list: vi.fn(async () => ({
         enabled: true,
         connections: [
-          { id, toolkit: "gmail", alias: "Work", status: "active" as const, createdAt: 1 },
+          {
+            id,
+            toolkit: "gmail",
+            alias: "Work",
+            status: "active" as const,
+            approvalMode: "all" as const,
+            createdAt: 1,
+          },
         ],
       })),
       catalogue: vi.fn(async () => ({
@@ -148,7 +155,14 @@ describe("service accounts and live catalogue", () => {
       list: vi.fn(async () => ({
         enabled: true,
         connections: [
-          { id, toolkit: "gmail", alias: "Work", status: "needs_attention" as const, createdAt: 1 },
+          {
+            id,
+            toolkit: "gmail",
+            alias: "Work",
+            status: "needs_attention" as const,
+            approvalMode: "all" as const,
+            createdAt: 1,
+          },
         ],
       })),
     });
@@ -170,7 +184,14 @@ describe("service accounts and live catalogue", () => {
       list: vi.fn(async () => ({
         enabled: true,
         connections: [
-          { id, toolkit: "gmail", alias: "Personal", status: "active" as const, createdAt: 1 },
+          {
+            id,
+            toolkit: "gmail",
+            alias: "Personal",
+            status: "active" as const,
+            approvalMode: "all" as const,
+            createdAt: 1,
+          },
         ],
       })),
     });
@@ -184,6 +205,43 @@ describe("service accounts and live catalogue", () => {
     await user.click(screen.getByRole("button", { name: "Disconnect account" }));
     expect(await screen.findByText(/Account disconnected/)).toBeInTheDocument();
     expect(api.disconnect).toHaveBeenCalledTimes(1);
+  });
+  it("lets the owner waive the ask for read-only actions on one account", async () => {
+    const user = userEvent.setup();
+    let approvalMode: "all" | "reads" = "all";
+    const api = fakeConnectionsApi({
+      list: vi.fn(async () => ({
+        enabled: true,
+        connections: [
+          {
+            id,
+            toolkit: "gmail",
+            alias: "Work",
+            status: "active" as const,
+            approvalMode,
+            createdAt: 1,
+          },
+        ],
+      })),
+    });
+    vi.mocked(api.approvalMode).mockImplementation(async (connection, body) => {
+      approvalMode = body.approvalMode;
+      return { id: connection, approvalMode: body.approvalMode };
+    });
+    renderConnections(<ServiceConnections />, api);
+    expect(await screen.findByText("Simon asks before every action.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Manage Work" }));
+    expect(screen.getByRole("radio", { name: "Ask before every action" })).toBeChecked();
+    await user.click(screen.getByRole("radio", { name: "Run read-only actions without asking" }));
+    await waitFor(() =>
+      expect(api.approvalMode).toHaveBeenCalledWith(
+        id,
+        { approvalMode: "reads" },
+        expect.any(String),
+        expect.any(AbortSignal),
+      ),
+    );
+    expect(await screen.findByText(/Read-only actions on this account/)).toBeInTheDocument();
   });
   it("returns keyboard focus after closing provider details", async () => {
     const user = userEvent.setup();

@@ -35,8 +35,6 @@ import { conversationOwner, createTranscriptStorage } from "./transcript-adapter
 /** Idle before the session releases its run. Longer keeps a follow-up warm; it also holds compute. */
 export const SIMON_CHAT_IDLE_SECONDS = 120;
 
-const runIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-
 /** Resolves the runtime lazily, so a payload is refused before any credential loads. */
 async function resolveRuntime(): Promise<WorkerRuntime> {
   const runtime = await workerRuntime();
@@ -45,34 +43,29 @@ async function resolveRuntime(): Promise<WorkerRuntime> {
 }
 
 /**
- * The run this turn executes, proved to belong to this chat.
+ * The run this turn executes, found rather than supplied.
  *
- * `claim` fences a run on owner access, executor and generation, but it is reached with a run id
- * alone -- correct for `simon-run`, whose payload comes from our own dispatcher. A session is
- * addressed by chat id and its client data is not a trust boundary, so the two are tied together
- * here: the run must already belong to this conversation, or the turn does not start.
+ * A session's `basePayload` is fixed when the session is created and `sessions.start` is idempotent
+ * on its external id, so a per-turn run id could only ever reach the first turn. The session's
+ * external id is the conversation, and `runs_one_active` allows one live run per conversation, so
+ * the turn resolves its own work from D1 instead.
+ *
+ * That is also the safer shape: `claim` fences a run on owner access, executor and generation but is
+ * reached by run id alone, and a session's client data is not a trust boundary. Nothing a caller
+ * sends can select which run executes here.
  */
-export async function runForChat(
-  runtime: WorkerRuntime,
-  chatId: string,
-  clientData: unknown,
-): Promise<string> {
-  const runId = (clientData as { runId?: unknown } | undefined)?.runId;
-  if (typeof runId !== "string" || !runIdPattern.test(runId))
-    throw new WorkerError("simon.payload_invalid");
+export async function runForChat(runtime: WorkerRuntime, chatId: string): Promise<string> {
   const ownerId = await conversationOwner(runtime.db, chatId);
   const row = await runtime.db.first(
     sql(
-      "SELECT 1 AS ok FROM runs WHERE id = :run AND conversation_id = :chat AND owner_id = :owner",
-      {
-        run: runId,
-        chat: chatId,
-        owner: ownerId,
-      },
+      `SELECT id FROM runs WHERE conversation_id = :chat AND owner_id = :owner
+       AND status IN ('queued', 'running') ORDER BY created_at DESC LIMIT 1`,
+      { chat: chatId, owner: ownerId },
     ),
   );
+  // No live run is not an error the turn can fix: the session woke with nothing to do.
   if (!row) throw new WorkerError("simon.not_found");
-  return runId;
+  return String(row.id);
 }
 
 function transcripts(runtime: WorkerRuntime): SimonTranscriptStorage {
@@ -105,13 +98,13 @@ export const simonChat = chat.agent({
     },
   } as never,
 
-  async run({ chatId, clientData, signal, ctx }) {
+  async run({ chatId, signal, ctx }) {
     const runtime = await resolveRuntime();
     return reportingD1Counters(
       runtime.d1Counters,
       { task: "simon-chat", runId: ctx.run.id },
       async () => {
-        const runId = await runForChat(runtime, chatId, clientData);
+        const runId = await runForChat(runtime, chatId);
         // The same turn simon-run executes. Returning its result rather than a stream is what keeps
         // browser delivery on the relay instead of the session's output channel.
         return runDurableSimon({ runId }, runtime, ctx.attempt.number, signal);

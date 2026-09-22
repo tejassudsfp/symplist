@@ -32,7 +32,14 @@ async function fixture() {
   client.completeConnection(link.id);
   const session = await client.sessions.create(ownerId, sessionConfiguration({ gmail: [link.id] }));
   let connections: ExternalConnection[] = [
-    { id: "connection-1", ownerId, toolkit: "gmail", connectedAccountId: link.id, generation: 1 },
+    {
+      id: "connection-1",
+      ownerId,
+      toolkit: "gmail",
+      connectedAccountId: link.id,
+      generation: 1,
+      approvalMode: "all",
+    },
   ];
   const check = vi.fn(async () => true);
   const connectionsRead = vi.fn(async () => connections);

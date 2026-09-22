@@ -244,6 +244,7 @@ describe("native connection callback authority", () => {
         toolkit: "gmail",
         alias: "private_alias_marker",
         status: "active",
+        approvalMode: "all",
         createdAt: env.clock,
       },
     ]);
@@ -423,5 +424,71 @@ describe("connection disconnect and durable provider cleanup", () => {
     expect(
       await env.db.first(sql("SELECT generation FROM connections WHERE id = :id", { id })),
     ).toEqual({ generation: 2 });
+  });
+});
+
+describe("per-connection approval preference", () => {
+  it("asks by default, changes one account only, and never touches the connection generation", async () => {
+    const first = await service.callback(actor, await begin("Work"));
+    const second = await service.callback(actor, await begin("Personal"));
+    expect((await service.list(actor)).map((entry) => entry.approvalMode)).toEqual(["all", "all"]);
+
+    expect(await mutations().setApprovalMode(actor, first, "reads")).toEqual({
+      id: first,
+      approvalMode: "reads",
+    });
+    expect(
+      Object.fromEntries((await service.list(actor)).map((row) => [row.id, row.approvalMode])),
+    ).toEqual({ [first]: "reads", [second]: "all" });
+    // A preference is not an authority change, so approvals already waiting stay exactly as issued.
+    expect(
+      await env.db.first(sql("SELECT generation FROM connections WHERE id = :id", { id: first })),
+    ).toEqual({ generation: 1 });
+
+    expect(await mutations().setApprovalMode(actor, first, "all")).toEqual({
+      id: first,
+      approvalMode: "all",
+    });
+    expect((await service.list(actor)).map((entry) => entry.approvalMode)).toEqual(["all", "all"]);
+  });
+
+  it("refuses cross-user, disconnected and logged-out changes", async () => {
+    const id = await service.callback(actor, await begin());
+    await expect(mutations().setApprovalMode(await createActor(), id, "reads")).rejects.toThrow(
+      "integration.unauthorized",
+    );
+    expect(
+      await env.db.first(sql("SELECT approval_mode FROM connections WHERE id = :id", { id })),
+    ).toEqual({ approval_mode: null });
+
+    const other = await service.callback(actor, await begin());
+    await mutations().disconnect(actor, id);
+    await expect(mutations().setApprovalMode(actor, id, "reads")).rejects.toThrow(
+      "integration.unauthorized",
+    );
+
+    await env.db.run(
+      sql("UPDATE auth_sessions SET revoked_at = :now WHERE id = :session", {
+        now: int(env.clock),
+        session: actor.sessionId,
+      }),
+    );
+    await expect(mutations().setApprovalMode(actor, other, "reads")).rejects.toThrow(
+      "integration.unauthorized",
+    );
+  });
+
+  it("folds idempotency so a retried change replays instead of applying twice", async () => {
+    const id = await service.callback(actor, await begin());
+    const request = uuidv7();
+    const changes = mutations();
+    expect(await changes.setApprovalMode(actor, id, "reads", fold(request, false))).toEqual({
+      id,
+      approvalMode: "reads",
+    });
+    await changes.setApprovalMode(actor, id, "all", fold(request, false));
+    expect(
+      await env.db.first(sql("SELECT approval_mode FROM connections WHERE id = :id", { id })),
+    ).toEqual({ approval_mode: "reads" });
   });
 });

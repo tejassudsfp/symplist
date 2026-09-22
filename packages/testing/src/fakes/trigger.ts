@@ -134,6 +134,25 @@ export interface FakeBatchRunHandle {
   readonly publicAccessToken: string;
 }
 
+/** `sessions.start`: the session is task-bound, and `triggerConfig` is fixed when it is created. */
+export interface FakeCreateSessionInput {
+  readonly type: string;
+  readonly externalId: string;
+  readonly taskIdentifier: string;
+  readonly triggerConfig: { readonly basePayload: Readonly<Record<string, unknown>> };
+}
+
+/** The `CreatedSessionResponseBody` fields Symplist reads. */
+export interface FakeCreatedSession {
+  readonly id: string;
+  readonly externalId: string;
+  readonly taskIdentifier: string;
+  /** The run that answers this call: the session's live run, or the one it just triggered. */
+  readonly runId: string;
+  /** True when the session row already existed, whichever run answered. */
+  readonly isCached: boolean;
+}
+
 /** The `ctx` fields a task handler receives. */
 export interface FakeTaskRunContext {
   readonly run: {
@@ -179,7 +198,7 @@ export interface FakeMetadataRecord {
 }
 
 export interface FakeTriggerRecord {
-  readonly via: "trigger" | "triggerAndWait" | "batchTrigger" | "schedule";
+  readonly via: "trigger" | "triggerAndWait" | "batchTrigger" | "schedule" | "session";
   readonly taskIdentifier: string;
   readonly payload: unknown;
   readonly options: FakeTriggerOptions | undefined;
@@ -312,6 +331,15 @@ interface ScheduleState {
   lastTimestamp: Date | undefined;
 }
 
+interface SessionState {
+  readonly id: string;
+  readonly externalId: string;
+  readonly taskIdentifier: string;
+  /** Fixed when the session is created; every later run of it is triggered with this payload. */
+  readonly basePayload: unknown;
+  currentRunId: string | undefined;
+}
+
 const durationUnits: Record<string, number> = {
   s: 1000,
   m: 60_000,
@@ -418,6 +446,8 @@ export class FakeTriggerClient {
   readonly metadataWrites: FakeMetadataRecord[] = [];
   /** Run ids passed to `runs.cancel`, in order. */
   readonly cancellations: string[] = [];
+  /** Every call to `sessions.start`, in order. */
+  readonly sessionStarts: FakeCreatedSession[] = [];
 
   private readonly handlers = new Map<
     string,
@@ -431,9 +461,12 @@ export class FakeTriggerClient {
     { readonly key: string; readonly scope: FakeIdempotencyKeyScope }
   >();
   private readonly scheduleStates = new Map<string, ScheduleState>();
+  /** Sessions by external id: the platform keys them on `(environment, externalId)`. */
+  private readonly sessionStates = new Map<string, SessionState>();
   private readonly currentRun = new AsyncLocalStorage<RunState>();
   private runSequence = 0;
   private scheduleSequence = 0;
+  private sessionSequence = 0;
   private batchSequence = 0;
   private readonly batches = new Map<string, readonly string[]>();
 
@@ -573,6 +606,87 @@ export class FakeTriggerClient {
       return this.snapshot(run);
     },
   };
+
+  /**
+   * `sessions` with the SDK 4.6.0 rules for a session that outlives its runs: it is task-bound, its
+   * `triggerConfig` is fixed at creation, and it is idempotent on `externalId`.
+   */
+  readonly sessions = {
+    /**
+     * Creates the session and triggers its first run in one call. A session that already exists
+     * answers with its live run, or — once that run has finished — with a fresh run triggered from
+     * the payload the session was created with, never from this call's.
+     */
+    start: async (input: FakeCreateSessionInput): Promise<FakeCreatedSession> => {
+      if (input.externalId === "") {
+        throw new FakeTriggerApiError(400, "A session external id is required");
+      }
+      const existing = this.sessionStates.get(input.externalId);
+      if (existing && existing.taskIdentifier !== input.taskIdentifier) {
+        throw new FakeTriggerApiError(409, "A session is bound to one task");
+      }
+      let state = existing;
+      if (!state) {
+        this.sessionSequence += 1;
+        state = {
+          id: `session_fake${String(this.sessionSequence).padStart(6, "0")}`,
+          externalId: input.externalId,
+          taskIdentifier: input.taskIdentifier,
+          basePayload: snapshotValue(input.triggerConfig.basePayload),
+          currentRunId: undefined,
+        };
+        this.sessionStates.set(input.externalId, state);
+      }
+      const live =
+        state.currentRunId === undefined ? undefined : this.runStates.get(state.currentRunId);
+      if (live) this.refreshTimers(live);
+      if (live && !terminalStatuses.includes(live.status)) {
+        this.triggers.push({
+          via: "session",
+          taskIdentifier: state.taskIdentifier,
+          payload: snapshotValue(state.basePayload),
+          options: undefined,
+          runId: live.id,
+          deduplicated: true,
+          parentRunId: null,
+        });
+        return this.recordSessionStart(state, live.id, true);
+      }
+      const { run } = this.createRun(state.taskIdentifier, state.basePayload, undefined, "session");
+      state.currentRunId = run.id;
+      return this.recordSessionStart(state, run.id, existing !== undefined);
+    },
+
+    /** The session behind an external id, or undefined when none was started. */
+    retrieve: async (externalId: string): Promise<FakeCreatedSession | undefined> => {
+      const state = this.sessionStates.get(externalId);
+      return state === undefined || state.currentRunId === undefined
+        ? undefined
+        : {
+            id: state.id,
+            externalId: state.externalId,
+            taskIdentifier: state.taskIdentifier,
+            runId: state.currentRunId,
+            isCached: true,
+          };
+    },
+  };
+
+  private recordSessionStart(
+    state: SessionState,
+    runId: string,
+    isCached: boolean,
+  ): FakeCreatedSession {
+    const created: FakeCreatedSession = {
+      id: state.id,
+      externalId: state.externalId,
+      taskIdentifier: state.taskIdentifier,
+      runId,
+      isCached,
+    };
+    this.sessionStarts.push(created);
+    return created;
+  }
 
   /**
    * `idempotencyKeys` with the SDK 4.6.0 scoping rules. A raw string or array passed to `trigger` is

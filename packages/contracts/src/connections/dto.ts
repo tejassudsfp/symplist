@@ -22,14 +22,31 @@ export const connectionCallbackSchema = z.object({
   connected_account_id: z.string().min(1).max(256).optional(),
 });
 export type ConnectionCallback = z.infer<typeof connectionCallbackSchema>;
+/**
+ * How much of a connection its owner has agreed to let Simon run unattended. `all` asks before
+ * every action; `reads` waives the ask only for actions the provider itself marks read-only and
+ * that carry no recipient, address, URL or body. Nothing that writes or deletes is ever waived,
+ * so there is deliberately no third level.
+ */
+export const connectionApprovalModeSchema = z.enum(["all", "reads"]);
+export type ConnectionApprovalMode = z.infer<typeof connectionApprovalModeSchema>;
 export const connectionViewSchema = z.strictObject({
   id: idSchema,
   toolkit: connectionToolkitSchema,
   alias: z.string().nullable(),
   status: z.enum(["active", "needs_attention", "disconnected"]),
+  approvalMode: connectionApprovalModeSchema,
   createdAt: z.number().int().nonnegative(),
 });
 export type ConnectionView = z.infer<typeof connectionViewSchema>;
+export const connectionApprovalModeUpdateSchema = z.strictObject({
+  approvalMode: connectionApprovalModeSchema,
+});
+export type ConnectionApprovalModeUpdate = z.infer<typeof connectionApprovalModeUpdateSchema>;
+export const connectionApprovalModeResultSchema = z.strictObject({
+  id: idSchema,
+  approvalMode: connectionApprovalModeSchema,
+});
 export const connectionsListSchema = z.strictObject({
   enabled: z.boolean(),
   connections: z.array(connectionViewSchema),

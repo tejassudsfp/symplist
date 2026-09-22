@@ -57,6 +57,9 @@ function taskTitle(page: Page, title: string) {
 async function openTaskMenu(page: Page, title: string) {
   await row(page, title).hover();
   await page.getByRole("button", { name: `Task menu for ${title}` }).click();
+  // The click resolves before the menu mounts. Without this a following keypress races the open --
+  // Escape lands first, the menu appears after it, and it never closes.
+  await expect(page.getByRole("menu")).toBeVisible();
 }
 
 /** Adds a subtask under the focused task from the keyboard, and waits for it in the list. */

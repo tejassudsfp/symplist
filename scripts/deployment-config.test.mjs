@@ -39,6 +39,7 @@ test("Render keeps production origins and durable executor placement explicit", 
   assert.match(envEntry("WS_ORIGIN"), /value: wss:\/\/api\.symplist\.tejassuds\.com/);
   assert.match(envEntry("ARTIFACT_ORIGIN"), /value: https:\/\/artifacts\.symplist\.tejassuds\.com/);
   assert.match(envEntry("DURABLE"), /value: "true"/);
+  assert.match(envEntry("SIMON_CHAT_SESSIONS"), /value: "(true|false)"/);
   assert.match(envEntry("DATA_DRIVER"), /value: d1/);
   assert.match(envEntry("EMAIL_DRIVER"), /value: resend/);
   assert.match(envEntry("TRUST_PROXY_HOPS"), /value: "1"/);

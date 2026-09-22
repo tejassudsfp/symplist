@@ -46,7 +46,14 @@ async function fakeSubject(): Promise<ComposioContractSubject> {
   client.completeConnection(link.id);
   const session = await client.sessions.create(ownerId, sessionConfiguration({ gmail: [link.id] }));
   const connections: ExternalConnection[] = [
-    { id: "connection-1", ownerId, toolkit: "gmail", connectedAccountId: link.id, generation: 1 },
+    {
+      id: "connection-1",
+      ownerId,
+      toolkit: "gmail",
+      connectedAccountId: link.id,
+      generation: 1,
+      approvalMode: "all",
+    },
   ];
   const tools = new ConnectionTools(client, session, {
     ownerId,

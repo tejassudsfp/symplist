@@ -37,6 +37,8 @@ export interface ExecutorsDependencies {
   readonly durable: boolean;
   /** The Trigger client; required when `durable` and never used otherwise. */
   readonly trigger?: TriggerRunsClient | null;
+  /** `SIMON_CHAT_SESSIONS`: dispatch a kind that declares a session task through its session. */
+  readonly chatSessions?: boolean;
   readonly timers?: RuntimeTimers;
   readonly log?: OperationalLog;
   /** Defaults to the core events contributors. */
@@ -162,7 +164,9 @@ export class ExecutorsModule {
             if (!dependencies.trigger) {
               throw new Error("DURABLE=true needs a Trigger client (TRIGGER_SECRET_KEY)");
             }
-            return new TriggerExecutor(dependencies.trigger);
+            return new TriggerExecutor(dependencies.trigger, {
+              sessions: dependencies.chatSessions ?? false,
+            });
           },
         },
         {
