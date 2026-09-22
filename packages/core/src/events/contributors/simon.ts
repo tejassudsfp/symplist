@@ -9,6 +9,10 @@ export const simonEventsContributor: EventsContributor = {
       kind: "simon_run",
       triggerTaskId: "simon-run",
       payload: (job) => ({ runId: job.subjectId }),
+      sessionTaskId: "simon-chat",
+      // A session parks between turns, so it is addressed by the conversation rather than the run:
+      // `runs_one_active` keeps at most one live run per conversation, and `simon-chat` resolves it.
+      sessionExternalId: (job) => job.sessionExternalId,
       tracker: ({ db, betaAccessRequired }) =>
         new SimonExecutionTracker(db, { betaAccessRequired: betaAccessRequired ?? true }),
     },

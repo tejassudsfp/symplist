@@ -57,6 +57,13 @@ function countingTrigger(inner: TriggerRunsClient) {
         return inner.runs.cancel(runId);
       },
     },
+    sessions: {
+      start: async (input) => {
+        const started = await inner.sessions.start(input);
+        requests.push(started.runId);
+        return started;
+      },
+    },
   };
   return { client, requests, cancelled };
 }

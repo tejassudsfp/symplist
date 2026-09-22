@@ -1,6 +1,7 @@
 import type { z } from "zod";
 import { type ConfigIssue, type ConfigResult, unwrapConfig } from "./errors.ts";
 import {
+  booleanVariable,
   credentialVariable,
   type EnvRecord,
   enumVariable,
@@ -56,6 +57,11 @@ export interface ApiConfig extends SharedRuntimeConfig, AiProviderCredentials {
   /** Starts, polls and cancels Trigger runs; required when `DURABLE=true`. */
   TRIGGER_SECRET_KEY?: string;
   TRIGGER_PROJECT_REF?: string;
+  /**
+   * Dispatch a Simon turn into the conversation's durable chat session instead of a fresh
+   * `simon-run` task, so a follow-up inside the idle window answers from a parked run (§8.1).
+   */
+  SIMON_CHAT_SESSIONS: boolean;
 
   /** The api D1 lane token (§3.1); required when `DATA_DRIVER=d1`. */
   CLOUDFLARE_D1_API_TOKEN?: string;
@@ -102,6 +108,7 @@ export const apiVariableShape = {
     /^proj_[a-z0-9]{8,64}$/,
     "must be a Trigger.dev project ref (proj_…)",
   ),
+  SIMON_CHAT_SESSIONS: booleanVariable(false),
 
   CLOUDFLARE_D1_API_TOKEN: credentialVariable(),
 
@@ -169,6 +176,13 @@ function apiRuleIssues(fields: ApiFields): ConfigIssue[] {
     issues.push({
       variable: "EMAIL_FROM_REMINDERS",
       message: "is required when DURABLE=false: the api sends reminder email",
+    });
+  }
+
+  if (fields.SIMON_CHAT_SESSIONS && !fields.DURABLE) {
+    issues.push({
+      variable: "SIMON_CHAT_SESSIONS",
+      message: "needs DURABLE=true: a chat session only exists on Trigger",
     });
   }
 

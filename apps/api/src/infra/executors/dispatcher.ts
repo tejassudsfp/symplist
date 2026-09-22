@@ -155,6 +155,7 @@ export class ExecutionDispatcher {
           subjectId: intent.subjectId,
           ownerId: intent.ownerId,
           generation: readiness.generation,
+          sessionExternalId: intent.sessionExternalId,
         };
         let dispatchClaim: DispatchClaim = claim;
         let started: StartedExecution;

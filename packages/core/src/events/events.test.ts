@@ -94,9 +94,26 @@ describe("execution contributors (§8.1)", () => {
         subjectId: owner,
         ownerId: owner,
         generation: 3,
+        sessionExternalId: null,
       }),
     ).toEqual({ userId: owner });
     expect(purge?.tracker).toBeUndefined();
+    expect(purge?.sessionTaskId).toBeUndefined();
+  });
+
+  it("runs a Simon turn in the conversation's session, never in the run's (§8.1)", () => {
+    const simon = collectExecutionKinds().get("simon_run");
+    expect(simon?.sessionTaskId).toBe("simon-chat");
+    const job = {
+      intentId: id,
+      kind: "simon_run",
+      subjectId: owner,
+      ownerId: owner,
+      generation: 3,
+      sessionExternalId: "0199f2b4-0000-7000-8000-0000000000c1",
+    };
+    expect(simon?.sessionExternalId?.(job)).toBe("0199f2b4-0000-7000-8000-0000000000c1");
+    expect(simon?.sessionExternalId?.({ ...job, sessionExternalId: null })).toBeNull();
   });
 
   it("maps modes to executor kinds", () => {

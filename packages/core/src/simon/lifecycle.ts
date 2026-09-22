@@ -14,8 +14,10 @@ import { SimonError } from "./types.ts";
 export function dispatchSimonStatements(runId: string, now: number): Statement[] {
   return [
     sql(
-      `INSERT INTO dispatch_intents (id, owner_id, kind, subject_id, executor_generation, created_at, updated_at, write_id)
-    SELECT :intent, owner_id, 'simon_run', id, executor_generation, :now, :now, :intent FROM runs
+      // `conversation_id` is the session's external id: a durable chat session spans a conversation's
+      // turns, while each intent's subject is the one run of this turn (§8.1).
+      `INSERT INTO dispatch_intents (id, owner_id, kind, subject_id, session_external_id, executor_generation, created_at, updated_at, write_id)
+    SELECT :intent, owner_id, 'simon_run', id, conversation_id, executor_generation, :now, :now, :intent FROM runs
     WHERE id = :run AND status = 'queued' ON CONFLICT (kind, subject_id) DO NOTHING`,
       {
         intent: uuidv7(now),
