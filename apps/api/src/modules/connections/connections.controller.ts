@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
   Inject,
   Param,
   Post,
@@ -11,9 +12,11 @@ import {
   Res,
 } from "@nestjs/common";
 import {
+  type ConnectionApprovalModeUpdate,
   type ConnectionCallback,
   type ConnectionParams,
   type ConnectionStart,
+  connectionApprovalModeUpdateSchema,
   connectionCallbackSchema,
   connectionParamsSchema,
   connectionStartSchema,
@@ -82,6 +85,27 @@ export class ConnectionsController {
     if (!this.runtime?.enabled) throw new ApiError("integration.unavailable");
     return answer(() =>
       this.required().service.start(actor(session), body, foldedIdempotencyOf(request)),
+    );
+  }
+
+  /** Only the owner narrows or widens what Simon may run unattended, and only for one account. */
+  @Post(":id/approval-mode")
+  @HttpCode(200)
+  @Access("admitted", { fresh: true })
+  @Idempotent({ folded: true })
+  approvalMode(
+    @CurrentSession() session: SessionContext,
+    @Param({ schema: connectionParamsSchema }) params: ConnectionParams,
+    @Body({ schema: connectionApprovalModeUpdateSchema }) body: ConnectionApprovalModeUpdate,
+    @Req() request: Request,
+  ) {
+    return answer(() =>
+      this.required().mutations.setApprovalMode(
+        actor(session),
+        params.id,
+        body.approvalMode,
+        foldedIdempotencyOf(request),
+      ),
     );
   }
 

@@ -34,6 +34,10 @@ export function fakeConnectionsApi(overrides: Partial<ConnectionsApi> = {}): Con
       url: "https://provider.example/connect",
       secretUnavailable: false,
     })),
+    approvalMode: vi.fn(async (connection: string, body: { approvalMode: "all" | "reads" }) => ({
+      id: connection,
+      approvalMode: body.approvalMode,
+    })),
     disconnect: vi.fn(async () => ({ id, status: "disconnected" })),
     grants: vi.fn(async () => ({ server: "https://api.example/mcp", grants: [] })),
     createKey: vi.fn(async () => ({

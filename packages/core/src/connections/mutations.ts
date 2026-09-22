@@ -1,3 +1,4 @@
+import type { ConnectionApprovalMode } from "@symplist/contracts";
 import { zeroize } from "@symplist/crypto";
 import { int, sql, uuidv7 } from "@symplist/db";
 import { type ConnectionLifecycleProvider, IntegrationError } from "@symplist/integrations";
@@ -16,6 +17,82 @@ export interface ConnectionMutationOptions {
 
 export class ConnectionMutations {
   constructor(readonly options: ConnectionMutationOptions) {}
+
+  /**
+   * The owner's standing answer to "must Simon ask first?" for one account. Only reads are ever
+   * waived, so this changes no pending approval and revokes no authority; it needs the same owner,
+   * session and access proof as any other connection write, and nothing more.
+   */
+  async setApprovalMode(
+    actor: ConnectionActor,
+    connectionId: string,
+    approvalMode: ConnectionApprovalMode,
+    fold?: ConnectionWriteFold,
+  ): Promise<{ id: string; approvalMode: ConnectionApprovalMode }> {
+    if (fold && fold.claim.userId !== actor.ownerId)
+      throw new IntegrationError("integration.unauthorized");
+    if (approvalMode !== "all" && approvalMode !== "reads")
+      throw new IntegrationError("integration.invalid_arguments");
+    const repository = this.options.repository;
+    const { db, now } = repository.options;
+    const session = `EXISTS (SELECT 1 FROM auth_sessions WHERE id = :session AND user_id = :owner AND revoked_at IS NULL AND expires_at > :now)`;
+    const live = `status IN ('active', 'needs_attention')`;
+    const preflight = await db.batch([
+      sql(
+        `SELECT id FROM connections WHERE id = :id AND owner_id = :owner AND ${live} AND ${repository.access()} AND ${session}`,
+        { id: connectionId, owner: actor.ownerId, session: actor.sessionId, now: int(now()) },
+      ),
+      repository.accountKeys.selectStatement(actor.ownerId),
+    ]);
+    const keyRow = preflight[1]?.results[0];
+    if (!preflight[0]?.results[0] || !keyRow)
+      throw new IntegrationError("integration.unauthorized");
+    const key = repository.accountKeys.unwrapRow(keyRow);
+    const write = uuidv7(now());
+    const response = { id: connectionId, approvalMode };
+    const effect = sql(
+      `EXISTS (SELECT 1 FROM connections WHERE id = :connection AND owner_id = :owner AND write_id = :w)`,
+      { connection: connectionId, owner: actor.ownerId, w: write },
+    );
+    try {
+      const results = await db.batch([
+        ...(fold?.statements ?? []),
+        sql(
+          `UPDATE connections SET approval_mode = :mode, updated_at = :now, write_id = :write
+          WHERE id = :id AND owner_id = :owner AND ${live} AND ${repository.access()} AND ${session}
+          AND EXISTS (SELECT 1 FROM account_keys WHERE owner_id = :owner) ${fold ? `AND ${fold.claim.guard.exists}` : ""}`,
+          {
+            mode: approvalMode,
+            id: connectionId,
+            owner: actor.ownerId,
+            now: int(now()),
+            write,
+            session: actor.sessionId,
+            ...fold?.claim.guard.params,
+          },
+        ),
+        ...(fold
+          ? connectionFoldCompletion(fold, { status: 200, body: response }, key, effect)
+          : []),
+        sql(
+          `SELECT 1 AS allowed WHERE ${repository.access()} AND ${session} AND EXISTS (SELECT 1 FROM account_keys WHERE owner_id = :owner)`,
+          { owner: actor.ownerId, session: actor.sessionId, now: int(now()) },
+        ),
+        sql(`SELECT id FROM connections WHERE id = :id AND write_id = :write`, {
+          id: connectionId,
+          write,
+        }),
+      ]);
+      if (!results.at(-2)?.results[0]) throw new IntegrationError("integration.unauthorized");
+      const decision = fold?.decide(results, key);
+      if (decision?.kind === "replay") return decision.body as typeof response;
+      if (!results.at(-1)?.results[0]) throw new IntegrationError("integration.unavailable");
+    } finally {
+      zeroize(key.key);
+    }
+    await this.options.changed?.(actor.ownerId, connectionId);
+    return response;
+  }
 
   async disconnect(
     actor: ConnectionActor,

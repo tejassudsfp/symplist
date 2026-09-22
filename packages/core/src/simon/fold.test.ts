@@ -99,6 +99,7 @@ async function pendingApproval() {
           toolkit: "gmail",
           connectedAccountId: "ca_fold",
           generation: 1,
+          approvalMode: "all",
         },
         arguments: { body: "private-approval-marker" },
         preview: { body: "private-approval-marker" },

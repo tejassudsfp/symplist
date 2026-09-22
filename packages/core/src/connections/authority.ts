@@ -1,3 +1,4 @@
+import type { ConnectionApprovalMode } from "@symplist/contracts";
 import type { DbClient } from "@symplist/db";
 import { int, sql } from "@symplist/db";
 import type {
@@ -17,9 +18,22 @@ export interface ConfirmedConnection {
   readonly toolkit: string;
   readonly connectedAccountId: string;
   readonly generation: number;
+  readonly approvalMode: ConnectionApprovalMode;
 }
 
 type SchemaReader = (slug: string) => Promise<ExternalToolSchema>;
+
+/** The columns every authority read needs; the preference travels with the account it belongs to. */
+const connectionColumns =
+  "c.id,c.owner_id,c.toolkit,c.connected_account_id,c.generation,c.approval_mode";
+
+/**
+ * NULL is the column's pre-migration and never-chosen state, and anything unreadable is a row we do
+ * not understand. Both resolve to the strict setting, so a lost or unexpected value asks.
+ */
+export function connectionApprovalMode(value: unknown): ConnectionApprovalMode {
+  return value === "reads" ? "reads" : "all";
+}
 
 function rowsToConnections(rows: readonly Record<string, unknown>[]): ConfirmedConnection[] {
   if (rows.length > 500) throw new IntegrationError("integration.unavailable");
@@ -29,6 +43,7 @@ function rowsToConnections(rows: readonly Record<string, unknown>[]): ConfirmedC
     toolkit: String(row.toolkit),
     connectedAccountId: String(row.connected_account_id),
     generation: Number(row.generation),
+    approvalMode: connectionApprovalMode(row.approval_mode),
   }));
 }
 
@@ -62,7 +77,7 @@ export function createSimonConnectionAuthority(
   });
   const connectionQuery = () =>
     sql(
-      `SELECT c.id,c.owner_id,c.toolkit,c.connected_account_id,c.generation FROM connections c
+      `SELECT ${connectionColumns} FROM connections c
           WHERE c.owner_id=:connection_owner AND c.status='active'
           AND EXISTS (SELECT 1 FROM account_keys WHERE owner_id=:connection_owner)
           AND EXISTS (SELECT 1 FROM runs WHERE id=:connection_run AND owner_id=:connection_owner
@@ -96,7 +111,7 @@ export function createSimonConnectionAuthority(
       exactConnection(
         await repository.options.db.all(
           sql(
-            `SELECT c.id,c.owner_id,c.toolkit,c.connected_account_id,c.generation
+            `SELECT ${connectionColumns}
             FROM connections c WHERE c.id=:expected_id AND c.owner_id=:connection_owner
             AND c.toolkit=:expected_toolkit AND c.connected_account_id=:expected_account
             AND c.generation=:expected_generation AND c.status='active'
@@ -148,7 +163,7 @@ export function createOwnerConnectionAuthority(options: {
     connections: async () => {
       const rows = await options.db.all(
         sql(
-          `SELECT c.id,c.owner_id,c.toolkit,c.connected_account_id,c.generation FROM connections c
+          `SELECT ${connectionColumns} FROM connections c
           WHERE c.owner_id=:connection_owner AND c.status='active' AND ${access}
           AND EXISTS (SELECT 1 FROM account_keys WHERE owner_id=:connection_owner)
           ORDER BY c.toolkit,c.id LIMIT 501`,
@@ -165,7 +180,7 @@ export function createOwnerConnectionAuthority(options: {
           { connection_owner: options.ownerId },
         ),
         sql(
-          `SELECT c.id,c.owner_id,c.toolkit,c.connected_account_id,c.generation FROM connections c
+          `SELECT ${connectionColumns} FROM connections c
           WHERE c.owner_id=:connection_owner AND c.status='active' AND ${access}
           AND EXISTS (SELECT 1 FROM account_keys WHERE owner_id=:connection_owner)
           ORDER BY c.toolkit,c.id LIMIT 501`,
@@ -181,7 +196,7 @@ export function createOwnerConnectionAuthority(options: {
       exactConnection(
         await options.db.all(
           sql(
-            `SELECT c.id,c.owner_id,c.toolkit,c.connected_account_id,c.generation FROM connections c
+            `SELECT ${connectionColumns} FROM connections c
             WHERE c.id=:expected_id AND c.owner_id=:connection_owner
             AND c.toolkit=:expected_toolkit AND c.connected_account_id=:expected_account
             AND c.generation=:expected_generation AND c.status='active' AND ${access}
@@ -208,7 +223,7 @@ export async function confirmedConnection(
 ): Promise<ConfirmedConnection | null> {
   const row = await db.first(
     sql(
-      `SELECT id, owner_id, toolkit, connected_account_id, generation
+      `SELECT id, owner_id, toolkit, connected_account_id, generation, approval_mode
     FROM connections WHERE id = :id AND owner_id = :owner AND status = 'active'`,
       { id: connectionId, owner: ownerId },
     ),
@@ -220,6 +235,7 @@ export async function confirmedConnection(
         toolkit: String(row.toolkit),
         connectedAccountId: String(row.connected_account_id),
         generation: Number(row.generation),
+        approvalMode: connectionApprovalMode(row.approval_mode),
       }
     : null;
 }

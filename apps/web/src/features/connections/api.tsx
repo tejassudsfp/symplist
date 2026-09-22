@@ -1,7 +1,9 @@
 "use client";
 
 import {
+  type ConnectionApprovalModeUpdate,
   type ConnectionStart,
+  connectionApprovalModeResultSchema,
   connectionCatalogueSchema,
   connectionStartResultSchema,
   connectionsListSchema,
@@ -23,6 +25,7 @@ import { type ApiClient, getApiClient } from "@/lib/api";
 export type ConnectionList = z.infer<typeof connectionsListSchema>;
 export type Catalogue = z.infer<typeof connectionCatalogueSchema>;
 export type ConnectResult = z.infer<typeof connectionStartResultSchema>;
+export type ApprovalModeResult = z.infer<typeof connectionApprovalModeResultSchema>;
 export type GrantList = z.infer<typeof mcpGrantListSchema>;
 export type KeyResult = z.infer<typeof mcpKeyResultSchema>;
 export type TaskPage = z.infer<typeof taskTreeResponseSchema>;
@@ -31,6 +34,12 @@ export interface ConnectionsApi {
   list(signal: AbortSignal): Promise<ConnectionList>;
   catalogue(signal: AbortSignal): Promise<Catalogue>;
   start(body: ConnectionStart, key: string, signal: AbortSignal): Promise<ConnectResult>;
+  approvalMode(
+    id: string,
+    body: ConnectionApprovalModeUpdate,
+    key: string,
+    signal: AbortSignal,
+  ): Promise<ApprovalModeResult>;
   disconnect(id: string, key: string, signal: AbortSignal): Promise<unknown>;
   grants(signal: AbortSignal): Promise<GrantList>;
   createKey(body: McpCreateKey, key: string, signal: AbortSignal): Promise<KeyResult>;
@@ -50,6 +59,13 @@ export function createConnectionsApi(client: () => ApiClient = getApiClient): Co
         idempotencyKey,
         signal,
         schema: connectionStartResultSchema,
+      }),
+    approvalMode: (id, body, idempotencyKey, signal) =>
+      client().post(`/v1/connections/${encodeURIComponent(id)}/approval-mode`, {
+        body,
+        idempotencyKey,
+        signal,
+        schema: connectionApprovalModeResultSchema,
       }),
     disconnect: (id, idempotencyKey, signal) =>
       client().delete(`/v1/connections/${encodeURIComponent(id)}`, {

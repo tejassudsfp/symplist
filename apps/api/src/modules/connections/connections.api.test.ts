@@ -316,6 +316,66 @@ describe("connections HTTP boundary", () => {
     expect(replay.status).toBe(200);
     expect(provider.revoke).toHaveBeenCalledTimes(1);
   });
+
+  it("sets the approval preference for the owner's own account only", async () => {
+    const { app, callback } = await boot();
+    const { session } = await app.createSignedInUser();
+    await start(app, session);
+    const target = new URL(callback());
+    target.searchParams.set("session_uri", "attested");
+    await app.get(`${target.pathname}${target.search}`, { session });
+    const id = String((await app.db.first(sql("SELECT id FROM connections")))?.id);
+    expect((await app.get("/v1/connections", { session })).json()).toMatchObject({
+      connections: [{ id, approvalMode: "all" }],
+    });
+
+    const request = uuidv7();
+    const saved = await app.post(`/v1/connections/${id}/approval-mode`, {
+      session,
+      idempotencyKey: request,
+      body: { approvalMode: "reads" },
+    });
+    expect(saved.status, saved.text).toBe(200);
+    expect(saved.json()).toEqual({ id, approvalMode: "reads" });
+    expect((await app.get("/v1/connections", { session })).json()).toMatchObject({
+      connections: [{ id, approvalMode: "reads" }],
+    });
+    // The recorded response answers the retry; the second body never reaches the connection.
+    const replay = await app.post(`/v1/connections/${id}/approval-mode`, {
+      session,
+      idempotencyKey: request,
+      body: { approvalMode: "reads" },
+    });
+    expect(replay.json()).toEqual({ id, approvalMode: "reads" });
+
+    const other = await app.createSignedInUser();
+    const foreign = await app.post(`/v1/connections/${id}/approval-mode`, {
+      session: other.session,
+      idempotencyKey: uuidv7(),
+      body: { approvalMode: "all" },
+    });
+    expect(foreign.status).toBe(404);
+    expect(
+      code(
+        await app.post(`/v1/connections/${id}/approval-mode`, {
+          session,
+          idempotencyKey: uuidv7(),
+          body: { approvalMode: "everything" },
+        }),
+      ),
+    ).toBe("validation");
+    expect(
+      code(
+        await app.post(`/v1/connections/${id}/approval-mode`, {
+          session,
+          body: { approvalMode: "all" },
+        }),
+      ),
+    ).toBe("idempotency.key_required");
+    expect((await app.get("/v1/connections", { session })).json()).toMatchObject({
+      connections: [{ id, approvalMode: "reads" }],
+    });
+  });
 });
 
 describe("raw Composio webhook", () => {
