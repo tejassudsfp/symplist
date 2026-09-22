@@ -38,6 +38,33 @@ function safeId(value: unknown): string | undefined {
     : undefined;
 }
 
+/**
+ * The third party's own HTTP status when the provider answers successfully and reports the failure
+ * inside its body. `normalizeIntegrationError` never sees these: nothing throws, so a caller that
+ * only inspects `result.error` cannot tell a rejected credential from a lost response. Several
+ * documented fields carry it and the provider's schemas are not guaranteed stable, so read each in
+ * turn and fall back to the `HTTP <status>:` prefix it puts on the message. Undefined means nothing
+ * stated a status, which must leave the caller on its conservative default.
+ */
+export function upstreamFailureStatus(error: unknown, data: unknown): number | undefined {
+  const body = record(data);
+  const nested = record(body.data);
+  const candidates: unknown[] = [
+    body.mercury_last_http_status_code,
+    nested.status_code,
+    nested.statusCode,
+    body.status_code,
+    typeof error === "string" ? /^HTTP (\d{3})\b/.exec(error)?.[1] : undefined,
+    typeof body.error === "string" ? /^HTTP (\d{3})\b/.exec(body.error)?.[1] : undefined,
+  ];
+  for (const candidate of candidates) {
+    const status = typeof candidate === "string" ? Number(candidate) : candidate;
+    if (typeof status === "number" && Number.isInteger(status) && status >= 400 && status <= 599)
+      return status;
+  }
+  return undefined;
+}
+
 export function normalizeIntegrationError(error: unknown, sideEffect = false): IntegrationError {
   if (error instanceof IntegrationError) return error;
   const object = record(error);

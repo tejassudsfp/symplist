@@ -67,6 +67,8 @@ export function createLocalSimonHandler(
       telemetryEnabled: config.AI_TELEMETRY_ENABLED,
       approvedEffect: (toolContext) =>
         simonApprovedConnectionEffect(toolContext, connectionsFor(toolContext)),
+      connectedToolkits: async (toolContext) =>
+        (await connectionsFor(toolContext).authority.connections()).map((entry) => entry.toolkit),
       documents: () => ({ tools: documents, git: null }),
       tools: async (toolContext) => ({
         ...simonConnectionTools(toolContext, connectionsFor(toolContext)),

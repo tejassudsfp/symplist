@@ -177,7 +177,7 @@ describe("Simon conversation surfaces", () => {
       "https://tracker.invalid/image.png",
     );
   });
-  it("keeps Enter and composing Enter as newlines rather than sending", async () => {
+  it("sends on Enter but writes a newline for Shift, composition and modifiers", async () => {
     const client = api();
     render(
       <SimonProvider userId="owner" api={client} realtime={null}>
@@ -187,10 +187,33 @@ describe("Simon conversation surfaces", () => {
     const input = screen.getByRole("textbox", { name: "Message Simon" });
     fireEvent.change(input, { target: { value: "Not sent" } });
     await waitFor(() => expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled());
-    fireEvent.keyDown(input, { key: "Enter" });
+
+    // A newline belongs to the textarea: Shift+Enter, an IME candidate being chosen, and the
+    // modifier chords the action registry owns must never send.
+    fireEvent.keyDown(input, { key: "Enter", shiftKey: true });
     fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+    fireEvent.keyDown(input, { key: "Enter", altKey: true });
     expect(client.send).not.toHaveBeenCalled();
     expect(input).toHaveValue("Not sent");
+
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(client.send).toHaveBeenCalledTimes(1));
+    // send(conversationId, body, idempotencyKey): the draft is carried in the body.
+    expect(client.send.mock.calls[0]?.[1]).toMatchObject({ text: "Not sent" });
+    expect(input).toHaveValue("");
+  });
+
+  it("does not send on Enter while the composer cannot send", async () => {
+    const client = api();
+    render(
+      <SimonProvider userId="owner" api={client} realtime={null}>
+        <ChatPane taskId={task} />
+      </SimonProvider>,
+    );
+    const input = screen.getByRole("textbox", { name: "Message Simon" });
+    // An empty draft: Enter must not post a blank message.
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(client.send).not.toHaveBeenCalled();
   });
   it("shows an unavailable provider without offering a blind retry", async () => {
     const client = api();

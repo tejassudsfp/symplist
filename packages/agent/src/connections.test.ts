@@ -27,7 +27,14 @@ import {
   simonConnectionTools,
 } from "./connections.ts";
 import { APPROVAL_POLICY_VERSION, actionPolicy } from "./policy.ts";
-import { runSimonTurn, type SimonApprovedEffectFactory, type SimonToolContext } from "./turn.ts";
+import {
+  runSimonTurn,
+  SIMON_MAX_NAMED_TOOLKITS,
+  type SimonApprovedEffectFactory,
+  type SimonToolContext,
+  simonConnectionContext,
+  simonEmptyPageContext,
+} from "./turn.ts";
 
 const phrase = "a fictional Simon integration vault phrase";
 const secret = "private/vault value+marker";
@@ -485,3 +492,45 @@ describe.each(["local", "trigger"] as const)(
     );
   },
 );
+
+describe("connected services in the turn context", () => {
+  it("names the connected toolkits once, sorted, as trusted context", () => {
+    const text = simonConnectionContext(["notion", "gmail", "gmail"]) as string;
+    expect(text).toContain("Connected services: gmail, notion.");
+    // Trusted server state, so it must not be fenced as untrusted document text.
+    expect(text).not.toContain("untrusted_data");
+    expect(text).toContain("never claim or guess at a service outside it");
+  });
+
+  it("says plainly that nothing is connected", () => {
+    expect(simonConnectionContext([])).toContain("Connected services: none.");
+    expect(simonConnectionContext([])).toContain("Settings → Connections");
+  });
+
+  it("bounds the list and reports the remainder", () => {
+    const many = Array.from({ length: SIMON_MAX_NAMED_TOOLKITS + 3 }, (_, i) => `svc${i + 100}`);
+    const text = simonConnectionContext(many) as string;
+    expect(text).toContain("and 3 more");
+    expect(text.split(", ").length).toBeLessThanOrEqual(SIMON_MAX_NAMED_TOOLKITS + 1);
+  });
+
+  it("says nothing at all when the connection read was unavailable", () => {
+    expect(simonConnectionContext(null)).toBeUndefined();
+  });
+});
+
+describe("an empty page in the turn context", () => {
+  it("names the exact call when there is no revision yet", () => {
+    const text = simonEmptyPageContext({ revision: null }) as string;
+    expect(text).toContain('placement "end"');
+    expect(text).toContain("expectedRevision null");
+    expect(text).toContain("no sectionId");
+    // It must be trusted instruction, not fenced as document data.
+    expect(text).not.toContain("untrusted_data");
+  });
+
+  it("says nothing once the page has a revision", () => {
+    expect(simonEmptyPageContext({ revision: "a".repeat(40) })).toBeUndefined();
+    expect(simonEmptyPageContext(null)).toBeUndefined();
+  });
+});

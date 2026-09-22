@@ -93,7 +93,7 @@ export function simonDocumentTools(session: SimonDocumentSession): ToolSet {
       : {
           task_document_update_section: tool({
             description:
-              "Edit this task's document section at the expected revision; conflicts require a fresh read.",
+              "Write this task's document at the expected revision; conflicts require a fresh read. Use placement end to append, and to write the first content of an empty page with a null expected revision. Placement replace and after require the section id they act on.",
             inputSchema: taskDocumentUpdateSectionInputSchema,
             execute: (args, { toolCallId }) =>
               result(args.taskId, () => session.gitOperation("update_section", args, toolCallId)),

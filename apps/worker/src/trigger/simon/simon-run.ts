@@ -96,6 +96,8 @@ export async function runDurableSimon(
         : AbortSignal.timeout(890_000),
       telemetryEnabled: runtime.config.AI_TELEMETRY_ENABLED,
       approvedEffect: (context) => simonApprovedConnectionEffect(context, connectionsFor(context)),
+      connectedToolkits: async (context) =>
+        (await connectionsFor(context).authority.connections()).map((entry) => entry.toolkit),
       tools: async (context) => ({
         ...simonConnectionTools(context, connectionsFor(context)),
         ...simonNativeTools(context, {
