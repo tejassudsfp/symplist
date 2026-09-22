@@ -177,7 +177,7 @@ describe("Simon conversation surfaces", () => {
       "https://tracker.invalid/image.png",
     );
   });
-  it("sends on Enter but writes a newline for Shift, composition and modifiers", async () => {
+  it("sends on Enter and on Mod+Enter, but writes a newline for Shift, composition and Alt", async () => {
     const client = api();
     render(
       <SimonProvider userId="owner" api={client} realtime={null}>
@@ -188,16 +188,30 @@ describe("Simon conversation surfaces", () => {
     fireEvent.change(input, { target: { value: "Not sent" } });
     await waitFor(() => expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled());
 
-    // A newline belongs to the textarea: Shift+Enter, an IME candidate being chosen, and the
-    // modifier chords the action registry owns must never send.
+    // A newline belongs to the textarea: Shift+Enter, an IME candidate being chosen, and Alt+Enter
+    // must never send.
     fireEvent.keyDown(input, { key: "Enter", shiftKey: true });
     fireEvent.keyDown(input, { key: "Enter", isComposing: true });
     fireEvent.keyDown(input, { key: "Enter", altKey: true });
     expect(client.send).not.toHaveBeenCalled();
     expect(input).toHaveValue("Not sent");
 
-    fireEvent.keyDown(input, { key: "Enter" });
+    // Mod+Enter was the send chord before plain Enter became one, and both still send. Asserting
+    // each separately is the point: covering only Alt is what let Cmd+Enter regress to a dead key.
+    fireEvent.keyDown(input, { key: "Enter", metaKey: true });
     await waitFor(() => expect(client.send).toHaveBeenCalledTimes(1));
+    expect(input).toHaveValue("");
+
+    fireEvent.change(input, { target: { value: "Not sent" } });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled());
+    fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
+    await waitFor(() => expect(client.send).toHaveBeenCalledTimes(2));
+    expect(input).toHaveValue("");
+
+    fireEvent.change(input, { target: { value: "Not sent" } });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled());
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(client.send).toHaveBeenCalledTimes(3));
     // send(conversationId, body, idempotencyKey): the draft is carried in the body.
     expect(client.send.mock.calls[0]?.[1]).toMatchObject({ text: "Not sent" });
     expect(input).toHaveValue("");
