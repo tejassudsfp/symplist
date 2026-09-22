@@ -108,6 +108,7 @@ export async function seedSimonPause(
               toolkit: "gmail",
               connectedAccountId,
               generation: 1,
+              approvalMode: "all",
             },
             arguments: {
               recipient: "collaborator@example.test",

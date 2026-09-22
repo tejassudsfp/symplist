@@ -239,6 +239,7 @@ async function approval(app: TestApp, session: TestSession) {
           toolkit: "gmail",
           connectedAccountId: "ca_http",
           generation: 1,
+          approvalMode: "all",
         },
         arguments: { body: "approval-http-private-marker" },
         preview: { body: "approval-http-private-marker" },

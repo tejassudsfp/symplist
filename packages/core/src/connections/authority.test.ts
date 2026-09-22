@@ -75,6 +75,7 @@ describe("Simon connection authority", () => {
           toolkit: "mail",
           connectedAccountId: "ca_owner",
           generation: 1,
+          approvalMode: "all" as const,
         };
         await expect(authority.snapshot?.()).resolves.toEqual({
           authorized: true,
@@ -121,6 +122,7 @@ describe("Simon connection authority", () => {
       toolkit: "mail",
       connectedAccountId: "ca_owner",
       generation: 1,
+      approvalMode: "all" as const,
     };
     await expect(authority.snapshot?.()).resolves.toEqual({
       authorized: true,

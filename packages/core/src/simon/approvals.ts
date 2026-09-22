@@ -8,7 +8,11 @@ import {
   zeroize,
 } from "@symplist/crypto";
 import { type DbRow, int, type Statement, sql, uuidv7 } from "@symplist/db";
-import { type ConfirmedConnection, confirmedConnectionGuard } from "../connections/authority.ts";
+import {
+  type ConfirmedConnection,
+  confirmedConnectionGuard,
+  connectionApprovalMode,
+} from "../connections/authority.ts";
 import { continuationStatements, pauseGuard } from "./continuations.ts";
 import {
   assertFoldOwner,
@@ -264,6 +268,7 @@ export class SimonApprovals {
             toolkit: String(connectionRow.toolkit),
             connectedAccountId: String(connectionRow.connected_account_id),
             generation: Number(connectionRow.generation),
+            approvalMode: connectionApprovalMode(connectionRow.approval_mode),
           }
         : null;
       const edited = decision.editedArguments !== undefined;
