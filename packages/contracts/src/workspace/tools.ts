@@ -47,3 +47,10 @@ export const workspaceTools = defineTools({
   task_create: { input: taskCreateToolInputSchema, output: taskCreateToolOutputSchema },
   task_move: { input: taskMoveToolInputSchema, output: taskMoveToolOutputSchema },
 });
+
+/** `task_search`: find an owned task by title when only its name is known (§2.1). */
+export const taskSearchToolInputSchema = z.strictObject({
+  /** Words from the task's title. Not a document search: titles only. */
+  query: z.string().min(1).max(200),
+  limit: z.number().int().min(1).max(20).optional(),
+});

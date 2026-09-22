@@ -57,3 +57,4 @@ export * from "./workspace/dto.ts";
 export * from "./workspace/errors.ts";
 export * from "./workspace/events.ts";
 export * from "./workspace/tools.ts";
+export { taskSearchToolInputSchema } from "./workspace/tools.ts";

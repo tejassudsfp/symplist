@@ -24,7 +24,7 @@ services:
       - key: NODE_ENV
         value: production
       - key: WEB_ORIGIN
-        value: https://symplist.tejassuds.com
+        value: https://app.symplist.tejassuds.com
       - key: API_ORIGIN
         value: https://api.symplist.tejassuds.com
       - key: WS_ORIGIN

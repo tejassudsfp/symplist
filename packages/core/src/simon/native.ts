@@ -14,6 +14,9 @@ import { taskCreateTool, taskMoveTool } from "../tasks/tools.ts";
 import type { SimonRepository } from "./repository.ts";
 import { type ClaimedSimonRun, SimonError } from "./types.ts";
 
+/** Largest task search result Simon receives, so a big workspace cannot fill the prompt. */
+export const SIMON_TASK_SEARCH_LIMIT = 20;
+
 export interface SimonNativeOptions {
   readonly scheduling: Pick<SchedulingOptions, "remindersEnabled" | "emailEnabled" | "defaultZone">;
   readonly onScheduleChanged?: (ownerId: string, taskId: string, version: number) => Promise<void>;
@@ -90,6 +93,57 @@ export class SimonNativeSession {
           ? { kind: "replay", body: decision.response.body }
           : decision;
       },
+    };
+  }
+
+  /**
+   * Finds the owner's open tasks by title (§2.1). Every other task tool takes an id the run already
+   * has, which leaves Simon unable to act on a task the owner names in words — in a quick chat,
+   * where the run carries no task at all, he cannot resolve "the Vatsal task" to anything and has to
+   * ask for an id the owner has no reason to know. Read-only, so no idempotency fold: it takes the
+   * same authorization fence as every write, and returns bounded summaries rather than documents.
+   */
+  async search(input: { query: string; limit?: number }) {
+    const query = input.query.trim().toLowerCase();
+    if (query.length === 0 || query.length > 200) throw new SimonError("validation");
+    const limit = Math.max(
+      1,
+      Math.min(input.limit ?? SIMON_TASK_SEARCH_LIMIT, SIMON_TASK_SEARCH_LIMIT),
+    );
+    const state = await this.tasks.state(this.claim.run.ownerId);
+    // The fence is checked against the same tree version the results came from, so a relock or an
+    // executor switch between read and answer cannot leak titles.
+    await this.tasks.authorize(this.claim.run.ownerId, this.authorization(), state.version);
+    const terms = query.split(/\s+/u).filter(Boolean);
+    const matches = [...state.tree.byId.values()]
+      .filter((task) => task.status === "active")
+      .map((task) => {
+        const title = task.title.toLowerCase();
+        // Exact, then prefix, then all-terms-present; enough to disambiguate a named task.
+        const score =
+          title === query
+            ? 0
+            : title.startsWith(query)
+              ? 1
+              : title.includes(query)
+                ? 2
+                : terms.every((t) => title.includes(t))
+                  ? 3
+                  : -1;
+        return { task, score };
+      })
+      .filter((entry) => entry.score >= 0)
+      .sort((a, b) => a.score - b.score || b.task.updatedAt - a.task.updatedAt)
+      .slice(0, limit);
+    return {
+      tasks: matches.map(({ task }) => ({
+        taskId: task.id,
+        title: task.title,
+        collection: task.collection,
+        parentId: task.parentId,
+        updatedAt: task.updatedAt,
+      })),
+      truncated: matches.length === limit,
     };
   }
 

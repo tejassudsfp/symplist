@@ -91,3 +91,60 @@ describe("native task and schedule model-loop parity", () => {
     },
   );
 });
+
+describe("finding a task by name", () => {
+  it("resolves a title to an id in a quick chat, where the run carries no task", async () => {
+    const env = await createDocumentsTestEnvironment();
+    try {
+      await env.db.run({ sql: "UPDATE executor_state SET mode=?", params: ["local"] });
+      const owner = await env.createUser();
+      // Two tasks whose titles both contain a word, as a real workspace would have.
+      const vatsal = await env.createTask(owner, "Meeting with Vatsal");
+      await env.createTask(owner, "Meeting with Vilasini");
+      const repository = new SimonRepository({
+        db: env.db,
+        keys: env.keys,
+        now: () => env.clock,
+        policy: { betaAccessRequired: true },
+        quickChatTtlHours: 24,
+      });
+      // A quick chat: conversation with no task, which is where Simon had no way to look one up.
+      const conversation = await repository.createConversation(owner, null);
+      const accepted = await repository.acceptMessage(owner, conversation, "find-task", {
+        text: "update the vatsal task",
+        tier: "fast",
+      });
+      const script = createScriptedModel([
+        scriptedToolCall("task_search", { query: "vatsal" }),
+        scriptedText("Found it."),
+      ]);
+      const result = await runSimonTurn(accepted.runId ?? "", {
+        repository,
+        executor: "local",
+        models: {
+          resolve: () => ({
+            provider: "scripted",
+            modelId: script.model.modelId,
+            model: script.model,
+          }),
+        },
+        signal: new AbortController().signal,
+        telemetryEnabled: false,
+        log: vi.fn(),
+        tools: async (context) =>
+          simonNativeTools(context, {
+            scheduling: { remindersEnabled: true, emailEnabled: false },
+          }),
+        sink: () => ({ write: vi.fn(), flush: async () => {}, close: async () => {} }),
+      });
+      expect(result.status).toBe("completed");
+      // The tool result reaches the model with the id it needs, and only the matching task.
+      const prompt = JSON.stringify(script.calls.at(-1)?.prompt);
+      expect(prompt).toContain(vatsal);
+      expect(prompt).toContain("Meeting with Vatsal");
+      expect(prompt).not.toContain("Vilasini");
+    } finally {
+      await env.close();
+    }
+  });
+});
