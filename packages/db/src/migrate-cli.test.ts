@@ -111,7 +111,13 @@ describe("readMigrateConfig", () => {
 });
 
 describe("runMigrateCli", () => {
-  it("applies migrations to a local database and reports structured JSON lines", async () => {
+  // Applies every migration twice against a real SQLite file on disk — 92 applications — to prove
+  // the second run is a no-op. Tens of milliseconds here, but this package runs one isolated worker
+  // per test file and they all compete for the same disk, so on a small CI runner it is the first
+  // test to starve. The budget matches the I/O, not the assertions, which are unchanged.
+  it("applies migrations to a local database and reports structured JSON lines", {
+    timeout: 30_000,
+  }, async () => {
     const dir = tempDir();
     const { out, err, io } = captureIo();
     const files = await loadMigrations();

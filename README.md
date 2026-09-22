@@ -2,70 +2,58 @@
 
 **The most productive thing is often the most simple.**
 
-A calm task workspace for keeping track of what matters, making progress, and handing bigger work to the right tools.
+A calm, open-source task workspace. Every task has one editable Markdown page with real Git history and one persistent conversation with **Simon**, a built-in AI facilitator. Keep the surface simple; open deeper features only when you need them.
 
-[Self-hosting guide](SELF_HOSTING.md) · [Product specification](docs/notes/files/01_product.md) · [Design reference](<design/UI sample/README.md>) · [Contributing](CONTRIBUTING.md) · [MIT license](LICENSE)
+[Quickstart](#run-locally) · [Self-hosting guide](SELF_HOSTING.md) · [Product specification](docs/notes/files/01_product.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [MIT license](LICENSE)
+
+## What you get
+
+- **A focused workspace** — Now / Later / Unclassified inboxes, subtasks, drag-and-drop and keyboard movement, archive/restore, and responsive page/chat panels.
+- **Documents with real history** — Markdown backed by an actual Git engine, encrypted artifacts in object storage, indexed publication in D1, and section-level AI tools that never paste a whole document into a prompt.
+- **Simon, a productivity facilitator** — clarifies tasks, maintains context, performs small authorized actions through connected services, and prepares specialist handoffs. Heavy coding and deep research stay in your external tools.
+- **Useful handoffs** — editable specialist prompts, reviewed read-only artifact snapshots, expiring links, password protection, or explicit public publication.
+- **Time-aware tasks** — optional deadlines, calendar views, quiet hours, snooze, persistent notifications, and reminder emails.
+- **Fast navigation** — contextual keyboard shortcuts, a command palette, and scoped task/document search.
+- **Personal appearance** — Studio, Paper, Pebble, Postcard, Meadow, and Tide styles, independent preset/custom accent colors, and Light/Dark/System modes.
+- **Private storage** — encrypted task content at rest and a separately unlocked Vault for sensitive notes and keys.
+- **Connections and interoperability** — scoped integration tools behind Symplist contracts and an authenticated incoming MCP interface.
 
 ## Project status
 
-**Runnable closed-beta application.** The monorepo contains the Next.js web app, NestJS API, optional Trigger.dev worker, shared packages, 46 expand-only migrations, deployment configuration, and automated unit, integration, browser, accessibility, visual, image, and smoke checks. The product is implemented across the 44 screen briefs and six visual themes.
+**Released and self-hostable.** The monorepo contains the complete application: the Next.js web app, the NestJS API, an optional Trigger.dev worker, fourteen shared packages, 46 expand-only database migrations, deployment configuration, and an automated test suite (unit, integration, browser, accessibility, visual, image, and smoke checks). The latest gate run passed 4,767 unit/integration tests, 61 script tests, 212 browser cases, and both production builds.
 
-The planned hosted launch is a **free closed beta**. Email verification creates an identity; a manually shared invite or administrator unlock grants access. Invites are not automatically sent to people who sign up. Payments, paywalls, and subscription quotas are outside the beta scope.
-
-## The idea
-
-Open Symplist and start with **Now**, **Later**, or **Unclassified**. Select a task to see its Markdown page and its conversation with Simon. Keep the surface simple; open deeper features when needed.
-
-Simon is a productivity facilitator. It helps clarify tasks, maintain useful context, perform small authorized actions through connected services, and prepare specialist handoffs. Heavy coding and deep research happen in the user's chosen external tools.
-
-### Capabilities
-
-- **A focused workspace:** task inboxes, subtasks, drag-and-drop movement, archive/restore, and responsive page/chat panels.
-- **Documents with real history:** Markdown backed by actual Git, with encrypted artifacts in R2 and indexed publication in D1.
-- **Useful handoffs:** editable specialist prompts and reviewed read-only artifact snapshots, with expiring links, password protection, or explicit public publication.
-- **Time-aware tasks:** optional deadlines, calendar views, quiet hours, snooze, persistent notifications, and reminder emails.
-- **Fast navigation:** contextual keyboard shortcuts, a command palette, and scoped task/document search.
-- **Personal appearance:** Studio, Paper, Pebble, Postcard, Meadow, and Tide styles, independent preset/custom accent colors, and Light/Dark/System modes.
-- **Private storage:** encrypted task content and a separately unlocked Vault for sensitive notes and keys.
-- **Connections and interoperability:** scoped integration tools and an authenticated incoming MCP interface.
+The hosted launch is operated as a **free closed beta**: email verification creates an identity; a manually shared invite or administrator unlock grants access. Billing, paywalls, and AI-usage quotas are not part of the project.
 
 ## Architecture
 
 | Layer | Selected technology |
 | --- | --- |
-| Web application | Next.js |
+| Web application | Next.js (React, Tailwind, shadcn on Base UI) |
 | Public backend | NestJS; owns authentication, APIs, and WebSockets |
 | Structured storage | Cloudflare D1 through direct REST |
 | Encrypted object storage | Cloudflare R2 |
 | Agent loop | Vercel AI SDK; configurable Fast/Smart provider and model |
 | Connections and external tools | Composio, behind Symplist tool contracts |
-| Durable execution | Trigger.dev when enabled; Nest-local execution otherwise |
+| Durable execution | Trigger.dev when `DURABLE=true`; Nest-local execution otherwise |
 | Transactional email | Resend |
-| Product analytics | PostHog; explicit events with private content excluded |
-| Frontend hosting | Vercel |
-| Initial backend hosting | Render, with later AWS portability |
+| Product analytics | PostHog (optional, default-off, explicit event allowlist) |
 
-`DURABLE=false` runs agent work and scheduled jobs inside Nest without Trigger credentials. `DURABLE=true` delegates that work to Trigger; Nest remains the browser delivery boundary. No agent sandboxes are planned.
+`DURABLE=false` runs agent work and scheduled jobs inside Nest with no Trigger credentials — the simplest self-hosted topology. `DURABLE=true` delegates that work to Trigger.dev; Nest remains the browser delivery boundary. No agent sandboxes are used, and the durable executor keeps only ids, enums, and counts — user content never transits or rests on Trigger in plaintext.
 
-See the binding [architecture](docs/build/architecture.md), [document versioning](docs/notes/files/11_document_versioning.md), and [analytics](docs/notes/files/17_analytics.md) for the full contracts.
+See the [document versioning](docs/notes/files/11_document_versioning.md) and [analytics](docs/notes/files/17_analytics.md) contracts, and the [self-hosting guide](SELF_HOSTING.md) for full deployment topologies.
 
-## Explore the repository
+## Repository layout
 
 | Path | Contents |
 | --- | --- |
+| `apps/web` | Next.js application (workspace, documents, Simon chat, Vault, settings) |
+| `apps/api` | NestJS API (auth, sessions, WebSocket, executor boundary) |
+| `apps/worker` | Trigger.dev worker (durable mode) |
+| `apps/e2e` | Playwright browser, accessibility, and visual suites |
+| `packages/` | `contracts` `config` `crypto` `db` `core` `storage` `email` `analytics` `search` `docs` `integrations` `agent` `testing` |
 | [`docs/notes/files/`](docs/notes/files/00_index.md) | Numbered product decisions and technical specifications |
-| [`design/UI sample/`](<design/UI sample/README.md>) | Supplied workspace reference and its companion runtime |
-| [`design/mockups/`](design/mockups/overall.md) | Master design brief, theme system, and 44 individual screen briefs |
-| [Self-hosting guide](SELF_HOSTING.md) | Tested local setup, production deployment, operations, backup, and recovery |
-| [Roadmap](ROADMAP.md) | Implementation sequence and release gates |
-
-To inspect the design export locally, serve the sample directory with a static HTTP server, for example:
-
-```sh
-python3 -m http.server 8000 --directory "design/UI sample" --bind 127.0.0.1
-```
-
-Then open `http://127.0.0.1:8000/workspace_now.dc.html`. This serves the design reference, not the application. The export references online fonts; its state/theme/viewport controls are design-review tooling.
+| [SELF_HOSTING.md](SELF_HOSTING.md) | Tested local setup, production deployment, operations, backup, and recovery |
+| [ROADMAP.md](ROADMAP.md) | What shipped and what is planned |
 
 ## Run locally
 
@@ -86,19 +74,35 @@ pnpm env:check
 pnpm dev
 ```
 
-The template defaults to local SQLite/filesystem storage, console-delivered OTPs, and `DURABLE=false`, so no Cloudflare, Resend, or Trigger account is needed to boot. Add the selected AI provider credential to use Simon. Read [SELF_HOSTING.md](SELF_HOSTING.md) before accepting real data or deploying to Vercel, Render, Cloudflare, Resend, Trigger.dev, Composio, or PostHog.
+The template defaults to local SQLite/filesystem storage, console-delivered OTPs, and `DURABLE=false`, so no Cloudflare, Resend, or Trigger account is needed to boot. Add an AI provider credential to use Simon.
+
+Read [SELF_HOSTING.md](SELF_HOSTING.md) before accepting real data or deploying to Vercel, Render, Cloudflare, Resend, Trigger.dev, Composio, or PostHog.
+
+## Development
+
+```sh
+pnpm dev            # web + api + worker supervisor
+pnpm lint           # Biome — zero errors AND zero warnings
+pnpm typecheck
+pnpm test           # all workspace tests + script tests
+pnpm build          # production web build + api build
+pnpm e2e            # Playwright across three viewports (slow)
+pnpm smoke:local
+```
+
+The full contribution checklist — including the release gate every change is held to — is in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Privacy and analytics
 
 PostHog is supported for optional product analytics. The implementation uses a small explicit event allowlist, with autocapture, session replay, and automatic page/URL collection disabled. Task text, documents, prompts, chats, secrets, emails, share keys, and private URLs never enter analytics. Standalone artifact viewers and Vault/authentication surfaces do not load the analytics client.
 
-Analytics is optional for self-hosting and disabled by default until explicitly configured. It must not be required for any feature, introduce billing quotas, or be confused with AI-provider usage metering. Read the [analytics specification](docs/notes/files/17_analytics.md) and [privacy design](PRIVACY.md). Encryption protects stored content; it is not a blanket end-to-end encryption claim.
+Analytics is optional for self-hosting and disabled by default until explicitly configured. It must not be required for any feature, introduce billing quotas, or be confused with AI-provider usage metering. See the [analytics specification](docs/notes/files/17_analytics.md) and [privacy design](PRIVACY.md). Encryption protects stored content; it is not a blanket end-to-end encryption claim.
 
 ## Contributing
 
-Start with [CONTRIBUTING.md](CONTRIBUTING.md) and the [notes index](docs/notes/files/00_index.md). Focused issues and pull requests are welcome for specifications, UX, accessibility, and implementation. Check existing issues before opening a proposal. Large architecture changes should explain their impact on the agreed scope.
+Start with [CONTRIBUTING.md](CONTRIBUTING.md) and the [notes index](docs/notes/files/00_index.md). Focused issues and pull requests are welcome. Check existing issues before opening a proposal; large architecture changes should explain their impact on the agreed scope.
 
-Use [GitHub issues](https://github.com/tejassudsfp/symplist/issues) for ordinary bugs and proposals. Follow the [Code of Conduct](CODE_OF_CONDUCT.md). Report security concerns privately using [SECURITY.md](SECURITY.md).
+Use [GitHub issues](https://github.com/tejassudsfp/symplist/issues) for bugs and proposals. Follow the [Code of Conduct](CODE_OF_CONDUCT.md). Report security concerns privately using [SECURITY.md](SECURITY.md).
 
 ## License and maintainer
 

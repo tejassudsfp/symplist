@@ -8,8 +8,7 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
-# Actions are pinned to full commit SHAs of the releases verified in the ops research note
-# (docs/build/research/ops-testing.md), with the release in a comment.
+# Actions are pinned to full commit SHAs, with the release in a comment.
 jobs:
   # Deployment checks and later jobs (e2e, api-image and migrate) depend on this job name.
   verify:

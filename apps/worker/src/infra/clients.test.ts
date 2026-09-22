@@ -14,7 +14,7 @@ import {
 } from "@symplist/db";
 import { R2ObjectStore } from "@symplist/storage";
 import { FakeClock } from "@symplist/testing";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { loadAccountKey } from "./account-keys.ts";
 import {
   createWorkerDb,
@@ -68,18 +68,21 @@ describe("worker configuration", () => {
 
   it("maps configuration problems to config.invalid without echoing values", () => {
     const leaked = randomBytes(32).toString("base64url");
+    const diagnostic = vi.spyOn(console, "error").mockImplementation(() => {});
     const attempt = () =>
       loadWorkerRuntimeConfig(
         workerEnv({ SESSION_DIGEST_SECRET_1: leaked, API_ORIGIN: "not a url" }),
       );
-    expect(attempt).toThrow(
-      expect.objectContaining({ name: "WorkerError", code: "config.invalid" }),
-    );
     try {
-      attempt();
-    } catch (error) {
-      expect(JSON.stringify(error)).not.toContain(leaked);
-      expect(String((error as Error).stack)).not.toContain(leaked);
+      expect(attempt).toThrow(
+        expect.objectContaining({ name: "WorkerError", code: "config.invalid" }),
+      );
+      expect(diagnostic).toHaveBeenCalledWith("worker configuration invalid", {
+        variables: ["API_ORIGIN", "SESSION_DIGEST_SECRET_1"],
+      });
+      expect(JSON.stringify(diagnostic.mock.calls)).not.toContain(leaked);
+    } finally {
+      diagnostic.mockRestore();
     }
   });
 });

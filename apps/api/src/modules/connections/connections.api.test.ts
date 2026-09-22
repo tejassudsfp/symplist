@@ -225,6 +225,74 @@ describe("connections HTTP boundary", () => {
     await assertSecretAbsent(app, [attestation], [response, listResponse, replay, foreign]);
   });
 
+  it("confirms Composio's standard callback only for the linked account owned by this user", async () => {
+    const { app, callback, provider } = await boot();
+    const { session } = await app.createSignedInUser();
+    await start(app, session);
+    vi.mocked(provider.accounts).mockResolvedValue({
+      items: [{ id: "ca_1", toolkit: "gmail", status: "ACTIVE" }],
+      cursor: null,
+    });
+    const target = new URL(callback());
+    target.searchParams.set("status", "success");
+    target.searchParams.set("connected_account_id", "ca_1");
+    const response = await app.get(`${target.pathname}${target.search}`, { session });
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe(
+      `${app.config.WEB_ORIGIN}/settings/connections?result=connected`,
+    );
+    expect(provider.accounts).toHaveBeenCalledWith(session.userId, undefined);
+    expect(provider.complete).not.toHaveBeenCalled();
+    expect((await app.get("/v1/connections", { session })).json()).toMatchObject({
+      connections: [{ toolkit: "gmail", status: "active" }],
+    });
+  });
+
+  it("rejects mismatched callback accounts without consuming the legitimate attempt", async () => {
+    const { app, callback, provider } = await boot();
+    const { session } = await app.createSignedInUser();
+    await start(app, session);
+    vi.mocked(provider.accounts).mockResolvedValue({
+      items: [{ id: "ca_1", toolkit: "gmail", status: "ACTIVE" }],
+      cursor: null,
+    });
+    const target = new URL(callback());
+    target.searchParams.set("status", "success");
+    target.searchParams.set("connected_account_id", "ca_foreign");
+    const rejected = await app.get(`${target.pathname}${target.search}`, { session });
+    expect(rejected.headers.get("location")).toContain("result=failed");
+    expect(provider.revoke).not.toHaveBeenCalled();
+    target.searchParams.set("connected_account_id", "ca_1");
+    const accepted = await app.get(`${target.pathname}${target.search}`, { session });
+    expect(accepted.headers.get("location")).toContain("result=connected");
+  });
+
+  it("does not confirm an account absent from the provider's owner-scoped list", async () => {
+    const { app, callback, provider } = await boot();
+    const { session } = await app.createSignedInUser();
+    await start(app, session);
+    const target = new URL(callback());
+    target.searchParams.set("status", "success");
+    target.searchParams.set("connected_account_id", "ca_1");
+    const response = await app.get(`${target.pathname}${target.search}`, { session });
+    expect(response.headers.get("location")).toContain("result=failed");
+    expect(provider.accounts).toHaveBeenCalledWith(session.userId, undefined);
+    expect(await app.db.first(sql("SELECT id FROM connections"))).toBeNull();
+  });
+
+  it("shows a provider failure as failed rather than cancelled", async () => {
+    const { app, callback, provider } = await boot();
+    const { session } = await app.createSignedInUser();
+    await start(app, session);
+    const target = new URL(callback());
+    target.searchParams.set("status", "failed");
+    target.searchParams.set("connected_account_id", "ca_1");
+    const response = await app.get(`${target.pathname}${target.search}`, { session });
+    expect(response.headers.get("location")).toContain("result=failed");
+    expect(provider.complete).not.toHaveBeenCalled();
+    expect(provider.accounts).not.toHaveBeenCalled();
+  });
+
   it("disconnects only through the trusted UI and replays without another provider operation", async () => {
     const { app, callback, provider } = await boot();
     const { session } = await app.createSignedInUser();

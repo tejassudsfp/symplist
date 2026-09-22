@@ -18,6 +18,8 @@ export const connectionCallbackSchema = z.object({
   attempt: idSchema,
   n: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
   session_uri: z.string().min(1).max(4096).optional(),
+  status: z.enum(["success", "failed"]).optional(),
+  connected_account_id: z.string().min(1).max(256).optional(),
 });
 export type ConnectionCallback = z.infer<typeof connectionCallbackSchema>;
 export const connectionViewSchema = z.strictObject({
@@ -40,6 +42,7 @@ export const connectionCatalogueSchema = z.strictObject({
       name: z.string(),
       description: z.string(),
       auth: z.enum(["managed", "api_key", "none"]),
+      logo: z.string().url().optional(),
     }),
   ),
 });

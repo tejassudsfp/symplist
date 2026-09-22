@@ -2,15 +2,12 @@
 
 import { cn } from "cn";
 import { forwardRef, type ReactNode, useEffect, useRef } from "react";
+import { SymplistLogo } from "@/components/brand/logo";
 import { ThemeIllustration } from "@/components/ui/empty-state";
 
 /** The small wordmark shown above entry, gate and onboarding screens. */
 export function Wordmark() {
-  return (
-    <span className="font-heading font-semibold text-[15px] text-sym-text tracking-[-0.01em]">
-      symplist
-    </span>
-  );
+  return <SymplistLogo className="text-[15px] text-sym-text" />;
 }
 
 export interface EntryFrameProps {

@@ -43,6 +43,36 @@ describe("live-only toolkit catalogue", () => {
     );
     expect(cyclic).toHaveBeenCalledTimes(2);
   });
+
+  it("passes through only Composio-hosted toolkit logos", async () => {
+    const list = vi.fn(async () => ({
+      items: [
+        {
+          slug: "gmail",
+          name: "Gmail",
+          auth_schemes: ["API_KEY"],
+          meta: { logo: "https://logos.composio.dev/api/gmail" },
+        },
+        {
+          slug: "unsafe",
+          name: "Unsafe",
+          auth_schemes: ["API_KEY"],
+          meta: { logo: "https://other.example/api/unsafe" },
+        },
+      ],
+      next_cursor: null,
+    }));
+    expect(await new ToolkitCatalogue({ toolkits: { list } }).list()).toEqual([
+      {
+        slug: "gmail",
+        name: "Gmail",
+        description: "",
+        auth: "api_key",
+        logo: "https://logos.composio.dev/api/gmail",
+      },
+      { slug: "unsafe", name: "Unsafe", description: "", auth: "api_key" },
+    ]);
+  });
 });
 
 describe("provider error boundary", () => {

@@ -653,5 +653,4 @@ the version's contracts match the API commit before promotion.
 
 Do not work around a failed security check by weakening cookies, CORS, CSRF, signature verification,
 encryption, or runtime secret placement. The full design rationale is in
-[`docs/notes/files/08_self_hosting.md`](docs/notes/files/08_self_hosting.md) and the binding details are
-in [`docs/build/architecture.md`](docs/build/architecture.md).
+[`docs/notes/files/08_self_hosting.md`](docs/notes/files/08_self_hosting.md).

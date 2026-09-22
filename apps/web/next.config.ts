@@ -28,6 +28,9 @@ const nextConfig: NextConfig = {
   // Stop `next dev` from writing AGENTS.md and CLAUDE.md into apps/web (§1).
   agentRules: false,
   poweredByHeader: false,
+  images: {
+    remotePatterns: [{ protocol: "https", hostname: "logos.composio.dev", pathname: "/api/**" }],
+  },
   turbopack: {
     resolveAlias: browserSafeWorkspaceEntries,
   },

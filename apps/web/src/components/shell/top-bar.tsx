@@ -4,6 +4,7 @@ import { UserRound } from "lucide-react";
 import Link from "next/link";
 import { useOptionalActions } from "@/actions/provider";
 import { SHORTCUT_HELP_ACTION_ID, SIGN_OUT_ACTION_ID } from "@/actions/shell-actions";
+import { SymplistLogo } from "@/components/brand/logo";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -111,6 +112,9 @@ export function TopBar() {
   const { vaultStatus, runningIndicator, notificationControl } = useShellSlots();
   return (
     <header className="sym-topbar">
+      <Link href="/now" className="sym-chrome-button sym-topbar-brand" aria-label="Symplist home">
+        <SymplistLogo withWordmark={false} label={null} className="text-[18px]" />
+      </Link>
       <ProfileMenu />
       <a className="sym-chrome-button" href="/vault">
         <LockIcon />

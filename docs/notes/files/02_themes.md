@@ -53,7 +53,7 @@ Theme styling covers the app shell, settings, dialogs, vault, archive, editor, a
 
 Check every theme in both modes, system-mode changes, keyboard focus, readable contrast, reduced motion, narrow screens, long task names, deep sublists, and enlarged text. Switch themes during an unsaved document edit and active chat run to verify state preservation. Verify persistence across refresh/login, account isolation, missing-theme fallback, and layout behavior when fonts are unavailable.
 
-The expanded visual assignment is in [design/mockups/themes.md](../../../design/mockups/themes.md): Studio and Paper provide familiar professional styles; Pebble and Postcard add restrained personality. Each has intentionally designed light/dark variants.
+Studio and Paper provide familiar professional styles; Pebble and Postcard add restrained personality. Each has intentionally designed light/dark variants.
 
 ## Independent accent color
 

@@ -146,6 +146,7 @@ test.describe("app shell", () => {
     const expectedNow: Record<ProjectName, string[]> = {
       desktop: [
         "a:Skip to content",
+        "a:Symplist home",
         "button:Account menu, Maya Rao",
         "a:Vault",
         "button:Notifications",
@@ -160,6 +161,7 @@ test.describe("app shell", () => {
       ],
       laptop: [
         "a:Skip to content",
+        "a:Symplist home",
         "button:Account menu, Maya Rao",
         "a:Vault",
         "button:Notifications",
@@ -173,6 +175,7 @@ test.describe("app shell", () => {
       ],
       mobile: [
         "a:Skip to content",
+        "a:Symplist home",
         "button:Account menu, Maya Rao",
         "a:Vault",
         "button:Notifications",
@@ -194,6 +197,7 @@ test.describe("app shell", () => {
     const expectedTask: Record<ProjectName, string[]> = {
       desktop: [
         "a:Skip to content",
+        "a:Symplist home",
         "button:Account menu, Maya Rao",
         "a:Vault",
         "button:Notifications",
@@ -214,6 +218,7 @@ test.describe("app shell", () => {
       ],
       laptop: [
         "a:Skip to content",
+        "a:Symplist home",
         "button:Account menu, Maya Rao",
         "a:Vault",
         "button:Notifications",
@@ -229,6 +234,7 @@ test.describe("app shell", () => {
       ],
       mobile: [
         "a:Skip to content",
+        "a:Symplist home",
         "button:Account menu, Maya Rao",
         "a:Vault",
         "button:Notifications",

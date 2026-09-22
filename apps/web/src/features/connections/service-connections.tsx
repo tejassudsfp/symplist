@@ -1,6 +1,7 @@
 "use client";
 
 import type { ConnectionStart, ConnectionView } from "@symplist/contracts";
+import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -66,6 +67,14 @@ function Services({ compact }: { compact: boolean }) {
   }, [source, refresh]);
   const connections = resource.data?.connections ?? [];
   const active = connections.filter((connection) => connection.status !== "disconnected");
+  const catalogue = useConnectionResource(
+    api.catalogue,
+    resource.data?.enabled === true && (browse || active.length > 0),
+  );
+  const toolkitBySlug = useMemo(
+    () => new Map((catalogue.data?.items ?? []).map((item) => [item.slug, item])),
+    [catalogue.data],
+  );
   return (
     <section
       className="sym-connections"
@@ -115,9 +124,10 @@ function Services({ compact }: { compact: boolean }) {
           <ul className="sym-connection-list" aria-label="Connected accounts">
             {active.map((connection) => (
               <li key={connection.id}>
-                <div className="sym-connection-mark" aria-hidden="true">
-                  {connection.toolkit.slice(0, 1).toUpperCase()}
-                </div>
+                <ConnectionMark
+                  name={toolkitBySlug.get(connection.toolkit)?.name ?? connection.toolkit}
+                  logo={toolkitBySlug.get(connection.toolkit)?.logo}
+                />
                 <div className="sym-connection-description">
                   <strong>{connection.alias || connection.toolkit}</strong>
                   <span>
@@ -143,7 +153,7 @@ function Services({ compact }: { compact: boolean }) {
             (!browse ? (
               <Button onClick={() => setBrowse(true)}>Browse available services</Button>
             ) : (
-              <CatalogueBrowser compact={compact} connections={active} />
+              <CatalogueBrowser compact={compact} connections={active} catalogue={catalogue} />
             ))}
           {!compact && connections.some((connection) => connection.status === "disconnected") && (
             <details>
@@ -181,12 +191,12 @@ function Services({ compact }: { compact: boolean }) {
 function CatalogueBrowser({
   compact,
   connections,
+  catalogue,
 }: {
   compact: boolean;
   connections: readonly ConnectionView[];
+  catalogue: ReturnType<typeof useConnectionResource<Catalogue>>;
 }) {
-  const { api } = useConnectionsEnvironment();
-  const catalogue = useConnectionResource(api.catalogue);
   const [query, setQuery] = useState("");
   const [all, setAll] = useState(!compact);
   const [selected, setSelected] = useState<Toolkit | null>(null);
@@ -225,9 +235,7 @@ function CatalogueBrowser({
       <ul className="sym-connection-list" aria-label="Service catalogue">
         {visible.map((item) => (
           <li key={item.slug}>
-            <div className="sym-connection-mark" aria-hidden="true">
-              {item.name.slice(0, 1)}
-            </div>
+            <ConnectionMark name={item.name} logo={item.logo} />
             <div className="sym-connection-description">
               <strong>{item.name}</strong>
               <span>{item.description || "Use this service through Simon."}</span>
@@ -257,6 +265,26 @@ function CatalogueBrowser({
         <ConnectDialog toolkit={selected} finalFocus={opener} onClose={() => setSelected(null)} />
       )}
     </section>
+  );
+}
+
+function ConnectionMark({ name, logo }: { name: string; logo?: string }) {
+  const [broken, setBroken] = useState(false);
+  return (
+    <div className="sym-connection-mark" aria-hidden="true">
+      {logo && !broken ? (
+        <Image
+          src={logo}
+          alt=""
+          width={24}
+          height={24}
+          unoptimized
+          onError={() => setBroken(true)}
+        />
+      ) : (
+        name.slice(0, 1).toUpperCase()
+      )}
+    </div>
   );
 }
 
