@@ -95,6 +95,8 @@ services:
         sync: false
       - key: TRIGGER_PROJECT_REF
         sync: false
+      - key: SIMON_CHAT_SESSIONS
+        value: "false"
       - key: CLOUDFLARE_ACCOUNT_ID
         sync: false
       - key: D1_DATABASE_ID
