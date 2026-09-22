@@ -214,6 +214,18 @@ export function SimonConversation({ store, taskId }: { store: SimonStore; taskId
           rows={2}
           disabled={state.busy || state.uncertain}
           onChange={(event) => store.draft(taskId, event.target.value)}
+          onKeyDown={(event) => {
+            // Enter sends and Shift+Enter writes a new line, as a chat composer is expected to
+            // behave. This belongs to the textarea rather than a binding: the dispatcher ignores
+            // every unmodified key while someone is typing (note 13), so `enter` in the registry
+            // would never fire here. `simon.send_message` keeps its own binding for the palette and
+            // for anyone who remapped it. IME composition must finish first, or Enter picking a
+            // candidate would send the half-typed line.
+            if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
+            if (event.altKey || event.ctrlKey || event.metaKey) return;
+            event.preventDefault();
+            if (canSendChat(state)) send();
+          }}
         />
         <div className="sym-simon-composer-controls">
           <label className="sym-simon-tier">
@@ -252,10 +264,7 @@ export function SimonConversation({ store, taskId }: { store: SimonStore; taskId
             ? "Answers this question only."
             : run
               ? "New messages are queued, not immediate steering."
-              : "Enter for a new line."}
-          {actions?.bindingLabel("simon.send_message")
-            ? ` ${actions.bindingLabel("simon.send_message")?.display} to send.`
-            : ""}
+              : "Enter to send, Shift+Enter for a new line."}
         </p>
       </form>
     </div>

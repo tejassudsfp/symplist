@@ -6,6 +6,7 @@ import {
   type DocumentsTestEnvironment,
 } from "../../core/src/documents/test-support.ts";
 import { type SimonModel, SimonModelError } from "./providers.ts";
+import { SIMON_RULES_VERSION } from "./rules.ts";
 import {
   boundSimonHistory,
   runSimonTurn,
@@ -229,7 +230,7 @@ describe("claimed Simon turn integration", () => {
         cache_write_tokens: 0,
         output_tokens: 2,
         provider: "scripted",
-        rules_version: "2026-09-16.1",
+        rules_version: SIMON_RULES_VERSION,
       });
     },
   );

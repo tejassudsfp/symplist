@@ -5,7 +5,11 @@ import { sql } from "@symplist/db";
 import type { DocumentError } from "@symplist/docs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GrantRetrievalBudgets, TurnRetrievalBudget } from "./budgets.ts";
-import { createDocumentsTestEnvironment, type DocumentsTestEnvironment } from "./test-support.ts";
+import {
+  createDocumentsTestEnvironment,
+  type DocumentsTestEnvironment,
+  GIT_TEST_TIMEOUT_MS,
+} from "./test-support.ts";
 
 let env: DocumentsTestEnvironment;
 let owner: string;
@@ -65,7 +69,7 @@ async function seed(markdown = portfolio) {
   return result;
 }
 
-describe("outline, search and read section (note 06)", () => {
+describe("outline, search and read section (note 06)", { timeout: GIT_TEST_TIMEOUT_MS }, () => {
   it("pages the outline with references and sizes only, and marks head-bound cursors stale after an edit", async () => {
     const seeded = await seed();
     const simon = env.simon(owner, task);
@@ -230,7 +234,7 @@ describe("outline, search and read section (note 06)", () => {
   });
 });
 
-describe("section updates (§9.2)", () => {
+describe("section updates (§9.2)", { timeout: GIT_TEST_TIMEOUT_MS }, () => {
   it("publishes canonical section edits as commits, preserves other sections and refuses stale revisions", async () => {
     const seeded = await seed();
     const before = (await env.service.getHead(env.user(owner), task)).markdown;
@@ -332,7 +336,7 @@ describe("section updates (§9.2)", () => {
   });
 });
 
-describe("changes, diffs, history and restore (§9.4)", () => {
+describe("changes, diffs, history and restore (§9.4)", { timeout: GIT_TEST_TIMEOUT_MS }, () => {
   it("pins the target across pages, reports nothing for changed-then-reverted content, and resyncs bad baselines", async () => {
     const seeded = await seed("## A\none\n\n## B\ntwo\n\n## C\nthree\n");
     const simon = env.simon(owner, task);
@@ -492,7 +496,7 @@ describe("changes, diffs, history and restore (§9.4)", () => {
   });
 });
 
-describe("read positions (§9.4)", () => {
+describe("read positions (§9.4)", { timeout: GIT_TEST_TIMEOUT_MS }, () => {
   it("reports read, changed, unread and previously read sections from checkpointed receipts", async () => {
     const seeded = await seed("## A\none\n\n## B\ntwo\n\n## C\nthree\n");
     const simon = env.simon(owner, task, { contextEpoch: 1 });
@@ -538,7 +542,9 @@ describe("read positions (§9.4)", () => {
   });
 });
 
-describe("no model calls and no plaintext leakage (note 11)", () => {
+describe("no model calls and no plaintext leakage (note 11)", {
+  timeout: GIT_TEST_TIMEOUT_MS,
+}, () => {
   it("never imports a model provider from the document code", () => {
     const roots = [
       fileURLToPath(new URL(".", import.meta.url)),

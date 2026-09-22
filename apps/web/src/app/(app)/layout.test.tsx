@@ -121,8 +121,15 @@ afterEach(() => vi.unstubAllGlobals());
 /*
  * The shell with today's seam placeholders (§2.3). A feature that replaces its placeholder updates
  * the matching assertion; where each seam mounts is covered by `components/shell/feature-slots.test.tsx`.
+ *
+ * The first case mounts the whole shell — every provider and feature slot — into a fresh jsdom, so
+ * it carries this file's cold render while the cases after it run in tens of milliseconds. That is
+ * 803ms on an idle machine but over 5s when the workspaces run in parallel, and a timeout here fails
+ * the next case too: Testing Library's cleanup does not run for a timed-out test, so its DOM is
+ * still mounted when the next one renders a second shell. The budget matches the render; the
+ * assertions are unchanged.
  */
-describe("the (app) layout with the feature placeholders", () => {
+describe("the (app) layout with the feature placeholders", { timeout: 30_000 }, () => {
   it("shows a selected task's page and chat", async () => {
     await renderAppLayout(`/now/${taskId}`);
     const main = screen.getByRole("main");

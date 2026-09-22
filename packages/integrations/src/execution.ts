@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { ComposioExecutionClient, ComposioSession } from "./client.ts";
-import { IntegrationError, normalizeIntegrationError } from "./errors.ts";
+import { IntegrationError, normalizeIntegrationError, upstreamFailureStatus } from "./errors.ts";
 
 export interface ExternalConnection {
   readonly id: string;
@@ -399,10 +399,20 @@ export class ConnectionTools {
         : await this.session.execute(action.tool.slug, action.arguments, {
             account: current.connectedAccountId,
           });
-      if (result.error)
+      if (result.error) {
+        // A refused credential is a definite non-event: the third party rejected the request before
+        // running anything, so calling it uncertain is both wrong and expensive — it tells Simon
+        // never to retry and the owner only that the outcome "could not be confirmed", when what
+        // they need to hear is that the connection has to be reconnected. Anything that does not
+        // state a status stays on the conservative default, because a lost response really can mean
+        // the action happened.
+        const status = upstreamFailureStatus(result.error, result.data);
+        if (status === 401 || status === 403)
+          throw new IntegrationError("integration.unauthorized", { status });
         throw new IntegrationError(
           options.sideEffect ? "integration.uncertain" : "integration.provider_failed",
         );
+      }
       return boundedResult(result.data);
     } catch (error) {
       if (
