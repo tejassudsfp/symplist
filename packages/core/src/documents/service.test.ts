@@ -2,7 +2,11 @@ import { sql } from "@symplist/db";
 import { DocumentError, markdown as md, type PublicationFold } from "@symplist/docs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DocumentAccessDeniedError } from "./context.ts";
-import { createDocumentsTestEnvironment, type DocumentsTestEnvironment } from "./test-support.ts";
+import {
+  createDocumentsTestEnvironment,
+  type DocumentsTestEnvironment,
+  GIT_TEST_TIMEOUT_MS,
+} from "./test-support.ts";
 import type { PublishResult } from "./views.ts";
 
 let env: DocumentsTestEnvironment;
@@ -61,7 +65,7 @@ A lighter, quieter portfolio.
 1. Draft the about page
 `;
 
-describe("head and saves (§9.2, §9.3)", () => {
+describe("head and saves (§9.2, §9.3)", { timeout: GIT_TEST_TIMEOUT_MS }, () => {
   it("shows the empty page, then the saved head with sections, and announces the change", async () => {
     const empty = await env.service.getHead(env.user(owner), task);
     expect(empty).toMatchObject({
@@ -253,7 +257,7 @@ describe("head and saves (§9.2, §9.3)", () => {
   });
 });
 
-describe("authorization (§5.4, §2.1)", () => {
+describe("authorization (§5.4, §2.1)", { timeout: GIT_TEST_TIMEOUT_MS }, () => {
   it("returns not_found for another user's task and never reveals it", async () => {
     await save("# Private plan\n", null);
     const intruder = await env.createUser();
@@ -297,7 +301,7 @@ describe("authorization (§5.4, §2.1)", () => {
   });
 });
 
-describe("drafts (§9.3)", () => {
+describe("drafts (§9.3)", { timeout: GIT_TEST_TIMEOUT_MS }, () => {
   it("orders writes by client sequence, throttles, and deletes idempotently", async () => {
     await env.service.putDraft(env.user(owner), {
       taskId: task,
@@ -345,7 +349,7 @@ describe("drafts (§9.3)", () => {
   });
 });
 
-describe("history, previews, compare and restore (§9.2)", () => {
+describe("history, previews, compare and restore (§9.2)", { timeout: GIT_TEST_TIMEOUT_MS }, () => {
   it("pages history with the head pinned while new revisions arrive", async () => {
     let base: string | null = null;
     const revisions: string[] = [];

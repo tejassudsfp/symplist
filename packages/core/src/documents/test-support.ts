@@ -18,6 +18,17 @@ import {
 } from "@symplist/db";
 import { CiphertextCache, GitService } from "@symplist/docs";
 import { createLocalObjectStore, type LocalObjectStore } from "@symplist/storage";
+
+/**
+ * Timeout for suites built on {@link createDocumentsTestEnvironment}. They drive the real Git CLI
+ * over a bare repository, a SQLite file and an on-disk object store, so a single test is seconds of
+ * process spawning and disk I/O rather than milliseconds of assertions. Vitest's 5s default leaves
+ * roughly 3x headroom, which disappears when the workspaces run in parallel and every test file gets
+ * its own worker: CI has failed these at 5.2-5.5s while they take 1.0-1.8s on an idle machine. The
+ * budget matches the I/O; the assertions are unchanged.
+ */
+export const GIT_TEST_TIMEOUT_MS = 30_000;
+
 import { AccountKeyStore } from "../account/keys.ts";
 import { taskTitleContext } from "../tasks/sql.ts";
 import type { DocumentActor, McpDocumentActor, SimonDocumentActor } from "./actor.ts";

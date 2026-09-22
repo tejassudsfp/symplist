@@ -15,7 +15,11 @@ import {
   runDocumentGitJob,
 } from "./git-jobs.ts";
 import { DocumentMaintenance } from "./maintenance.ts";
-import { createDocumentsTestEnvironment, type DocumentsTestEnvironment } from "./test-support.ts";
+import {
+  createDocumentsTestEnvironment,
+  type DocumentsTestEnvironment,
+  GIT_TEST_TIMEOUT_MS,
+} from "./test-support.ts";
 
 let env: DocumentsTestEnvironment;
 let owner: string;
@@ -51,7 +55,7 @@ function jobActor(
   };
 }
 
-describe("document-git jobs (§9.1, §8.3)", () => {
+describe("document-git jobs (§9.1, §8.3)", { timeout: GIT_TEST_TIMEOUT_MS }, () => {
   beforeEach(async () => {
     await env.db.run(sql("UPDATE executor_state SET mode = 'durable'"));
     const simon = new SimonRepository({
@@ -346,7 +350,7 @@ describe("document-git jobs (§9.1, §8.3)", () => {
   });
 });
 
-describe("maintenance and purge (§5.6, §9.2)", () => {
+describe("maintenance and purge (§5.6, §9.2)", { timeout: GIT_TEST_TIMEOUT_MS }, () => {
   it("sweeps expired requests and old receipts in bounded batches", async () => {
     const seeded = await env.tools.updateSection(env.simon(owner, task), {
       taskId: task,
