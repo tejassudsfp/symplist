@@ -15,6 +15,8 @@ export interface DispatchIntentRecord {
   readonly ownerId: string;
   readonly kind: string;
   readonly subjectId: string;
+  /** The durable session this intent's work joins, when its kind runs one; null otherwise. */
+  readonly sessionExternalId: string | null;
   readonly status: "pending" | "dispatched" | "cancelled";
   readonly executor: ExecutorKind | null;
   readonly executorGeneration: number;
@@ -36,7 +38,7 @@ export interface DispatchClaim {
 }
 
 const columns =
-  "id, owner_id, kind, subject_id, status, executor, executor_generation, trigger_run_id, attempts, created_at, updated_at, dispatched_at, local_started_at, write_id";
+  "id, owner_id, kind, subject_id, session_external_id, status, executor, executor_generation, trigger_run_id, attempts, created_at, updated_at, dispatched_at, local_started_at, write_id";
 
 /** The executor generation inside a feature's accept batch (§8.1). */
 export const CURRENT_EXECUTOR_GENERATION_SQL =
@@ -56,6 +58,10 @@ function toRecord(row: DbRow): DispatchIntentRecord {
     ownerId: String(row.owner_id),
     kind: String(row.kind),
     subjectId: String(row.subject_id),
+    sessionExternalId:
+      row.session_external_id === null || row.session_external_id === undefined
+        ? null
+        : String(row.session_external_id),
     status,
     executor,
     executorGeneration: Number(row.executor_generation),
@@ -81,6 +87,8 @@ export function insertDispatchIntentStatement(input: {
   readonly ownerId: string;
   readonly kind: string;
   readonly subjectId: string;
+  /** The session the work joins, for a kind that runs one. It outlives the subject, so never the subject id. */
+  readonly sessionExternalId?: string | null;
   readonly now: number;
   readonly writeId: string;
   /** An `EXISTS (…)` guard from the deciding statement's write guard, when the intent depends on it. */
@@ -88,8 +96,8 @@ export function insertDispatchIntentStatement(input: {
 }): Statement {
   return sql(
     `INSERT INTO dispatch_intents
-       (id, owner_id, kind, subject_id, status, executor, executor_generation, trigger_run_id, attempts, created_at, updated_at, write_id)
-     SELECT :id, :owner, :kind, :subject, 'pending', NULL, ${CURRENT_EXECUTOR_GENERATION_SQL}, NULL, 0, :now, :now, :w
+       (id, owner_id, kind, subject_id, session_external_id, status, executor, executor_generation, trigger_run_id, attempts, created_at, updated_at, write_id)
+     SELECT :id, :owner, :kind, :subject, :session, 'pending', NULL, ${CURRENT_EXECUTOR_GENERATION_SQL}, NULL, 0, :now, :now, :w
      WHERE ${input.guard?.exists ?? "1 = 1"}
      ON CONFLICT (kind, subject_id) DO NOTHING`,
     {
@@ -97,6 +105,7 @@ export function insertDispatchIntentStatement(input: {
       owner: input.ownerId,
       kind: input.kind,
       subject: input.subjectId,
+      session: input.sessionExternalId ?? null,
       now: int(input.now),
       w: input.writeId,
       ...(input.guard?.params ?? {}),
