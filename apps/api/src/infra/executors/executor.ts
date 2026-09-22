@@ -62,9 +62,22 @@ export class ExecutorError extends Error {
 }
 
 /**
+ * `sessions.start` as the api calls it: it creates the session row and triggers a run in one
+ * round-trip, and is idempotent on `externalId`, so an existing session answers with its live (or
+ * freshly re-triggered) run. `triggerConfig` is fixed at creation and reused for every later run of
+ * the session, which is why `basePayload` can never carry anything belonging to a single subject.
+ */
+export interface TriggerSessionStart {
+  readonly type: string;
+  readonly externalId: string;
+  readonly taskIdentifier: string;
+  readonly triggerConfig: { readonly basePayload: Readonly<Record<string, string>> };
+}
+
+/**
  * The structural subset of the Trigger.dev SDK the api uses (`TriggerClient` from `@trigger.dev/sdk`
- * 4.6): `tasks.trigger`, `runs.retrieve` and `runs.cancel`. `FakeTriggerClient` from
- * `@symplist/testing` satisfies it.
+ * 4.6): `tasks.trigger`, `runs.retrieve`, `runs.cancel` and `sessions.start`. `FakeTriggerClient`
+ * from `@symplist/testing` satisfies it.
  */
 export interface TriggerRunsClient {
   readonly tasks: {
@@ -77,6 +90,10 @@ export interface TriggerRunsClient {
   readonly runs: {
     retrieve(runId: string): Promise<{ readonly id: string; readonly status: string }>;
     cancel(runId: string): Promise<unknown>;
+  };
+  readonly sessions: {
+    /** `runId` is the run this turn executes, so observe and cancel keep working unchanged. */
+    start(input: TriggerSessionStart): Promise<{ readonly runId: string }>;
   };
 }
 

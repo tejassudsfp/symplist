@@ -1,6 +1,7 @@
 import { Test } from "@nestjs/testing";
 import type {
   EventsContributor,
+  ExecutionJob,
   ExecutionKindDefinition,
   LocalExecutionHandler,
 } from "@symplist/core/events";
@@ -73,6 +74,18 @@ function definition(
   };
 }
 
+/** A `simon_run` job for one subject, owned by `OWNER` at generation 1 and outside a session. */
+function job(overrides: Partial<ExecutionJob> & { readonly subjectId: string }): ExecutionJob {
+  return {
+    intentId: "i",
+    kind: "simon_run",
+    ownerId: OWNER,
+    generation: 1,
+    sessionExternalId: null,
+    ...overrides,
+  };
+}
+
 function contributors(...definitions: ExecutionKindDefinition[]): EventsContributor[] {
   return [{ domain: "simon", executionKinds: definitions }];
 }
@@ -102,7 +115,13 @@ async function setMode(
 
 async function addIntent(
   db: DbClient,
-  input: { subjectId?: string; ownerId?: string; kind?: string; now?: number } = {},
+  input: {
+    subjectId?: string;
+    ownerId?: string;
+    kind?: string;
+    now?: number;
+    sessionExternalId?: string | null;
+  } = {},
 ): Promise<{ id: string; subjectId: string }> {
   const id = uuidv7();
   const subjectId = input.subjectId ?? uuidv7();
@@ -112,6 +131,7 @@ async function addIntent(
       ownerId: input.ownerId ?? OWNER,
       kind: input.kind ?? "simon_run",
       subjectId,
+      sessionExternalId: input.sessionExternalId ?? null,
       now: input.now ?? 1_000,
       writeId: newWriteId(),
     }),
@@ -134,13 +154,16 @@ interface Harness {
   repository: DispatchIntentRepository;
 }
 
-async function harness(mode: "local" | "durable"): Promise<Harness> {
+async function harness(
+  mode: "local" | "durable",
+  kind: (tracker: FakeTracker) => ExecutionKindDefinition = definition,
+): Promise<Harness> {
   const db = await migratedDb();
   await setMode(db, mode);
   const clock = new FakeClock(1_789_462_800_000);
   const log = new RecordingLog();
   const tracker = new FakeTracker();
-  const registry = new ExecutionRegistry(new Map([["simon_run", definition(tracker)]]), db);
+  const registry = new ExecutionRegistry(new Map([["simon_run", kind(tracker)]]), db);
   return {
     db,
     clock,
@@ -374,13 +397,7 @@ describe("dispatch in local mode", () => {
 
     expect(report).toEqual({ considered: 1, dispatched: 1, failed: 0, skipped: 0 });
     expect(handler).toHaveBeenCalledTimes(1);
-    expect(handler.mock.calls[0]?.[0]).toEqual({
-      intentId: id,
-      kind: "simon_run",
-      subjectId,
-      ownerId: OWNER,
-      generation: 1,
-    });
+    expect(handler.mock.calls[0]?.[0]).toEqual(job({ intentId: id, subjectId }));
     expect(h.trigger.triggers).toEqual([]);
     expect(await intentRow(h.db, id)).toMatchObject({
       status: "dispatched",
@@ -554,13 +571,22 @@ describe("dispatch in local mode", () => {
   });
 });
 
+/** The kind as Simon declares it once `SIMON_CHAT_SESSIONS` may route it: a session task and its key. */
+function chatDefinition(tracker: FakeTracker | undefined): ExecutionKindDefinition {
+  return definition(tracker, {
+    sessionTaskId: "simon-chat",
+    sessionExternalId: (candidate) => candidate.sessionExternalId,
+  });
+}
+
 describe("dispatch in durable mode", () => {
-  async function durable() {
-    const h = await track(harness("durable"));
+  async function durable(options: { sessions?: boolean; chat?: boolean } = {}) {
+    const h = await track(harness("durable", options.chat ? chatDefinition : definition));
     const handler = vi.fn<LocalExecutionHandler>(async () => undefined);
     h.registry.registerLocalHandler("simon_run", handler);
     h.trigger.registerTask("simon-run", async () => ({ ok: true }), { maxAttempts: 1 });
-    const executor = new TriggerExecutor(h.trigger);
+    h.trigger.registerTask("simon-chat", async () => ({ ok: true }), { maxAttempts: 1 });
+    const executor = new TriggerExecutor(h.trigger, { sessions: options.sessions ?? false });
     const dispatcher = new ExecutionDispatcher({
       repository: h.repository,
       state: h.state,
@@ -620,7 +646,7 @@ describe("dispatch in durable mode", () => {
   it("never triggers again for an intent that already has a Trigger run id", async () => {
     const h = await durable();
     const started = await h.executor.start(
-      { intentId: "i", kind: "simon_run", subjectId: uuidv7(), ownerId: OWNER, generation: 1 },
+      job({ subjectId: uuidv7() }),
       definition(undefined),
       "run_existing",
     );
@@ -650,6 +676,136 @@ describe("dispatch in durable mode", () => {
       ExecutorError,
     );
     expect(() => assertIdsOnlyPayload({})).toThrow(ExecutorError);
+  });
+});
+
+/* ------------------------------------------------------------------------------------------------
+ * Chat sessions
+ * --------------------------------------------------------------------------------------------- */
+
+describe("dispatch into a chat session (SIMON_CHAT_SESSIONS)", () => {
+  const CONVERSATION = "01996d2a-4c00-7000-8000-0000000000c1";
+
+  async function chat(options: { sessions: boolean }) {
+    const h = await track(harness("durable", chatDefinition));
+    h.trigger.registerTask("simon-run", async () => ({ ok: true }), { maxAttempts: 1 });
+    h.trigger.registerTask("simon-chat", async () => ({ ok: true }), { maxAttempts: 1 });
+    const executor = new TriggerExecutor(h.trigger, { sessions: options.sessions });
+    const dispatcher = new ExecutionDispatcher({
+      repository: h.repository,
+      state: h.state,
+      registry: h.registry,
+      executor,
+      timers: h.clock,
+      log: h.log,
+      claimLeaseMs: 60_000,
+    });
+    return { ...h, executor, dispatcher };
+  }
+
+  it("keeps the task dispatch exactly as it was while the flag is off", async () => {
+    const h = await chat({ sessions: false });
+    const { id, subjectId } = await addIntent(h.db, { sessionExternalId: CONVERSATION });
+    expect((await h.dispatcher.dispatchPending()).dispatched).toBe(1);
+    expect(h.trigger.sessionStarts).toEqual([]);
+    expect(h.trigger.triggers).toHaveLength(1);
+    expect(h.trigger.triggers[0]).toMatchObject({
+      via: "trigger",
+      taskIdentifier: "simon-run",
+      payload: { runId: subjectId },
+      options: { idempotencyKey: subjectId },
+    });
+    expect(await intentRow(h.db, id)).toMatchObject({
+      status: "dispatched",
+      executor: "trigger",
+      trigger_run_id: h.trigger.triggers[0]?.runId,
+    });
+  });
+
+  it("starts the conversation's session and keeps observe and cancel on the returned run", async () => {
+    const h = await chat({ sessions: true });
+    const { id, subjectId } = await addIntent(h.db, { sessionExternalId: CONVERSATION });
+    expect((await h.dispatcher.dispatchPending()).dispatched).toBe(1);
+    expect(h.trigger.sessionStarts).toMatchObject([
+      { externalId: CONVERSATION, taskIdentifier: "simon-chat", isCached: false },
+    ]);
+    // The session spans the conversation, so its payload names the conversation and never the run.
+    expect(h.trigger.triggers[0]).toMatchObject({
+      via: "session",
+      taskIdentifier: "simon-chat",
+      payload: { chatId: CONVERSATION },
+    });
+    expect(JSON.stringify(h.trigger.triggers[0]?.payload)).not.toContain(subjectId);
+
+    const runId = h.trigger.sessionStarts[0]?.runId;
+    expect(await intentRow(h.db, id)).toMatchObject({
+      status: "dispatched",
+      executor: "trigger",
+      trigger_run_id: runId,
+    });
+    expect(h.tracker.dispatches).toMatchObject([{ subjectId, triggerRunId: runId }]);
+
+    const target = { kind: "simon_run", subjectId, triggerRunId: runId ?? null };
+    expect(await h.executor.observe(target)).toEqual({ state: "active" });
+    await h.executor.cancel(target);
+    expect(h.trigger.cancellations).toEqual([runId]);
+    expect(await h.executor.observe(target)).toEqual({ state: "cancelled" });
+  });
+
+  it("answers a second turn of the same conversation from the one session", async () => {
+    const h = await chat({ sessions: true });
+    const first = await addIntent(h.db, { sessionExternalId: CONVERSATION });
+    expect((await h.dispatcher.dispatchPending()).dispatched).toBe(1);
+    const firstRun = h.trigger.sessionStarts[0]?.runId;
+
+    // The first run is still parked, so the follow-up lands on it instead of booting a second.
+    const second = await addIntent(h.db, { sessionExternalId: CONVERSATION, now: 2_000 });
+    expect((await h.dispatcher.dispatchPending()).dispatched).toBe(1);
+    expect(h.trigger.sessionStarts).toMatchObject([{ isCached: false }, { isCached: true }]);
+    expect(h.trigger.sessionStarts.map((start) => start.id)).toEqual([
+      h.trigger.sessionStarts[0]?.id,
+      h.trigger.sessionStarts[0]?.id,
+    ]);
+    expect(new Set(h.trigger.triggers.map((record) => record.runId)).size).toBe(1);
+    for (const intent of [first, second]) {
+      expect(await intentRow(h.db, intent.id)).toMatchObject({ trigger_run_id: firstRun });
+    }
+  });
+
+  it("falls back to the task when the intent names no session", async () => {
+    const h = await chat({ sessions: true });
+    const { subjectId } = await addIntent(h.db);
+    expect((await h.dispatcher.dispatchPending()).dispatched).toBe(1);
+    expect(h.trigger.sessionStarts).toEqual([]);
+    expect(h.trigger.triggers[0]).toMatchObject({
+      taskIdentifier: "simon-run",
+      payload: { runId: subjectId },
+    });
+  });
+
+  it("maps a refused session start to a stable code and leaves the intent pending", async () => {
+    const h = await chat({ sessions: true });
+    const { id } = await addIntent(h.db, { sessionExternalId: CONVERSATION });
+    vi.spyOn(h.trigger.sessions, "start").mockRejectedValueOnce(
+      new FakeTriggerApiError(422, "session rejected with details"),
+    );
+    expect((await h.dispatcher.dispatchPending()).failed).toBe(1);
+    const failure = h.log.entries.find((entry) => entry.event === "executor.dispatch_failed");
+    expect(failure?.fields).toMatchObject({ code: "executor.trigger_rejected" });
+    expect(JSON.stringify(h.log.entries)).not.toContain("session rejected with details");
+    expect(await intentRow(h.db, id)).toMatchObject({ status: "pending", trigger_run_id: null });
+  });
+
+  it("never starts a session for an intent that already reached Trigger", async () => {
+    const h = await chat({ sessions: true });
+    const started = await h.executor.start(
+      job({ subjectId: uuidv7(), sessionExternalId: CONVERSATION }),
+      chatDefinition(undefined),
+      "run_existing",
+    );
+    expect(started).toEqual({ executor: "trigger", triggerRunId: "run_existing" });
+    expect(h.trigger.sessionStarts).toEqual([]);
+    expect(h.trigger.triggers).toEqual([]);
   });
 });
 
@@ -693,16 +849,10 @@ describe("local executor", () => {
     const b = uuidv7();
     h.tracker.add(a, { ownerId: OWNER, executor: "local" });
     h.tracker.add(b, { ownerId: OWNER, executor: "local" });
-    const job = (subjectId: string) => ({
-      intentId: subjectId,
-      kind: "simon_run",
-      subjectId,
-      ownerId: OWNER,
-      generation: 1,
-    });
-    await local.start(job(a), definition(h.tracker));
-    await local.start(job(b), definition(h.tracker));
-    await local.start(job(a), definition(h.tracker));
+    const turn = (subjectId: string) => job({ intentId: subjectId, subjectId });
+    await local.start(turn(a), definition(h.tracker));
+    await local.start(turn(b), definition(h.tracker));
+    await local.start(turn(a), definition(h.tracker));
     await h.clock.advance(0);
     expect(signals).toHaveLength(2);
     expect(local.runningCount()).toBe(2);
@@ -735,10 +885,7 @@ describe("local executor", () => {
     });
     const subjectId = uuidv7();
     h.tracker.add(subjectId, { ownerId: OWNER, executor: "local" });
-    await local.start(
-      { intentId: "i", kind: "simon_run", subjectId, ownerId: OWNER, generation: 1 },
-      definition(h.tracker),
-    );
+    await local.start(job({ subjectId }), definition(h.tracker));
     await h.clock.advance(40_000);
     expect(h.tracker.heartbeats.map((beat) => beat.ids)).toEqual([[subjectId], [subjectId]]);
 
@@ -763,10 +910,7 @@ describe("local executor", () => {
     const local = new LocalExecutor({ registry: h.registry, timers: h.clock, log: h.log });
     const subjectId = uuidv7();
     h.tracker.add(subjectId, { ownerId: OWNER, executor: "local" });
-    await local.start(
-      { intentId: "i", kind: "simon_run", subjectId, ownerId: OWNER, generation: 1 },
-      definition(h.tracker),
-    );
+    await local.start(job({ subjectId }), definition(h.tracker));
     await h.clock.advance(0);
     await local.shutdown();
     expect(h.tracker.runs.get(subjectId)).toMatchObject({
@@ -774,28 +918,19 @@ describe("local executor", () => {
       outcomeCode: "executor_lost",
     });
     await expect(
-      local.start(
-        { intentId: "j", kind: "simon_run", subjectId: uuidv7(), ownerId: OWNER, generation: 1 },
-        definition(h.tracker),
-      ),
+      local.start(job({ intentId: "j", subjectId: uuidv7() }), definition(h.tracker)),
     ).rejects.toThrow(ExecutorError);
   });
 
   it("never runs an intent that reached Trigger and fails without a registered handler", async () => {
     const h = await track(harness("local"));
     const local = new LocalExecutor({ registry: h.registry, timers: h.clock, log: h.log });
-    const job = {
-      intentId: "i",
-      kind: "simon_run",
-      subjectId: uuidv7(),
-      ownerId: OWNER,
-      generation: 1,
-    };
-    await expect(local.start(job, definition(h.tracker))).rejects.toMatchObject({
+    const turn = job({ subjectId: uuidv7() });
+    await expect(local.start(turn, definition(h.tracker))).rejects.toMatchObject({
       code: "executor.handler_missing",
     });
     h.registry.registerLocalHandler("simon_run", async () => undefined);
-    await expect(local.start(job, definition(h.tracker), "run_1")).rejects.toThrow(ExecutorError);
+    await expect(local.start(turn, definition(h.tracker), "run_1")).rejects.toThrow(ExecutorError);
   });
 });
 
@@ -847,10 +982,7 @@ describe("reconciler", () => {
       heartbeatAt: null,
       createdAt: 0,
     });
-    await local.start(
-      { intentId: "i", kind: "simon_run", subjectId: inProcess, ownerId: OWNER, generation: 1 },
-      definition(h.tracker),
-    );
+    await local.start(job({ subjectId: inProcess }), definition(h.tracker));
 
     const report = await reconciler.reconcileOnce();
     expect(report).toMatchObject({ ran: true, interrupted: 1 });
@@ -1048,15 +1180,10 @@ describe("reconciler", () => {
       timers: h.clock,
       log: h.log,
     });
-    const job = (subjectId: string, generation: number) => ({
-      intentId: subjectId,
-      kind: "simon_run",
-      subjectId,
-      ownerId: OWNER,
-      generation,
-    });
-    await local.start(job("old", 1), definition(h.tracker));
-    await local.start(job("current", 3), definition(h.tracker));
+    const turn = (subjectId: string, generation: number) =>
+      job({ intentId: subjectId, subjectId, generation });
+    await local.start(turn("old", 1), definition(h.tracker));
+    await local.start(turn("current", 3), definition(h.tracker));
     await h.clock.advance(0);
 
     // local → durable → local moved the generation to 3: only the generation-1 job is stale.
@@ -1655,10 +1782,7 @@ describe("restricted run canceller (§5.5)", () => {
       [mine, OWNER],
       [theirs, OTHER_OWNER],
     ] as const) {
-      await local.start(
-        { intentId: subjectId, kind: "simon_run", subjectId, ownerId, generation: 1 },
-        definition(h.tracker),
-      );
+      await local.start(job({ intentId: subjectId, subjectId, ownerId }), definition(h.tracker));
     }
     await h.clock.advance(0);
     const trigger = vi.spyOn(h.trigger.runs, "cancel");
