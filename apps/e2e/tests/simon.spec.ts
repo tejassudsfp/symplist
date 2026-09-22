@@ -351,6 +351,11 @@ test("approval exposes exact action details and denial never authorizes the acti
   await openChat(page, fixture.taskId);
   const card = page.getByRole("region", { name: "Action needs your approval" });
   await expect(card).toBeVisible();
+  // The decision is the default surface: a reader sees what is proposed and both answers without
+  // opening anything. The machine-readable arguments sit one disclosure away, still exact.
+  await expect(card.getByRole("button", { name: "Approve action" })).toBeVisible();
+  await expect(card.getByRole("button", { name: "Don\u2019t do this" })).toBeVisible();
+  await card.getByText("Exact action fields", { exact: true }).click();
   await expect(card.getByRole("textbox", { name: "Action preview" })).toHaveValue(
     /collaborator@example\.test/,
   );
