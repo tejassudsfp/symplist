@@ -17,6 +17,7 @@ import { DOCUMENT_GIT } from "../../infra/documents/git.module.ts";
 import { ExecutionRegistry } from "../../infra/executors/execution-registry.ts";
 import { OBJECT_STORE } from "../../infra/storage/storage.providers.ts";
 import { TopicHub } from "../realtime/topic-hub.ts";
+import { AiSettingsController } from "./simon.ai.controller.ts";
 import {
   SIMON_APPROVAL_EDIT_VALIDATOR,
   type SimonApprovalEditValidatorFactory,
@@ -65,7 +66,12 @@ export class SimonLifecycle implements OnModuleInit {
 
 /** The simon feature: controllers, gateway handlers and providers live in this folder (§2.3). */
 @Module({
-  controllers: [SimonController, SimonUserAsksController, SimonApprovalsController],
+  controllers: [
+    SimonController,
+    SimonUserAsksController,
+    SimonApprovalsController,
+    AiSettingsController,
+  ],
   providers: [
     {
       provide: SIMON_CONNECTIONS_RUNTIME,

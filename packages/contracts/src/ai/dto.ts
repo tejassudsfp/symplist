@@ -27,7 +27,8 @@ export type AiTier = z.infer<typeof aiTierSchema>;
  * rather than by this passing.
  */
 export const aiProviderKeySchema = z.strictObject({
-  provider: aiProviderSchema,
+  // The provider is named by the path, not repeated here: two places to say which company is about
+  // to receive a live secret is one place to disagree.
   // Wide enough for both providers' formats and any future length, narrow enough to reject a pasted
   // sentence. Printable ASCII only: a key with whitespace in it is a paste accident.
   key: z
