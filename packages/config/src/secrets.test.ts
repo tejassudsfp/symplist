@@ -44,11 +44,12 @@ describe("secret inventory (§4.5)", () => {
       COMPOSIO_API_KEY: { api: "yes", worker: "yes", ci: false },
       RESEND_API_KEY: { api: "yes", worker: "yes", ci: false },
       POSTHOG_PROJECT_KEY: { api: "yes", worker: "yes", ci: false },
-      OPENAI_API_KEY: { api: "durable_false_only", worker: "yes", ci: false },
-      AWS_ACCESS_KEY_ID: { api: "durable_false_only", worker: "yes", ci: false },
-      AWS_SECRET_ACCESS_KEY: { api: "durable_false_only", worker: "yes", ci: false },
-      GOOGLE_VERTEX_CREDENTIALS_JSON: { api: "durable_false_only", worker: "yes", ci: false },
-      TOGETHER_API_KEY: { api: "durable_false_only", worker: "yes", ci: false },
+      OPENAI_API_KEY: { api: "rejected", worker: "rejected", ci: false },
+      ANTHROPIC_API_KEY: { api: "rejected", worker: "rejected", ci: false },
+      AWS_ACCESS_KEY_ID: { api: "rejected", worker: "rejected", ci: false },
+      AWS_SECRET_ACCESS_KEY: { api: "rejected", worker: "rejected", ci: false },
+      GOOGLE_VERTEX_CREDENTIALS_JSON: { api: "rejected", worker: "rejected", ci: false },
+      TOGETHER_API_KEY: { api: "rejected", worker: "rejected", ci: false },
       RESEND_WEBHOOK_SECRET: { api: "yes", worker: "rejected", ci: false },
       COMPOSIO_WEBHOOK_SECRET: { api: "yes", worker: "rejected", ci: false },
       POSTHOG_PERSONAL_API_KEY: { api: "yes", worker: "rejected", ci: false },
@@ -193,12 +194,16 @@ describe("secret family parsing", () => {
       "CLOUDFLARE_D1_API_TOKEN",
       "CLOUDFLARE_D1_MIGRATE_API_TOKEN",
       "TRIGGER_ACCESS_TOKEN",
+      // The worker used to hold this one; a model key is now the account's, so it is refused here
+      // too and belongs in this list rather than beside the controls below.
+      "OPENAI_API_KEY",
     ];
     const variables = Object.fromEntries(names.map((name) => [name, "x"]));
     const issues = rejectedSecretIssues(
-      { ...variables, CONTENT_KEK_1: "x", TRIGGER_SECRET_KEY: "x", OPENAI_API_KEY: "x" },
+      // Controls: a generated family, the platform-injected key and a credential the worker really
+      // does hold, none of which may appear in the issues.
+      { ...variables, CONTENT_KEK_1: "x", TRIGGER_SECRET_KEY: "x", RESEND_API_KEY: "x" },
       "worker",
-      { durable: true },
     );
     expect(issues.map((issue) => issue.variable).sort()).toEqual([...names].sort());
   });

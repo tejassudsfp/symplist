@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   assertNoProviderExecutedTools,
   createSimonModels,
+  type ModelCredentialSource,
   type SimonModelConfig,
 } from "./providers.ts";
 
@@ -16,6 +17,20 @@ const base: SimonModelConfig = {
   AI_SMART_PROVIDER: "openai",
   AI_SMART_MODEL: "gpt-5.6-terra",
 };
+const owner = "01929f3e-0000-7000-8000-00000000000a";
+
+/** A stand-in for the account's stored key, which is where every live credential now comes from. */
+function keyed(
+  apiKey: string,
+  overrides: Partial<{ provider: "openai" | "anthropic"; model: string }> = {},
+): ModelCredentialSource {
+  return async (_ownerId, tier) => ({
+    provider: overrides.provider ?? "openai",
+    model: overrides.model ?? (tier === "fast" ? "gpt-5.6-luna" : "gpt-5.6-terra"),
+    apiKey,
+  });
+}
+
 afterEach(() => vi.unstubAllEnvs());
 
 describe("Simon provider registry", () => {
@@ -28,37 +43,34 @@ describe("Simon provider registry", () => {
         authorization: string | null;
       }[] = [];
       vi.stubEnv("OPENAI_BASE_URL", "https://wrong.example.test");
-      const models = createSimonModels(
-        { ...base, OPENAI_API_KEY: "test-not-a-real-key" },
-        {
-          fetch: async (url, init) => {
-            requests.push({
-              url: String(url),
-              body: JSON.parse(String(init?.body)),
-              authorization: new Headers(init?.headers).get("authorization"),
-            });
-            return Response.json({
-              id: "resp_test",
-              object: "response",
-              created_at: 1,
-              model: "test",
-              status: "completed",
-              output: [
-                {
-                  type: "message",
-                  id: "msg_test",
-                  role: "assistant",
-                  status: "completed",
-                  content: [{ type: "output_text", text: "Hello", annotations: [] }],
-                },
-              ],
-              usage: { input_tokens: 4, output_tokens: 2, total_tokens: 6 },
-            });
-          },
+      const models = createSimonModels(base, {
+        credentials: keyed("test-not-a-real-key"),
+        fetch: async (url, init) => {
+          requests.push({
+            url: String(url),
+            body: JSON.parse(String(init?.body)),
+            authorization: new Headers(init?.headers).get("authorization"),
+          });
+          return Response.json({
+            id: "resp_test",
+            object: "response",
+            created_at: 1,
+            model: "test",
+            status: "completed",
+            output: [
+              {
+                type: "message",
+                id: "msg_test",
+                role: "assistant",
+                status: "completed",
+                content: [{ type: "output_text", text: "Hello", annotations: [] }],
+              },
+            ],
+            usage: { input_tokens: 4, output_tokens: 2, total_tokens: 6 },
+          });
         },
-      );
-      const selected = models.resolve(tier);
-      expect(models.resolve(tier)).toBe(selected);
+      });
+      const selected = await models.resolve(tier, owner);
       expect(typeof selected.model).toBe("object");
       const result = await generateText({
         model: selected.model,
@@ -87,46 +99,79 @@ describe("Simon provider registry", () => {
     },
   );
 
-  it.each(["openai", "bedrock", "vertex", "together"] as const)(
-    "refuses missing %s configuration without fetch",
-    (provider) => {
-      vi.stubEnv("OPENAI_API_KEY", "ambient-not-authority");
-      const fetcher = vi.fn();
-      expect(() =>
-        createSimonModels({ ...base, AI_FAST_PROVIDER: provider }, { fetch: fetcher }).resolve(
-          "fast",
-        ),
-      ).toThrow("ai.unavailable");
-      expect(fetcher).not.toHaveBeenCalled();
-    },
-  );
-  it("does not let configured fast credentials authorize another smart provider", () => {
-    const models = createSimonModels({
-      ...base,
-      OPENAI_API_KEY: "test-key",
-      AI_SMART_PROVIDER: "together",
-    });
-    expect(models.resolve("fast").modelId).toBe("gpt-5.6-luna");
-    expect(() => models.resolve("smart")).toThrow("ai.unavailable");
+  it("never reaches a provider without the account's own key", async () => {
+    // An ambient variable is not authority: with no credential source there is nothing to spend.
+    vi.stubEnv("OPENAI_API_KEY", "ambient-not-authority");
+    const fetcher = vi.fn();
+    await expect(
+      createSimonModels(base, { fetch: fetcher }).resolve("fast", owner),
+    ).rejects.toThrow("ai.unavailable");
+    expect(fetcher).not.toHaveBeenCalled();
   });
-  it("disabled AI never falls back to the scripted model", () => {
-    expect(() =>
+
+  it("lets the account's tiers come from different providers", async () => {
+    const seen: string[] = [];
+    const models = createSimonModels(base, {
+      credentials: async (_ownerId, tier) => {
+        seen.push(tier);
+        return tier === "fast"
+          ? { provider: "openai" as const, model: "gpt-5.6-luna", apiKey: "openai-key" }
+          : { provider: "anthropic" as const, model: "claude-opus-5-5", apiKey: "anthropic-key" };
+      },
+    });
+    expect(await models.resolve("fast", owner)).toMatchObject({
+      provider: "openai",
+      modelId: "gpt-5.6-luna",
+    });
+    expect(await models.resolve("smart", owner)).toMatchObject({
+      provider: "anthropic",
+      modelId: "claude-opus-5-5",
+    });
+    expect(seen).toEqual(["fast", "smart"]);
+  });
+
+  it("reads the key every time rather than caching one account's across runs", async () => {
+    const credentials = vi.fn<ModelCredentialSource>(keyed("test-key"));
+    const models = createSimonModels(base, { credentials });
+    await models.resolve("fast", owner);
+    await models.resolve("fast", owner);
+    expect(credentials).toHaveBeenCalledTimes(2);
+  });
+
+  it("lets a missing account key travel as itself, not as a model failure", async () => {
+    const required = Object.assign(new Error("ai.key_required"), { code: "ai.key_required" });
+    const models = createSimonModels(base, {
+      credentials: async () => {
+        throw required;
+      },
+    });
+    // ai.unavailable means the deployment cannot run models; ai.key_required means this account has
+    // not added a key. Flattening the second into the first would send people to the wrong place.
+    await expect(models.resolve("fast", owner)).rejects.toBe(required);
+  });
+
+  it("disabled AI never falls back to the scripted model", async () => {
+    await expect(
       createSimonModels({ ...base, AI_ENABLED: false, AI_PROVIDER_MODE: "scripted" }).resolve(
         "fast",
+        owner,
       ),
-    ).toThrow("ai.unavailable");
+    ).rejects.toThrow("ai.unavailable");
   });
   it.each(["test", "development"] as const)("runs an explicit script in %s", async (NODE_ENV) => {
-    const model = createSimonModels({ ...base, NODE_ENV, AI_PROVIDER_MODE: "scripted" }).resolve(
-      "fast",
+    const model = (
+      await createSimonModels({ ...base, NODE_ENV, AI_PROVIDER_MODE: "scripted" }).resolve(
+        "fast",
+        owner,
+      )
     ).model;
     expect(
       await streamText({ model, prompt: "Hi", telemetry: { isEnabled: false } }).text,
     ).toContain("Scripted development");
   });
   it("runs the browser document contract through two separate scripted tool steps", async () => {
-    const model = createSimonModels({ ...base, AI_PROVIDER_MODE: "scripted" }).resolve(
-      "fast",
+    const model = (
+      await createSimonModels({ ...base, AI_PROVIDER_MODE: "scripted" }).resolve("fast", owner)
     ).model;
     const taskId = "01234567-89ab-7def-8123-456789abcdef";
     const sectionId = "s0123456789abcdefghijklmno";
@@ -180,8 +225,8 @@ describe("Simon provider registry", () => {
   ] as const)(
     "runs the browser connection contract through discovery, schema and exact execution for %s",
     async (recipient, outcome, finalText) => {
-      const model = createSimonModels({ ...base, AI_PROVIDER_MODE: "scripted" }).resolve(
-        "fast",
+      const model = (
+        await createSimonModels({ ...base, AI_PROVIDER_MODE: "scripted" }).resolve("fast", owner)
       ).model;
       const connectionId = "01234567-89ab-7def-8123-456789abcdef";
       const subject = "Reviewed launch outline";
@@ -241,63 +286,36 @@ describe("Simon provider registry", () => {
       ]);
     },
   );
-  it("refuses scripted mode in production", () => {
-    expect(() =>
+  it("refuses scripted mode in production", async () => {
+    await expect(
       createSimonModels({ ...base, NODE_ENV: "production", AI_PROVIDER_MODE: "scripted" }).resolve(
         "fast",
+        owner,
       ),
-    ).toThrow("ai.unavailable");
+    ).rejects.toThrow("ai.unavailable");
   });
-  it("refuses injected models in ordinary development and production", () => {
+  it("refuses injected models in ordinary development and production", async () => {
     const scripted = vi.fn();
     for (const NODE_ENV of ["production", "development"] as const)
-      expect(() => createSimonModels({ ...base, NODE_ENV }, { scripted }).resolve("fast")).toThrow(
-        "ai.unavailable",
-      );
+      await expect(
+        createSimonModels({ ...base, NODE_ENV }, { scripted }).resolve("fast", owner),
+      ).rejects.toThrow("ai.unavailable");
     expect(scripted).not.toHaveBeenCalled();
   });
   it.each([
-    [
-      "bedrock",
-      "anthropic.claude-sonnet-4-6",
-      {
-        AWS_REGION: "us-east-1",
-        AWS_ACCESS_KEY_ID: "test-key",
-        AWS_SECRET_ACCESS_KEY: "test-secret",
-      },
-    ],
-    [
-      "vertex",
-      "claude-sonnet-4-6",
-      {
-        GOOGLE_VERTEX_PROJECT: "symplist-test",
-        GOOGLE_VERTEX_LOCATION: "us-east5",
-        GOOGLE_VERTEX_CREDENTIALS_JSON: "{}",
-      },
-    ],
-    [
-      "vertex",
-      "gemini-3-flash",
-      {
-        GOOGLE_VERTEX_PROJECT: "symplist-test",
-        GOOGLE_VERTEX_LOCATION: "global",
-        GOOGLE_VERTEX_CREDENTIALS_JSON: "{}",
-      },
-    ],
-    ["together", "test/model", { TOGETHER_API_KEY: "test-key" }],
-  ] as const)(
-    "resolves configured %s/%s without a network call",
-    (provider, modelId, credentials) => {
-      const fetcher = vi.fn();
-      const selected = createSimonModels(
-        { ...base, ...credentials, AI_FAST_PROVIDER: provider, AI_FAST_MODEL: modelId },
-        { fetch: fetcher },
-      ).resolve("fast");
-      expect(selected.provider).toBe(provider);
-      expect(selected.model.modelId).toBe(modelId);
-      expect(fetcher).not.toHaveBeenCalled();
-    },
-  );
+    ["openai", "gpt-5.6-luna"],
+    ["anthropic", "claude-opus-5-5"],
+  ] as const)("builds a %s client for %s without a network call", async (provider, modelId) => {
+    const fetcher = vi.fn();
+    const selected = await createSimonModels(base, {
+      fetch: fetcher,
+      credentials: async () => ({ provider, model: modelId, apiKey: "test-key" }),
+    }).resolve("fast", owner);
+    expect(selected.provider).toBe(provider);
+    expect(selected.model.modelId).toBe(modelId);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   it("forbids provider-hosted tools before any model call", () => {
     expect(() =>
       assertNoProviderExecutedTools({ web: createOpenAI({ apiKey: "test" }).tools.webSearch() }),
@@ -313,10 +331,10 @@ describe("Simon provider registry", () => {
   });
   it("also rejects a provider-hosted tool at the resolved model boundary", async () => {
     const fetcher = vi.fn();
-    const selected = createSimonModels(
-      { ...base, OPENAI_API_KEY: "test-key" },
-      { fetch: fetcher },
-    ).resolve("fast");
+    const selected = await createSimonModels(base, {
+      fetch: fetcher,
+      credentials: keyed("test-key"),
+    }).resolve("fast", owner);
     await expect(
       generateText({
         model: selected.model,

@@ -79,7 +79,11 @@ function dependencies(model: SimonModel): SimonTurnDependencies {
     signal: new AbortController().signal,
     telemetryEnabled: true,
     models: {
-      resolve: vi.fn(() => ({ provider: "scripted" as const, modelId: model.modelId, model })),
+      resolve: vi.fn(async () => ({
+        provider: "scripted" as const,
+        modelId: model.modelId,
+        model,
+      })),
     },
     log: vi.fn(),
     sink: vi.fn(() => ({

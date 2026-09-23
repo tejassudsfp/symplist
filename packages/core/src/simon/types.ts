@@ -1,4 +1,4 @@
-import type { simonRunStatusSchema } from "@symplist/contracts";
+import type { AiProvider, simonRunStatusSchema } from "@symplist/contracts";
 import type { AccountDataKey, KeyProvider } from "@symplist/crypto";
 import type { DbClient, DbRow } from "@symplist/db";
 import type { ReceiptDraft } from "@symplist/docs";
@@ -50,7 +50,7 @@ export interface SimonCheckpointData {
   /** A validated AI SDK UI message, stored only in an encrypted message_parts envelope. */
   readonly snapshotJson?: string;
   readonly telemetry?: {
-    readonly provider: "openai" | "bedrock" | "vertex" | "together" | "scripted";
+    readonly provider: AiProvider | "scripted";
     readonly model: string;
     readonly rulesVersion: string;
     readonly inputTokens: number;

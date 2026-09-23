@@ -1,15 +1,6 @@
-import { createAmazonBedrockAnthropic } from "@ai-sdk/amazon-bedrock/anthropic";
-import { createGoogleVertex } from "@ai-sdk/google-vertex";
-import { createGoogleVertexAnthropic } from "@ai-sdk/google-vertex/anthropic";
+import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
-import { createTogetherAI } from "@ai-sdk/togetherai";
-import type {
-  AiProvider,
-  AiProviderCredentials,
-  AiTier,
-  NodeEnv,
-  SharedRuntimeConfig,
-} from "@symplist/config";
+import type { AiProvider, AiTier, NodeEnv, SharedRuntimeConfig } from "@symplist/config";
 import {
   createProviderRegistry,
   customProvider,
@@ -29,8 +20,23 @@ export type SimonModelConfig = Pick<
   | "AI_FAST_MODEL"
   | "AI_SMART_PROVIDER"
   | "AI_SMART_MODEL"
-> &
-  AiProviderCredentials & { readonly NODE_ENV: NodeEnv };
+> & { readonly NODE_ENV: NodeEnv };
+
+/**
+ * The account's key and chosen model for a tier (§8.6).
+ *
+ * Model credentials are the account's, not the deployment's, so they arrive per run rather than
+ * from configuration. The returned key is used for one call and not retained: there is no cache of
+ * decrypted credentials anywhere in this module, which is why `resolve` is asynchronous.
+ */
+export interface ModelCredential {
+  readonly provider: AiProvider;
+  readonly model: string;
+  readonly apiKey: string;
+}
+
+/** Looks up the credential an owner's tier runs with. Throws `ai.key_required` when there is none. */
+export type ModelCredentialSource = (ownerId: string, tier: AiTier) => Promise<ModelCredential>;
 
 export class SimonModelError extends Error {
   constructor(
@@ -67,7 +73,6 @@ const privacyMiddleware: LanguageModelMiddleware = {
           parallelToolCalls: false,
         },
         anthropic: { ...params.providerOptions?.anthropic, disableParallelToolUse: true },
-        togetherai: { ...params.providerOptions?.togetherai, parallelToolCalls: false },
       },
     };
   },
@@ -87,22 +92,31 @@ function supportsModernOpenAiPromptCache(modelId: string): boolean {
   return major > 5 || (major === 5 && minor >= 6);
 }
 
-/** Credentials come only from validated configuration; no ambient SDK gateway or fallback. */
+/**
+ * The model each tier runs with.
+ *
+ * Credentials belong to the account, so they are fetched per run through `credentials` and never
+ * cached here: a cache keyed by tier would hand one account's key to the next run, and a cache keyed
+ * by owner would keep decrypted keys alive between turns for no benefit worth that. Building the
+ * client is cheap; the read is the cost, and it is one read per turn.
+ *
+ * The scripted path is the exception, and only in test and development: it needs no credential
+ * because it never reaches a provider.
+ */
 export function createSimonModels(
   config: SimonModelConfig,
   options: {
     readonly fetch?: typeof fetch;
     readonly scripted?: (tier: AiTier) => SimonModel;
+    /** Absent only where no live call is possible, which is the scripted path. */
+    readonly credentials?: ModelCredentialSource;
   } = {},
-): { resolve(tier: AiTier): SelectedSimonModel } {
+): { resolve(tier: AiTier, ownerId: string): Promise<SelectedSimonModel> } {
   // Provider warnings can include request content. Never let the SDK write them to process warnings.
   globalThis.AI_SDK_LOG_WARNINGS = false;
-  const cache = new Map<AiTier, SelectedSimonModel>();
   return {
-    resolve(tier) {
+    async resolve(tier, ownerId) {
       if (!config.AI_ENABLED) throw new SimonModelError("ai.unavailable");
-      const cached = cache.get(tier);
-      if (cached) return cached;
       const scripted = config.AI_PROVIDER_MODE === "scripted" || options.scripted !== undefined;
       if (
         scripted &&
@@ -112,16 +126,15 @@ export function createSimonModels(
         )
       )
         throw new SimonModelError("ai.unavailable");
-      const provider = scripted
-        ? "scripted"
-        : tier === "fast"
-          ? config.AI_FAST_PROVIDER
-          : config.AI_SMART_PROVIDER;
-      const modelId = scripted
-        ? "scripted"
-        : tier === "fast"
-          ? config.AI_FAST_MODEL
-          : config.AI_SMART_MODEL;
+      if (!scripted && !options.credentials) throw new SimonModelError("ai.unavailable");
+      // `credentials` throws ai.key_required when this account has not added a key. That is not a
+      // model failure and must not be flattened into ai.unavailable, so it is resolved outside the
+      // try below and allowed to travel to the caller intact.
+      const credential = scripted
+        ? null
+        : await (options.credentials as ModelCredentialSource)(ownerId, tier);
+      const provider: AiProvider | "scripted" = credential?.provider ?? "scripted";
+      const modelId = credential?.model ?? "scripted";
       let model: SimonModel;
       const transport = options.fetch ? { fetch: options.fetch } : {};
       try {
@@ -130,49 +143,16 @@ export function createSimonModels(
             model = options.scripted?.(tier) ?? developmentModel();
             break;
           case "openai":
-            if (!config.OPENAI_API_KEY) throw new SimonModelError("ai.unavailable");
             model = createOpenAI({
-              apiKey: config.OPENAI_API_KEY,
+              apiKey: (credential as ModelCredential).apiKey,
               baseURL: "https://api.openai.com/v1",
               ...transport,
             }).responses(modelId);
             break;
-          case "bedrock":
-            if (!config.AWS_REGION || !config.AWS_ACCESS_KEY_ID || !config.AWS_SECRET_ACCESS_KEY)
-              throw new SimonModelError("ai.unavailable");
-            model = createAmazonBedrockAnthropic({
-              region: config.AWS_REGION,
-              accessKeyId: config.AWS_ACCESS_KEY_ID,
-              secretAccessKey: config.AWS_SECRET_ACCESS_KEY,
-              apiKey: "",
-              sessionToken: "",
-              baseURL: `https://bedrock-runtime.${config.AWS_REGION}.amazonaws.com`,
-              ...transport,
-            })(modelId);
-            break;
-          case "vertex": {
-            if (
-              !config.GOOGLE_VERTEX_PROJECT ||
-              !config.GOOGLE_VERTEX_LOCATION ||
-              !config.GOOGLE_VERTEX_CREDENTIALS_JSON
-            )
-              throw new SimonModelError("ai.unavailable");
-            const vertexOptions = {
-              project: config.GOOGLE_VERTEX_PROJECT,
-              location: config.GOOGLE_VERTEX_LOCATION,
-              googleAuthOptions: { credentials: JSON.parse(config.GOOGLE_VERTEX_CREDENTIALS_JSON) },
-              ...transport,
-            };
-            model = modelId.startsWith("claude")
-              ? createGoogleVertexAnthropic(vertexOptions)(modelId)
-              : createGoogleVertex({ ...vertexOptions, apiKey: "" })(modelId);
-            break;
-          }
-          case "together":
-            if (!config.TOGETHER_API_KEY) throw new SimonModelError("ai.unavailable");
-            model = createTogetherAI({
-              apiKey: config.TOGETHER_API_KEY,
-              baseURL: "https://api.together.xyz/v1",
+          case "anthropic":
+            model = createAnthropic({
+              apiKey: (credential as ModelCredential).apiKey,
+              baseURL: "https://api.anthropic.com/v1",
               ...transport,
             })(modelId);
             break;
@@ -192,6 +172,7 @@ export function createSimonModels(
                       ? { promptCacheOptions: { mode: "implicit" as const, ttl: "30m" as const } }
                       : {}),
                   },
+                  anthropic: { disableParallelToolUse: true },
                 },
               },
             }),
@@ -201,13 +182,11 @@ export function createSimonModels(
         const registry = createProviderRegistry({
           [provider]: customProvider({ languageModels: { [tier]: wrapped } }),
         });
-        const selected: SelectedSimonModel = {
+        return {
           provider,
           modelId,
           model: registry.languageModel(`${provider}:${tier}`),
         };
-        cache.set(tier, selected);
-        return selected;
       } catch {
         throw new SimonModelError("ai.unavailable");
       }

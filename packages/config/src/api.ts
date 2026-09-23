@@ -210,8 +210,7 @@ function apiRuleIssues(fields: ApiFields): ConfigIssue[] {
 /** Validates an api environment without throwing. */
 export function parseApiConfig(env: EnvRecord): ConfigResult<ApiConfig> {
   return parseRuntime(apiVariableShape, env, (fields, variables, issues) => {
-    const durable = fields?.DURABLE ?? variables.DURABLE === "true";
-    const secrets = runtimeSecrets(variables, "api", durable);
+    const secrets = runtimeSecrets(variables, "api");
     issues.push(...secrets.issues);
     if (!fields) return undefined;
     issues.push(...apiRuleIssues(fields));

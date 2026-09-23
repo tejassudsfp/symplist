@@ -1,4 +1,5 @@
 import type { ServerAnalyticsEmitter } from "@symplist/analytics/server";
+import { AiKeyStore } from "@symplist/core/ai";
 import { AnalyticsService } from "@symplist/core/analytics";
 import { createSimonConnectionAuthority } from "@symplist/core/connections";
 import type { DocumentTools } from "@symplist/core/documents";
@@ -22,6 +23,14 @@ export function createLocalSimonHandler(
   emitter: ServerAnalyticsEmitter,
   connections: SimonConnectionsRuntime,
 ): LocalExecutionHandler {
+  const aiKeys = new AiKeyStore({
+    ...repository.options,
+    defaults: {
+      fast: { provider: config.AI_FAST_PROVIDER, model: config.AI_FAST_MODEL },
+      smart: { provider: config.AI_SMART_PROVIDER, model: config.AI_SMART_MODEL },
+    },
+    now: () => Date.now(),
+  });
   return async (job, context) => {
     if (config.DURABLE) throw new Error("simon.local_disabled");
     const analytics = new AnalyticsService({
@@ -62,7 +71,10 @@ export function createLocalSimonHandler(
     await runSimonTurn(job.subjectId, {
       repository,
       executor: "local",
-      models: createSimonModels(config),
+      models: createSimonModels(config, {
+        // The key belongs to the account the run belongs to (§8.6). Read per run and not retained.
+        credentials: (ownerId, tier) => aiKeys.credentialFor(ownerId, tier),
+      }),
       signal: context.signal,
       telemetryEnabled: config.AI_TELEMETRY_ENABLED,
       approvedEffect: (toolContext) =>

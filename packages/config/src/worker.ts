@@ -103,7 +103,7 @@ export function parseWorkerConfig(
   options: WorkerParseOptions = { platformInjected: true },
 ): ConfigResult<WorkerConfig> {
   return parseRuntime(workerVariableShape, env, (fields, variables, issues) => {
-    const secrets = runtimeSecrets(variables, "worker", fields?.DURABLE ?? false);
+    const secrets = runtimeSecrets(variables, "worker");
     issues.push(...secrets.issues);
     if (!fields) return undefined;
     issues.push(...workerRuleIssues(fields, options));

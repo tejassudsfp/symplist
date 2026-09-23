@@ -1,5 +1,6 @@
 import { accessPurgeContributor } from "./access.ts";
 import { accountPurgeContributor } from "./account.ts";
+import { aiPurgeContributor } from "./ai.ts";
 import { connectionsPurgeContributor } from "./connections.ts";
 import { documentsPurgeContributor } from "./documents.ts";
 import { idempotencyPurgeContributor } from "./idempotency.ts";
@@ -31,6 +32,7 @@ export const purgeContributors: readonly PurgeContributor[] = [
   documentsPurgeContributor,
   searchPurgeContributor,
   preferencesPurgeContributor,
+  aiPurgeContributor,
   idempotencyPurgeContributor,
   tasksPurgeContributor,
   accessPurgeContributor,

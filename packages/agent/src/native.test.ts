@@ -46,7 +46,7 @@ describe("native task and schedule model-loop parity", () => {
           repository,
           executor,
           models: {
-            resolve: () => ({
+            resolve: async () => ({
               provider: "scripted",
               modelId: script.model.modelId,
               model: script.model,
@@ -122,7 +122,7 @@ describe("finding a task by name", () => {
         repository,
         executor: "local",
         models: {
-          resolve: () => ({
+          resolve: async () => ({
             provider: "scripted",
             modelId: script.model.modelId,
             model: script.model,

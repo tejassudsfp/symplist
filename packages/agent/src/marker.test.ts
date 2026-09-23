@@ -120,7 +120,7 @@ describe("real Simon loop Trigger content boundary (§8.3)", () => {
             signal,
             telemetryEnabled: true,
             models: {
-              resolve: () => {
+              resolve: async () => {
                 if (providerFails)
                   throw Object.assign(new Error(MARKER), {
                     responseBody: MARKER,

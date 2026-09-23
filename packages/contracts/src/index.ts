@@ -2,6 +2,7 @@ export * from "./access/dto.ts";
 export * from "./access/errors.ts";
 export * from "./access/events.ts";
 export * from "./access/tools.ts";
+export * from "./ai/dto.ts";
 export * from "./analytics/dto.ts";
 export * from "./analytics/errors.ts";
 export * from "./analytics/events.ts";

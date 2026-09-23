@@ -15,6 +15,7 @@ export const coreDomains = [
   "connections",
   "mcp",
   "analytics",
+  "ai",
 ] as const;
 
 export type CoreDomain = (typeof coreDomains)[number];

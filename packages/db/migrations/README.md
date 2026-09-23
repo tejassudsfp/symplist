@@ -17,6 +17,7 @@ Files are named `NNNN_name.sql`. Each owner writes only inside its range:
 | `0800`–`0899` | Sharing | `artifacts`, `share_grants`, `share_sessions`, `share_approvals`, `share_audit`, `share_limits` |
 | `0900`–`0999` | Connections and MCP | `connections`, `connection_attempts`, `composio_sessions`, `composio_auth_configs`, `mcp_grants`, `oauth_clients`, `oauth_requests`, `oauth_codes`, `oauth_refresh_tokens` |
 | `1000`–`1099` | Analytics and consent | Analytics consent and `analytics_id` are columns on `users` (foundation) |
+| `1100`–`1199` | AI providers | `ai_provider_keys`, `ai_model_choices` |
 
 Rules:
 

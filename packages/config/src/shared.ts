@@ -9,8 +9,14 @@ export type EmailDriver = "resend" | "log";
 /** Master keys come from environment variables behind a key provider (decision A4). */
 export type KeyProviderKind = "env";
 export type AiTier = "fast" | "smart";
-/** Provider registry keys (§8.6). */
-export type AiProvider = "openai" | "bedrock" | "vertex" | "together";
+/**
+ * Provider registry keys (§8.6).
+ *
+ * Each is a code path in the agent that knows the provider's endpoint, model ids and privacy
+ * options. Keys for them belong to the account that spends them, not to the deployment, so this
+ * names which client to build and never where a credential comes from.
+ */
+export type AiProvider = "openai" | "anthropic";
 /** `scripted` selects the scripted test model and is only allowed in development (§8.6). */
 export type AiProviderMode = "live" | "scripted";
 
@@ -85,16 +91,17 @@ export interface SharedRuntimeConfig {
   REMINDER_UNSUBSCRIBE_SECRET: SecretFamilyConfig;
 }
 
-/** AI provider credentials: always available to the worker, and to the api only when `DURABLE=false`. */
+/**
+ * Model credentials are no longer environment configuration (§8.6).
+ *
+ * Every account brings its own provider key, stored encrypted under its account data key and read
+ * by the executor that is about to make the call. Nothing here holds one, and the executor that
+ * runs models takes none from its environment — which is also why the api's refusal to hold
+ * `OPENAI_API_KEY` under `DURABLE=true` stopped needing to be stated: there is no such variable.
+ */
 export interface AiProviderCredentials {
-  OPENAI_API_KEY?: string;
-  AWS_REGION?: string;
-  AWS_ACCESS_KEY_ID?: string;
-  AWS_SECRET_ACCESS_KEY?: string;
-  GOOGLE_VERTEX_PROJECT?: string;
-  GOOGLE_VERTEX_LOCATION?: string;
-  GOOGLE_VERTEX_CREDENTIALS_JSON?: string;
-  TOGETHER_API_KEY?: string;
+  /** Reserved so the shape survives; model credentials are per account. */
+  readonly _never?: never;
 }
 
 /** Flags that enable live integration suites in tests (§16.2, §17). */

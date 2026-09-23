@@ -148,7 +148,6 @@ export function productionWorkerEnv(
     EMAIL_FROM_REMINDERS: "Symplist <reminders@symplist.example.com>",
     TRIGGER_AI_SDK_OTEL_AUTOREGISTER: "0",
     TRIGGER_SECRET_KEY: credential("tr_prod_"),
-    OPENAI_API_KEY: credential("sk-"),
     ...familyVariables(workerFamilies),
     ...overrides,
   };

@@ -74,13 +74,13 @@ describe("loadMigrations", () => {
 
   it("keeps every file inside the foundation range or a feature range (§3.4)", async () => {
     const numbers = (await loadMigrations()).map((migration) => Number(migration.name.slice(0, 4)));
-    // Foundation 0001-0019; access 01xx through analytics and consent 10xx.
+    // Foundation 0001-0019; access 01xx through AI providers 11xx.
     const inOwnerRange = (number: number) =>
-      (number >= 1 && number <= 19) || (number >= 100 && number <= 1099);
+      (number >= 1 && number <= 19) || (number >= 100 && number <= 1199);
     expect(numbers.filter((number) => !inOwnerRange(number))).toEqual([]);
     expect(inOwnerRange(20)).toBe(false);
     expect(inOwnerRange(99)).toBe(false);
-    expect(inOwnerRange(1100)).toBe(false);
+    expect(inOwnerRange(1200)).toBe(false);
   });
 
   it("keeps every migration expand-only (§3.4)", async () => {

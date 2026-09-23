@@ -14,7 +14,6 @@ import {
   isLoopbackHostname,
   isSecureOrigin,
   issuesFromZod,
-  jsonObjectVariable,
   optionalOriginVariable,
   optionalPatternVariable,
   originVariable,
@@ -41,12 +40,7 @@ import type { AiProvider, NodeEnv, SecretFamilyConfig } from "./shared.ts";
  */
 
 export const nodeEnvs = ["development", "test", "production"] as const satisfies readonly NodeEnv[];
-export const aiProviders = [
-  "openai",
-  "bedrock",
-  "vertex",
-  "together",
-] as const satisfies readonly AiProvider[];
+export const aiProviders = ["openai", "anthropic"] as const satisfies readonly AiProvider[];
 
 /** Model ids from decision D8, used when `AI_FAST_MODEL` or `AI_SMART_MODEL` is unset. */
 export const defaultAiModels = Object.freeze({ fast: "gpt-5.6-luna", smart: "gpt-5.6-terra" });
@@ -156,24 +150,6 @@ export const sharedVariableShape = {
   ANALYTICS_ENABLED: booleanVariable(false),
   POSTHOG_PROJECT_KEY: posthogProjectKeyVariable(),
   POSTHOG_HOST: optionalOriginVariable("http"),
-
-  OPENAI_API_KEY: credentialVariable(),
-  AWS_REGION: optionalPatternVariable(
-    /^[a-z]{2}(?:-[a-z]+)+-[0-9]{1,2}$/,
-    "must be an AWS region such as us-east-1",
-  ),
-  AWS_ACCESS_KEY_ID: credentialVariable(),
-  AWS_SECRET_ACCESS_KEY: credentialVariable(),
-  GOOGLE_VERTEX_PROJECT: optionalPatternVariable(
-    /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/,
-    "must be a Google Cloud project id",
-  ),
-  GOOGLE_VERTEX_LOCATION: optionalPatternVariable(
-    /^[a-z][a-z0-9-]{1,39}$/,
-    "must be a Vertex AI location such as us-central1 or global",
-  ),
-  GOOGLE_VERTEX_CREDENTIALS_JSON: jsonObjectVariable(),
-  TOGETHER_API_KEY: credentialVariable(),
 };
 
 /** The values the shared cross-field rules read. */
@@ -194,12 +170,6 @@ export interface SharedRuleValues {
   readonly R2_ACCESS_KEY_ID?: string | undefined;
   readonly R2_SECRET_ACCESS_KEY?: string | undefined;
   readonly RESEND_API_KEY?: string | undefined;
-  readonly AWS_REGION?: string | undefined;
-  readonly AWS_ACCESS_KEY_ID?: string | undefined;
-  readonly AWS_SECRET_ACCESS_KEY?: string | undefined;
-  readonly GOOGLE_VERTEX_PROJECT?: string | undefined;
-  readonly GOOGLE_VERTEX_LOCATION?: string | undefined;
-  readonly GOOGLE_VERTEX_CREDENTIALS_JSON?: string | undefined;
 }
 
 function requireWhen(
@@ -314,22 +284,6 @@ export function sharedRuleIssues(
     );
   }
 
-  if (values.AWS_ACCESS_KEY_ID !== undefined || values.AWS_SECRET_ACCESS_KEY !== undefined) {
-    requireWhen(
-      issues,
-      values,
-      ["AWS_REGION", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
-      "Amazon Bedrock credentials are configured",
-    );
-  }
-  if (values.GOOGLE_VERTEX_CREDENTIALS_JSON !== undefined) {
-    requireWhen(
-      issues,
-      values,
-      ["GOOGLE_VERTEX_PROJECT", "GOOGLE_VERTEX_LOCATION"],
-      "GOOGLE_VERTEX_CREDENTIALS_JSON is set",
-    );
-  }
   return issues;
 }
 
@@ -351,14 +305,13 @@ export interface RuntimeSecrets {
 export function runtimeSecrets(
   variables: Readonly<Record<string, string>>,
   runtime: SecretRuntime,
-  durable: boolean,
 ): RuntimeSecrets {
   const { families, issues } = parseSecretFamilies(variables, secretFamiliesFor(runtime));
   return {
     families,
     issues: [
       ...issues,
-      ...rejectedSecretIssues(variables, runtime, { durable }),
+      ...rejectedSecretIssues(variables, runtime),
       ...duplicateSecretIssues(presentSecretEntries(variables)),
     ],
   };

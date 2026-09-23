@@ -144,7 +144,7 @@ export async function runSimonTurn(
     const owned = claim;
     sink = deps.sink(owned);
     const output = sink;
-    const selected = deps.models.resolve(owned.run.tier);
+    const selected = await deps.models.resolve(owned.run.tier, owned.run.ownerId);
     const boundedHistory = boundSimonHistory(
       await repository.executionHistory(owned.run, owned.key),
     );
