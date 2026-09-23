@@ -142,6 +142,28 @@ describe("what the settings screen is told", () => {
   });
 });
 
+describe("whether Simon can run at all", () => {
+  it("agrees with the settings screen, key by key", async () => {
+    const owner = await env.createUser();
+    const agrees = async () => {
+      const [gate, screen] = [await store.usable(owner), (await store.settings(owner)).usable];
+      expect(gate).toBe(screen);
+      return gate;
+    };
+    expect(await agrees()).toBe(false);
+    await store.setKey(owner, "openai", "sk-openai-0123456789abcd");
+    expect(await agrees()).toBe(true);
+    // A key for a provider neither tier points at runs nothing, so the gate must not open.
+    await store.setChoices(owner, {
+      fast: { provider: "anthropic" },
+      smart: { provider: "anthropic" },
+    });
+    expect(await agrees()).toBe(false);
+    await store.setKey(owner, "anthropic", "sk-ant-0123456789abcdef");
+    expect(await agrees()).toBe(true);
+  });
+});
+
 describe("choosing what answers a tier", () => {
   it("lets the two tiers come from different providers", async () => {
     const owner = await env.createUser();

@@ -301,12 +301,26 @@ export class AiKeyStore {
     }
   }
 
-  /** Whether any tier can run, for the gate that decides if Simon is offered at all. */
+  /**
+   * Whether any tier can run, for the gate that decides if Simon is offered at all.
+   *
+   * Deliberately not "does the account have a key": a key for a provider that neither tier points
+   * at runs nothing, and answering `true` there would offer an assistant that fails on first use.
+   * This is the same question `settings().usable` answers, and must keep the same answer.
+   */
   async usable(ownerId: string): Promise<boolean> {
+    const choices = await this.choiceRow(ownerId);
+    const providers = [
+      ...new Set(AI_TIERS.map((tier) => this.resolveTier(tier, choices).provider)),
+    ];
     const row = await this.db.first(
-      sql(`SELECT EXISTS (SELECT 1 FROM ai_provider_keys WHERE owner_id = :owner) AS present`, {
-        owner: ownerId,
-      }),
+      sql(
+        `SELECT EXISTS (
+           SELECT 1 FROM ai_provider_keys WHERE owner_id = :owner AND provider IN (:a, :b)
+         ) AS present`,
+        // Both tiers may resolve to one provider; repeating it keeps the parameter count fixed.
+        { owner: ownerId, a: providers[0] ?? null, b: providers[1] ?? providers[0] ?? null },
+      ),
     );
     return Number(row?.present ?? 0) === 1;
   }
