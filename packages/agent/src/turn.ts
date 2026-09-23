@@ -144,7 +144,7 @@ export async function runSimonTurn(
     const owned = claim;
     sink = deps.sink(owned);
     const output = sink;
-    const selected = deps.models.resolve(owned.run.tier);
+    const selected = await deps.models.resolve(owned.run.tier, owned.run.ownerId);
     const boundedHistory = boundSimonHistory(
       await repository.executionHistory(owned.run, owned.key),
     );
@@ -369,10 +369,15 @@ export async function runSimonTurn(
     return result;
   } catch (error) {
     // No SDK, storage or tool error object (and no cause) crosses the Trigger task boundary.
+    // Only the code survives, so the three cases that send a reader somewhere different are kept
+    // apart here: the deployment cannot run models, this account has no key, or something broke.
+    const thrown = error as { readonly code?: unknown } | null;
     const code =
       error instanceof SimonModelError && error.code === "ai.unavailable"
         ? "ai.unavailable"
-        : "ai.provider_failed";
+        : thrown?.code === "ai.key_required"
+          ? "ai.key_required"
+          : "ai.provider_failed";
     if (claim) {
       await new SimonExecutionTracker(repository.options.db, repository.options.policy)
         .markInterrupted(runId, {
@@ -381,7 +386,7 @@ export async function runSimonTurn(
         })
         .catch(() => {});
     }
-    throw new SimonModelError(code);
+    throw code === "ai.key_required" ? (error as Error) : new SimonModelError(code);
   } finally {
     try {
       await sink?.close();

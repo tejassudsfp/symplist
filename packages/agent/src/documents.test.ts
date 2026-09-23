@@ -166,7 +166,7 @@ describe("Simon native document executor parity", () => {
           runSimonTurn(String(accepted.runId), {
             repository,
             executor,
-            models: { resolve: () => ({ provider: "scripted", modelId: "scripted", model }) },
+            models: { resolve: async () => ({ provider: "scripted", modelId: "scripted", model }) },
             signal: new AbortController().signal,
             telemetryEnabled: true,
             log: vi.fn(),

@@ -50,7 +50,7 @@ pnpm secrets:generate
 
 > If durable, then everything on Trigger. If not, then no Trigger.
 
-- `DURABLE=true` — **all** model and tool execution happens in the `simon-run` Trigger task. The api only accepts the message, claims the conversation, and dispatches; it never runs model or tool code, and it **rejects `OPENAI_API_KEY`** at boot so it cannot.
+- `DURABLE=true` — **all** model and tool execution happens in the `simon-run` Trigger task. The api only accepts the message, claims the conversation, and dispatches; it never runs model or tool code. It used to prove that by rejecting `OPENAI_API_KEY` at boot; model keys are now per account (see BYOK below), so **no** runtime holds one and that variable is refused everywhere.
 - `DURABLE=false` — the api runs the same loop in process and makes **zero** Trigger calls, needing no Trigger credentials. Used for local development and the Playwright harness; also the simplest self-hosted topology.
 
 **Execution location and content retention are separate questions.** Trigger payloads/outputs/tags stay ids/enums/counts only; encrypted content returns through the signed worker-to-API relay.
@@ -73,10 +73,34 @@ With `DURABLE=true`:
 
 | Secret | api | worker |
 | --- | --- | --- |
-| `OPENAI_API_KEY`, `AWS_*`, `GOOGLE_VERTEX_*`, `TOGETHER_API_KEY` | **rejected** | yes |
+| `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `AWS_*`, `GOOGLE_VERTEX_*`, `TOGETHER_API_KEY` | **rejected** | **rejected** |
 | `TRIGGER_SECRET_KEY` | yes | **platform-injected, do not set** |
 | `RESEND_WEBHOOK_SECRET`, `COMPOSIO_WEBHOOK_SECRET`, `POSTHOG_PERSONAL_API_KEY` | yes | **rejected** |
 | `COMPOSIO_API_KEY`, `RESEND_API_KEY`, `POSTHOG_PROJECT_KEY` | yes | yes |
+
+## Model access is bring-your-own-key
+
+Simon runs on the **account's** provider key, not the deployment's. An account stores its own OpenAI
+and/or Anthropic key in Settings → Models; it is a `sym1` envelope under that account's data key,
+bound to its provider, decrypted only in the executor about to call the provider, and never returned
+by any route. There is no server-side fallback: an account without a key is told to add one.
+
+- Providers are **OpenAI and Anthropic only**. Bedrock, Vertex and Together were removed with the
+  environment credentials that configured them.
+- `AI_FAST_PROVIDER` / `AI_FAST_MODEL` / `AI_SMART_*` remain, as the **defaults** a tier falls back
+  to until an account chooses its own. They configure model ids, never credentials.
+- The suggested model ids in `packages/core/src/ai/service.ts` are a convenience, not an allowlist —
+  a typed id is accepted, so a new model works without a deploy.
+- Storage is `ai_provider_keys` and `ai_model_choices` (migration `1100`), both covered by the AI
+  purge contributor. Never add a column holding any part of a key, including a last-four hint.
+- `verified_at` answers "has this key ever worked", not "when was it last used". Only the provider
+  can say a key is live, so it is set from a real accepted call and written **once** — re-stamping
+  it every turn would spend a D1 write per model call. Replacing a key clears it.
+- A run that stops for want of a key ends `ai.key_required`, not `ai.provider_failed`. It travels
+  intact to the browser, which offers the way to Settings → Models instead of a Retry that can only
+  fail again. Keep the three AI outcomes distinct: the deployment cannot run models
+  (`ai.unavailable`), this account has no key (`ai.key_required`), something broke
+  (`ai.provider_failed`).
 
 ## Hard rules
 

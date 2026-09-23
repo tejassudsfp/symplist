@@ -172,7 +172,7 @@ async function setup(executor: "local" | "trigger", outcome: "success" | "timeou
     repository,
     executor,
     models: {
-      resolve: () => ({
+      resolve: async () => ({
         provider: "scripted" as const,
         modelId: model.model.modelId,
         model: model.model,

@@ -76,7 +76,6 @@ describe("worker configuration: valid environments", () => {
     const config = loadWorkerConfig(env);
     expect(config.NODE_ENV).toBe("production");
     expect(config.TRIGGER_SECRET_KEY).toBe(env.TRIGGER_SECRET_KEY);
-    expect(config.OPENAI_API_KEY).toBe(env.OPENAI_API_KEY);
   });
 
   it("works as a Standard Schema", async () => {
@@ -180,10 +179,15 @@ describe("worker configuration: rules", () => {
     );
   });
 
-  it("holds AI provider credentials even when DURABLE=true", () => {
-    expect(parseWorkerConfig(productionWorkerEnv({ TOGETHER_API_KEY: credential() })).ok).toBe(
-      true,
-    );
+  it("refuses a deployment model credential, whoever sets it", () => {
+    // Model keys belong to the account that spends them (§8.6). A worker that still had one in its
+    // environment would be a deployment quietly paying for everybody, which is the arrangement
+    // bringing your own key exists to end — so it fails to start rather than being ignored.
+    for (const name of ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "TOGETHER_API_KEY"] as const) {
+      const parsed = parseWorkerConfig(productionWorkerEnv({ [name]: credential() }));
+      expect(parsed.ok).toBe(false);
+      expect(parsed.ok ? [] : parsed.issues.map((issue) => issue.variable)).toContain(name);
+    }
   });
 
   it.each([...workerSecretFamilies])("requires the shared %s family", (family) => {
@@ -275,7 +279,6 @@ describe("worker syncEnvVars allowlist (§4.5, §8.8)", () => {
     expect(workerSyncEntry("CONTENT_KEK_3")).toEqual({ isSecret: true });
     expect(workerSyncEntry("CONTENT_KEK_CURRENT")).toEqual({ isSecret: false });
     expect(workerSyncEntry("CONTENT_KEK_latest")).toBeUndefined();
-    expect(workerSyncEntry("OPENAI_API_KEY")).toEqual({ isSecret: true });
     expect(workerSyncEntry("WEB_ORIGIN")).toEqual({ isSecret: false });
   });
 
@@ -337,11 +340,6 @@ describe("worker syncEnvVars allowlist (§4.5, §8.8)", () => {
     });
     expect(synced).toContainEqual({ name: "CONTENT_KEK_CURRENT", value: "1", isSecret: false });
     expect(synced).toContainEqual({ name: "DATA_DRIVER", value: "d1", isSecret: false });
-    expect(synced).toContainEqual({
-      name: "OPENAI_API_KEY",
-      value: deploy.OPENAI_API_KEY,
-      isSecret: true,
-    });
     for (const entry of synced) expect(workerSyncEntry(entry.name)).toBeDefined();
   });
 

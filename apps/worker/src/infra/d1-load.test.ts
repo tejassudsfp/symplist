@@ -301,7 +301,11 @@ describe("combined D1 request budget (§3.1)", () => {
                   repository: simon(db),
                   executor: "trigger",
                   models: {
-                    resolve: () => ({ provider: "scripted", modelId: "load", model: script.model }),
+                    resolve: async () => ({
+                      provider: "scripted",
+                      modelId: "load",
+                      model: script.model,
+                    }),
                   },
                   signal: new AbortController().signal,
                   telemetryEnabled: true,

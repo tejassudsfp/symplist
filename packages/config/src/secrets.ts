@@ -32,10 +32,18 @@ export type SecretRuntime = "api" | "worker";
 
 /**
  * How a runtime treats a secret (§4.5 table): `yes` holds it, `rejected` refuses to start when it
- * is set, `no` never uses it (also refused at startup), `durable_false_only` holds it only when
- * `DURABLE=false`, and `platform_injected` accepts the value Trigger.dev injects but never syncs it.
+ * is set, `no` never uses it (also refused at startup), and `platform_injected` accepts the value
+ * Trigger.dev injects but never syncs it.
+ *
+ * There was a fifth, `durable_false_only`, which held a secret only under `DURABLE=false`. Model
+ * credentials were the only thing it ever described: the api was allowed `OPENAI_API_KEY` when it
+ * ran the loop in process and refused it when Trigger did, so that a durable api could not run
+ * model code even by accident. Bringing your own key retires the placement rather than weakens it —
+ * those variables are now `rejected` on both runtimes, because no deployment holds a model
+ * credential at all, and the guarantee that the durable api cannot call a provider no longer
+ * depends on a conditional.
  */
-export type SecretHolding = "yes" | "rejected" | "no" | "durable_false_only" | "platform_injected";
+export type SecretHolding = "yes" | "rejected" | "no" | "platform_injected";
 
 export interface SecretInventoryEntry {
   readonly api: SecretHolding;
@@ -70,11 +78,21 @@ export const providerCredentialInventory = {
   COMPOSIO_API_KEY: { api: "yes", worker: "yes", ci: false },
   RESEND_API_KEY: { api: "yes", worker: "yes", ci: false },
   POSTHOG_PROJECT_KEY: { api: "yes", worker: "yes", ci: false },
-  OPENAI_API_KEY: { api: "durable_false_only", worker: "yes", ci: false },
-  AWS_ACCESS_KEY_ID: { api: "durable_false_only", worker: "yes", ci: false },
-  AWS_SECRET_ACCESS_KEY: { api: "durable_false_only", worker: "yes", ci: false },
-  GOOGLE_VERTEX_CREDENTIALS_JSON: { api: "durable_false_only", worker: "yes", ci: false },
-  TOGETHER_API_KEY: { api: "durable_false_only", worker: "yes", ci: false },
+  /**
+   * Model credentials are the account's, not the deployment's (§8.6), so no runtime may hold one.
+   *
+   * These stay listed as rejected rather than being dropped from the inventory: a deployment
+   * upgrading from server-paid models has these in its environment already, and failing to boot
+   * with a named variable is how its operator finds out that keys moved into each account's
+   * settings. Silently ignoring a set `OPENAI_API_KEY` would leave them believing it was still
+   * being used.
+   */
+  OPENAI_API_KEY: { api: "rejected", worker: "rejected", ci: false },
+  ANTHROPIC_API_KEY: { api: "rejected", worker: "rejected", ci: false },
+  AWS_ACCESS_KEY_ID: { api: "rejected", worker: "rejected", ci: false },
+  AWS_SECRET_ACCESS_KEY: { api: "rejected", worker: "rejected", ci: false },
+  GOOGLE_VERTEX_CREDENTIALS_JSON: { api: "rejected", worker: "rejected", ci: false },
+  TOGETHER_API_KEY: { api: "rejected", worker: "rejected", ci: false },
   RESEND_WEBHOOK_SECRET: { api: "yes", worker: "rejected", ci: false },
   COMPOSIO_WEBHOOK_SECRET: { api: "yes", worker: "rejected", ci: false },
   POSTHOG_PERSONAL_API_KEY: { api: "yes", worker: "rejected", ci: false },
@@ -119,15 +137,21 @@ export const workerRejectedVariablePatterns: readonly RegExp[] = [
   /^CLOUDFLARE_D1_API_TOKEN$/,
 ];
 
-/** Options for the runtime rejection check. */
-export interface RejectedSecretOptions {
-  /** `DURABLE`; the api refuses AI provider credentials when it is true. */
-  readonly durable: boolean;
-}
+/** Variables that used to pay for models deployment-wide, kept only to be refused with a reason. */
+const retiredModelCredentials: ReadonlySet<string> = new Set([
+  "OPENAI_API_KEY",
+  "ANTHROPIC_API_KEY",
+  "AWS_ACCESS_KEY_ID",
+  "AWS_SECRET_ACCESS_KEY",
+  "GOOGLE_VERTEX_CREDENTIALS_JSON",
+  "TOGETHER_API_KEY",
+]);
 
-function rejectionMessage(runtime: SecretRuntime, holding: SecretHolding): string {
-  if (holding === "durable_false_only") {
-    return "must not be set on the api when DURABLE=true: AI providers run only in the worker";
+function rejectionMessage(runtime: SecretRuntime, holding: SecretHolding, name: string): string {
+  // Generic placement wording would send an operator looking for the runtime that does hold this.
+  // None does: it says where the key went instead.
+  if (retiredModelCredentials.has(name)) {
+    return "must not be set: each account now adds its own provider key in Settings, and no deployment holds one";
   }
   if (holding === "no") {
     return `must not be set on the ${runtime}: only CI uses it`;
@@ -137,11 +161,16 @@ function rejectionMessage(runtime: SecretRuntime, holding: SecretHolding): strin
     : "must not be set on the api: it belongs to another runtime";
 }
 
-/** Issues for every variable the runtime must not hold (§4.5, §16.1). */
+/**
+ * Issues for every variable the runtime must not hold (§4.5, §16.1).
+ *
+ * This used to take `{ durable }`, because whether the api could hold a model credential depended
+ * on which executor ran the loop. No placement is conditional now that keys belong to accounts, so
+ * the answer is the same in both modes and the argument would only suggest otherwise.
+ */
 export function rejectedSecretIssues(
   variables: Readonly<Record<string, string>>,
   runtime: SecretRuntime,
-  options: RejectedSecretOptions,
 ): ConfigIssue[] {
   const issues: ConfigIssue[] = [];
   for (const name of Object.keys(variables)) {
@@ -150,12 +179,8 @@ export function rejectedSecretIssues(
       : undefined;
     if (credential) {
       const holding = credential[runtime];
-      if (
-        holding === "rejected" ||
-        holding === "no" ||
-        (holding === "durable_false_only" && options.durable)
-      ) {
-        issues.push({ variable: name, message: rejectionMessage(runtime, holding) });
+      if (holding === "rejected" || holding === "no") {
+        issues.push({ variable: name, message: rejectionMessage(runtime, holding, name) });
         continue;
       }
     }
@@ -163,14 +188,14 @@ export function rejectedSecretIssues(
       (candidate) => name === candidate || name.startsWith(`${candidate}_`),
     );
     if (family && secretFamilyInventory[family][runtime] === "rejected") {
-      issues.push({ variable: name, message: rejectionMessage(runtime, "rejected") });
+      issues.push({ variable: name, message: rejectionMessage(runtime, "rejected", name) });
       continue;
     }
     if (
       runtime === "worker" &&
       workerRejectedVariablePatterns.some((pattern) => pattern.test(name))
     ) {
-      issues.push({ variable: name, message: rejectionMessage(runtime, "rejected") });
+      issues.push({ variable: name, message: rejectionMessage(runtime, "rejected", name) });
     }
   }
   return issues;

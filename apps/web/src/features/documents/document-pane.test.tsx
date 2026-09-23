@@ -5,6 +5,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { StatusAnnouncerProvider } from "@/components/ui/status-announcer";
 import { ApiError, ApiNetworkError } from "@/lib/api";
 import { activeDocument } from "./controller.ts";
+import { clearDocumentCache } from "./document-cache.ts";
 import { DocumentPane } from "./document-pane.tsx";
 import { FakeDocuments } from "./fake-api.ts";
 import { installJsdomLayout } from "./jsdom-layout.ts";
@@ -146,6 +147,7 @@ beforeEach(() => {
   timers = new FakeTimers();
   socket = fakeWatch();
   navigation.pathname = `/now/${taskId}`;
+  clearDocumentCache();
 });
 
 afterEach(() => {
@@ -158,6 +160,21 @@ describe("loading and framing", () => {
     expect(screen.getByText("Loading this page")).toBeInTheDocument();
     await slot("page-view");
     expect(screen.queryByText("Loading this page")).toBeNull();
+  });
+
+  it("shows a task read before without blanking to a loading state again", async () => {
+    // The complaint this cache exists for: every switch between tasks paid a fresh read, and the
+    // api's D1 lane is 2 requests a second for the whole process, so the wait was a queue as much
+    // as a round trip. A task already read renders from what was last seen and revalidates behind.
+    const first = mount(new FakeDocuments({ commits: [{ markdown: page }] }));
+    await slot("page-view");
+    first.unmount();
+
+    mount(new FakeDocuments({ commits: [{ markdown: page }] }));
+    // The assertion that matters: the page is never blank on the way back.
+    expect(screen.queryByText("Loading this page")).toBeNull();
+    await slot("page-view");
+    expect(screen.getByRole("textbox").textContent).toContain("Three projects, one page.");
   });
 
   it("offers Page and Markdown views and the history link", async () => {
@@ -186,9 +203,16 @@ describe("loading and framing", () => {
     expect(screen.getByRole("textbox").textContent).toContain("Three projects, one page.");
   });
 
-  it("invites writing or an outline on an empty page", async () => {
+  it("opens an empty page straight into the editor, not onto a screen to get past", async () => {
     mount(new FakeDocuments());
-    expect(await screen.findByText("Nothing on this page yet")).toBeInTheDocument();
+    // The editor itself, ready to take the caret: an empty page used to replace it with a card
+    // whose only way forward was the raw Markdown view.
+    expect(await slot("page-view")).toHaveAttribute("data-empty", "true");
+  });
+
+  it("keeps both starters available on an empty page without blocking it", async () => {
+    mount(new FakeDocuments());
+    await slot("page-starters");
     expect(screen.getByRole("button", { name: "Write in Markdown" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Ask Simon for an outline" })).toBeInTheDocument();
   });

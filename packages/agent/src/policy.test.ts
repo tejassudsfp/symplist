@@ -173,6 +173,10 @@ describe("runtime rules and untrusted content", () => {
       expect(instructions).toContain("Never expose credentials");
       expect(instructions).toContain("Do not retry an uncertain external action");
       expect(instructions).toContain("expected revision");
+      // Initiative is mandatory too, and must arrive with its limit attached: the point is to stop
+      // Simon asking for what a tool would tell him, never to let him act on an assumption.
+      expect(instructions).toContain("Find out before you ask");
+      expect(instructions).toContain("external writes still need their approval");
     },
   );
   it("limits quick chat separately", () => {

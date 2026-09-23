@@ -637,7 +637,7 @@ the version's contracts match the API commit before promotion.
 | --- | --- |
 | Configuration fails before boot | Run `pnpm env:check`. Look for a variable in the wrong runtime, an empty required value, a reused credential, or API/worker shared-family mismatch. Errors name variables but should never print values. |
 | Local mode unexpectedly starts Trigger or rejects a provider key | Remove an exported shell `DURABLE`, set `DURABLE=false` in the master file before distribution, and put the selected provider key in the API. Process variables override `.env`. |
-| Durable API rejects `OPENAI_API_KEY` or another model credential | This is intentional. Remove every provider credential from Render, put it in `apps/worker/.env`, deploy Trigger, and retain only the API's Trigger secret/project ref. |
+| API or worker rejects `OPENAI_API_KEY` or another model credential | This is intentional, in either mode. Model keys are per account: remove every provider credential from the environment, and have each person add their own OpenAI or Anthropic key in Settings → Models. Nothing needs a deployment-wide key. |
 | Sign-in works at the API but not from the web app | Verify HTTPS custom domains, exact `WEB_ORIGIN`, public API/WS build variables, credentialed CORS, and that the web/API hosts share the intended site. Redeploy Vercel after public-variable changes. |
 | Unsafe API call returns 403 | Browser requests need an exact `Origin` plus the session-bound CSRF header. Do not proxy authenticated API calls through Next or disable the check. |
 | WebSocket never connects | Verify `NEXT_PUBLIC_WS_URL`, `WS_ORIGIN`, `wss`, proxy upgrade support, and exact web-origin allowlisting. |

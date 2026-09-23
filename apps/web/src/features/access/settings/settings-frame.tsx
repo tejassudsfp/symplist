@@ -16,6 +16,7 @@ export const settingsSections: readonly SettingsSection[] = [
   { href: "/settings/appearance", label: "Appearance" },
   { href: "/settings/notifications", label: "Notifications" },
   { href: "/settings/shortcuts", label: "Keyboard shortcuts" },
+  { href: "/settings/models", label: "Models" },
   { href: "/settings/connections", label: "Connections" },
   { href: "/settings/agents", label: "Agent connections" },
   { href: "/settings/about", label: "About" },

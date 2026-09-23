@@ -109,7 +109,7 @@ describe.each(["local", "trigger"] as const)("Sharing model-loop parity under %s
           repository,
           executor,
           models: {
-            resolve: () => ({
+            resolve: async () => ({
               provider: "scripted",
               modelId: script.model.modelId,
               model: script.model,

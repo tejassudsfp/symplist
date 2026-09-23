@@ -1,4 +1,5 @@
 import type { ServerAnalyticsEmitter } from "@symplist/analytics/server";
+import { AiKeyStore } from "@symplist/core/ai";
 import { AnalyticsService } from "@symplist/core/analytics";
 import { createSimonConnectionAuthority } from "@symplist/core/connections";
 import type { DocumentTools } from "@symplist/core/documents";
@@ -22,8 +23,17 @@ export function createLocalSimonHandler(
   emitter: ServerAnalyticsEmitter,
   connections: SimonConnectionsRuntime,
 ): LocalExecutionHandler {
+  const aiKeys = new AiKeyStore({
+    ...repository.options,
+    defaults: {
+      fast: { provider: config.AI_FAST_PROVIDER, model: config.AI_FAST_MODEL },
+      smart: { provider: config.AI_SMART_PROVIDER, model: config.AI_SMART_MODEL },
+    },
+    now: () => Date.now(),
+  });
   return async (job, context) => {
     if (config.DURABLE) throw new Error("simon.local_disabled");
+    let unconfirmed: "openai" | "anthropic" | null = null;
     const analytics = new AnalyticsService({
       ...repository.options,
       emitter,
@@ -62,7 +72,21 @@ export function createLocalSimonHandler(
     await runSimonTurn(job.subjectId, {
       repository,
       executor: "local",
-      models: createSimonModels(config),
+      models: createSimonModels(config, {
+        // The key belongs to the account the run belongs to (§8.6). Read per run, not retained.
+        credentials: async (ownerId, tier) => {
+          const credential = await aiKeys.credentialFor(ownerId, tier);
+          // Only an unconfirmed key has anything to learn from this call succeeding.
+          unconfirmed = credential.verifiedAt === null ? credential.provider : null;
+          return credential;
+        },
+        onAccepted: (ownerId, provider) => {
+          if (unconfirmed !== provider) return;
+          unconfirmed = null;
+          // The turn does not wait on this, and a lost confirmation only costs a label.
+          void aiKeys.markVerified(ownerId, provider).catch(() => undefined);
+        },
+      }),
       signal: context.signal,
       telemetryEnabled: config.AI_TELEMETRY_ENABLED,
       approvedEffect: (toolContext) =>

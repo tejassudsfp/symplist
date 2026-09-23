@@ -6,7 +6,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useOptionalActions } from "@/actions/provider";
 import { SafeMarkdown } from "@/components/markdown/safe-markdown";
 import { Button } from "@/components/ui/button";
-import { EmptyState, PageIllustration } from "@/components/ui/empty-state";
 import { InlineError } from "@/components/ui/inline-error";
 import { type SaveState, SaveStatus } from "@/components/ui/save-status";
 import { SkeletonLines } from "@/components/ui/skeleton";
@@ -324,39 +323,38 @@ export function DocumentPane({ taskId, api, timers, watch }: DocumentPaneProps) 
       {state.phase === "ready" ? (
         view === "page" ? (
           pageEditable ? (
-            empty ? (
-              <EmptyState
-                illustration={<PageIllustration />}
-                title="Nothing on this page yet"
-                description="Start writing, or ask Simon to draft a first section."
-                action={
-                  <>
-                    <Button variant="secondary" size="sm" onClick={() => switchView("raw")}>
-                      Write in Markdown
-                    </Button>
-                    <Button variant="secondary" size="sm" onClick={askForOutline}>
-                      Ask Simon for an outline
-                    </Button>
-                  </>
-                }
+            /* An empty page opens straight into the editor rather than onto a screen you have to
+             * get past first. The old empty state replaced the editor entirely, so the only way to
+             * start was a button that switched to the raw Markdown view — a bare source editor with
+             * none of this surface's affordances. Now the caret is already where the writing goes,
+             * the placeholder names the "/" menu, and the two starters stay as quiet options
+             * underneath instead of standing between the reader and the page. */
+            <>
+              <DocumentToolbar
+                active={active}
+                onCommand={(command) => {
+                  pageRef.current?.command(command);
+                  setActive(pageRef.current?.activeCommands() ?? []);
+                }}
               />
-            ) : (
-              <>
-                <DocumentToolbar
-                  active={active}
-                  onCommand={(command) => {
-                    pageRef.current?.command(command);
-                    setActive(pageRef.current?.activeCommands() ?? []);
-                  }}
-                />
-                <PageView
-                  ref={pageRef}
-                  value={state.buffer}
-                  onChange={setBuffer}
-                  onSelectionChange={() => setActive(pageRef.current?.activeCommands() ?? [])}
-                />
-              </>
-            )
+              <PageView
+                ref={pageRef}
+                value={state.buffer}
+                onChange={setBuffer}
+                onSelectionChange={() => setActive(pageRef.current?.activeCommands() ?? [])}
+                onAskSimon={askForOutline}
+              />
+              {empty ? (
+                <div className="sym-doc-starters" data-slot="page-starters">
+                  <Button variant="secondary" size="sm" onClick={() => switchView("raw")}>
+                    Write in Markdown
+                  </Button>
+                  <Button variant="secondary" size="sm" onClick={askForOutline}>
+                    Ask Simon for an outline
+                  </Button>
+                </div>
+              ) : null}
+            </>
           ) : (
             <div className="sym-markdown sym-doc-preview" data-slot="page-preview">
               <SafeMarkdown source={state.buffer} headingLevelStart={2} />

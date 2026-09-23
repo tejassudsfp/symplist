@@ -54,7 +54,6 @@ async function productionSource(overrides = {}) {
     POSTHOG_HOST: "https://us.i.posthog.com",
     POSTHOG_PERSONAL_API_KEY: "phx_personal-key-unique",
     POSTHOG_PROJECT_ID: "12345",
-    OPENAI_API_KEY: "sk-openai-key-unique",
     TRIGGER_SECRET_KEY: "tr_prod_environment_key_unique",
     TRIGGER_PROJECT_REF: "proj_0123456789abcdef",
     NEXT_PUBLIC_API_URL: "https://api.example.test",
@@ -133,10 +132,11 @@ test("splits a durable source by runtime, validates it and writes only private f
   const worker = parseEnv(await readFile(join(root, "apps/worker/.env"), "utf8"));
   const web = parseEnv(await readFile(join(root, "apps/web/.env"), "utf8"));
 
+  // No runtime receives a model credential any more: accounts hold their own keys.
   assert.equal(api.OPENAI_API_KEY, undefined);
   assert.equal(api.CLOUDFLARE_D1_WORKER_API_TOKEN, undefined);
   assert.equal(api.CLOUDFLARE_D1_MIGRATE_API_TOKEN, undefined);
-  assert.equal(worker.OPENAI_API_KEY, "sk-openai-key-unique");
+  assert.equal(worker.OPENAI_API_KEY, undefined);
   assert.equal(worker.TRIGGER_SECRET_KEY, undefined);
   assert.equal(worker.CLOUDFLARE_D1_API_TOKEN, undefined);
   assert.equal(worker.RESEND_WEBHOOK_SECRET, undefined);
@@ -180,8 +180,9 @@ test("keeps model credentials in the api only for the local non-durable executor
   const plan = planEnvironmentDistribution(envText(source), await examples());
   const api = parseEnv(plan.api.text);
   const worker = parseEnv(plan.worker.text);
-  assert.equal(api.OPENAI_API_KEY, "sk-openai-key-unique");
-  assert.equal(worker.OPENAI_API_KEY, "sk-openai-key-unique");
+  // Neither mode places a model credential: there is none to place.
+  assert.equal(api.OPENAI_API_KEY, undefined);
+  assert.equal(worker.OPENAI_API_KEY, undefined);
 });
 
 test("round-trips whitespace, hashes, JSON, backslashes and multiline values", () => {

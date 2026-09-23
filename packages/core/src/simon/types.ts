@@ -1,4 +1,4 @@
-import type { simonRunStatusSchema } from "@symplist/contracts";
+import type { AiProvider, simonRunStatusSchema } from "@symplist/contracts";
 import type { AccountDataKey, KeyProvider } from "@symplist/crypto";
 import type { DbClient, DbRow } from "@symplist/db";
 import type { ReceiptDraft } from "@symplist/docs";
@@ -44,13 +44,21 @@ export interface ClaimedSimonRun {
 }
 
 export interface SimonCheckpointData {
+  /**
+   * Why a `failed` checkpoint failed. Ignored for every other status.
+   *
+   * Defaults to `ai.provider_failed`, which is what a failure without an explanation is. A caller
+   * that knows better says so, because "the provider broke" and "this account has no key" send the
+   * reader to completely different places.
+   */
+  readonly outcomeCode?: "ai.provider_failed" | "ai.key_required";
   /** Native document receipts are persisted only with the step containing their tool results. */
   readonly receipts?: readonly ReceiptDraft[];
   readonly retrievedBytes?: number;
   /** A validated AI SDK UI message, stored only in an encrypted message_parts envelope. */
   readonly snapshotJson?: string;
   readonly telemetry?: {
-    readonly provider: "openai" | "bedrock" | "vertex" | "together" | "scripted";
+    readonly provider: AiProvider | "scripted";
     readonly model: string;
     readonly rulesVersion: string;
     readonly inputTokens: number;

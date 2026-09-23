@@ -97,16 +97,9 @@ describe("api configuration: valid environments", () => {
         CONTENT_KEK_CURRENT: "2",
         BETA_ACCESS_REQUIRED: "false",
         AI_DEFAULT_TIER: "smart",
-        AI_FAST_PROVIDER: "bedrock",
-        AI_FAST_MODEL: "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        AI_FAST_PROVIDER: "anthropic",
+        AI_FAST_MODEL: "claude-sonnet-5",
         AI_PROVIDER_MODE: "scripted",
-        AWS_REGION: "us-east-1",
-        AWS_ACCESS_KEY_ID: credential("AKIA"),
-        AWS_SECRET_ACCESS_KEY: credential(),
-        GOOGLE_VERTEX_PROJECT: "symplist-dev",
-        GOOGLE_VERTEX_LOCATION: "global",
-        GOOGLE_VERTEX_CREDENTIALS_JSON: JSON.stringify({ type: "service_account" }),
-        OPENAI_API_KEY: credential("sk-"),
         DEFAULT_TIMEZONE: "Asia/Kolkata",
         GIT_TMP_DIR: "/var/tmp/symplist-git",
         LOCAL_DATA_DIR: "/var/tmp/symplist-data",
@@ -117,7 +110,7 @@ describe("api configuration: valid environments", () => {
     expect(config.CONTENT_KEK.current).toBe(2);
     expect(config.CONTENT_KEK.versions.size).toBe(2);
     expect(config.BETA_ACCESS_REQUIRED).toBe(false);
-    expect(config.AI_FAST_PROVIDER).toBe("bedrock");
+    expect(config.AI_FAST_PROVIDER).toBe("anthropic");
     expect(config.AI_PROVIDER_MODE).toBe("scripted");
     expect(config.DEFAULT_TIMEZONE).toBe("Asia/Kolkata");
     expect(config.LOCAL_DATA_DIR).toBe("/var/tmp/symplist-data");
@@ -126,11 +119,9 @@ describe("api configuration: valid environments", () => {
   });
 
   it("treats empty values as unset", () => {
-    const config = loadApiConfig(
-      localApiEnv({ OPENAI_API_KEY: "", PORT: "", COMPOSIO_API_KEY: "" }),
-    );
+    const config = loadApiConfig(localApiEnv({ PORT: "", COMPOSIO_API_KEY: "" }));
     expect(config.PORT).toBe(4000);
-    expect("OPENAI_API_KEY" in config).toBe(false);
+    expect("COMPOSIO_API_KEY" in config).toBe(false);
   });
 
   it("reads process.env by default", () => {
@@ -213,10 +204,6 @@ describe("api configuration: field validation", () => {
     ["AI_FAST_PROVIDER", "gateway", "must be one of"],
     ["AI_SMART_MODEL", "gpt 5", "model id"],
     ["AI_PROVIDER_MODE", "mock", "must be one of: live, scripted"],
-    ["OPENAI_API_KEY", "sk-with space-1234", "single-line credential"],
-    ["OPENAI_API_KEY", "short", "single-line credential"],
-    ["OPENAI_API_KEY", '"sk-quoted-12345"', "single-line credential"],
-    ["GOOGLE_VERTEX_CREDENTIALS_JSON", "[1,2]", "JSON object"],
     ["CLOUDFLARE_ACCOUNT_ID", "ACCOUNT", "Cloudflare account id"],
     ["D1_DATABASE_ID", "db-1", "D1 database id"],
     ["R2_BUCKET", "Bucket_1", "R2 bucket name"],
@@ -227,7 +214,6 @@ describe("api configuration: field validation", () => {
     ["EMAIL_FROM_SECURITY", "Symplist, Inc. <security@example.com>", "email address"],
     ["TRIGGER_PROJECT_REF", "project", "project ref"],
     ["POSTHOG_PROJECT_ID", "abc", "numeric PostHog project id"],
-    ["AWS_REGION", "US-EAST-1", "AWS region"],
   ])("reports %s=%j", (name, value, message) => {
     expect(issuesOf(localApiEnv({ [name]: value }))).toContainEqual(issue(name, message));
   });
@@ -293,25 +279,23 @@ describe("api configuration: cross-field rules (§16.1)", () => {
 
   it.each([
     "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
     "AWS_ACCESS_KEY_ID",
     "AWS_SECRET_ACCESS_KEY",
     "GOOGLE_VERTEX_CREDENTIALS_JSON",
     "TOGETHER_API_KEY",
-  ])("DURABLE=true rejects the AI provider credential %s on the api", (name) => {
-    const value =
-      name === "GOOGLE_VERTEX_CREDENTIALS_JSON" ? '{"type":"service_account"}' : credential();
-    const extra = name.startsWith("AWS_")
-      ? {
-          AWS_REGION: "us-east-1",
-          AWS_ACCESS_KEY_ID: credential(),
-          AWS_SECRET_ACCESS_KEY: credential(),
-        }
-      : name.startsWith("GOOGLE_")
-        ? { GOOGLE_VERTEX_PROJECT: "symplist-prod", GOOGLE_VERTEX_LOCATION: "global" }
-        : {};
-    expect(issuesOf(productionApiEnv({ ...extra, [name]: value }))).toContainEqual(
-      issue(name, "must not be set on the api when DURABLE=true"),
-    );
+  ])("refuses the retired deployment model credential %s, in either mode", (name) => {
+    // This used to be conditional: the api could hold a model key under DURABLE=false and had to
+    // refuse one under DURABLE=true, so that a durable api could not run model code. Keys now
+    // belong to the account that spends them, so the answer is the same in both modes, and the
+    // message says where they went instead of naming a runtime that would hold it.
+    const moved = "each account now adds its own provider key in Settings";
+    for (const env of [
+      localApiEnv({ [name]: credential() }),
+      productionApiEnv({ [name]: credential() }),
+    ]) {
+      expect(issuesOf(env)).toContainEqual(issue(name, moved));
+    }
   });
 
   it.each([
@@ -321,19 +305,6 @@ describe("api configuration: cross-field rules (§16.1)", () => {
   ])("rejects %s on the api", (name) => {
     expect(issuesOf(localApiEnv({ [name]: credential() }))).toEqual([
       issue(name, "must not be set on the api"),
-    ]);
-  });
-
-  it("requires complete AI provider credential groups", () => {
-    expect(issuesOf(localApiEnv({ AWS_ACCESS_KEY_ID: credential() }))).toEqual([
-      issue("AWS_REGION", "Amazon Bedrock"),
-      issue("AWS_SECRET_ACCESS_KEY", "Amazon Bedrock"),
-    ]);
-    expect(
-      issuesOf(localApiEnv({ GOOGLE_VERTEX_CREDENTIALS_JSON: '{"type":"service_account"}' })),
-    ).toEqual([
-      issue("GOOGLE_VERTEX_LOCATION", "GOOGLE_VERTEX_CREDENTIALS_JSON is set"),
-      issue("GOOGLE_VERTEX_PROJECT", "GOOGLE_VERTEX_CREDENTIALS_JSON is set"),
     ]);
   });
 

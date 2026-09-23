@@ -79,7 +79,11 @@ function dependencies(model: SimonModel): SimonTurnDependencies {
     signal: new AbortController().signal,
     telemetryEnabled: true,
     models: {
-      resolve: vi.fn(() => ({ provider: "scripted" as const, modelId: model.modelId, model })),
+      resolve: vi.fn(async () => ({
+        provider: "scripted" as const,
+        modelId: model.modelId,
+        model,
+      })),
     },
     log: vi.fn(),
     sink: vi.fn(() => ({
@@ -162,6 +166,28 @@ describe("claimed Simon turn integration", () => {
         );
       },
     );
+
+    it("keeps a missing account key apart from a broken provider", async () => {
+      await env.db.run({
+        sql: "UPDATE executor_state SET mode=?",
+        params: [executor === "local" ? "local" : "durable"],
+      });
+      const runId = await submit();
+      const deps = { ...dependencies(new MockLanguageModelV4()), executor };
+      deps.models.resolve = () => {
+        throw Object.assign(new Error("ai.key_required"), { code: "ai.key_required" });
+      };
+      const error = await runSimonTurn(runId, deps).catch((value: unknown) => value);
+      // Flattening this into ai.provider_failed would offer the reader a Retry that can only fail
+      // again, instead of the one thing that fixes it: adding a key.
+      expect(error).toMatchObject({ code: "ai.key_required" });
+      expect(
+        await env.db.first({
+          sql: "SELECT status,outcome_code FROM runs WHERE id=?",
+          params: [runId],
+        }),
+      ).toEqual({ status: "interrupted", outcome_code: "ai.key_required" });
+    });
 
     it("persists a terminal stream failure in its checkpoint and preserves Stop precedence", async () => {
       await env.db.run({

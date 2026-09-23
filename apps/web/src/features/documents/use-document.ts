@@ -14,6 +14,7 @@ import {
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import { IdempotencyKeys, isApiError } from "@/lib/api";
 import { type DocumentApi, documentApi } from "./api.ts";
+import { cachedHead, cacheHead, forgetDocument } from "./document-cache.ts";
 import { type DocumentFailure, describeFailure } from "./messages.ts";
 import { watchDocumentHead } from "./realtime.ts";
 import {
@@ -373,47 +374,78 @@ export function useDocument(options: UseDocumentOptions): DocumentHandle {
   const schedulerRef = useRef<SaveScheduler | null>(null);
   const mountedRef = useRef(true);
   const draftSeqRef = useRef(0);
+  /** Advances on every edit the reader makes, so a read in flight can tell if it was overtaken. */
+  const editSeqRef = useRef(0);
 
+  /** Turns a head response into the `loaded` action that shows it. */
+  const applyHead = useCallback((response: DocumentHeadResponse) => {
+    const head = headFrom(response);
+    const draft = response.draft;
+    const hasDraft = draft !== null && draft.markdown !== head.markdown;
+    const baseMatches = draft === null || draft.baseRevision === head.revision;
+    const buffer = hasDraft ? draft.markdown : head.markdown;
+    const conflict: ConflictState | null =
+      hasDraft && (!baseMatches || draft.origin === "conflict")
+        ? {
+            currentRevision: head.revision,
+            currentGeneration: head.generation,
+            draftPreserved: true,
+            baseRevision: draft.baseRevision,
+          }
+        : null;
+    draftSeqRef.current = draft?.clientSeq ?? 0;
+    dispatch({
+      type: "loaded",
+      head,
+      buffer,
+      baseRevision: draft && hasDraft ? draft.baseRevision : head.revision,
+      dirty: hasDraft,
+      conflict,
+      draftSeq: draft?.clientSeq ?? 0,
+      normalizationPending: !head.canonical && head.revision !== null,
+      readOnly: readOnlyFor(head),
+    });
+  }, []);
+
+  /**
+   * Reads the head, showing a cached one first when there is one.
+   *
+   * A cached head makes the switch instant, but it is a starting point and never the answer: the
+   * read still goes out, and what comes back replaces it. The one thing a background read must not
+   * do is overwrite text the reader has since typed, so it defers to a dirty buffer and only
+   * refreshes the cache for next time — the publish path's expected-revision check, and the conflict
+   * review it already raises, remain what decides a divergence.
+   */
   const load = useCallback(
     async (signal?: AbortSignal) => {
-      dispatch({ type: "loading" });
+      const cached = cachedHead(taskId);
+      if (cached) applyHead(cached);
+      else dispatch({ type: "loading" });
+      // Captured after the cached head is applied, so only edits the reader makes from here on
+      // count. Reading `state.dirty` instead would see whatever was true before this read began —
+      // including a draft the cached head itself restored — and suppress the server's answer.
+      const editsBefore = editSeqRef.current;
       try {
         const response = await api.head(taskId, signal);
         if (!mountedRef.current) return;
-        const head = headFrom(response);
-        const draft = response.draft;
-        const hasDraft = draft !== null && draft.markdown !== head.markdown;
-        const baseMatches = draft === null || draft.baseRevision === head.revision;
-        const buffer = hasDraft ? draft.markdown : head.markdown;
-        const conflict: ConflictState | null =
-          hasDraft && (!baseMatches || draft.origin === "conflict")
-            ? {
-                currentRevision: head.revision,
-                currentGeneration: head.generation,
-                draftPreserved: true,
-                baseRevision: draft.baseRevision,
-              }
-            : null;
-        draftSeqRef.current = draft?.clientSeq ?? 0;
-        dispatch({
-          type: "loaded",
-          head,
-          buffer,
-          baseRevision: draft && hasDraft ? draft.baseRevision : head.revision,
-          dirty: hasDraft,
-          conflict,
-          draftSeq: draft?.clientSeq ?? 0,
-          normalizationPending: !head.canonical && head.revision !== null,
-          readOnly: readOnlyFor(head),
-        });
+        cacheHead(taskId, response);
+        // Typed over while this was in flight: their text stands, and the cache is already updated
+        // for the next visit. The publish path's expected-revision check decides any divergence.
+        if (cached && editSeqRef.current !== editsBefore) return;
+        applyHead(response);
       } catch (error) {
         if (!mountedRef.current) return;
         const failure = describeFailure(error);
         if (failure.code === "aborted") return;
+        // A failed read is reported even when a cached head is already on screen. Leaving the cached
+        // text up and saying nothing would show content that may be stale while implying it is
+        // current — the same dishonesty the save status exists to avoid. The entry goes too, so the
+        // retry is a real read rather than the same stale answer.
+        forgetDocument(taskId);
         dispatch({ type: "load_failed", failure });
       }
     },
-    [api, taskId],
+    [api, taskId, applyHead],
   );
 
   const writeDraft = useCallback(async () => {
@@ -617,6 +649,20 @@ export function useDocument(options: UseDocumentOptions): DocumentHandle {
     };
   }, [load]);
 
+  /**
+   * A cached head is only good until the document moves. This device's save, Simon's edit and
+   * another device's publish all land through different actions, so rather than remembering to
+   * invalidate at each of them, the rule is stated once here: a head that no longer matches what was
+   * cached drops the entry, and the next visit reads afresh. A slow first paint is recoverable; a
+   * confidently wrong one is not.
+   */
+  const headRevision = state.head?.revision ?? null;
+  useEffect(() => {
+    if (headRevision === null) return;
+    const cached = cachedHead(taskId);
+    if (cached && cached.revision !== headRevision) forgetDocument(taskId);
+  }, [taskId, headRevision]);
+
   // Task switch and unmount: publish whatever is pending and keep the draft (§9.3).
   useEffect(
     () => () => {
@@ -685,6 +731,7 @@ export function useDocument(options: UseDocumentOptions): DocumentHandle {
     // re-rendered, so the ref is advanced through the same reducer first. Otherwise that first write
     // reads a buffer that is still clean and skips itself.
     stateRef.current = documentReducer(current, action);
+    editSeqRef.current += 1;
     dispatch(action);
     schedulerRef.current?.changed();
   }, []);

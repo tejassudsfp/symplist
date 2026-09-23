@@ -7,6 +7,7 @@ import {
   simonSharingTools,
 } from "@symplist/agent";
 import { simonRunPayloadSchema } from "@symplist/contracts";
+import { AiKeyStore } from "@symplist/core/ai";
 import { ComposioSessions, createSimonConnectionAuthority } from "@symplist/core/connections";
 import { DocumentRepository, DocumentTools, DurableDocumentGit } from "@symplist/core/documents";
 import { SimonRepository } from "@symplist/core/simon";
@@ -86,11 +87,38 @@ export async function runDurableSimon(
     return value;
   };
   const flushAnnouncements = simonTaskAnnouncements(runtime);
+  let unconfirmed: "openai" | "anthropic" | null = null;
+  const aiKeys = () =>
+    new AiKeyStore({
+      ...repository.options,
+      defaults: {
+        fast: { provider: runtime.config.AI_FAST_PROVIDER, model: runtime.config.AI_FAST_MODEL },
+        smart: { provider: runtime.config.AI_SMART_PROVIDER, model: runtime.config.AI_SMART_MODEL },
+      },
+      now: () => Date.now(),
+    });
   try {
     return await runSimonTurn(parsed.data.runId, {
       repository,
       executor: "trigger",
-      models: createSimonModels(runtime.config),
+      models: createSimonModels(runtime.config, {
+        // The key belongs to the account the run belongs to (§8.6): the worker decrypts it under
+        // that account's data key for this call, and keeps nothing.
+        credentials: async (ownerId, tier) => {
+          const credential = await aiKeys().credentialFor(ownerId, tier);
+          // Only an unconfirmed key has anything to learn from this call succeeding.
+          unconfirmed = credential.verifiedAt === null ? credential.provider : null;
+          return credential;
+        },
+        onAccepted: (ownerId, provider) => {
+          if (unconfirmed !== provider) return;
+          unconfirmed = null;
+          // The turn does not wait on this, and a lost confirmation only costs a label.
+          void aiKeys()
+            .markVerified(ownerId, provider)
+            .catch(() => undefined);
+        },
+      }),
       signal: signal
         ? AbortSignal.any([signal, AbortSignal.timeout(890_000)])
         : AbortSignal.timeout(890_000),

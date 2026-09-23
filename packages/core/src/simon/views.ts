@@ -165,7 +165,8 @@ export class SimonViews {
                 stopRequested: conversation.latest_cancel !== null,
                 outcomeCode:
                   conversation.latest_outcome === "ai.unavailable" ||
-                  conversation.latest_outcome === "ai.provider_failed"
+                  conversation.latest_outcome === "ai.provider_failed" ||
+                  conversation.latest_outcome === "ai.key_required"
                     ? conversation.latest_outcome
                     : null,
               },

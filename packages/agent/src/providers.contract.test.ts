@@ -24,16 +24,18 @@ const base: SimonModelConfig = {
   AI_SMART_MODEL: "gpt-5.6-terra",
 };
 
-function scriptedTarget(): AiProviderContractSubject {
+const contractOwner = "01929f3e-0000-7000-8000-00000000000c";
+
+async function scriptedTarget(): Promise<AiProviderContractSubject> {
   const marker = "symplist-contract-marker-7f9d";
   const script = createScriptedModel([scriptedText(marker)], {
     provider: "symplist.scripted",
     modelId: "scripted-contract",
   });
-  const selected = createSimonModels(
+  const selected = await createSimonModels(
     { ...base, AI_PROVIDER_MODE: "scripted" },
     { scripted: () => script.model },
-  ).resolve("fast");
+  ).resolve("fast", contractOwner);
   return {
     model: selected.model,
     provider: selected.provider,
@@ -59,7 +61,7 @@ describeAiProviderContract({
   name: "OpenAI Responses",
   skipReason: "skipReason" in live ? live.skipReason : undefined,
   testTimeoutMs: 30_000,
-  create: () => {
+  create: async () => {
     if (!("settings" in live)) throw new Error("live OpenAI target was skipped");
     const config: SimonModelConfig = {
       ...base,
@@ -69,9 +71,14 @@ describeAiProviderContract({
       AI_FAST_MODEL: live.settings.model,
       AI_SMART_PROVIDER: "openai",
       AI_SMART_MODEL: live.settings.model,
-      OPENAI_API_KEY: live.settings.apiKey,
     };
-    const selected = createSimonModels(config).resolve("fast");
+    const selected = await createSimonModels(config, {
+      credentials: async () => ({
+        provider: "openai" as const,
+        model: live.settings.model,
+        apiKey: live.settings.apiKey,
+      }),
+    }).resolve("fast", contractOwner);
     return {
       model: selected.model,
       provider: selected.provider,
@@ -91,16 +98,24 @@ describe.skipIf("skipReason" in live)("OpenAI live prompt-cache telemetry", () =
     timeout: 45_000,
   }, async () => {
     if (!("settings" in live)) throw new Error("live OpenAI target was skipped");
-    const selected = createSimonModels({
-      ...base,
-      NODE_ENV: "test",
-      AI_PROVIDER_MODE: "live",
-      AI_FAST_PROVIDER: "openai",
-      AI_FAST_MODEL: live.settings.model,
-      AI_SMART_PROVIDER: "openai",
-      AI_SMART_MODEL: live.settings.model,
-      OPENAI_API_KEY: live.settings.apiKey,
-    }).resolve("fast");
+    const selected = await createSimonModels(
+      {
+        ...base,
+        NODE_ENV: "test",
+        AI_PROVIDER_MODE: "live",
+        AI_FAST_PROVIDER: "openai",
+        AI_FAST_MODEL: live.settings.model,
+        AI_SMART_PROVIDER: "openai",
+        AI_SMART_MODEL: live.settings.model,
+      },
+      {
+        credentials: async () => ({
+          provider: "openai" as const,
+          model: live.settings.model,
+          apiKey: live.settings.apiKey,
+        }),
+      },
+    ).resolve("fast", contractOwner);
     const stablePrefix = Array.from(
       { length: 1_600 },
       (_, index) => `cache-contract-token-${index % 16}`,

@@ -15,6 +15,11 @@
       "types": "./dist/access/index.d.ts",
       "default": "./dist/access/index.js"
     },
+    "./ai": {
+      "source": "./src/ai/index.ts",
+      "types": "./dist/ai/index.d.ts",
+      "default": "./dist/ai/index.js"
+    },
     "./account": {
       "source": "./src/account/index.ts",
       "types": "./dist/account/index.d.ts",

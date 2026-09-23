@@ -79,6 +79,8 @@ export function simonErrorMessage(error: unknown): string {
   const code = error && typeof error === "object" && "code" in error ? error.code : "";
   if (code === "ai.unavailable")
     return "Simon is not configured on this server yet. Your conversation is still available.";
+  if (code === "ai.key_required")
+    return "Simon needs your own model key. Add one in Settings → Models, then send this again.";
   if (code === "approval.stale")
     return "This action changed or expired. Reload it and review the current details.";
   if (code === "not_found" || code === "simon.conversation_expired")

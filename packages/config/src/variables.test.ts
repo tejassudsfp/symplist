@@ -37,14 +37,6 @@ const both = [
   "AI_PROVIDER_MODE",
   "AI_TELEMETRY_ENABLED",
   // AI provider credentials: worker, and api only when DURABLE=false.
-  "OPENAI_API_KEY",
-  "AWS_REGION",
-  "AWS_ACCESS_KEY_ID",
-  "AWS_SECRET_ACCESS_KEY",
-  "GOOGLE_VERTEX_PROJECT",
-  "GOOGLE_VERTEX_LOCATION",
-  "GOOGLE_VERTEX_CREDENTIALS_JSON",
-  "TOGETHER_API_KEY",
   // TRIGGER_SECRET_KEY: api; worker (platform-injected).
   "TRIGGER_SECRET_KEY",
   "CLOUDFLARE_ACCOUNT_ID",
