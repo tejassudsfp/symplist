@@ -6,6 +6,7 @@ import {
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError, ApiNetworkError } from "@/lib/api";
+import { clearDocumentCache } from "./document-cache.ts";
 import { canonicalFixture, FakeDocuments } from "./fake-api.ts";
 import type { DocumentHeadListener, watchDocumentHead } from "./realtime.ts";
 import { SAVE_IDLE_MS, type SchedulerTimers } from "./save-scheduler.ts";
@@ -129,6 +130,9 @@ function apiError(status: number, code: string, details?: Record<string, unknown
 beforeEach(() => {
   timers = new FakeTimers();
   socket = fakeWatch();
+  // Module-level and deliberately shared by every task page in a session, so each case starts from
+  // an empty one rather than seeing the head a previous case left behind.
+  clearDocumentCache();
 });
 
 describe("documentReducer", () => {

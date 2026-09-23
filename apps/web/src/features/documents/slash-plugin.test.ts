@@ -25,9 +25,7 @@ function stateWith(text: string, node: "paragraph" | "heading" | "code_block" = 
   const content = text.length > 0 ? [schema.text(text)] : [];
   const doc = schema.node("doc", null, [type.create(null, content)]);
   const state = EditorState.create({ schema, doc });
-  return state.apply(
-    state.tr.setSelection(TextSelection.create(state.doc, 1 + text.length)),
-  );
+  return state.apply(state.tr.setSelection(TextSelection.create(state.doc, 1 + text.length)));
 }
 
 /**
@@ -111,9 +109,7 @@ describe("continuing a slash query", () => {
   it("closes when the caret moves back before the slash", () => {
     const opened = type(stateWith("write "), "/");
     const query = opened.query as SlashQuery;
-    const transaction = opened.state.tr.setSelection(
-      TextSelection.create(opened.state.doc, 1),
-    );
+    const transaction = opened.state.tr.setSelection(TextSelection.create(opened.state.doc, 1));
     const state = opened.state.apply(transaction);
     expect(nextSlashQuery(query, transaction, state)).toBeNull();
   });
@@ -121,9 +117,7 @@ describe("continuing a slash query", () => {
   it("closes when a range is selected, because a menu belongs to a caret", () => {
     const opened = type(stateWith(""), "/");
     const first = type(opened.state, "head", opened.query);
-    const transaction = first.state.tr.setSelection(
-      TextSelection.create(first.state.doc, 1, 3),
-    );
+    const transaction = first.state.tr.setSelection(TextSelection.create(first.state.doc, 1, 3));
     const state = first.state.apply(transaction);
     expect(nextSlashQuery(first.query, transaction, state)).toBeNull();
   });
