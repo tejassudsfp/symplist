@@ -3018,6 +3018,56 @@
   line-height: 1.5;
   margin: 0;
 }
+.sym-simon-thinking {
+  align-items: center;
+  color: var(--sym-muted);
+  display: flex;
+  font-size: 11.5px;
+  gap: 7px;
+  line-height: 1.5;
+  margin: 0;
+}
+.sym-simon-thinking-dots {
+  display: inline-flex;
+  flex: none;
+  gap: 3px;
+}
+.sym-simon-thinking-dot {
+  animation: sym-simon-thinking-pulse 1.15s ease-in-out infinite;
+  background: currentColor;
+  border-radius: 50%;
+  display: block;
+  height: 4px;
+  opacity: 0.35;
+  width: 4px;
+}
+.sym-simon-thinking-dot:nth-child(2) {
+  animation-delay: 0.16s;
+}
+.sym-simon-thinking-dot:nth-child(3) {
+  animation-delay: 0.32s;
+}
+.sym-simon-thinking-text {
+  /* The phrase swaps on a timer; a fixed min-height stops the composer jumping as lengths change. */
+  min-height: 1lh;
+}
+@keyframes sym-simon-thinking-pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sym-simon-thinking-dot {
+    animation: none;
+    opacity: 0.55;
+  }
+}
 .sym-simon-empty {
   margin: auto 0;
   padding: 10px 4px;

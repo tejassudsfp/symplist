@@ -16,6 +16,7 @@ import { registerChat } from "./controller.ts";
 import { projectedMessages } from "./projection.ts";
 import { useChatState } from "./provider.tsx";
 import { canSendChat, type SimonStore } from "./store.ts";
+import { ThinkingIndicator } from "./thinking-indicator.tsx";
 
 export function SimonConversation({ store, taskId }: { store: SimonStore; taskId: string | null }) {
   const state = useChatState(store, taskId);
@@ -128,15 +129,18 @@ export function SimonConversation({ store, taskId }: { store: SimonStore; taskId
             </Message>
           ))}
           {run && !state.projection.live?.ended ? (
-            <p role="status" className="sym-simon-note">
-              {run.status === "awaiting_approval"
-                ? "Waiting for your review"
-                : run.status === "awaiting_user"
-                  ? "Waiting for your answer"
-                  : run.status === "queued"
-                    ? "Message accepted · waiting to start"
-                    : "Simon is working…"}
-            </p>
+            run.status === "awaiting_approval" || run.status === "awaiting_user" ? (
+              <p role="status" className="sym-simon-note">
+                {run.status === "awaiting_approval"
+                  ? "Waiting for your review"
+                  : "Waiting for your answer"}
+              </p>
+            ) : (
+              <ThinkingIndicator
+                key={run.status === "queued" ? "queued" : "working"}
+                phase={run.status === "queued" ? "queued" : "working"}
+              />
+            )
           ) : null}
           {state.approval ? (
             <ApprovalCard key={state.approval.id} state={state} store={store} />
