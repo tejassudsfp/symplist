@@ -14,13 +14,29 @@ import { gfm } from "@milkdown/kit/preset/gfm";
 import type { Node as ProseNode } from "@milkdown/kit/prose/model";
 import { TextSelection } from "@milkdown/kit/prose/state";
 import type { EditorView as ProseView } from "@milkdown/kit/prose/view";
-import { getMarkdown, replaceAll } from "@milkdown/kit/utils";
-import { type Ref, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { $prose, getMarkdown, replaceAll } from "@milkdown/kit/utils";
+import {
+  type Ref,
+  useCallback,
+  useEffect,
+  useId,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from "react";
 import { ACTION_CONTEXT_ATTRIBUTE } from "@/actions/focus";
 import { blockIndexOfSection, positionOfBlock } from "./blocks.ts";
 import { type EditorHandle, matchesOf, wrapIndex } from "./editor.ts";
 import { runToolbarCommand, type ToolbarCommand, toolbarCommandState } from "./page-commands.ts";
 import type { ViewPosition } from "./sections.ts";
+import {
+  filterSlashCommands,
+  moveSlashSelection,
+  runSlashCommand,
+  type SlashCommand,
+} from "./slash-commands.ts";
+import { SlashMenu, slashOptionId } from "./slash-menu.tsx";
+import { closeSlashQuery, type SlashQuery, slashPlugin } from "./slash-plugin.ts";
 
 /**
  * The page view (§9.3, research "Page editor"): Milkdown over the same Markdown string the raw view
@@ -46,6 +62,12 @@ export interface PageViewProps {
   readonly onSelectionChange?: () => void;
   readonly ref?: Ref<PageViewHandle>;
   readonly label?: string;
+  /**
+   * Runs the slash menu's one non-formatting entry. Simon is not a formatting command, so the editor
+   * reports the request and the pane decides; when this is absent the entry is not offered at all
+   * rather than offered and silently inert.
+   */
+  readonly onAskSimon?: () => void;
 }
 
 interface TextSpan {
@@ -95,6 +117,7 @@ export function PageView({
   onSelectionChange,
   ref,
   label = "Document, editable",
+  onAskSimon,
 }: PageViewProps) {
   const host = useRef<HTMLDivElement>(null);
   const editorRef = useRef<Editor | null>(null);
@@ -106,6 +129,71 @@ export function PageView({
   const onSelectionRef = useRef(onSelectionChange);
   onSelectionRef.current = onSelectionChange;
   const initial = useRef(value);
+  const [slash, setSlash] = useState<SlashQuery | null>(null);
+  const [slashIndex, setSlashIndex] = useState(0);
+  const [slashAt, setSlashAt] = useState<{ left: number; top: number } | null>(null);
+  const askSimonRef = useRef(onAskSimon);
+  askSimonRef.current = onAskSimon;
+  const listId = `${useId()}-slash`;
+
+  const matches = slash
+    ? filterSlashCommands(slash.query).filter(
+        (command) => !command.external || askSimonRef.current !== undefined,
+      )
+    : [];
+  // A narrower query can leave the highlight past the end of the list.
+  const selected = matches.length === 0 ? 0 : Math.min(slashIndex, matches.length - 1);
+
+  // The editor's key handler and the plugin both run outside React, so they read the current query,
+  // list and highlight through refs rather than through a closure captured at mount.
+  const slashRef = useRef<SlashQuery | null>(slash);
+  slashRef.current = slash;
+  const matchesRef = useRef<readonly SlashCommand[]>(matches);
+  matchesRef.current = matches;
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
+
+  /** Removes the "/query" text and then runs the command, so neither is left half-applied. */
+  const choose = useCallback((command: SlashCommand) => {
+    const editor = editorRef.current;
+    const query = slashRef.current;
+    if (!editor || !query) return;
+    setSlash(null);
+    setSlashIndex(0);
+    try {
+      editor.action((ctx) => {
+        const view = ctx.get(editorViewCtx);
+        const to = Math.min(view.state.selection.head, view.state.doc.content.size);
+        view.dispatch(closeSlashQuery(view.state.tr.delete(query.from, to)));
+        view.focus();
+      });
+      if (!runSlashCommand(editor, command.id)) askSimonRef.current?.();
+    } catch {
+      // A command can apply and still throw on its way out (scrolling needs layout jsdom lacks).
+    }
+  }, []);
+  const chooseRef = useRef(choose);
+  chooseRef.current = choose;
+
+  // Where to draw the menu: just under the "/" itself. `coordsAtPos` is already viewport-relative
+  // and the menu is fixed, so it needs no positioned ancestor and the editor's own layout — which
+  // the document pane sizes and scrolls — is left exactly as it was.
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!slash || !editor) {
+      setSlashAt(null);
+      return;
+    }
+    try {
+      editor.action((ctx) => {
+        const caret = ctx.get(editorViewCtx).coordsAtPos(slash.from);
+        setSlashAt({ left: caret.left, top: caret.bottom + 4 });
+      });
+    } catch {
+      // coordsAtPos needs layout; without it the menu simply does not draw this frame.
+      setSlashAt(null);
+    }
+  }, [slash]);
 
   // Created once per mount: `value` is applied by the effect below, and a new editor would lose the
   // caret and the undo history.
@@ -124,6 +212,28 @@ export function PageView({
             ctx.update(editorViewOptionsCtx, (previous) => ({
               ...previous,
               attributes: { "aria-label": label, class: "sym-doc-page-content" },
+              handleKeyDown: (view, event) => {
+                const query = slashRef.current;
+                if (!query) return false;
+                const list = matchesRef.current;
+                if (event.key === "Escape") {
+                  view.dispatch(closeSlashQuery(view.state.tr));
+                  return true;
+                }
+                if (list.length === 0) return false;
+                if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                  const delta = event.key === "ArrowDown" ? 1 : -1;
+                  setSlashIndex(moveSlashSelection(selectedRef.current, delta, list.length));
+                  return true;
+                }
+                if (event.key === "Enter" || event.key === "Tab") {
+                  const command = list[selectedRef.current];
+                  if (!command) return false;
+                  chooseRef.current(command);
+                  return true;
+                }
+                return false;
+              },
             }));
             ctx.get(listenerCtx).markdownUpdated((_ctx, markdown, previous) => {
               if (markdown === previous) return;
@@ -138,6 +248,7 @@ export function PageView({
           .use(gfm)
           .use(history)
           .use(listener)
+          .use($prose(() => slashPlugin(setSlash)))
           .create();
         created = editor;
         if (disposed) {
@@ -247,13 +358,34 @@ export function PageView({
     );
   }
 
+  const activeOption = matches[selected];
   return (
-    <div
-      className="sym-doc-page"
-      data-slot="page-view"
-      data-ready={ready ? "true" : "false"}
-      {...{ [ACTION_CONTEXT_ATTRIBUTE]: "editor" }}
-      ref={host}
-    />
+    <>
+      <div
+        className="sym-doc-page"
+        data-slot="page-view"
+        data-ready={ready ? "true" : "false"}
+        /* Drives the first paragraph's placeholder. Driven from the value rather than from a CSS
+         * `:empty` test because an empty ProseMirror paragraph still contains a trailing break. */
+        data-empty={value.trim().length === 0 ? "true" : "false"}
+        {...(slash && matches.length > 0
+          ? {
+              "aria-owns": listId,
+              "aria-activedescendant": activeOption
+                ? slashOptionId(listId, activeOption.id)
+                : undefined,
+            }
+          : {})}
+        {...{ [ACTION_CONTEXT_ATTRIBUTE]: "editor" }}
+        ref={host}
+      />
+      <SlashMenu
+        commands={matches}
+        selected={selected}
+        onChoose={choose}
+        position={slashAt}
+        listId={listId}
+      />
+    </>
   );
 }

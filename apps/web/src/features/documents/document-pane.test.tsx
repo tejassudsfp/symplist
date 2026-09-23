@@ -186,9 +186,16 @@ describe("loading and framing", () => {
     expect(screen.getByRole("textbox").textContent).toContain("Three projects, one page.");
   });
 
-  it("invites writing or an outline on an empty page", async () => {
+  it("opens an empty page straight into the editor, not onto a screen to get past", async () => {
     mount(new FakeDocuments());
-    expect(await screen.findByText("Nothing on this page yet")).toBeInTheDocument();
+    // The editor itself, ready to take the caret: an empty page used to replace it with a card
+    // whose only way forward was the raw Markdown view.
+    expect(await slot("page-view")).toHaveAttribute("data-empty", "true");
+  });
+
+  it("keeps both starters available on an empty page without blocking it", async () => {
+    mount(new FakeDocuments());
+    await slot("page-starters");
     expect(screen.getByRole("button", { name: "Write in Markdown" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Ask Simon for an outline" })).toBeInTheDocument();
   });
