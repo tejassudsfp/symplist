@@ -81,7 +81,15 @@ export type ExecutionOutcomeCode =
   | "executor_error"
   /** Stable model availability/outcome codes; never a provider exception message. */
   | "ai.unavailable"
-  | "ai.provider_failed";
+  | "ai.provider_failed"
+  /**
+   * The account has no usable model key (§8.6).
+   *
+   * Distinct from `ai.unavailable`, which says the deployment cannot run models at all. This one is
+   * the owner's to fix and is fixed in one place, so it travels separately all the way to the
+   * screen rather than being flattened into a generic failure the reader can only retry.
+   */
+  | "ai.key_required";
 
 /** One active subject (for Simon: a `queued` or `running` run) as the executors see it. */
 export interface ActiveExecution {

@@ -101,6 +101,33 @@ describe("storing a provider key", () => {
   });
 });
 
+describe("confirming a key actually works", () => {
+  it("records the first success and then stops writing", async () => {
+    const owner = await env.createUser();
+    await store.setKey(owner, "openai", "sk-confirm-0123456789abc");
+    // Unconfirmed until a provider has accepted it: shape validation proves nothing.
+    expect((await store.credentialFor(owner, "fast")).verifiedAt).toBeNull();
+
+    await store.markVerified(owner, "openai");
+    expect((await store.credentialFor(owner, "fast")).verifiedAt).toBe(now);
+
+    // A later success must not move the date: verified_at answers "has this ever worked", and
+    // re-stamping it would spend a D1 write per model call.
+    now += 60_000;
+    await store.markVerified(owner, "openai");
+    expect((await store.credentialFor(owner, "fast")).verifiedAt).toBe(now - 60_000);
+  });
+
+  it("asks the new key to prove itself when one is replaced", async () => {
+    const owner = await env.createUser();
+    await store.setKey(owner, "openai", "sk-old-0123456789abcdef");
+    await store.markVerified(owner, "openai");
+    now += 1_000;
+    await store.setKey(owner, "openai", "sk-new-0123456789abcdef");
+    expect((await store.credentialFor(owner, "fast")).verifiedAt).toBeNull();
+  });
+});
+
 describe("what the settings screen is told", () => {
   it("reports a key as configured without returning it", async () => {
     const owner = await env.createUser();

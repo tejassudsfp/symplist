@@ -115,6 +115,21 @@ describe("model settings", () => {
     expect(setKey).not.toHaveBeenCalled();
   });
 
+  it("says a key is only working once a provider has accepted it", async () => {
+    const base = configured("openai");
+    render(
+      <AiSettingsScreen
+        api={fakeApi({
+          ...base,
+          keys: base.keys.map((key) =>
+            key.provider === "openai" ? { ...key, verifiedAt: now } : key,
+          ),
+        })}
+      />,
+    );
+    expect(await screen.findByText(/Working · confirmed/u)).toBeInTheDocument();
+  });
+
   it("reports a configured key by date, never by value", async () => {
     render(<AiSettingsScreen api={fakeApi(configured("openai"))} />);
     expect(await screen.findByText(/Saved .* · not used yet/u)).toBeInTheDocument();

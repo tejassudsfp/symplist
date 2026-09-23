@@ -138,6 +138,62 @@ describe("Simon provider registry", () => {
     expect(credentials).toHaveBeenCalledTimes(2);
   });
 
+  it("reports the key as accepted only after the provider answers", async () => {
+    const accepted: [string, string][] = [];
+    let answered: (() => void) | null = null;
+    const models = createSimonModels(base, {
+      credentials: keyed("sk-live-0123456789abcd"),
+      onAccepted: (ownerId, provider) => accepted.push([ownerId, provider]),
+      fetch: async () => {
+        // Held open so the assertion below lands while the call is still in flight.
+        await new Promise<void>((resolve) => {
+          answered = resolve;
+        });
+        return Response.json({
+          id: "resp_test",
+          object: "response",
+          created_at: 1,
+          model: "test",
+          status: "completed",
+          output: [
+            {
+              type: "message",
+              id: "msg_test",
+              role: "assistant",
+              status: "completed",
+              content: [{ type: "output_text", text: "Hi", annotations: [] }],
+            },
+          ],
+          usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+        });
+      },
+    });
+    const selected = await models.resolve("fast", owner);
+    const pending = generateText({ model: selected.model, prompt: "hello" });
+    await vi.waitFor(() => expect(answered).not.toBeNull());
+    // Resolving a model is not evidence: only the provider's answer proves the key is live.
+    expect(accepted).toEqual([]);
+    (answered as unknown as () => void)();
+    await pending;
+    expect(accepted).toEqual([[owner, "openai"]]);
+  });
+
+  it("does not report a key the provider rejected", async () => {
+    const accepted: string[] = [];
+    const models = createSimonModels(base, {
+      credentials: keyed("sk-wrong-0123456789abc"),
+      onAccepted: (_ownerId, provider) => accepted.push(provider),
+      fetch: async () =>
+        new Response(JSON.stringify({ error: { message: "invalid api key" } }), {
+          status: 401,
+          headers: { "content-type": "application/json" },
+        }),
+    });
+    const selected = await models.resolve("fast", owner);
+    await expect(generateText({ model: selected.model, prompt: "hello" })).rejects.toThrow();
+    expect(accepted).toEqual([]);
+  });
+
   it("lets a missing account key travel as itself, not as a model failure", async () => {
     const required = Object.assign(new Error("ai.key_required"), { code: "ai.key_required" });
     const models = createSimonModels(base, {

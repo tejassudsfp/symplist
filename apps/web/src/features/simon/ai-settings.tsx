@@ -18,6 +18,9 @@ import { type AiSettingsApi, createAiSettingsApi } from "./ai-settings-api.ts";
  * A key is write-only here, as it is everywhere else: the field is emptied the moment it is saved,
  * and what comes back is "configured on 3 October", never the value. Anyone who needs to see a key
  * again reads it from their provider dashboard, which is the only place that should still have it.
+ *
+ * "Working" appears only once a provider has actually accepted the key on a real call, because that
+ * is the only thing that proves it: a well-formed key and a live key look identical from here.
  */
 
 const providerLabels: Record<AiProvider, string> = {
@@ -222,7 +225,7 @@ function ProviderKey({
         <p className="text-xs text-[var(--sym-muted)]">
           {configured
             ? verifiedAt !== null
-              ? `Working · last used ${formatDate(verifiedAt)}`
+              ? `Working · confirmed ${formatDate(verifiedAt)}`
               : `Saved${createdAt === null ? "" : ` ${formatDate(createdAt)}`} · not used yet`
             : "Not configured"}
         </p>

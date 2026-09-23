@@ -251,6 +251,33 @@ describe("Simon conversation surfaces", () => {
     expect(await screen.findByText(/not configured on this server/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Retry interrupted run" })).not.toBeInTheDocument();
   });
+  it("points a run that stopped for want of a key at the place to add one", async () => {
+    const client = api();
+    client.history.mockResolvedValue({
+      ...view,
+      latestRun: {
+        runId: run,
+        conversationId: id,
+        taskId: task,
+        tier: "fast",
+        status: "failed",
+        stopRequested: false,
+        outcomeCode: "ai.key_required",
+      },
+    });
+    render(
+      <SimonProvider userId="owner" api={client} realtime={null}>
+        <ChatPane taskId={task} />
+      </SimonProvider>,
+    );
+    expect(await screen.findByText(/runs on your own model key/)).toBeInTheDocument();
+    // Retrying without a key fails the same way, so the button is replaced by the thing that helps.
+    expect(screen.queryByRole("button", { name: "Retry interrupted run" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Add a model key" })).toHaveAttribute(
+      "href",
+      "/settings/models",
+    );
+  });
   it("closes and deletes a quick chat before returning focus to its launcher", async () => {
     const client = api();
     client.history.mockResolvedValue({ ...view, kind: "quick", taskId: null });

@@ -93,6 +93,14 @@ by any route. There is no server-side fallback: an account without a key is told
   a typed id is accepted, so a new model works without a deploy.
 - Storage is `ai_provider_keys` and `ai_model_choices` (migration `1100`), both covered by the AI
   purge contributor. Never add a column holding any part of a key, including a last-four hint.
+- `verified_at` answers "has this key ever worked", not "when was it last used". Only the provider
+  can say a key is live, so it is set from a real accepted call and written **once** — re-stamping
+  it every turn would spend a D1 write per model call. Replacing a key clears it.
+- A run that stops for want of a key ends `ai.key_required`, not `ai.provider_failed`. It travels
+  intact to the browser, which offers the way to Settings → Models instead of a Retry that can only
+  fail again. Keep the three AI outcomes distinct: the deployment cannot run models
+  (`ai.unavailable`), this account has no key (`ai.key_required`), something broke
+  (`ai.provider_failed`).
 
 ## Hard rules
 

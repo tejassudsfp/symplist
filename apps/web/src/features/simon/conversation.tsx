@@ -1,5 +1,6 @@
 "use client";
 import { ArrowUpIcon, SquareIcon } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useRef } from "react";
 import { useOptionalActions } from "@/actions/provider";
 import {
@@ -17,6 +18,39 @@ import { projectedMessages } from "./projection.ts";
 import { useChatState } from "./provider.tsx";
 import { canSendChat, type SimonStore } from "./store.ts";
 import { ThinkingIndicator } from "./thinking-indicator.tsx";
+
+/**
+ * What a finished-badly run should say, and whether offering Retry is honest.
+ *
+ * Retry is only offered where trying again could plausibly work. A run that stopped because the
+ * account has no model key will stop the same way every time, so the button is replaced by the one
+ * thing that does help: the way to Settings → Models.
+ */
+function terminalOutcome(code: string | null | undefined): {
+  readonly message: string;
+  readonly retryable: boolean;
+  readonly settingsLink: boolean;
+} {
+  if (code === "ai.unavailable")
+    return {
+      message: "Simon is not configured on this server yet. Your history is still available.",
+      retryable: false,
+      settingsLink: false,
+    };
+  if (code === "ai.key_required")
+    return {
+      message:
+        "Simon runs on your own model key, and this account has not added one yet. Your history is still available.",
+      retryable: false,
+      settingsLink: true,
+    };
+  return {
+    message:
+      "Simon\u2019s run was interrupted. You can continue from the saved history; uncertain external actions are not repeated automatically.",
+    retryable: true,
+    settingsLink: false,
+  };
+}
 
 export function SimonConversation({ store, taskId }: { store: SimonStore; taskId: string | null }) {
   const state = useChatState(store, taskId);
@@ -166,25 +200,29 @@ export function SimonConversation({ store, taskId }: { store: SimonStore; taskId
               Stopped. The reply above is preserved; completed actions were not undone.
             </p>
           ) : null}
-          {terminal?.status === "interrupted" || terminal?.status === "failed" ? (
-            <div className="sym-simon-interrupted">
-              <p role="status">
-                {terminal.outcomeCode === "ai.unavailable"
-                  ? "Simon is not configured on this server yet. Your history is still available."
-                  : "Simon’s run was interrupted. You can continue from the saved history; uncertain external actions are not repeated automatically."}
-              </p>
-              {terminal.outcomeCode !== "ai.unavailable" ? (
-                <Button
-                  disabled={disabled}
-                  onClick={() =>
-                    void store.command(taskId, (key) => store.api.retry(terminal.runId, key))
-                  }
-                >
-                  Retry interrupted run
-                </Button>
-              ) : null}
-            </div>
-          ) : null}
+          {terminal?.status === "interrupted" || terminal?.status === "failed"
+            ? (() => {
+                const outcome = terminalOutcome(terminal.outcomeCode);
+                return (
+                  <div className="sym-simon-interrupted">
+                    <p role="status">{outcome.message}</p>
+                    {outcome.retryable ? (
+                      <Button
+                        disabled={disabled}
+                        onClick={() =>
+                          void store.command(taskId, (key) => store.api.retry(terminal.runId, key))
+                        }
+                      >
+                        Retry interrupted run
+                      </Button>
+                    ) : null}
+                    {outcome.settingsLink ? (
+                      <Link href="/settings/models">Add a model key</Link>
+                    ) : null}
+                  </div>
+                );
+              })()
+            : null}
           {state.error ? (
             <InlineError
               title="Could not complete this request"

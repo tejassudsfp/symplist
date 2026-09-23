@@ -59,7 +59,10 @@ export const simonRunViewSchema = z.strictObject({
   status: simonRunStatusSchema,
   tier: simonTierSchema,
   stopRequested: z.boolean(),
-  outcomeCode: z.enum(["ai.unavailable", "ai.provider_failed"]).nullable().default(null),
+  outcomeCode: z
+    .enum(["ai.unavailable", "ai.provider_failed", "ai.key_required"])
+    .nullable()
+    .default(null),
 });
 
 export const simonHistoryQuerySchema = z.strictObject({

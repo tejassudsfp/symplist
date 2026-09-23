@@ -33,6 +33,7 @@ export function createLocalSimonHandler(
   });
   return async (job, context) => {
     if (config.DURABLE) throw new Error("simon.local_disabled");
+    let unconfirmed: "openai" | "anthropic" | null = null;
     const analytics = new AnalyticsService({
       ...repository.options,
       emitter,
@@ -72,8 +73,19 @@ export function createLocalSimonHandler(
       repository,
       executor: "local",
       models: createSimonModels(config, {
-        // The key belongs to the account the run belongs to (§8.6). Read per run and not retained.
-        credentials: (ownerId, tier) => aiKeys.credentialFor(ownerId, tier),
+        // The key belongs to the account the run belongs to (§8.6). Read per run, not retained.
+        credentials: async (ownerId, tier) => {
+          const credential = await aiKeys.credentialFor(ownerId, tier);
+          // Only an unconfirmed key has anything to learn from this call succeeding.
+          unconfirmed = credential.verifiedAt === null ? credential.provider : null;
+          return credential;
+        },
+        onAccepted: (ownerId, provider) => {
+          if (unconfirmed !== provider) return;
+          unconfirmed = null;
+          // The turn does not wait on this, and a lost confirmation only costs a label.
+          void aiKeys.markVerified(ownerId, provider).catch(() => undefined);
+        },
       }),
       signal: context.signal,
       telemetryEnabled: config.AI_TELEMETRY_ENABLED,

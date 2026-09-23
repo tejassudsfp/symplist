@@ -70,6 +70,15 @@ export interface ResolvedModelCredential {
   readonly provider: AiProvider;
   readonly model: string;
   readonly apiKey: string;
+  /**
+   * When this key was first seen to work, or null if it never has been.
+   *
+   * It rides along because the caller is the only one who learns the answer — the provider accepts
+   * or rejects the key long after this returns — and because it lets that caller skip the
+   * confirming write entirely once it is set. D1 runs in a tight request budget, so "one write per
+   * key, ever" is worth carrying a field for.
+   */
+  readonly verifiedAt: number | null;
 }
 
 export class AiKeyRequiredError extends Error {
@@ -142,13 +151,20 @@ export class AiKeyStore {
     );
   }
 
-  /** Records that a live call with this key succeeded, so the screen can say so. */
+  /**
+   * Records that a live call with this key succeeded, so the screen can say so.
+   *
+   * Only the first success is recorded. `verified_at` answers "has this key ever worked", not "when
+   * was it last used": re-stamping it on every turn would spend a D1 write per model call to move a
+   * date nobody reads that closely, and the run budget has better uses. Replacing a key clears it,
+   * so the next success re-confirms the new one.
+   */
   async markVerified(ownerId: string, provider: AiProvider): Promise<void> {
     const now = this.now();
     await this.db.run(
       sql(
         `UPDATE ai_provider_keys SET verified_at = :now, write_id = :w
-         WHERE owner_id = :owner AND provider = :provider`,
+         WHERE owner_id = :owner AND provider = :provider AND verified_at IS NULL`,
         { owner: ownerId, provider, now: int(now), w: uuidv7(now) },
       ),
     );
@@ -279,10 +295,11 @@ export class AiKeyStore {
     const choices = await this.choiceRow(ownerId);
     const resolved = this.resolveTier(tier, choices);
     const row = await this.db.first(
-      sql(`SELECT key_enc FROM ai_provider_keys WHERE owner_id = :owner AND provider = :provider`, {
-        owner: ownerId,
-        provider: resolved.provider,
-      }),
+      sql(
+        `SELECT key_enc, verified_at FROM ai_provider_keys
+         WHERE owner_id = :owner AND provider = :provider`,
+        { owner: ownerId, provider: resolved.provider },
+      ),
     );
     if (!row) throw new AiKeyRequiredError(tier);
     const key = await this.accountKeys.require(ownerId);
@@ -295,6 +312,10 @@ export class AiKeyStore {
           providerKeyContext(ownerId, resolved.provider),
           String(row.key_enc),
         ),
+        verifiedAt:
+          row.verified_at === null || row.verified_at === undefined
+            ? null
+            : Number(row.verified_at),
       };
     } finally {
       zeroize(key.key);

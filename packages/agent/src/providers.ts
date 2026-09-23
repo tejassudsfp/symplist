@@ -35,6 +35,14 @@ export interface ModelCredential {
   readonly apiKey: string;
 }
 
+/**
+ * Told that a provider accepted an account's key on a real call.
+ *
+ * This is the only moment anyone learns a key is live: validation on the way in checks shape, and
+ * only the provider can say the rest. It fires after a successful call, never on the way to one.
+ */
+export type ModelAcceptedSink = (ownerId: string, provider: AiProvider) => void;
+
 /** Looks up the credential an owner's tier runs with. Throws `ai.key_required` when there is none. */
 export type ModelCredentialSource = (ownerId: string, tier: AiTier) => Promise<ModelCredential>;
 
@@ -78,6 +86,30 @@ const privacyMiddleware: LanguageModelMiddleware = {
   },
 };
 
+/**
+ * Reports the first successful call on a live key.
+ *
+ * Acceptance is only knowable from the provider's side of the call, so it is observed here rather
+ * than inferred from the turn finishing: a turn can end for many reasons that say nothing about the
+ * credential. Streaming counts as accepted once the provider has returned a stream — an auth
+ * failure never gets that far — so a long generation confirms the key without waiting for its end.
+ */
+function acceptanceMiddleware(report: () => void): LanguageModelMiddleware {
+  return {
+    specificationVersion: "v4",
+    wrapGenerate: async ({ doGenerate }) => {
+      const result = await doGenerate();
+      report();
+      return result;
+    },
+    wrapStream: async ({ doStream }) => {
+      const result = await doStream();
+      report();
+      return result;
+    },
+  };
+}
+
 export interface SelectedSimonModel {
   readonly provider: AiProvider | "scripted";
   readonly modelId: string;
@@ -110,6 +142,8 @@ export function createSimonModels(
     readonly scripted?: (tier: AiTier) => SimonModel;
     /** Absent only where no live call is possible, which is the scripted path. */
     readonly credentials?: ModelCredentialSource;
+    /** Notified when a provider accepts the key, so the settings screen can say it works. */
+    readonly onAccepted?: ModelAcceptedSink;
   } = {},
 ): { resolve(tier: AiTier, ownerId: string): Promise<SelectedSimonModel> } {
   // Provider warnings can include request content. Never let the SDK write them to process warnings.
@@ -177,6 +211,14 @@ export function createSimonModels(
               },
             }),
             privacyMiddleware,
+            // Scripted models reach no provider, so there is nothing for them to confirm.
+            ...(credential && options.onAccepted
+              ? [
+                  acceptanceMiddleware(() =>
+                    (options.onAccepted as ModelAcceptedSink)(ownerId, credential.provider),
+                  ),
+                ]
+              : []),
           ],
         });
         const registry = createProviderRegistry({

@@ -44,6 +44,14 @@ export interface ClaimedSimonRun {
 }
 
 export interface SimonCheckpointData {
+  /**
+   * Why a `failed` checkpoint failed. Ignored for every other status.
+   *
+   * Defaults to `ai.provider_failed`, which is what a failure without an explanation is. A caller
+   * that knows better says so, because "the provider broke" and "this account has no key" send the
+   * reader to completely different places.
+   */
+  readonly outcomeCode?: "ai.provider_failed" | "ai.key_required";
   /** Native document receipts are persisted only with the step containing their tool results. */
   readonly receipts?: readonly ReceiptDraft[];
   readonly retrievedBytes?: number;
