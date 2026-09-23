@@ -65,6 +65,16 @@ What still rests on Trigger is the session's `.in` / `.out` streams, which carry
 
 **Simon's prompts stay in code**, versioned with git and changed only by deploy. Trigger managed prompts are not used: prompt changes must not bypass review, and the prompt behind any run must be recoverable from the commit.
 
+**A chat session gets a run two different ways, and only one of them is `sessions.start`.** `start`
+creates the session and triggers its **first** run; called again it is idempotent, answers
+`isCached: true`, and starts nothing. A turn arriving after the parked run has gone therefore has to
+**append** to the session's `.in` (`sessions.open(id).in.send`), which boots a continuation. The api
+does both: it starts, checks whether the run it was handed is still active, and wakes the session
+when it is not. Taking `start`'s run id on trust pins a turn to a run that finished turns ago.
+
+The wake record carries the conversation id and nothing else, because `.in` is plaintext on the
+platform and the task resolves the run it must execute from D1 anyway.
+
 Trigger tasks (`apps/worker/src/trigger/`): `symplist-healthcheck`, `account-purge`, `document-git`, `documents-maintenance`, `search-index`, `simon-run`, `simon-chat` (durable chat session), `reminder-scan` (concurrency 1), `cleanup-hourly`, `connections-reconcile`.
 
 ## Secret placement (enforced by config; wrong file = refuses to boot)

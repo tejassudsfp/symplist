@@ -256,9 +256,15 @@ describe("combined D1 request budget (§3.1)", () => {
         log,
         executor: new TriggerExecutor({
           runs: { cancel: vi.fn(), retrieve: vi.fn() },
-          // The load shape is the task dispatch; sessions stay off, so a call here is a defect.
+          // The load shape is the task dispatch; sessions stay off, so any call here is a defect.
           sessions: {
             start: async () => {
+              throw new Error("sessions are not enabled for this dispatch");
+            },
+            append: async () => {
+              throw new Error("sessions are not enabled for this dispatch");
+            },
+            currentRunId: async () => {
               throw new Error("sessions are not enabled for this dispatch");
             },
           },

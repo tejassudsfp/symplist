@@ -56,6 +56,17 @@ function fakeApi(initial: AiSettings, overrides: Partial<AiSettingsApi> = {}): A
   };
 }
 
+/** One tier's card. Both tiers render the same labels, so tier queries scope here. */
+async function tierCard(tier: "fast" | "smart"): Promise<HTMLElement> {
+  return await waitFor(() => {
+    const element = document.querySelector<HTMLElement>(
+      `[data-slot="tier-choice"][data-tier="${tier}"]`,
+    );
+    expect(element).not.toBeNull();
+    return element as HTMLElement;
+  });
+}
+
 /** One provider's card. Both are on screen and their fields share a label, so queries scope here. */
 async function card(provider: AiProvider): Promise<HTMLElement> {
   return await waitFor(() => {
@@ -156,12 +167,55 @@ describe("model settings", () => {
     ).toBeInTheDocument();
   });
 
+  it("offers the model as a dropdown, not a free-text box", async () => {
+    render(<AiSettingsScreen api={fakeApi(configured("openai"))} />);
+    const model = within(await tierCard("fast")).getByLabelText("Model");
+    expect(model.tagName).toBe("SELECT");
+    expect([...(model as HTMLSelectElement).options].map((option) => option.value)).toContain(
+      "gpt-5.6-luna",
+    );
+  });
+
+  it("still reaches a model the list does not carry, through Custom", async () => {
+    const user = userEvent.setup();
+    const setModels = vi.fn<AiSettingsApi["setModels"]>(async () => configured("openai"));
+    render(<AiSettingsScreen api={fakeApi(configured("openai"), { setModels })} />);
+    const fast = within(await tierCard("fast"));
+    // Gating on our list would mean a new model could not be used until Symplist shipped.
+    await user.selectOptions(fast.getByLabelText("Model"), "__custom__");
+    const field = fast.getByLabelText("Model id");
+    await user.clear(field);
+    await user.type(field, "gpt-9-not-released-yet");
+    await user.tab();
+    await waitFor(() => expect(setModels).toHaveBeenCalledTimes(1));
+    expect(setModels.mock.calls[0]?.[0]).toMatchObject({
+      fast: { model: "gpt-9-not-released-yet" },
+    });
+  });
+
+  it("opens on Custom when the saved model is not in the list", async () => {
+    const base = configured("openai");
+    render(
+      <AiSettingsScreen
+        api={fakeApi({
+          ...base,
+          tiers: base.tiers.map((tier) =>
+            tier.tier === "fast" ? { ...tier, model: "gpt-9-private-preview" } : tier,
+          ),
+        })}
+      />,
+    );
+    const fast = within(await tierCard("fast"));
+    // A saved model the list does not carry opens straight into the custom field.
+    expect(fast.getByLabelText("Model id")).toHaveValue("gpt-9-private-preview");
+  });
+
   it("lets a tier move to the other provider", async () => {
     const user = userEvent.setup();
     const setModels = vi.fn<AiSettingsApi["setModels"]>(async () => configured("openai"));
     render(<AiSettingsScreen api={fakeApi(configured("openai"), { setModels })} />);
-    const selects = await screen.findAllByLabelText("Provider");
-    await user.selectOptions(selects[1] as HTMLElement, "anthropic");
+    const smart = within(await tierCard("smart"));
+    await user.selectOptions(smart.getByLabelText("Provider"), "anthropic");
     await waitFor(() => expect(setModels).toHaveBeenCalledTimes(1));
     expect(setModels.mock.calls[0]?.[0]).toMatchObject({ smart: { provider: "anthropic" } });
   });

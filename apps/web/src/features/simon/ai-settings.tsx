@@ -15,12 +15,14 @@ import { type AiSettingsApi, createAiSettingsApi } from "./ai-settings-api.ts";
  * account and a working assistant. It says that plainly at the top when nothing is configured
  * rather than leaving someone to discover it when a message fails.
  *
- * A key is write-only here, as it is everywhere else: the field is emptied the moment it is saved,
- * and what comes back is "configured on 3 October", never the value. Anyone who needs to see a key
- * again reads it from their provider dashboard, which is the only place that should still have it.
+ * A key is write-only, here and everywhere else. The field is emptied the moment it is accepted,
+ * the api has no route that returns one, and the response type has no field a key could occupy. The
+ * screen's whole vocabulary is "configured", "working", and two dates. Anyone who needs to see a
+ * key again reads it from their provider's dashboard, which should be the only place that still
+ * has it.
  *
- * "Working" appears only once a provider has actually accepted the key on a real call, because that
- * is the only thing that proves it: a well-formed key and a live key look identical from here.
+ * "Working" appears only once a provider has accepted the key on a real call, because that is the
+ * only thing that proves it: a well-formed key and a live key look identical from here.
  */
 
 const providerLabels: Record<AiProvider, string> = {
@@ -43,6 +45,9 @@ const tierHints: Record<AiTier, string> = {
   smart: "Harder thinking, when you ask for it.",
 };
 
+/** The dropdown entry that swaps the model list for a free-text field. */
+const CUSTOM = "__custom__";
+
 function formatDate(value: number): string {
   return new Date(value).toLocaleDateString(undefined, {
     year: "numeric",
@@ -50,6 +55,9 @@ function formatDate(value: number): string {
     day: "numeric",
   });
 }
+
+const fieldClass =
+  "min-h-[34px] rounded-[var(--sym-r)] border border-[var(--sym-line-strong)] bg-transparent px-[9px] py-[6px] text-[13.5px]";
 
 export function AiSettingsScreen({ api = createAiSettingsApi() }: { api?: AiSettingsApi }) {
   const [settings, setSettings] = useState<AiSettings | null>(null);
@@ -65,7 +73,7 @@ export function AiSettingsScreen({ api = createAiSettingsApi() }: { api?: AiSett
         setSettings(await api.settings(signal));
         setFailure(null);
       } catch {
-        if (mounted.current) setFailure("Your model settings could not be loaded.");
+        if (mounted.current) setFailure("Check your connection and try again.");
       }
     },
     [api],
@@ -92,7 +100,7 @@ export function AiSettingsScreen({ api = createAiSettingsApi() }: { api?: AiSett
         if (next) setSettings(next);
         else await load(controller.signal);
       } catch {
-        if (mounted.current) setFailure("That didn't save. Check the key and try again.");
+        if (mounted.current) setFailure("Check the key and try again.");
       } finally {
         if (mounted.current) setBusy(null);
       }
@@ -125,68 +133,82 @@ export function AiSettingsScreen({ api = createAiSettingsApi() }: { api?: AiSett
   if (!settings) return <p role="status">Loading your model settings…</p>;
 
   return (
-    <section className="flex flex-col gap-6" data-slot="ai-settings">
-      <header className="flex flex-col gap-2">
-        <h1 className="text-lg font-medium">Models</h1>
-        <p className="text-sm text-[var(--sym-muted)]">
-          Simon runs on your own provider account. Add a key below and it is encrypted before it is
-          stored; it is never shown again, and nothing here is charged to Symplist.
+    <div className="flex flex-col gap-7" data-slot="ai-settings">
+      <header className="flex flex-col gap-1">
+        <h1 className="m-0 font-heading font-semibold text-[20px] tracking-[-0.01em]">Models</h1>
+        <p className="m-0 max-w-[520px] text-[13.5px] text-sym-muted">
+          Simon runs on your own provider account, so nothing here is charged to Symplist. A key is
+          encrypted before it is stored and is never shown again — not even to you.
         </p>
       </header>
 
-      {!settings.usable ? (
+      {settings.usable ? null : (
         <Notice tone="warning">
           Simon needs a key before it can answer. Add one for OpenAI or Anthropic to get started.
         </Notice>
-      ) : null}
+      )}
       {failure ? <InlineError title="That didn't save" description={failure} /> : null}
 
-      <div className="flex flex-col gap-4">
-        {settings.keys.map((status) => (
-          <ProviderKey
-            key={status.provider}
-            provider={status.provider}
-            configured={status.configured}
-            createdAt={status.createdAt}
-            verifiedAt={status.verifiedAt}
-            draft={drafts[status.provider] ?? ""}
-            saved={saved === status.provider}
-            busy={busy === `key:${status.provider}`}
-            onDraft={(value) => setDrafts((current) => ({ ...current, [status.provider]: value }))}
-            onSave={() => saveKey(status.provider)}
-            onClear={() =>
-              void run(`key:${status.provider}`, async (signal) => {
-                await api.clearKey(status.provider, signal);
-                setSaved(null);
-                return null;
-              })
-            }
-          />
-        ))}
-      </div>
+      <section aria-labelledby="ai-keys-title" className="flex flex-col gap-3">
+        <h2 id="ai-keys-title" className="m-0 font-heading font-semibold text-[15px]">
+          Provider keys
+        </h2>
+        <div className="flex max-w-[520px] flex-col gap-3">
+          {settings.keys.map((status) => (
+            <ProviderKey
+              key={status.provider}
+              provider={status.provider}
+              configured={status.configured}
+              createdAt={status.createdAt}
+              verifiedAt={status.verifiedAt}
+              draft={drafts[status.provider] ?? ""}
+              saved={saved === status.provider}
+              busy={busy === `key:${status.provider}`}
+              onDraft={(value) =>
+                setDrafts((current) => ({ ...current, [status.provider]: value }))
+              }
+              onSave={() => saveKey(status.provider)}
+              onClear={() =>
+                void run(`key:${status.provider}`, async (signal) => {
+                  await api.clearKey(status.provider, signal);
+                  setSaved(null);
+                  return null;
+                })
+              }
+            />
+          ))}
+        </div>
+      </section>
 
-      <div className="flex flex-col gap-4">
-        <h2 className="text-base font-medium">What answers each tier</h2>
-        {settings.tiers.map((tier) => (
-          <TierChoice
-            key={tier.tier}
-            tier={tier.tier}
-            provider={tier.provider}
-            model={tier.model}
-            ready={tier.ready}
-            busy={busy === `tier:${tier.tier}`}
-            suggestions={
-              settings.suggestions.find((entry) => entry.provider === tier.provider)?.models ?? []
-            }
-            onChange={(provider, model) =>
-              void run(`tier:${tier.tier}`, (signal) =>
-                api.setModels({ [tier.tier]: { provider, model } }, signal),
-              )
-            }
-          />
-        ))}
-      </div>
-    </section>
+      <section aria-labelledby="ai-tiers-title" className="flex flex-col gap-3">
+        <h2 id="ai-tiers-title" className="m-0 font-heading font-semibold text-[15px]">
+          What answers each tier
+        </h2>
+        <p className="m-0 max-w-[520px] text-[13.5px] text-sym-muted">
+          The two tiers are independent — Fast and Smart can come from different providers.
+        </p>
+        <div className="flex max-w-[520px] flex-col gap-3">
+          {settings.tiers.map((tier) => (
+            <TierChoice
+              key={tier.tier}
+              tier={tier.tier}
+              provider={tier.provider}
+              model={tier.model}
+              ready={tier.ready}
+              busy={busy === `tier:${tier.tier}`}
+              suggestions={
+                settings.suggestions.find((entry) => entry.provider === tier.provider)?.models ?? []
+              }
+              onChange={(provider, model) =>
+                void run(`tier:${tier.tier}`, (signal) =>
+                  api.setModels({ [tier.tier]: { provider, model } }, signal),
+                )
+              }
+            />
+          ))}
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -214,21 +236,21 @@ function ProviderKey({
   onClear: () => void;
 }) {
   const fieldId = useId();
+  const status = !configured
+    ? "Not configured"
+    : verifiedAt !== null
+      ? `Working · confirmed ${formatDate(verifiedAt)}`
+      : `Saved${createdAt === null ? "" : ` ${formatDate(createdAt)}`} · not used yet`;
+
   return (
     <article
-      className="flex flex-col gap-3 rounded-[var(--sym-radius-md,8px)] border border-[var(--sym-border)] p-4"
+      className="flex flex-col gap-3 rounded-[var(--sym-r)] border border-[var(--sym-line)] p-4"
       data-slot="provider-key"
       data-provider={provider}
     >
-      <header className="flex items-baseline justify-between gap-3">
-        <h3 className="text-sm font-medium">{providerLabels[provider]}</h3>
-        <p className="text-xs text-[var(--sym-muted)]">
-          {configured
-            ? verifiedAt !== null
-              ? `Working · confirmed ${formatDate(verifiedAt)}`
-              : `Saved${createdAt === null ? "" : ` ${formatDate(createdAt)}`} · not used yet`
-            : "Not configured"}
-        </p>
+      <header className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <h3 className="m-0 font-heading font-semibold text-[13.5px]">{providerLabels[provider]}</h3>
+        <p className="m-0 text-[12.5px] text-sym-muted">{status}</p>
       </header>
 
       <TextField
@@ -253,7 +275,7 @@ function ProviderKey({
           </Button>
         ) : null}
         {saved ? (
-          <span role="status" className="text-xs text-[var(--sym-muted)]">
+          <span role="status" className="text-[12.5px] text-sym-muted">
             Saved. It will not be shown again.
           </span>
         ) : null}
@@ -281,36 +303,50 @@ function TierChoice({
 }) {
   const providerId = useId();
   const modelId = useId();
-  const listId = `${modelId}-options`;
+  const customId = useId();
+
+  // A model outside the suggested list stays reachable — providers ship faster than we deploy — but
+  // through a Custom entry in the dropdown rather than a free-text box nobody asked for.
+  //
+  // Derived, not synced: `suggestions` is rebuilt by the parent on every render, so an effect
+  // keyed on it would fire constantly and slam the field shut the moment Custom was picked.
+  const [customChosen, setCustomChosen] = useState(false);
+  const custom = customChosen || !suggestions.includes(model);
   const [draft, setDraft] = useState(model);
+
   useEffect(() => setDraft(model), [model]);
+
+  const commitCustom = () => {
+    const next = draft.trim();
+    if (next.length > 0 && next !== model) onChange(provider, next);
+  };
 
   return (
     <article
-      className="flex flex-col gap-3 rounded-[var(--sym-radius-md,8px)] border border-[var(--sym-border)] p-4"
+      className="flex flex-col gap-3 rounded-[var(--sym-r)] border border-[var(--sym-line)] p-4"
       data-slot="tier-choice"
       data-tier={tier}
     >
-      <header className="flex items-baseline justify-between gap-3">
-        <h3 className="text-sm font-medium">{tierLabels[tier]}</h3>
-        <p className="text-xs text-[var(--sym-muted)]">{tierHints[tier]}</p>
+      <header className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <h3 className="m-0 font-heading font-semibold text-[13.5px]">{tierLabels[tier]}</h3>
+        <p className="m-0 text-[12.5px] text-sym-muted">{tierHints[tier]}</p>
       </header>
 
-      {!ready ? (
-        <p className="text-xs text-[var(--sym-muted)]" role="status">
+      {ready ? null : (
+        <p className="m-0 text-[12.5px] text-sym-muted" role="status">
           This tier needs an {providerLabels[provider]} key before it can run.
         </p>
-      ) : null}
+      )}
 
-      <div className="flex flex-wrap items-end gap-3">
-        <label className="flex flex-col gap-1 text-xs" htmlFor={providerId}>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="grid gap-1.5 text-[12.5px]" htmlFor={providerId}>
           Provider
           <select
             id={providerId}
-            className="rounded-[var(--sym-radius-sm,6px)] border border-[var(--sym-border)] px-2 py-1 text-sm"
+            className={fieldClass}
             value={provider}
             disabled={busy}
-            onChange={(event) => onChange(event.target.value as AiProvider, draft)}
+            onChange={(event) => onChange(event.target.value as AiProvider, model)}
           >
             {(Object.keys(providerLabels) as AiProvider[]).map((value) => (
               <option key={value} value={value}>
@@ -320,26 +356,59 @@ function TierChoice({
           </select>
         </label>
 
-        <label className="flex flex-col gap-1 text-xs" htmlFor={modelId}>
+        <label className="grid gap-1.5 text-[12.5px]" htmlFor={modelId}>
           Model
-          {/* A list, not a closed set: a provider ships models faster than we deploy, so a typed id
-              is accepted and the run reports whatever the provider says about it. */}
-          <input
+          <select
             id={modelId}
-            list={listId}
-            className="rounded-[var(--sym-radius-sm,6px)] border border-[var(--sym-border)] px-2 py-1 text-sm"
-            value={draft}
+            className={fieldClass}
+            value={custom ? CUSTOM : model}
             disabled={busy}
-            onChange={(event) => setDraft(event.target.value)}
-            onBlur={() => draft !== model && draft.trim().length > 0 && onChange(provider, draft)}
-          />
-          <datalist id={listId}>
+            onChange={(event) => {
+              if (event.target.value === CUSTOM) {
+                setCustomChosen(true);
+                return;
+              }
+              setCustomChosen(false);
+              onChange(provider, event.target.value);
+            }}
+          >
             {suggestions.map((value) => (
-              <option key={value} value={value} />
+              <option key={value} value={value}>
+                {value}
+              </option>
             ))}
-          </datalist>
+            <option value={CUSTOM}>Custom model…</option>
+          </select>
         </label>
       </div>
+
+      {custom ? (
+        <div className="grid max-w-[320px] gap-1.5 text-[12.5px]">
+          {/* The hint is described-by rather than inside the label: a label wrapping both would
+              make the field's accessible name the whole paragraph. */}
+          <label htmlFor={customId}>Model id</label>
+          <input
+            id={customId}
+            className={fieldClass}
+            value={draft}
+            disabled={busy}
+            spellCheck={false}
+            placeholder="gpt-5.6-luna"
+            aria-describedby={`${customId}-hint`}
+            onChange={(event) => setDraft(event.target.value)}
+            onBlur={commitCustom}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                commitCustom();
+              }
+            }}
+          />
+          <p id={`${customId}-hint`} className="m-0 text-sym-muted">
+            Anything your provider accepts. Nothing is checked until Simon runs.
+          </p>
+        </div>
+      ) : null}
     </article>
   );
 }
