@@ -690,7 +690,10 @@ describe("dispatch into a chat session (SIMON_CHAT_SESSIONS)", () => {
     const h = await track(harness("durable", chatDefinition));
     h.trigger.registerTask("simon-run", async () => ({ ok: true }), { maxAttempts: 1 });
     h.trigger.registerTask("simon-chat", async () => ({ ok: true }), { maxAttempts: 1 });
-    const executor = new TriggerExecutor(h.trigger, { sessions: options.sessions });
+    const executor = new TriggerExecutor(h.trigger, {
+      sessions: options.sessions,
+      wait: async () => undefined,
+    });
     const dispatcher = new ExecutionDispatcher({
       repository: h.repository,
       state: h.state,
@@ -770,6 +773,52 @@ describe("dispatch into a chat session (SIMON_CHAT_SESSIONS)", () => {
     for (const intent of [first, second]) {
       expect(await intentRow(h.db, intent.id)).toMatchObject({ trigger_run_id: firstRun });
     }
+  });
+
+  it("wakes the session for a turn that arrives after its run has gone", async () => {
+    const h = await chat({ sessions: true });
+    await addIntent(h.db, { sessionExternalId: CONVERSATION });
+    expect((await h.dispatcher.dispatchPending()).dispatched).toBe(1);
+    const firstRun = h.trigger.sessionStarts[0]?.runId ?? "";
+
+    // The parked run is gone, which is the ordinary case once a conversation goes quiet for longer
+    // than the session's idle window.
+    h.trigger.startRun(firstRun);
+    h.trigger.completeRun(firstRun, { ok: true });
+
+    const second = await addIntent(h.db, { sessionExternalId: CONVERSATION, now: 2_000 });
+    expect((await h.dispatcher.dispatchPending()).dispatched).toBe(1);
+
+    // `sessions.start` triggers only a session's first run, so a later turn has to be appended.
+    // Taking the run id it returns would have pinned this turn to a run that already finished.
+    expect(h.trigger.sessionAppends).toMatchObject([{ externalId: CONVERSATION }]);
+    const row = await intentRow(h.db, second.id);
+    expect(row?.trigger_run_id).not.toBe(firstRun);
+    expect(String(row?.trigger_run_id ?? "")).not.toBe("");
+    expect(
+      await h.executor.observe({
+        kind: "simon_run",
+        subjectId: second.subjectId,
+        triggerRunId: String(row?.trigger_run_id),
+      }),
+    ).toEqual({ state: "active" });
+  });
+
+  it("carries no message content into the session when it wakes one", async () => {
+    const h = await chat({ sessions: true });
+    const { subjectId } = await addIntent(h.db, { sessionExternalId: CONVERSATION });
+    expect((await h.dispatcher.dispatchPending()).dispatched).toBe(1);
+    const started = h.trigger.sessionStarts[0]?.runId ?? "";
+    h.trigger.startRun(started);
+    h.trigger.completeRun(started, { ok: true });
+    await addIntent(h.db, { sessionExternalId: CONVERSATION, now: 2_000 });
+    expect((await h.dispatcher.dispatchPending()).dispatched).toBe(1);
+
+    // The task reads the run it must execute from D1, so the wake carries the conversation and
+    // nothing else. `.in` records are plaintext on the platform; this one has nothing to leak.
+    const appended = JSON.stringify(h.trigger.sessionAppends[0]?.record ?? {});
+    expect(appended).toContain(CONVERSATION);
+    expect(appended).not.toContain(subjectId);
   });
 
   it("falls back to the task when the intent names no session", async () => {

@@ -63,6 +63,8 @@ function countingTrigger(inner: TriggerRunsClient) {
         requests.push(started.runId);
         return started;
       },
+      append: (externalId, record) => inner.sessions.append(externalId, record),
+      currentRunId: (externalId) => inner.sessions.currentRunId(externalId),
     },
   };
   return { client, requests, cancelled };
