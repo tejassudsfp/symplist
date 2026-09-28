@@ -59,7 +59,19 @@ function formatDate(value: number): string {
 const fieldClass =
   "min-h-[34px] rounded-[var(--sym-r)] border border-[var(--sym-line-strong)] bg-transparent px-[9px] py-[6px] text-[13.5px]";
 
-export function AiSettingsScreen({ api = createAiSettingsApi() }: { api?: AiSettingsApi }) {
+/**
+ * One client for the default case.
+ *
+ * This was `api = createAiSettingsApi()` as a default parameter, which is evaluated on every render
+ * and answers with a fresh object. That invalidated the `useCallback` below, which re-armed the
+ * effect, which set state, which rendered again — a fetch loop that hammered `GET /v1/ai` for as
+ * long as the page was open. A default argument must be a stable reference when a hook depends on
+ * it, and the way to guarantee that is to not build it during render.
+ */
+let sharedApi: AiSettingsApi | undefined;
+
+export function AiSettingsScreen({ api }: { api?: AiSettingsApi }) {
+  const client = api ?? (sharedApi ??= createAiSettingsApi());
   const [settings, setSettings] = useState<AiSettings | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -70,13 +82,13 @@ export function AiSettingsScreen({ api = createAiSettingsApi() }: { api?: AiSett
   const load = useCallback(
     async (signal: AbortSignal) => {
       try {
-        setSettings(await api.settings(signal));
+        setSettings(await client.settings(signal));
         setFailure(null);
       } catch {
         if (mounted.current) setFailure("Check your connection and try again.");
       }
     },
-    [api],
+    [client],
   );
 
   useEffect(() => {
@@ -112,7 +124,7 @@ export function AiSettingsScreen({ api = createAiSettingsApi() }: { api?: AiSett
     const key = (drafts[provider] ?? "").trim();
     if (key.length === 0) return;
     void run(`key:${provider}`, async (signal) => {
-      await api.setKey(provider, key, signal);
+      await client.setKey(provider, key, signal);
       // Out of component state the instant it is accepted: a key has no business sitting in a
       // React tree, a re-render or a devtools snapshot after it has been stored.
       setDrafts((current) => ({ ...current, [provider]: "" }));
@@ -170,7 +182,7 @@ export function AiSettingsScreen({ api = createAiSettingsApi() }: { api?: AiSett
               onSave={() => saveKey(status.provider)}
               onClear={() =>
                 void run(`key:${status.provider}`, async (signal) => {
-                  await api.clearKey(status.provider, signal);
+                  await client.clearKey(status.provider, signal);
                   setSaved(null);
                   return null;
                 })
@@ -201,7 +213,7 @@ export function AiSettingsScreen({ api = createAiSettingsApi() }: { api?: AiSett
               }
               onChange={(provider, model) =>
                 void run(`tier:${tier.tier}`, (signal) =>
-                  api.setModels({ [tier.tier]: { provider, model } }, signal),
+                  client.setModels({ [tier.tier]: { provider, model } }, signal),
                 )
               }
             />

@@ -5,6 +5,64 @@ import { describe, expect, it, vi } from "vitest";
 import { AiSettingsScreen } from "./ai-settings.tsx";
 import type { AiSettingsApi } from "./ai-settings-api.ts";
 
+/**
+ * Counts what the *default* client does.
+ *
+ * Every other test here injects an api and so cannot see the bug this pins: the default argument
+ * `api = createAiSettingsApi()` was rebuilt on every render, invalidating the load callback and
+ * re-arming its effect — a fetch loop that ran for as long as the page was open.
+ */
+const defaultClient = { built: 0, settings: 0 };
+vi.mock("./ai-settings-api.ts", () => ({
+  createAiSettingsApi: () => {
+    defaultClient.built += 1;
+    return {
+      settings: async () => {
+        defaultClient.settings += 1;
+        return {
+          keys: [
+            {
+              provider: "openai",
+              configured: false,
+              createdAt: null,
+              updatedAt: null,
+              verifiedAt: null,
+            },
+            {
+              provider: "anthropic",
+              configured: false,
+              createdAt: null,
+              updatedAt: null,
+              verifiedAt: null,
+            },
+          ],
+          tiers: [
+            {
+              tier: "fast",
+              provider: "openai",
+              model: "gpt-5.6-luna",
+              ready: false,
+              chosen: false,
+            },
+            {
+              tier: "smart",
+              provider: "openai",
+              model: "gpt-5.6-terra",
+              ready: false,
+              chosen: false,
+            },
+          ],
+          usable: false,
+          suggestions: [{ provider: "openai", models: ["gpt-5.6-luna"] }],
+        };
+      },
+      setKey: async () => undefined,
+      clearKey: async () => undefined,
+      setModels: async () => undefined,
+    };
+  },
+}));
+
 const now = 1_758_000_000_000;
 
 function settings(overrides: Partial<AiSettings> = {}): AiSettings {
@@ -235,5 +293,17 @@ describe("model settings", () => {
     await user.type(within(openai).getByLabelText("API key"), "sk-rejected-0123456789ab");
     await user.click(within(openai).getByRole("button", { name: "Save key" }));
     expect(await screen.findByText("That didn't save")).toBeInTheDocument();
+  });
+});
+
+describe("the default client", () => {
+  it("fetches once when no api is injected, however often it renders", async () => {
+    const { rerender } = render(<AiSettingsScreen />);
+    // Settle the first load, then force more renders. A fresh client per render would refetch on
+    // each one; a stable one loads exactly once.
+    await screen.findByText(/Simon needs a key before it can answer/u);
+    for (let i = 0; i < 5; i += 1) rerender(<AiSettingsScreen />);
+    await waitFor(() => expect(defaultClient.settings).toBe(1));
+    expect(defaultClient.built).toBe(1);
   });
 });

@@ -166,6 +166,7 @@ export class ExecutorsModule {
             }
             return new TriggerExecutor(dependencies.trigger, {
               sessions: dependencies.chatSessions ?? false,
+              ...(dependencies.log === undefined ? {} : { log: dependencies.log }),
             });
           },
         },

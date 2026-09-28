@@ -54,6 +54,15 @@ export interface TriggerExecutorOptions {
   readonly sessions?: boolean;
   /** Overridden in tests so waking a session does not spend real time. */
   readonly wait?: (ms: number) => Promise<void>;
+  /**
+   * Records a kind that could have run in a session dispatching as a plain task instead.
+   *
+   * Without this the fallback is silent, and a deployment that means to use sessions but does not
+   * have the flag set looks identical to one that does — right down to working correctly, only
+   * slower. That is exactly how this went unnoticed: every turn paid a cold boot and nothing said
+   * so. One line per dispatch is worth it.
+   */
+  readonly log?: { info(event: string, fields?: Record<string, unknown>): void };
 }
 
 /**
@@ -86,6 +95,15 @@ export class TriggerExecutor implements Executor {
   ): Promise<StartedExecution> {
     if (existingTriggerRunId) return { executor: "trigger", triggerRunId: existingTriggerRunId };
     const session = this.sessionFor(job, definition);
+    if (!session && definition.sessionTaskId !== undefined) {
+      this.options.log?.info("executor.session_skipped", {
+        kind: job.kind,
+        task: definition.triggerTaskId,
+        // Which of the two reasons it was: the deployment has sessions off, or this job has no
+        // conversation to address one by.
+        reason: this.options.sessions ? "no_session_id" : "sessions_disabled",
+      });
+    }
     const runId = session
       ? await this.startSession(session)
       : await this.startTask(job, definition);

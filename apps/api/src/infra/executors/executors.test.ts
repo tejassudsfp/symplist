@@ -693,6 +693,7 @@ describe("dispatch into a chat session (SIMON_CHAT_SESSIONS)", () => {
     const executor = new TriggerExecutor(h.trigger, {
       sessions: options.sessions,
       wait: async () => undefined,
+      log: h.log,
     });
     const dispatcher = new ExecutionDispatcher({
       repository: h.repository,
@@ -819,6 +820,21 @@ describe("dispatch into a chat session (SIMON_CHAT_SESSIONS)", () => {
     const appended = JSON.stringify(h.trigger.sessionAppends[0]?.record ?? {});
     expect(appended).toContain(CONVERSATION);
     expect(appended).not.toContain(subjectId);
+  });
+
+  it("says so in the log when a session-capable kind dispatches as a task", async () => {
+    const h = await chat({ sessions: false });
+    await addIntent(h.db, { sessionExternalId: CONVERSATION });
+    expect((await h.dispatcher.dispatchPending()).dispatched).toBe(1);
+    // A deployment that means to use sessions but has the flag off otherwise looks exactly like one
+    // that does — correct, and silently paying a cold boot every turn.
+    expect(
+      h.log.entries.find((entry) => entry.event === "executor.session_skipped")?.fields,
+    ).toMatchObject({
+      kind: "simon_run",
+      task: "simon-run",
+      reason: "sessions_disabled",
+    });
   });
 
   it("falls back to the task when the intent names no session", async () => {
