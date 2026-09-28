@@ -5,6 +5,64 @@ import { describe, expect, it, vi } from "vitest";
 import { AiSettingsScreen } from "./ai-settings.tsx";
 import type { AiSettingsApi } from "./ai-settings-api.ts";
 
+/**
+ * Counts what the *default* client does.
+ *
+ * Every other test here injects an api and so cannot see the bug this pins: the default argument
+ * `api = createAiSettingsApi()` was rebuilt on every render, invalidating the load callback and
+ * re-arming its effect — a fetch loop that ran for as long as the page was open.
+ */
+const defaultClient = { built: 0, settings: 0 };
+vi.mock("./ai-settings-api.ts", () => ({
+  createAiSettingsApi: () => {
+    defaultClient.built += 1;
+    return {
+      settings: async () => {
+        defaultClient.settings += 1;
+        return {
+          keys: [
+            {
+              provider: "openai",
+              configured: false,
+              createdAt: null,
+              updatedAt: null,
+              verifiedAt: null,
+            },
+            {
+              provider: "anthropic",
+              configured: false,
+              createdAt: null,
+              updatedAt: null,
+              verifiedAt: null,
+            },
+          ],
+          tiers: [
+            {
+              tier: "fast",
+              provider: "openai",
+              model: "gpt-5.6-luna",
+              ready: false,
+              chosen: false,
+            },
+            {
+              tier: "smart",
+              provider: "openai",
+              model: "gpt-5.6-terra",
+              ready: false,
+              chosen: false,
+            },
+          ],
+          usable: false,
+          suggestions: [{ provider: "openai", models: ["gpt-5.6-luna"] }],
+        };
+      },
+      setKey: async () => undefined,
+      clearKey: async () => undefined,
+      setModels: async () => undefined,
+    };
+  },
+}));
+
 const now = 1_758_000_000_000;
 
 function settings(overrides: Partial<AiSettings> = {}): AiSettings {
@@ -54,6 +112,17 @@ function fakeApi(initial: AiSettings, overrides: Partial<AiSettingsApi> = {}): A
     setModels: async () => initial,
     ...overrides,
   };
+}
+
+/** One tier's card. Both tiers render the same labels, so tier queries scope here. */
+async function tierCard(tier: "fast" | "smart"): Promise<HTMLElement> {
+  return await waitFor(() => {
+    const element = document.querySelector<HTMLElement>(
+      `[data-slot="tier-choice"][data-tier="${tier}"]`,
+    );
+    expect(element).not.toBeNull();
+    return element as HTMLElement;
+  });
 }
 
 /** One provider's card. Both are on screen and their fields share a label, so queries scope here. */
@@ -156,12 +225,55 @@ describe("model settings", () => {
     ).toBeInTheDocument();
   });
 
+  it("offers the model as a dropdown, not a free-text box", async () => {
+    render(<AiSettingsScreen api={fakeApi(configured("openai"))} />);
+    const model = within(await tierCard("fast")).getByLabelText("Model");
+    expect(model.tagName).toBe("SELECT");
+    expect([...(model as HTMLSelectElement).options].map((option) => option.value)).toContain(
+      "gpt-5.6-luna",
+    );
+  });
+
+  it("still reaches a model the list does not carry, through Custom", async () => {
+    const user = userEvent.setup();
+    const setModels = vi.fn<AiSettingsApi["setModels"]>(async () => configured("openai"));
+    render(<AiSettingsScreen api={fakeApi(configured("openai"), { setModels })} />);
+    const fast = within(await tierCard("fast"));
+    // Gating on our list would mean a new model could not be used until Symplist shipped.
+    await user.selectOptions(fast.getByLabelText("Model"), "__custom__");
+    const field = fast.getByLabelText("Model id");
+    await user.clear(field);
+    await user.type(field, "gpt-9-not-released-yet");
+    await user.tab();
+    await waitFor(() => expect(setModels).toHaveBeenCalledTimes(1));
+    expect(setModels.mock.calls[0]?.[0]).toMatchObject({
+      fast: { model: "gpt-9-not-released-yet" },
+    });
+  });
+
+  it("opens on Custom when the saved model is not in the list", async () => {
+    const base = configured("openai");
+    render(
+      <AiSettingsScreen
+        api={fakeApi({
+          ...base,
+          tiers: base.tiers.map((tier) =>
+            tier.tier === "fast" ? { ...tier, model: "gpt-9-private-preview" } : tier,
+          ),
+        })}
+      />,
+    );
+    const fast = within(await tierCard("fast"));
+    // A saved model the list does not carry opens straight into the custom field.
+    expect(fast.getByLabelText("Model id")).toHaveValue("gpt-9-private-preview");
+  });
+
   it("lets a tier move to the other provider", async () => {
     const user = userEvent.setup();
     const setModels = vi.fn<AiSettingsApi["setModels"]>(async () => configured("openai"));
     render(<AiSettingsScreen api={fakeApi(configured("openai"), { setModels })} />);
-    const selects = await screen.findAllByLabelText("Provider");
-    await user.selectOptions(selects[1] as HTMLElement, "anthropic");
+    const smart = within(await tierCard("smart"));
+    await user.selectOptions(smart.getByLabelText("Provider"), "anthropic");
     await waitFor(() => expect(setModels).toHaveBeenCalledTimes(1));
     expect(setModels.mock.calls[0]?.[0]).toMatchObject({ smart: { provider: "anthropic" } });
   });
@@ -181,5 +293,17 @@ describe("model settings", () => {
     await user.type(within(openai).getByLabelText("API key"), "sk-rejected-0123456789ab");
     await user.click(within(openai).getByRole("button", { name: "Save key" }));
     expect(await screen.findByText("That didn't save")).toBeInTheDocument();
+  });
+});
+
+describe("the default client", () => {
+  it("fetches once when no api is injected, however often it renders", async () => {
+    const { rerender } = render(<AiSettingsScreen />);
+    // Settle the first load, then force more renders. A fresh client per render would refetch on
+    // each one; a stable one loads exactly once.
+    await screen.findByText(/Simon needs a key before it can answer/u);
+    for (let i = 0; i < 5; i += 1) rerender(<AiSettingsScreen />);
+    await waitFor(() => expect(defaultClient.settings).toBe(1));
+    expect(defaultClient.built).toBe(1);
   });
 });

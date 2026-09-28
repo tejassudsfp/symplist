@@ -8,6 +8,7 @@ import type { TriggerRunsClient } from "./executor.ts";
  *
  * `sessions` has no per-instance counterpart on `TriggerClient` — it reads the ambient API client —
  * so each call runs inside `auth.withAuth`, which scopes the same secret key to that call alone.
+ * That applies to `open(...).in.send` and `retrieve` exactly as it does to `start`.
  */
 export function createTriggerRunsClient(secretKey: string): TriggerRunsClient {
   const client = new TriggerClient({ secretKey });
@@ -32,7 +33,18 @@ export function createTriggerRunsClient(secretKey: string): TriggerRunsClient {
         const created = await auth.withAuth({ accessToken: secretKey }, () =>
           sessions.start(input),
         );
-        return { runId: created.runId };
+        return { runId: created.runId, isCached: created.isCached === true };
+      },
+      append: async (externalId, record) => {
+        await auth.withAuth({ accessToken: secretKey }, () =>
+          sessions.open(externalId).in.send(record as never),
+        );
+      },
+      currentRunId: async (externalId) => {
+        const session = await auth.withAuth({ accessToken: secretKey }, () =>
+          sessions.retrieve(externalId),
+        );
+        return typeof session.currentRunId === "string" ? session.currentRunId : null;
       },
     },
   };

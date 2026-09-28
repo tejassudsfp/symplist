@@ -92,8 +92,24 @@ export interface TriggerRunsClient {
     cancel(runId: string): Promise<unknown>;
   };
   readonly sessions: {
-    /** `runId` is the run this turn executes, so observe and cancel keep working unchanged. */
-    start(input: TriggerSessionStart): Promise<{ readonly runId: string }>;
+    /**
+     * Creates the session and triggers its **first** run.
+     *
+     * Idempotent on the external id: called again for a session that exists it returns that
+     * session with `isCached: true` and starts nothing. A later turn therefore cannot get its run
+     * from here — it has to wake the session instead.
+     */
+    start(input: TriggerSessionStart): Promise<{
+      readonly runId: string;
+      readonly isCached: boolean;
+    }>;
+    /**
+     * Appends one input record to an existing session, which wakes its parked run or boots a
+     * continuation when none is alive. It answers nothing, so the run has to be read back.
+     */
+    append(externalId: string, record: unknown): Promise<void>;
+    /** The run currently attached to the session, or null while one is being created. */
+    currentRunId(externalId: string): Promise<string | null>;
   };
 }
 

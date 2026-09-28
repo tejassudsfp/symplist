@@ -41,6 +41,10 @@ function triggerFailure(error: unknown): ExecutorError {
     : new ExecutorError("executor.trigger_unavailable", "Trigger is unavailable");
 }
 
+/** How long the api waits for a woken session to attach a run before giving up on the session. */
+const SESSION_WAKE_ATTEMPTS = 5;
+const SESSION_WAKE_INTERVAL_MS = 120;
+
 export interface TriggerExecutorOptions {
   /**
    * `SIMON_CHAT_SESSIONS`: route a kind that declares a session task to `sessions.start` instead of
@@ -48,6 +52,17 @@ export interface TriggerExecutorOptions {
    * paying a cold boot. Off leaves every dispatch exactly as it was.
    */
   readonly sessions?: boolean;
+  /** Overridden in tests so waking a session does not spend real time. */
+  readonly wait?: (ms: number) => Promise<void>;
+  /**
+   * Records a kind that could have run in a session dispatching as a plain task instead.
+   *
+   * Without this the fallback is silent, and a deployment that means to use sessions but does not
+   * have the flag set looks identical to one that does — right down to working correctly, only
+   * slower. That is exactly how this went unnoticed: every turn paid a cold boot and nothing said
+   * so. One line per dispatch is worth it.
+   */
+  readonly log?: { info(event: string, fields?: Record<string, unknown>): void };
 }
 
 /**
@@ -67,6 +82,12 @@ export class TriggerExecutor implements Executor {
     private readonly options: TriggerExecutorOptions = {},
   ) {}
 
+  private pause(ms: number): Promise<void> {
+    return this.options.wait
+      ? this.options.wait(ms)
+      : new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
   async start(
     job: ExecutionJob,
     definition: ExecutionKindDefinition,
@@ -74,6 +95,15 @@ export class TriggerExecutor implements Executor {
   ): Promise<StartedExecution> {
     if (existingTriggerRunId) return { executor: "trigger", triggerRunId: existingTriggerRunId };
     const session = this.sessionFor(job, definition);
+    if (!session && definition.sessionTaskId !== undefined) {
+      this.options.log?.info("executor.session_skipped", {
+        kind: job.kind,
+        task: definition.triggerTaskId,
+        // Which of the two reasons it was: the deployment has sessions off, or this job has no
+        // conversation to address one by.
+        reason: this.options.sessions ? "no_session_id" : "sessions_disabled",
+      });
+    }
     const runId = session
       ? await this.startSession(session)
       : await this.startTask(job, definition);
@@ -110,10 +140,53 @@ export class TriggerExecutor implements Executor {
         taskIdentifier: session.taskIdentifier,
         triggerConfig: { basePayload },
       });
-      return typeof started?.runId === "string" ? started.runId : "";
+      const runId = typeof started?.runId === "string" ? started.runId : "";
+      // A session created by this call has a run, and it is this turn's. A session that already
+      // existed is the ambiguous case: `sessions.start` is documented to trigger only the first
+      // run, so what comes back may be a run that finished turns ago. Rather than trust either
+      // reading, ask whether it is still alive — and wake the session when it is not.
+      if (!started?.isCached) return runId;
+      if (runId !== "" && (await this.stillRunning(runId))) return runId;
+      return await this.wakeSession(session.externalId);
     } catch (error) {
       throw triggerFailure(error);
     }
+  }
+
+  /** Whether a run can still take this turn, treating an unreadable one as finished. */
+  private async stillRunning(runId: string): Promise<boolean> {
+    try {
+      const run = await this.client.runs.retrieve(runId);
+      return observeTriggerStatus(run.status).state === "active";
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Hands a turn to a session whose run has already gone.
+   *
+   * Appending to a session's input is what boots a continuation, and it is the only thing that
+   * does: a fresh `sessions.start` is idempotent and starts nothing for a session that exists. The
+   * record carries the conversation id and nothing else — the task resolves the run it must execute
+   * from D1, so no message content needs to cross, and none does.
+   *
+   * The append answers with nothing, so the run is read back. It appears within a beat of the
+   * append, but not always within the same instant.
+   */
+  private async wakeSession(externalId: string): Promise<string> {
+    const wake = { chatId: externalId, trigger: "submit-message" } as const;
+    assertIdsOnlyPayload(wake);
+    await this.client.sessions.append(externalId, { kind: "message", payload: wake });
+    for (let attempt = 0; attempt < SESSION_WAKE_ATTEMPTS; attempt += 1) {
+      const runId = await this.client.sessions.currentRunId(externalId);
+      if (runId !== null && runId !== "" && (await this.stillRunning(runId))) return runId;
+      await this.pause(SESSION_WAKE_INTERVAL_MS);
+    }
+    throw new ExecutorError(
+      "executor.trigger_unavailable",
+      "The chat session did not start a run for this turn",
+    );
   }
 
   private async startTask(job: ExecutionJob, definition: ExecutionKindDefinition): Promise<string> {

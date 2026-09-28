@@ -448,6 +448,8 @@ export class FakeTriggerClient {
   readonly cancellations: string[] = [];
   /** Every call to `sessions.start`, in order. */
   readonly sessionStarts: FakeCreatedSession[] = [];
+  /** Every record appended to a session's input, in order. */
+  readonly sessionAppends: { readonly externalId: string; readonly record: unknown }[] = [];
 
   private readonly handlers = new Map<
     string,
@@ -613,9 +615,12 @@ export class FakeTriggerClient {
    */
   readonly sessions = {
     /**
-     * Creates the session and triggers its first run in one call. A session that already exists
-     * answers with its live run, or — once that run has finished — with a fresh run triggered from
-     * the payload the session was created with, never from this call's.
+     * Creates the session and triggers its **first** run.
+     *
+     * A session that already exists answers `isCached: true` with whatever run it last had, live
+     * or finished, and starts nothing. That is the documented contract, and modelling anything
+     * more generous here hid a real bug: the api assumed a later `start` would produce a run for
+     * a later turn, and it does not. `append` is what boots a continuation.
      */
     start: async (input: FakeCreateSessionInput): Promise<FakeCreatedSession> => {
       if (input.externalId === "") {
@@ -637,24 +642,50 @@ export class FakeTriggerClient {
         };
         this.sessionStates.set(input.externalId, state);
       }
-      const live =
-        state.currentRunId === undefined ? undefined : this.runStates.get(state.currentRunId);
-      if (live) this.refreshTimers(live);
-      if (live && !terminalStatuses.includes(live.status)) {
-        this.triggers.push({
-          via: "session",
-          taskIdentifier: state.taskIdentifier,
-          payload: snapshotValue(state.basePayload),
-          options: undefined,
-          runId: live.id,
-          deduplicated: true,
-          parentRunId: null,
-        });
-        return this.recordSessionStart(state, live.id, true);
+      if (existing) {
+        const live =
+          state.currentRunId === undefined ? undefined : this.runStates.get(state.currentRunId);
+        if (live) {
+          this.refreshTimers(live);
+          this.triggers.push({
+            via: "session",
+            taskIdentifier: state.taskIdentifier,
+            payload: snapshotValue(state.basePayload),
+            options: undefined,
+            runId: live.id,
+            deduplicated: true,
+            parentRunId: null,
+          });
+        }
+        return this.recordSessionStart(state, state.currentRunId ?? "", true);
       }
       const { run } = this.createRun(state.taskIdentifier, state.basePayload, undefined, "session");
       state.currentRunId = run.id;
-      return this.recordSessionStart(state, run.id, existing !== undefined);
+      return this.recordSessionStart(state, run.id, false);
+    },
+
+    /**
+     * Appends one record to a session's input, as `sessions.open(id).in.send(...)` does.
+     *
+     * This is the only thing that gives a session a new run: with nothing alive it boots a
+     * continuation from the payload the session was created with, and with a run parked it is
+     * delivered to that run.
+     */
+    append: async (externalId: string, record: unknown): Promise<void> => {
+      const state = this.sessionStates.get(externalId);
+      if (!state) throw new FakeTriggerApiError(404, "No such session");
+      this.sessionAppends.push({ externalId, record: snapshotValue(record) });
+      const live =
+        state.currentRunId === undefined ? undefined : this.runStates.get(state.currentRunId);
+      if (live) this.refreshTimers(live);
+      if (live && !terminalStatuses.includes(live.status)) return;
+      const { run } = this.createRun(state.taskIdentifier, state.basePayload, undefined, "session");
+      state.currentRunId = run.id;
+    },
+
+    /** The run attached to a session right now, or null while none is. */
+    currentRunId: async (externalId: string): Promise<string | null> => {
+      return this.sessionStates.get(externalId)?.currentRunId ?? null;
     },
 
     /** The session behind an external id, or undefined when none was started. */
