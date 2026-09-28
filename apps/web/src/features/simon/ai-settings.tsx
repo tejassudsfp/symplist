@@ -70,8 +70,13 @@ const fieldClass =
  */
 let sharedApi: AiSettingsApi | undefined;
 
+function defaultApi(): AiSettingsApi {
+  if (!sharedApi) sharedApi = createAiSettingsApi();
+  return sharedApi;
+}
+
 export function AiSettingsScreen({ api }: { api?: AiSettingsApi }) {
-  const client = api ?? (sharedApi ??= createAiSettingsApi());
+  const client = api ?? defaultApi();
   const [settings, setSettings] = useState<AiSettings | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
