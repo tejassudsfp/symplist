@@ -45,6 +45,48 @@ afterEach(async () => {
   await env.close();
 });
 
+/** Counts D1 round trips: this store runs twice per durable chat turn, on a very slow lane. */
+function countingDb(db: typeof env.db) {
+  const counts = { requests: 0 };
+  const wrap =
+    <A extends unknown[], R>(fn: (...args: A) => Promise<R>) =>
+    (...args: A): Promise<R> => {
+      counts.requests += 1;
+      return fn(...args);
+    };
+  return {
+    counts,
+    db: {
+      ...db,
+      batch: wrap(db.batch.bind(db)),
+      all: wrap(db.all.bind(db)),
+      first: wrap(db.first.bind(db)),
+      run: wrap(db.run.bind(db)),
+    } as typeof env.db,
+  };
+}
+
+describe("what the transcript costs per turn", { timeout: GIT_TEST_TIMEOUT_MS }, () => {
+  it("saves and loads in two requests each, not three", async () => {
+    const { counts, db } = countingDb(env.db);
+    const counted = new SimonTranscriptStorage({ db, keys: env.keys, now: () => env.clock });
+
+    await counted.save(owner, chatId, {
+      changes: [{ op: "put", message: message("m1", "hello") }],
+    } as never);
+    const afterSave = counts.requests;
+
+    const loaded = await counted.load(owner, chatId);
+    const afterLoad = counts.requests - afterSave;
+
+    // The account key read is independent of everything else either method reads, so it rides in a
+    // batch they were making anyway rather than costing its own seven seconds.
+    expect(afterSave).toBe(2);
+    expect(afterLoad).toBe(2);
+    expect(loaded.messages).toHaveLength(1);
+  });
+});
+
 describe("durable chat transcript storage", { timeout: GIT_TEST_TIMEOUT_MS }, () => {
   it("returns an empty transcript before anything is written", async () => {
     await expect(storage.load(owner, chatId)).resolves.toEqual({ messages: [], state: null });

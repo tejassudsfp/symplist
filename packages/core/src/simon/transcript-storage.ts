@@ -2,7 +2,7 @@ import type { AccountDataKey, FieldEnvelopeContext } from "@symplist/crypto";
 import { decryptFieldText, encryptFieldText, zeroize } from "@symplist/crypto";
 import type { DbClient, DbRow, Statement } from "@symplist/db";
 import { int, sql, uuidv7 } from "@symplist/db";
-import { AccountKeyStore } from "../account/keys.ts";
+import { AccountKeyStore, AccountKeyUnavailableError } from "../account/keys.ts";
 import { SimonError } from "./types.ts";
 
 /**
@@ -118,8 +118,21 @@ export class SimonTranscriptStorage {
     this.accountKeys = new AccountKeyStore(options);
   }
 
-  private async withKey<T>(ownerId: string, run: (key: AccountDataKey) => Promise<T>): Promise<T> {
-    const key = await this.accountKeys.require(ownerId);
+  /**
+   * Runs `run` with the account data key from a row already fetched.
+   *
+   * There used to be a `withKey` beside this that read the row itself. It is gone: the account key
+   * read is independent of everything else these methods read, so it travels in a batch they were
+   * making anyway rather than costing its own request. On the worker D1 lane that is about seven
+   * seconds, twice per turn. Zeroization is unchanged — the key still dies with the call that used
+   * it.
+   */
+  private async withKeyRow<T>(
+    row: DbRow | undefined,
+    run: (key: AccountDataKey) => Promise<T>,
+  ): Promise<T> {
+    if (!row) throw new AccountKeyUnavailableError();
+    const key = this.accountKeys.unwrapRow(row);
     try {
       return await run(key);
     } finally {
@@ -140,7 +153,7 @@ export class SimonTranscriptStorage {
       1,
       Math.min(options.limit ?? TRANSCRIPT_MAX_MESSAGES, TRANSCRIPT_MAX_MESSAGES),
     );
-    const [stateResult, anchorResult] = await this.options.db.batch([
+    const [stateResult, anchorResult, keyResult] = await this.options.db.batch([
       sql(
         `SELECT state_enc, last_out_event_id, last_in_event_id FROM chat_transcript_state
          WHERE chat_id = :chat AND owner_id = :owner`,
@@ -153,6 +166,7 @@ export class SimonTranscriptStorage {
              WHERE chat_id = :chat AND owner_id = :owner AND message_id = :message`,
             { chat: chatId, owner: ownerId, message: options.before },
           ),
+      this.accountKeys.selectStatement(ownerId),
     ]);
     const stateRow = stateResult?.results[0];
     const anchor = anchorResult?.results[0];
@@ -177,7 +191,7 @@ export class SimonTranscriptStorage {
     const page = [...(more ? rows.slice(0, limit) : rows)].reverse();
     if (page.length === 0 && !stateRow) return { messages: [], state: null };
 
-    return this.withKey(ownerId, async (key) => {
+    return this.withKeyRow(keyResult?.results[0], async (key) => {
       const messages = page.map((row) =>
         JSON.parse(
           decryptFieldText(
@@ -222,19 +236,22 @@ export class SimonTranscriptStorage {
    */
   async save(ownerId: string, chatId: string, changeset: TranscriptChangeset): Promise<void> {
     const now = this.options.now();
-    const existing = await this.options.db.all(
+    // The existing positions and the account key are independent reads, so they go together.
+    const [existingResult, keyResult] = await this.options.db.batch([
       sql(
         `SELECT message_id, position FROM chat_transcript_messages
          WHERE chat_id = :chat AND owner_id = :owner ORDER BY position`,
         { chat: chatId, owner: ownerId },
       ),
-    );
+      this.accountKeys.selectStatement(ownerId),
+    ]);
+    const existing = existingResult?.results ?? [];
     const positions = new Map<string, number>(
       existing.map((row) => [String(row.message_id), Number(row.position)]),
     );
     let next = existing.reduce((max, row) => Math.max(max, Number(row.position) + 1), 0);
 
-    await this.withKey(ownerId, async (key) => {
+    await this.withKeyRow(keyResult?.results[0], async (key) => {
       const statements: Statement[] = [];
       let stateChange: { value: unknown } | undefined;
 

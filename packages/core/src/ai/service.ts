@@ -7,7 +7,7 @@ import type {
 } from "@symplist/contracts";
 import { decryptFieldText, encryptFieldText, type KeyProvider, zeroize } from "@symplist/crypto";
 import { type DbClient, type DbRow, int, sql, uuidv7 } from "@symplist/db";
-import { AccountKeyStore } from "../account/keys.ts";
+import { AccountKeyStore, AccountKeyUnavailableError } from "../account/keys.ts";
 import { providerKeyContext } from "./fields.ts";
 
 /**
@@ -292,17 +292,32 @@ export class AiKeyStore {
    * was removed: both mean the owner has to go and add one, and neither is a failure of the run.
    */
   async credentialFor(ownerId: string, tier: AiTier): Promise<ResolvedModelCredential> {
-    const choices = await this.choiceRow(ownerId);
-    const resolved = this.resolveTier(tier, choices);
-    const row = await this.db.first(
+    // One request, not three.
+    //
+    // This read sits in front of every model call, and on the worker D1 lane a request costs about
+    // seven seconds — so three sequential reads were twenty-one seconds of a turn spent before the
+    // provider was even addressed. The three are independent, so they travel together.
+    //
+    // Both provider rows are fetched rather than the one the tier names, because which of them is
+    // wanted depends on the choices row arriving in the same batch. Two small rows cost nothing
+    // next to a second round trip.
+    const [choiceResult, keyResult, accountResult] = await this.db.batch([
       sql(
-        `SELECT key_enc, verified_at FROM ai_provider_keys
-         WHERE owner_id = :owner AND provider = :provider`,
-        { owner: ownerId, provider: resolved.provider },
+        `SELECT fast_provider, fast_model, smart_provider, smart_model FROM ai_model_choices
+         WHERE owner_id = :owner`,
+        { owner: ownerId },
       ),
-    );
+      sql(`SELECT provider, key_enc, verified_at FROM ai_provider_keys WHERE owner_id = :owner`, {
+        owner: ownerId,
+      }),
+      this.accountKeys.selectStatement(ownerId),
+    ]);
+    const resolved = this.resolveTier(tier, choiceResult?.results[0] ?? null);
+    const row = (keyResult?.results ?? []).find((each) => each.provider === resolved.provider);
     if (!row) throw new AiKeyRequiredError(tier);
-    const key = await this.accountKeys.require(ownerId);
+    const accountRow = accountResult?.results[0];
+    if (!accountRow) throw new AccountKeyUnavailableError();
+    const key = this.accountKeys.unwrapRow(accountRow);
     try {
       return {
         provider: resolved.provider,
