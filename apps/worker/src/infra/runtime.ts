@@ -7,7 +7,6 @@ import { loadWorkerRuntimeConfig } from "./config.ts";
 import { createWorkerD1Counters, WorkerD1CounterReporter } from "./d1-counters.ts";
 import { InternalEventClient } from "./internal-events.ts";
 import { createWorkerLogger, type WorkerLogger } from "./logger.ts";
-import { RunOutputPushClient, type RunOutputPushOptions } from "./run-output.ts";
 
 /** Process-wide worker dependencies, created once per task process. */
 export interface WorkerRuntime {
@@ -19,9 +18,6 @@ export interface WorkerRuntime {
   /** Reports the process's `d1.requests` counters every minute and at the end of each task run. */
   readonly d1Counters: WorkerD1CounterReporter;
   readonly events: InternalEventClient;
-  runOutput(
-    options: Pick<RunOutputPushOptions, "runId" | "ownerId" | "attempt" | "accountKey">,
-  ): RunOutputPushClient;
 }
 
 let runtime: WorkerRuntime | undefined;
@@ -44,8 +40,6 @@ export function createWorkerRuntime(
     logger,
     d1Counters,
     events: new InternalEventClient({ keys, apiOrigin: config.API_ORIGIN, logger }),
-    runOutput: (options) =>
-      new RunOutputPushClient({ ...options, keys, apiOrigin: config.API_ORIGIN, logger }),
   };
 }
 

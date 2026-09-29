@@ -3,11 +3,9 @@
 import type { TaskCollection, TaskNode } from "@symplist/contracts";
 import { ChevronRight, GripVertical } from "lucide-react";
 import { type KeyboardEvent, type MouseEvent, useEffect, useRef } from "react";
-import { Spinner } from "@/components/ui/spinner";
 import { DeadlineChip } from "@/features/scheduling/deadline-chip";
 import { taskRowId } from "./controller.ts";
 import { useTaskDragState, useTaskRowDrag } from "./dnd.tsx";
-import { runActivityLabel, useTaskRunState } from "./run-state.ts";
 import { TaskMenu } from "./task-menu.tsx";
 import { useWorkspace, useWorkspaceUi } from "./workspace-provider.tsx";
 
@@ -34,7 +32,7 @@ export interface TaskRowProps {
 /**
  * One task in the list (workspace_now.md): a completion checkbox that is not a selection control, the
  * title, an optional preview, a subtle activity marker, its deadline chip, and the controls that
- * appear on hover or focus. Selecting the row opens the task's page and chat together.
+ * appear on hover or focus. Selecting the row opens the task's page.
  *
  * The row is the tree's single tab stop (roving tabindex): every control inside it is reachable with
  * the pointer or through the task's own actions (`x`, `Shift+F10`, `Move to…`), so Tab always leaves
@@ -57,13 +55,11 @@ export function TaskRow({
   const focusNonce = useWorkspaceUi((state) =>
     state.focusRequest?.taskId === task.id ? state.focusRequest.nonce : null,
   );
-  const runState = useTaskRunState(task.id);
   const drag = useTaskRowDrag(task, renaming !== null);
   const dragState = useTaskDragState();
   const rowRef = useRef<HTMLDivElement | null>(null);
   const renameRef = useRef<HTMLInputElement | null>(null);
   const selected = openTaskId === task.id;
-  const activity = runActivityLabel(runState);
   const dropEdge = dragState.row?.taskId === task.id ? dragState.row.edge : null;
   const renamingTaskId = renaming ? task.id : null;
 
@@ -214,16 +210,6 @@ export function TaskRow({
           <span className="sym-task-preview">{task.preview}</span>
         ) : null}
         <span className="sym-task-meta">
-          {activity ? (
-            <span className="sym-task-activity">
-              {runState.status === "running" || runState.status === "queued" ? (
-                <Spinner size={9} />
-              ) : (
-                <span aria-hidden="true" className="sym-task-dot" />
-              )}
-              {activity}
-            </span>
-          ) : null}
           {subtaskCount > 0 && !expanded ? (
             <span>{`${subtaskCount} subtask${subtaskCount === 1 ? "" : "s"}`}</span>
           ) : null}

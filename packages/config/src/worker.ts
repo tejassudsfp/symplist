@@ -25,13 +25,13 @@ import {
   providerCredentialInventory,
   secretFamiliesFor,
 } from "./secrets.ts";
-import type { AiProviderCredentials, NodeEnv, SharedRuntimeConfig } from "./shared.ts";
+import type { NodeEnv, SharedRuntimeConfig } from "./shared.ts";
 
 /**
  * Validated worker (Trigger.dev) configuration: every worker and "both" variable in §16.2. The worker
  * never holds the api-only secret families, webhook secrets or the api D1 token (§4.5).
  */
-export interface WorkerConfig extends SharedRuntimeConfig, AiProviderCredentials {
+export interface WorkerConfig extends SharedRuntimeConfig {
   /**
    * `production` in deployed Trigger.dev images and `development` under `trigger dev`; defaults to
    * `production` so a missing value never enables the local drivers.

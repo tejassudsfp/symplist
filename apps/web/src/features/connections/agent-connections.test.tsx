@@ -94,12 +94,11 @@ describe("scoped incoming-agent connections", () => {
     const { user, connectionsApi } = await setupKey();
     await user.click(screen.getByLabelText("All current and future tasks"));
     await user.click(screen.getByLabelText("Edit tasks and pages"));
-    await user.click(screen.getByLabelText("Start Simon work"));
     expect(screen.getByText(/including tasks you create later/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Create API key" }));
     await screen.findByLabelText("One-time API key");
     expect(connectionsApi.createKey).toHaveBeenCalledWith(
-      { name: "Research helper", scopes: ["tasks:read", "tasks:write", "ai:run"], taskIds: null },
+      { name: "Research helper", scopes: ["tasks:read", "tasks:write"], taskIds: null },
       expect.any(String),
       expect.any(AbortSignal),
     );

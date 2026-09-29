@@ -7,7 +7,6 @@ import { AccountPurgeRunner } from "../account/purge.ts";
 import { accountPurgeContributor } from "../account/purge-contributors/account.ts";
 import { documentsPurgeContributor } from "../account/purge-contributors/documents.ts";
 import type { PurgeContributor } from "../account/purge-contributors/types.ts";
-import { SimonRepository } from "../simon/repository.ts";
 import {
   type DocumentGitJobActor,
   DurableDocumentGit,
@@ -36,20 +35,23 @@ afterEach(async () => {
   await env.close();
 });
 
-let runId = "0192f0a0-0000-7000-8000-000000000601";
-let conversationId = "0192f0a0-0000-7000-8000-000000000501";
+/** The job group the encrypted `.in`/`.out` objects of a call live under; the payload wants a v7 id. */
+const runId = "0192f0a0-0000-7000-8000-000000000601";
+/** The same grant `env.mcp(...)` builds an in-process actor for, so both paths speak for one grant. */
+const grantId = "0192f0a0-0000-7000-8000-000000000901";
 
 function jobActor(
   toolCallId: string,
   overrides: Partial<DocumentGitJobActor> = {},
 ): DocumentGitJobActor {
   return {
-    conversationId,
     runId,
     toolCallId,
-    contextEpoch: 0,
-    mode: "task",
-    taskId: task,
+    grantId,
+    grantGeneration: 1,
+    scopes: ["tasks:read", "tasks:write"],
+    taskIds: null,
+    requestId: `req_${toolCallId}`,
     executorGeneration: 1,
     ...overrides,
   };
@@ -57,24 +59,26 @@ function jobActor(
 
 describe("document-git jobs (§9.1, §8.3)", { timeout: GIT_TEST_TIMEOUT_MS }, () => {
   beforeEach(async () => {
-    await env.db.run(sql("UPDATE executor_state SET mode = 'durable'"));
-    const simon = new SimonRepository({
-      db: env.db,
-      keys: env.keys,
-      now: () => env.clock,
-      policy: { betaAccessRequired: true },
-      quickChatTtlHours: 24,
-    });
-    conversationId = await simon.createConversation(owner, task);
-    const accepted = await simon.acceptMessage(owner, conversationId, "document-job", {
-      text: "Edit the page",
-      tier: "fast",
-    });
-    runId = String(accepted.runId);
-    const claimed = await simon.claim(runId, "trigger");
-    if (!claimed) throw new Error("missing claim");
-    simon.releaseClaim(claimed);
+    await env.db.batch([
+      sql("UPDATE executor_state SET mode = 'durable'"),
+      // An unrevoked, unexpired grant over every task: what the job's own guard re-reads before it
+      // writes. Nothing decrypts the client name here, so its ciphertext column holds a placeholder.
+      sql(
+        `INSERT INTO mcp_grants (id, owner_id, kind, client_name_enc, key_digest, digest_version,
+           scopes, task_ids, created_at, expires_at, generation, write_id)
+         VALUES (:id, :owner, 'api_key', 'unused', 'digest', 1, :scopes, NULL, :now, :expiry, 1, :w)`,
+        {
+          id: grantId,
+          owner,
+          scopes: JSON.stringify(["tasks:read", "tasks:write"]),
+          now: int(env.clock),
+          expiry: int(env.clock + 30 * 24 * 60 * 60 * 1000),
+          w: uuidv7(env.clock),
+        },
+      ),
+    ]);
   });
+
   it("runs Git tools through encrypted job objects with ids-only payloads and cleans up", async () => {
     const triggered: Array<{ payload: DocumentGitPayload; idempotencyKey: string }> = [];
     const worker = (payload: unknown) =>
@@ -130,7 +134,7 @@ describe("document-git jobs (§9.1, §8.3)", { timeout: GIT_TEST_TIMEOUT_MS }, (
       args: { taskId: task },
       remainingBudgetBytes: 50_000,
     });
-    expect(history.result).toMatchObject({ items: [{ author: "simon", kind: "create" }] });
+    expect(history.result).toMatchObject({ items: [{ author: "mcp", kind: "create" }] });
 
     const conflict = await durable
       .run({
@@ -220,7 +224,7 @@ describe("document-git jobs (§9.1, §8.3)", { timeout: GIT_TEST_TIMEOUT_MS }, (
 
   it("refuses to write after the executor generation moved", async () => {
     await env.db.run(sql(`UPDATE executor_state SET generation = 2 WHERE id = 1`));
-    const actor = { ...env.simon(owner, task), guards: [executorGenerationGuard(1)] };
+    const actor = { ...env.mcp(owner), guards: [executorGenerationGuard(1)] };
     const error = await env.tools
       .updateSection(actor, {
         taskId: task,
@@ -233,28 +237,34 @@ describe("document-git jobs (§9.1, §8.3)", { timeout: GIT_TEST_TIMEOUT_MS }, (
     expect(await env.count("doc_commits")).toBe(0);
   });
 
-  it.each(["stop", "generation", "conversation", "epoch", "task", "mode"] as const)(
-    "refuses a child whose parent claim no longer matches: %s",
+  it.each(["revoked", "expired", "generation", "task_scope"] as const)(
+    "refuses a job whose grant no longer authorizes it: %s",
     async (change) => {
-      if (change === "stop")
+      if (change === "revoked")
         await env.db.run(
-          sql("UPDATE runs SET cancel_requested_at = :now WHERE id = :run", {
+          sql("UPDATE mcp_grants SET revoked_at = :now WHERE id = :grant", {
             now: int(env.clock),
-            run: runId,
+            grant: grantId,
+          }),
+        );
+      if (change === "expired")
+        await env.db.run(
+          sql("UPDATE mcp_grants SET expires_at = :past WHERE id = :grant", {
+            past: int(env.clock - 1),
+            grant: grantId,
           }),
         );
       if (change === "generation")
-        await env.db.run(sql("UPDATE executor_state SET generation = generation + 1"));
-      const overrides: Partial<DocumentGitJobActor> =
-        change === "conversation"
-          ? { conversationId: uuidv7() }
-          : change === "epoch"
-            ? { contextEpoch: 2 }
-            : change === "task"
-              ? { taskId: null }
-              : change === "mode"
-                ? { mode: "quick" }
-                : {};
+        await env.db.run(
+          sql("UPDATE mcp_grants SET generation = 2 WHERE id = :grant", { grant: grantId }),
+        );
+      if (change === "task_scope")
+        await env.db.run(
+          sql("UPDATE mcp_grants SET task_ids = :tasks WHERE id = :grant", {
+            tasks: JSON.stringify([await env.createTask(owner, "Another task")]),
+            grant: grantId,
+          }),
+        );
       const key = await env.repository.accountKeys.require(owner);
       try {
         const bridge = new DurableDocumentGit({
@@ -277,7 +287,7 @@ describe("document-git jobs (§9.1, §8.3)", { timeout: GIT_TEST_TIMEOUT_MS }, (
             ownerId: owner,
             taskId: task,
             accountKey: key,
-            actor: jobActor("fenced_child", overrides),
+            actor: jobActor("fenced_job"),
             op: "update_section",
             args: {
               taskId: task,
@@ -295,7 +305,7 @@ describe("document-git jobs (§9.1, §8.3)", { timeout: GIT_TEST_TIMEOUT_MS }, (
     },
   );
 
-  it("folds Stop into the final publication guard after Git and uploads already finished", async () => {
+  it("folds a revoked grant into the final publication guard after Git and uploads finished", async () => {
     const batch = env.db.batch.bind(env.db);
     let intercepted = false;
     vi.spyOn(env.db, "batch").mockImplementation(async (statements) => {
@@ -305,9 +315,9 @@ describe("document-git jobs (§9.1, §8.3)", { timeout: GIT_TEST_TIMEOUT_MS }, (
       ) {
         intercepted = true;
         await env.db.run(
-          sql("UPDATE runs SET cancel_requested_at = :now WHERE id = :run", {
+          sql("UPDATE mcp_grants SET revoked_at = :now WHERE id = :grant", {
             now: int(env.clock),
-            run: runId,
+            grant: grantId,
           }),
         );
       }
@@ -335,7 +345,7 @@ describe("document-git jobs (§9.1, §8.3)", { timeout: GIT_TEST_TIMEOUT_MS }, (
           ownerId: owner,
           taskId: task,
           accountKey: key,
-          actor: jobActor("stop_before_publish"),
+          actor: jobActor("revoked_before_publish"),
           op: "update_section",
           args: { taskId: task, expectedRevision: null, placement: "end", markdown: "## Too late" },
           remainingBudgetBytes: 1_000,
@@ -352,14 +362,14 @@ describe("document-git jobs (§9.1, §8.3)", { timeout: GIT_TEST_TIMEOUT_MS }, (
 
 describe("maintenance and purge (§5.6, §9.2)", { timeout: GIT_TEST_TIMEOUT_MS }, () => {
   it("sweeps expired requests and old receipts in bounded batches", async () => {
-    const seeded = await env.tools.updateSection(env.simon(owner, task), {
+    const seeded = await env.tools.updateSection(env.mcp(owner), {
       taskId: task,
       expectedRevision: null,
       placement: "end",
       markdown: "## A\nx",
     });
-    const outline = await env.tools.outline(env.simon(owner, task), { taskId: task });
-    const read = await env.tools.readSection(env.simon(owner, task), {
+    const outline = await env.tools.outline(env.mcp(owner), { taskId: task });
+    const read = await env.tools.readSection(env.mcp(owner), {
       taskId: task,
       sectionId: outline.entries[0]?.sectionId as string,
       revision: seeded.revision as string,
@@ -382,7 +392,7 @@ describe("maintenance and purge (§5.6, §9.2)", { timeout: GIT_TEST_TIMEOUT_MS 
     const otherTask = await env.createTask(other);
     let head: string | null = null;
     for (let n = 0; n < 3; n += 1) {
-      const result = await env.tools.updateSection(env.simon(owner, task), {
+      const result = await env.tools.updateSection(env.mcp(owner), {
         taskId: task,
         expectedRevision: head,
         placement: "end",
@@ -391,14 +401,14 @@ describe("maintenance and purge (§5.6, §9.2)", { timeout: GIT_TEST_TIMEOUT_MS 
       head = result.revision;
       env.clock += 1_000;
     }
-    await env.tools.updateSection(env.simon(other, otherTask), {
+    await env.tools.updateSection(env.mcp(other), {
       taskId: otherTask,
       expectedRevision: null,
       placement: "end",
       markdown: "## Kept",
     });
-    const outline = await env.tools.outline(env.simon(owner, task), { taskId: task });
-    const read = await env.tools.readSection(env.simon(owner, task), {
+    const outline = await env.tools.outline(env.mcp(owner), { taskId: task });
+    const read = await env.tools.readSection(env.mcp(owner), {
       taskId: task,
       sectionId: outline.entries[0]?.sectionId as string,
       revision: head as string,

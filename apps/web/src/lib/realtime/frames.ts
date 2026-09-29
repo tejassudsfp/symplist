@@ -1,16 +1,11 @@
 import {
   type ClientFrame,
-  type ConversationId,
-  type ConversationTopic,
-  conversationTopic as contractsConversationTopic,
-  conversationIdSchema,
   errorFrameSchema,
   eventEnvelopeSchema,
   pingFrameSchema,
   pongFrameSchema,
   resyncFrameSchema,
   snapshotFrameSchema,
-  subscribeConversationFrameSchema,
   subscribeUserFrameSchema,
   type TaskId,
   type Topic,
@@ -63,18 +58,6 @@ export const MAX_SUBSCRIPTIONS = wsMaxSubscriptions;
 /** A `user` topic subscription frame with validated, unique open task ids. */
 export type UserSubscribeFrame = z.infer<typeof subscribeUserFrameSchema>;
 
-/** Checks a conversation id against the contracts schema (a lowercase UUIDv7). */
-export function parseConversationId(value: string): ConversationId {
-  const parsed = conversationIdSchema.safeParse(value);
-  if (!parsed.success) throw new TypeError("Conversation ids are lowercase UUIDv7 strings");
-  return parsed.data;
-}
-
-/** The topic for a conversation; throws a TypeError when the id is not a valid conversation id. */
-export function conversationTopic(conversationId: ConversationId): ConversationTopic {
-  return contractsConversationTopic(parseConversationId(conversationId));
-}
-
 /**
  * The `user` subscription frame. Repeated task ids are sent once; more than `MAX_OPEN_TASKS` throws a
  * RangeError and an id that is not a valid task id throws a TypeError.
@@ -95,13 +78,6 @@ export function userSubscribeFrame(openTasks: readonly TaskId[]): UserSubscribeF
     cursor: null,
     openTasks: taskIds,
   });
-}
-
-export function conversationSubscribeFrame(
-  topic: ConversationTopic,
-  cursor: number | null,
-): ClientFrame {
-  return subscribeConversationFrameSchema.parse({ t: "sub", topic, cursor });
 }
 
 export function unsubscribeFrame(topic: Topic): ClientFrame {

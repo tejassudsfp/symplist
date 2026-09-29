@@ -7,7 +7,10 @@ import { queue } from "@trigger.dev/sdk";
  */
 export const d1 = queue({ name: "d1", concurrencyLimit: 4 });
 
-/** `document-git` only, so `simon-run` never holds the slot its awaited child needs. */
+/**
+ * `document-git` only. Git work rebuilds a working copy on disk and is far heavier per D1 request
+ * than the other tasks, so it gets its own slots rather than competing for the shared `d1` ones.
+ */
 export const d1Git = queue({ name: "d1-git", concurrencyLimit: 2 });
 
 /** `reminder-scan` only, so scans never overlap. */

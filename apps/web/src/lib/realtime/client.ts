@@ -1,6 +1,5 @@
 import {
   type ClientFrame,
-  type ConversationId,
   type TaskId,
   type Topic,
   userTopic,
@@ -11,8 +10,6 @@ import {
 } from "@symplist/contracts";
 import { publicOrigins } from "../public-config.ts";
 import {
-  conversationSubscribeFrame,
-  conversationTopic,
   type EventFrame,
   MAX_SUBSCRIPTIONS,
   type ParsedServerFrame,
@@ -244,16 +241,6 @@ export class RealtimeClient {
     };
   }
 
-  /** Subscribes to a conversation topic. Throws a TypeError when the id is not a valid UUIDv7. */
-  subscribeConversation(conversationId: ConversationId, handlers: TopicHandlers): Subscription {
-    const topic = conversationTopic(conversationId);
-    const entry = this.addListener(topic, handlers);
-    if (entry.listeners.size === 1) {
-      this.sendSubscribe(entry, conversationSubscribeFrame(topic, entry.cursor));
-    }
-    return { topic, unsubscribe: () => this.removeListener(topic, handlers) };
-  }
-
   private addListener(topic: Topic, handlers: TopicHandlers): TopicEntry {
     let entry = this.topics.get(topic);
     if (!entry) {
@@ -316,11 +303,7 @@ export class RealtimeClient {
     this.unconfirmed = [];
     for (const entry of this.topics.values()) {
       entry.confirmed = false;
-      this.enqueue(
-        entry.topic === userTopic
-          ? userSubscribeFrame(entry.openTasks)
-          : conversationSubscribeFrame(entry.topic, entry.cursor),
-      );
+      this.enqueue(userSubscribeFrame(entry.openTasks));
     }
     this.scheduleHeartbeat();
     this.stableTimer = this.timers.setTimeout(() => {
@@ -348,10 +331,6 @@ export class RealtimeClient {
           this.options.onError?.(frame.code);
           return;
         }
-        if (frame.code === "not_found" && entry.topic !== userTopic) {
-          // Unknown and foreign conversations are indistinguishable; never resubscribe to them.
-          this.topics.delete(entry.topic);
-        }
         for (const listener of [...entry.listeners]) listener.onError?.(frame.code);
         return;
       }
@@ -360,12 +339,7 @@ export class RealtimeClient {
         if (!entry) return;
         entry.cursor = null;
         for (const listener of [...entry.listeners]) listener.onResync?.();
-        this.sendSubscribe(
-          entry,
-          entry.topic === userTopic
-            ? userSubscribeFrame(entry.openTasks)
-            : conversationSubscribeFrame(entry.topic, null),
-        );
+        this.sendSubscribe(entry, userSubscribeFrame(entry.openTasks));
         return;
       }
       case "snapshot": {

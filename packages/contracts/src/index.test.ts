@@ -21,7 +21,6 @@ describe("contracts seams", () => {
       "workspace",
       "documents",
       "search",
-      "simon",
       "scheduling",
       "vault",
       "sharing",

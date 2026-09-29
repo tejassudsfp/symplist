@@ -42,7 +42,6 @@ describe("api configuration: valid environments", () => {
       BETA_ACCESS_REQUIRED: true,
       BILLING_ENABLED: false,
       PAYWALL_ENABLED: false,
-      AI_USAGE_LIMITS_ENABLED: false,
       OTP_LENGTH: 6,
       OTP_TTL_MINUTES: 10,
       OTP_MAX_ATTEMPTS: 5,
@@ -51,18 +50,9 @@ describe("api configuration: valid environments", () => {
       REMINDER_EMAIL_ENABLED: true,
       REMINDER_MAX_LATENESS_HOURS: 24,
       DEFAULT_TIMEZONE: "UTC",
-      QUICK_CHAT_TTL_HOURS: 24,
       DOC_MAX_BYTES: 1_048_576,
       GIT_TMP_DIR: join(tmpdir(), "symplist-git"),
       LOCAL_DATA_DIR: defaultLocalDataDir(),
-      AI_ENABLED: true,
-      AI_DEFAULT_TIER: "fast",
-      AI_FAST_PROVIDER: "openai",
-      AI_FAST_MODEL: "gpt-5.6-luna",
-      AI_SMART_PROVIDER: "openai",
-      AI_SMART_MODEL: "gpt-5.6-terra",
-      AI_PROVIDER_MODE: "live",
-      AI_TELEMETRY_ENABLED: true,
       ANALYTICS_ENABLED: false,
     });
     for (const family of apiSecretFamilies) {
@@ -88,7 +78,7 @@ describe("api configuration: valid environments", () => {
     });
   });
 
-  it("parses explicit values, rotated families and every provider mode", () => {
+  it("parses explicit values and rotated families", () => {
     const [v1, v2] = [generatedSecret(), generatedSecret()];
     const config = loadApiConfig(
       localApiEnv({
@@ -96,10 +86,6 @@ describe("api configuration: valid environments", () => {
         CONTENT_KEK_2: v2,
         CONTENT_KEK_CURRENT: "2",
         BETA_ACCESS_REQUIRED: "false",
-        AI_DEFAULT_TIER: "smart",
-        AI_FAST_PROVIDER: "anthropic",
-        AI_FAST_MODEL: "claude-sonnet-5",
-        AI_PROVIDER_MODE: "scripted",
         DEFAULT_TIMEZONE: "Asia/Kolkata",
         GIT_TMP_DIR: "/var/tmp/symplist-git",
         LOCAL_DATA_DIR: "/var/tmp/symplist-data",
@@ -110,8 +96,6 @@ describe("api configuration: valid environments", () => {
     expect(config.CONTENT_KEK.current).toBe(2);
     expect(config.CONTENT_KEK.versions.size).toBe(2);
     expect(config.BETA_ACCESS_REQUIRED).toBe(false);
-    expect(config.AI_FAST_PROVIDER).toBe("anthropic");
-    expect(config.AI_PROVIDER_MODE).toBe("scripted");
     expect(config.DEFAULT_TIMEZONE).toBe("Asia/Kolkata");
     expect(config.LOCAL_DATA_DIR).toBe("/var/tmp/symplist-data");
     expect(config.OTP_LENGTH).toBe(8);
@@ -156,13 +140,10 @@ describe("api configuration: field validation", () => {
     ]);
   });
 
-  it.each(["BILLING_ENABLED", "PAYWALL_ENABLED", "AI_USAGE_LIMITS_ENABLED"])(
-    "rejects %s=true and accepts false",
-    (name) => {
-      expect(issuesOf(localApiEnv({ [name]: "true" }))).toEqual([issue(name, "must be false")]);
-      expect(parseApiConfig(localApiEnv({ [name]: "false" })).ok).toBe(true);
-    },
-  );
+  it.each(["BILLING_ENABLED", "PAYWALL_ENABLED"])("rejects %s=true and accepts false", (name) => {
+    expect(issuesOf(localApiEnv({ [name]: "true" }))).toEqual([issue(name, "must be false")]);
+    expect(parseApiConfig(localApiEnv({ [name]: "false" })).ok).toBe(true);
+  });
 
   it.each([
     ["NODE_ENV", undefined, "is required"],
@@ -189,7 +170,6 @@ describe("api configuration: field validation", () => {
     ["VAULT_IDLE_LOCK_MINUTES", "61", "from 1 to 60"],
     ["TRUST_PROXY_HOPS", "-1", "whole number"],
     ["REMINDER_MAX_LATENESS_HOURS", "169", "from 1 to 168"],
-    ["QUICK_CHAT_TTL_HOURS", "0", "from 1 to 168"],
     ["DOC_MAX_BYTES", "2097152", "from 1024 to 1048576"],
     ["DEFAULT_TIMEZONE", "Mars/Olympus", "IANA time zone"],
     ["DEFAULT_TIMEZONE", "+05:30", "IANA time zone"],
@@ -200,10 +180,6 @@ describe("api configuration: field validation", () => {
     ["EMAIL_FROM_SECURITY", "security at example", "email address"],
     ["EMAIL_FROM_SECURITY", "Symplist <security@example.com", "email address"],
     ["ADMIN_BOOTSTRAP_EMAIL", "not-an-email", "must be an email address"],
-    ["AI_DEFAULT_TIER", "turbo", "must be one of: fast, smart"],
-    ["AI_FAST_PROVIDER", "gateway", "must be one of"],
-    ["AI_SMART_MODEL", "gpt 5", "model id"],
-    ["AI_PROVIDER_MODE", "mock", "must be one of: live, scripted"],
     ["CLOUDFLARE_ACCOUNT_ID", "ACCOUNT", "Cloudflare account id"],
     ["D1_DATABASE_ID", "db-1", "D1 database id"],
     ["R2_BUCKET", "Bucket_1", "R2 bucket name"],
@@ -223,7 +199,6 @@ describe("api configuration: cross-field rules (§16.1)", () => {
   it.each([
     ["DATA_DRIVER", "local", "must be d1 when NODE_ENV=production"],
     ["EMAIL_DRIVER", "log", "must be resend when NODE_ENV=production"],
-    ["AI_PROVIDER_MODE", "scripted", "must be live when NODE_ENV=production"],
     ["WEB_ORIGIN", "http://symplist.example.com", "must use https when NODE_ENV=production"],
     ["API_ORIGIN", "http://api.symplist.example.com", "must use https when NODE_ENV=production"],
     ["WS_ORIGIN", "ws://api.symplist.example.com", "must use wss when NODE_ENV=production"],
@@ -286,10 +261,10 @@ describe("api configuration: cross-field rules (§16.1)", () => {
     "TOGETHER_API_KEY",
   ])("refuses the retired deployment model credential %s, in either mode", (name) => {
     // This used to be conditional: the api could hold a model key under DURABLE=false and had to
-    // refuse one under DURABLE=true, so that a durable api could not run model code. Keys now
-    // belong to the account that spends them, so the answer is the same in both modes, and the
-    // message says where they went instead of naming a runtime that would hold it.
-    const moved = "each account now adds its own provider key in Settings";
+    // refuse one under DURABLE=true, so that a durable api could not run model code. No deployment
+    // runs a model any more, so the answer is the same in both modes, and the message says where
+    // the assistant went instead of naming a runtime that would hold the key.
+    const moved = "the assistant runs on the desktop app now";
     for (const env of [
       localApiEnv({ [name]: credential() }),
       productionApiEnv({ [name]: credential() }),

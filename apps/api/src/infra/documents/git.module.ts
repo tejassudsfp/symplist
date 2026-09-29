@@ -2,7 +2,7 @@ import { Global, Module } from "@nestjs/common";
 import { GitService } from "@symplist/docs";
 import { API_CONFIG, type ApiConfig } from "../config/api-config.ts";
 
-/** One process-wide two-slot Git service for user, MCP and local Simon work (§9.1). */
+/** One process-wide two-slot Git service for user and incoming MCP work (§9.1). */
 export const DOCUMENT_GIT = "symplist:DOCUMENT_GIT";
 
 @Global()

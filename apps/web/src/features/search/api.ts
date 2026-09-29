@@ -38,7 +38,7 @@ export interface SearchContentRequest {
   readonly archive: SearchArchiveMode;
   readonly types: readonly SearchContentType[];
   readonly deadline: SearchDeadlineFilter | null;
-  /** Expands one task's hits (up to 50 sections and messages). */
+  /** Expands one task's hits (up to 50 sections). */
   readonly taskId?: string;
   readonly cursor?: string;
   readonly limit?: number;
@@ -147,7 +147,7 @@ export function taskHref(task: {
 }
 
 /** Query parameters a task page reads to jump to a search hit; values are opaque ids only. */
-export const SEARCH_JUMP_PARAMS = Object.freeze({ section: "section", message: "message" });
+export const SEARCH_JUMP_PARAMS = Object.freeze({ section: "section" });
 
 export interface SearchApi {
   titles(

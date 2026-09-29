@@ -11,8 +11,8 @@ import { RealtimeClient, realtimeUrl, type TopicHandlers } from "@/lib/realtime"
 /**
  * The workspace's view of the realtime socket (§7). Only the `user` topic matters here:
  * `tasks.changed` and `preferences.changed` tell this browser that the owner's tasks or preferences
- * moved, on this device, through Simon or through a connected agent, and the snapshot carries the
- * tree version after every (re)connect.
+ * moved, on this device or through a connected agent, and the snapshot carries the tree version
+ * after every (re)connect.
  */
 export interface WorkspaceRealtimeHandlers {
   onTasksChanged(taskTreeVersion: number, taskIds: readonly string[]): void;
@@ -45,8 +45,8 @@ export function workspaceRealtimeSource(): WorkspaceRealtimeSource | null {
   };
 }
 
-/** Conversation listeners share the owner's existing socket; never another connection per chat. */
-export function workspaceRealtimeClient(): RealtimeClient | null {
+/** The one socket every `user` listener shares; never another connection per feature. */
+function workspaceRealtimeClient(): RealtimeClient | null {
   if (typeof window === "undefined") return null;
   if (!sharedClient) {
     const url = realtimeUrl();

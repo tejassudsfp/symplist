@@ -4,14 +4,13 @@ import { type KeyboardEvent, useEffect, useRef } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DeadlineChip } from "@/features/scheduling/deadline-chip";
 import { collectionLabels } from "./commands.ts";
-import { runActivityLabel, useTaskRunState } from "./run-state.ts";
 import { TaskHistoryMenuItem, TaskMenu } from "./task-menu.tsx";
 import { useTaskDetail, useWorkspace, useWorkspaceUi } from "./workspace-provider.tsx";
 
 /**
  * The task page header (task_document.md, workspace_now.md): completion, the title, its collection
  * and parent, the deadline chip and the task menu with a link to the page's history. The shell's page
- * frame supplies the mobile Back control and the Chat switch around it.
+ * frame supplies the mobile Back control around it.
  */
 export function TaskHeader({ taskId }: { readonly taskId: string }) {
   const { tasks, ui, commands, collection, navigate } = useWorkspace();
@@ -23,7 +22,6 @@ export function TaskHeader({ taskId }: { readonly taskId: string }) {
       : null,
   );
   const pending = useWorkspaceUi((state) => state.pending.has(taskId));
-  const runState = useTaskRunState(taskId);
   const renameRef = useRef<HTMLInputElement | null>(null);
   const renamingTaskId = renaming ? taskId : null;
   const detail = snapshot.detail;
@@ -31,7 +29,6 @@ export function TaskHeader({ taskId }: { readonly taskId: string }) {
   const taskCollection = detail?.task.collection ?? loaded?.collection ?? collection;
   const parent = detail?.ancestors.at(-1) ?? null;
   const archived = detail?.task.status === "archived";
-  const activity = runActivityLabel(runState);
 
   // A task moved on another device keeps the address honest, so Back and refresh land in the right list.
   useEffect(() => {
@@ -133,7 +130,6 @@ export function TaskHeader({ taskId }: { readonly taskId: string }) {
           </span>
         ) : null}
         {parent ? <span className="sym-task-parent">{`in “${parent.title}”`}</span> : null}
-        {activity ? <span className="sym-task-activity">{activity}</span> : null}
         <DeadlineChip taskId={taskId} />
       </span>
       {archived || !taskCollection ? null : (
@@ -146,12 +142,4 @@ export function TaskHeader({ taskId }: { readonly taskId: string }) {
       )}
     </div>
   );
-}
-
-/** The chat panel's subtitle: the task the conversation belongs to. */
-export function ChatTitle({ taskId }: { readonly taskId: string }) {
-  const { tasks } = useWorkspace();
-  const snapshot = useTaskDetail(taskId);
-  const title = snapshot.detail?.task.title ?? tasks.findLoaded(taskId)?.title ?? "";
-  return title ? <span className="truncate">{title}</span> : null;
 }

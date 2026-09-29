@@ -12,7 +12,6 @@ export {
   type WebSocketLike,
 } from "./client.ts";
 export {
-  conversationTopic,
   type EventFrame,
   MAX_OPEN_TASKS,
   MAX_SUBSCRIPTIONS,

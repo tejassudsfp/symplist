@@ -7,9 +7,8 @@ import type {
   TaskRestoreResponse,
 } from "@symplist/contracts";
 import type { ToastApi } from "@/components/ui/toast";
-import { ApiError, type IdempotencyKeys } from "@/lib/api";
+import type { IdempotencyKeys } from "@/lib/api";
 import { classifyFailure, writeFailureMessage } from "./errors.ts";
-import type { TaskRunStatus } from "./run-state.ts";
 import type { TaskStore } from "./task-store.ts";
 import { childrenOf, type InsertPlacement, subtreeOf } from "./tree.ts";
 import type { WorkspaceUiStore } from "./ui-store.ts";
@@ -33,20 +32,17 @@ export interface TaskCommandDeps {
   readonly navigate: (href: string, options?: { readonly replace?: boolean }) => void;
   /** The task open in the workspace, so a completed or moved task keeps the address honest. */
   readonly openTaskId: () => string | null;
-  readonly runStatus: (taskId: string) => TaskRunStatus;
   readonly keys: IdempotencyKeys;
 }
 
 interface CompletionPlan {
   readonly mode: TaskCompleteMode;
-  readonly stopRun: boolean;
 }
 
 /**
  * Every task write the workspace performs, with the confirmations, Undo and retry paths the briefs
- * ask for (task_actions.md, workspace_later.md): the parent-with-subtasks question (decision P1), the
- * active-run question backed by the server's `task.run_active` refusal (§2.1), Undo toasts after a
- * move or a completion, and a revert with Try again when a write fails.
+ * ask for (task_actions.md, workspace_later.md): the parent-with-subtasks question (decision P1),
+ * Undo toasts after a move or a completion, and a revert with Try again when a write fails.
  */
 export class TaskCommands {
   constructor(private readonly deps: TaskCommandDeps) {}
@@ -270,11 +266,7 @@ export class TaskCommands {
     );
   }
 
-  /**
-   * Completes a task (§2.1). Asks first when open subtasks would go with it (P1) and when Simon is
-   * still working on it; the server's `task.run_active` refusal asks the same question if the run
-   * started while the person was deciding.
-   */
+  /** Completes a task (§2.1). Asks first when open subtasks would go with it (P1). */
   async complete(taskId: string, plan?: Partial<CompletionPlan>): Promise<void> {
     if (this.deps.ui.isPending(taskId)) return;
     const title = this.titleOf(taskId);
@@ -309,32 +301,12 @@ export class TaskCommands {
       });
       return;
     }
-    const mode: TaskCompleteMode = plan?.mode ?? "all";
-    const stopRun = plan?.stopRun ?? false;
-    if (!stopRun && this.deps.runStatus(taskId) !== "idle") {
-      this.askToStopRun(taskId, title, mode);
-      return;
-    }
-    await this.submitCompletion(taskId, title, { mode, stopRun });
+    await this.submitCompletion(taskId, title, { mode: plan?.mode ?? "all" });
   }
 
   private listOf(taskId: string) {
     const node = this.deps.tasks.findLoaded(taskId);
     return node ? this.deps.tasks.collection(node.collection).tasks : [];
-  }
-
-  private askToStopRun(taskId: string, title: string, mode: TaskCompleteMode): void {
-    this.deps.ui.openDialog({
-      kind: "stop-run",
-      title: "Stop Simon and complete this task?",
-      description: `Simon is still working on ${quoted(title)}. Completing it now stops the run; anything already sent or saved stays as it is.`,
-      confirmLabel: "Stop and complete",
-      cancelLabel: "Keep working",
-      confirm: () => {
-        this.deps.ui.closeDialog();
-        void this.submitCompletion(taskId, title, { mode, stopRun: true });
-      },
-    });
   }
 
   private async submitCompletion(
@@ -359,12 +331,14 @@ export class TaskCommands {
         }
       : null;
     const wasOpen = this.deps.openTaskId() === taskId;
-    const scope = `complete:${taskId}:${plan.mode}:${plan.stopRun ? "stop" : "keep"}`;
+    const scope = `complete:${taskId}:${plan.mode}`;
     this.deps.ui.setPending(taskId, true);
     try {
+      // `stopRun` is still a required field of `taskCompleteRequest`; there is no run left in the
+      // cloud to stop, so it is always false.
       const response = await this.deps.tasks.complete(
         taskId,
-        { mode: plan.mode, stopRun: plan.stopRun },
+        { mode: plan.mode, stopRun: false },
         this.key(scope),
       );
       this.release(scope);
@@ -390,14 +364,6 @@ export class TaskCommands {
         },
       });
     } catch (error) {
-      if (error instanceof ApiError && error.code === "task.run_active" && !plan.stopRun) {
-        // The retry the question leads to is a different intent (`:stop`), so this key is spent.
-        // Without the release it would be held for the life of the session (nothing ever retries
-        // this scope), which is how the key map grew without bound.
-        this.release(scope);
-        this.askToStopRun(taskId, title, plan.mode);
-        return;
-      }
       const failure = classifyFailure(error);
       this.deps.toast.show({
         message: writeFailureMessage(failure, `complete ${quoted(title)}`),
@@ -465,6 +431,6 @@ export class TaskCommands {
 
   /** Completes a restored task again, for the Undo beside a restore result. */
   async completeAgain(taskId: string): Promise<void> {
-    await this.submitCompletion(taskId, this.titleOf(taskId), { mode: "all", stopRun: false });
+    await this.submitCompletion(taskId, this.titleOf(taskId), { mode: "all" });
   }
 }

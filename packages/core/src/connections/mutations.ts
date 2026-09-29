@@ -2,14 +2,13 @@ import type { ConnectionApprovalMode } from "@symplist/contracts";
 import { zeroize } from "@symplist/crypto";
 import { int, sql, uuidv7 } from "@symplist/db";
 import { type ConnectionLifecycleProvider, IntegrationError } from "@symplist/integrations";
-import type { SimonRepository } from "../simon/repository.ts";
-import { connectionApprovalExpiryStatements } from "./approval-expiry.ts";
+import type { ConnectionContext } from "./context.ts";
 import { type ConnectionWriteFold, connectionFoldCompletion } from "./fold.ts";
 import type { ConnectionActor } from "./lifecycle.ts";
 import type { ComposioSessions } from "./sessions.ts";
 
 export interface ConnectionMutationOptions {
-  readonly repository: SimonRepository;
+  readonly repository: ConnectionContext;
   readonly provider: ConnectionLifecycleProvider;
   readonly sessions: Pick<ComposioSessions, "use">;
   readonly changed?: (ownerId: string, connectionId: string) => Promise<void>;
@@ -138,12 +137,6 @@ export class ConnectionMutations {
             ...fold?.claim.guard.params,
           },
         ),
-        ...connectionApprovalExpiryStatements(repository, {
-          ownerId: actor.ownerId,
-          connectionId,
-          writeId: write,
-          now: now(),
-        }),
         sql(
           `INSERT INTO connection_revoke_jobs (connected_account_id, owner_id, created_at, write_id)
           SELECT connected_account_id, owner_id, :now, :write FROM connections WHERE id = :id AND owner_id = :owner AND write_id = :write

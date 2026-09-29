@@ -147,10 +147,10 @@ export function DeleteAccount({ me, onDeleted }: DeleteAccountProps) {
           Delete this account
         </h2>
         <p className="m-0 text-[13.5px] text-sym-muted [text-wrap:pretty]">
-          Deleting destroys the key to your data: tasks, their pages and history, conversations,
-          vault items and saved files can no longer be read by anyone, including us. Connected
-          services are disconnected and their access revoked. It cannot be undone, and email already
-          sent can't be recalled.
+          Deleting destroys the key to your data: tasks, their pages and history, vault items and
+          saved files can no longer be read by anyone, including us. Connected services are
+          disconnected and their access revoked. It cannot be undone, and email already sent can't
+          be recalled.
         </p>
       </div>
 
@@ -271,9 +271,9 @@ export function DeleteAccount({ me, onDeleted }: DeleteAccountProps) {
         title="Delete your Symplist account?"
         description={
           <>
-            Your tasks, pages, document history, conversations, vault items and files become
-            unreadable immediately, and the stored copies are erased in the background. Connected
-            services are disconnected. This cannot be undone.
+            Your tasks, pages, document history, vault items and files become unreadable
+            immediately, and the stored copies are erased in the background. Connected services are
+            disconnected. This cannot be undone.
             <br />
             <br />
             To be sure it's you, we'll email a confirmation code before anything is deleted.

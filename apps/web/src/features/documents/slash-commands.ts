@@ -36,8 +36,7 @@ export type SlashCommandId =
   | "quote"
   | "code_block"
   | "divider"
-  | "table"
-  | "ask_simon";
+  | "table";
 
 export interface SlashCommand {
   readonly id: SlashCommandId;
@@ -54,11 +53,6 @@ export interface SlashCommand {
    * that makes you guess its vocabulary.
    */
   readonly keywords?: readonly string[];
-  /**
-   * Handled outside the editor: the menu reports it and the pane decides. Simon is not a formatting
-   * command and must not be applied to the document behind the user's back.
-   */
-  readonly external?: true;
 }
 
 export const slashCommands: readonly SlashCommand[] = Object.freeze([
@@ -137,14 +131,6 @@ export const slashCommands: readonly SlashCommand[] = Object.freeze([
     glyph: "▦",
     keywords: ["grid", "rows", "columns"],
   },
-  {
-    id: "ask_simon",
-    label: "Ask Simon for an outline",
-    hint: "Draft a first structure for this task",
-    glyph: "✦",
-    keywords: ["outline", "draft", "ai", "simon", "structure"],
-    external: true,
-  },
 ]);
 
 /** The longest query the menu will keep matching before it gives up and closes. */
@@ -187,29 +173,24 @@ export function moveSlashSelection(current: number, delta: number, length: numbe
   return (((current + delta) % length) + length) % length;
 }
 
-/**
- * Runs a slash command in the editor, having already removed the "/query" text.
- *
- * Returns false for a command the editor does not own — the pane handles those — so the caller can
- * tell "done" from "not mine" without inspecting the id.
- */
-export function runSlashCommand(editor: Editor, id: SlashCommandId): boolean {
+/** Runs a slash command in the editor, having already removed the "/query" text. */
+export function runSlashCommand(editor: Editor, id: SlashCommandId): void {
   switch (id) {
     case "heading_1":
       editor.action(callCommand(wrapInHeadingCommand.key, 1));
-      return true;
+      return;
     case "heading_2":
       editor.action(callCommand(wrapInHeadingCommand.key, 2));
-      return true;
+      return;
     case "heading_3":
       editor.action(callCommand(wrapInHeadingCommand.key, 3));
-      return true;
+      return;
     case "bullet_list":
       editor.action(callCommand(wrapInBulletListCommand.key));
-      return true;
+      return;
     case "ordered_list":
       editor.action(callCommand(wrapInOrderedListCommand.key));
-      return true;
+      return;
     case "checklist": {
       editor.action(callCommand(wrapInBulletListCommand.key));
       editor.action((ctx) => {
@@ -225,21 +206,19 @@ export function runSlashCommand(editor: Editor, id: SlashCommandId): boolean {
         });
         if (found) view.dispatch(transaction);
       });
-      return true;
+      return;
     }
     case "quote":
       editor.action(callCommand(wrapInBlockquoteCommand.key));
-      return true;
+      return;
     case "code_block":
       editor.action(callCommand(createCodeBlockCommand.key));
-      return true;
+      return;
     case "divider":
       editor.action(callCommand(insertHrCommand.key));
-      return true;
+      return;
     case "table":
       editor.action(callCommand(insertTableCommand.key));
-      return true;
-    case "ask_simon":
-      return false;
+      return;
   }
 }

@@ -180,7 +180,7 @@ export function ShareDialog({
             </details>
             {proposal && (
               <p className="sym-sharing-notice">
-                Simon proposed these exact access settings. Review the snapshot before releasing.
+                These exact access settings were proposed. Review the snapshot before releasing.
                 Proposed expiry: {expiryLabel(proposal.expiresAt)}.
               </p>
             )}
@@ -235,7 +235,7 @@ export function ShareDialog({
                 />
                 <p className="sym-sharing-notice">
                   Some agents cannot open password-protected links. Share the password separately,
-                  or offer a download/pasted copy. The password is never sent to Simon.
+                  or offer a download/pasted copy. The password is never sent anywhere else.
                 </p>
               </>
             )}
@@ -263,7 +263,7 @@ export function ShareDialog({
             )}
             <p className="sym-sharing-meta">
               Review for sensitive details. Automated filtering cannot find every secret. Only the
-              selected Markdown is shared, never chat, Vault contents or document history.
+              selected Markdown is shared, never Vault contents or document history.
             </p>
           </>
         )}

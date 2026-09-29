@@ -355,9 +355,7 @@ export function DocumentHistoryScreen({
                   {loadingMoreList ? "Loading…" : "Show older revisions"}
                 </Button>
               ) : null}
-              <p className="sym-doc-technical">
-                Revisions record page changes only. Chat messages stay in the task's conversation.
-              </p>
+              <p className="sym-doc-technical">Revisions record page changes only.</p>
             </>
           ) : null}
         </section>

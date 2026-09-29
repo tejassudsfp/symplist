@@ -7,18 +7,13 @@ export interface ApplyIntentsInput {
   readonly ownerId: string;
   readonly key: AccountDataKey;
   readonly sources: SearchSources;
-  /** Whether chat messages may enter the index. When false, message upserts are skipped. */
-  readonly includeChat: boolean;
   /** Documents re-read at most (the query-time overlay is bounded; the writer passes no bound). */
   readonly maxDocuments?: number;
-  /** Messages re-read at most. */
-  readonly maxMessages?: number;
 }
 
 export interface ApplyIntentsResult {
   readonly tasks: number;
   readonly documents: number;
-  readonly messages: number;
   /** Changes that were not applied because a bound was reached. */
   readonly deferred: number;
 }
@@ -26,7 +21,7 @@ export interface ApplyIntentsResult {
 /**
  * Applies coalesced intents to an index or an overlay (§10.1). Every upsert re-reads the current
  * authoritative record through the sources, so a stale or repeated intent can never resurrect old
- * content: a task, head or message that no longer exists is removed.
+ * content: a task or head that no longer exists is removed.
  */
 export async function applyIntents(
   mutator: SearchIndexMutator,
@@ -72,39 +67,15 @@ export async function applyIntents(
     }
   }
 
-  let messageUpserts: string[] = [];
-  for (const [messageId, op] of intents.messages) {
-    if (op === "delete" || !input.includeChat || !sources.messages)
-      mutator.removeMessage(messageId);
-    else messageUpserts.push(messageId);
-  }
-  if (input.maxMessages !== undefined && messageUpserts.length > input.maxMessages) {
-    deferred += messageUpserts.length - input.maxMessages;
-    messageUpserts = messageUpserts.slice(0, input.maxMessages);
-  }
-  if (messageUpserts.length > 0 && sources.messages) {
-    const messages = await sources.messages.readMessages(ownerId, messageUpserts, key);
-    for (const messageId of messageUpserts) {
-      const message = messages.get(messageId);
-      if (message) mutator.upsertMessage(message);
-      else mutator.removeMessage(messageId);
-    }
-  }
-
-  return {
-    tasks: intents.tasks.size,
-    documents: intents.documents.size,
-    messages: intents.messages.size,
-    deferred,
-  };
+  return { tasks: intents.tasks.size, documents: intents.documents.size, deferred };
 }
 
 /** Reads every authoritative record of an owner into an empty index (a rebuild, §10.1). */
 export async function loadAllRecords(
   mutator: SearchIndexMutator,
-  input: Omit<ApplyIntentsInput, "maxDocuments" | "maxMessages"> & {
+  input: Omit<ApplyIntentsInput, "maxDocuments"> & {
     readonly pageSize?: number;
-    /** Stops reading documents and messages (titles only), for the query-time fallback. */
+    /** Stops reading documents (titles only), for the query-time fallback. */
     readonly titlesOnly?: boolean;
     /** Tasks read at most; beyond it the result reports `complete: false`. */
     readonly maxTasks?: number;
@@ -113,7 +84,6 @@ export async function loadAllRecords(
 ): Promise<{
   readonly tasks: number;
   readonly documents: number;
-  readonly messages: number;
   readonly complete: boolean;
 }> {
   const { ownerId, key, sources } = input;
@@ -123,7 +93,6 @@ export async function loadAllRecords(
   const pageSize = input.pageSize ?? 100;
   let tasks = 0;
   let documents = 0;
-  let messages = 0;
   let complete = true;
 
   for (let after: string | null = null; ; ) {
@@ -140,7 +109,7 @@ export async function loadAllRecords(
     if (!complete || page.length < pageSize) break;
     after = (page[page.length - 1] as { id: string }).id;
   }
-  if (input.titlesOnly) return { tasks, documents, messages, complete };
+  if (input.titlesOnly) return { tasks, documents, complete };
 
   if (sources.documents) {
     for (let after: string | null = null; ; ) {
@@ -161,21 +130,5 @@ export async function loadAllRecords(
       after = (heads[heads.length - 1] as { taskId: string }).taskId;
     }
   }
-
-  if (input.includeChat && sources.messages) {
-    for (let after: string | null = null; ; ) {
-      input.signal?.throwIfAborted();
-      const ids = await sources.messages.listMessages(ownerId, { after, limit: pageSize });
-      if (ids.length > 0) {
-        const read = await sources.messages.readMessages(ownerId, ids, key);
-        for (const message of read.values()) {
-          mutator.upsertMessage(message);
-          messages += 1;
-        }
-      }
-      if (ids.length < pageSize) break;
-      after = ids[ids.length - 1] as string;
-    }
-  }
-  return { tasks, documents, messages, complete };
+  return { tasks, documents, complete };
 }

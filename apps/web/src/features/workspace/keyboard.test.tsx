@@ -42,7 +42,7 @@ function seeded() {
 /**
  * The list inside the shell's inbox pane. The workspace's actions are `context: "pane"`, so the
  * dispatcher only runs them when focus is inside an element marked as that pane — which is how the
- * shell scopes `j`/`k` to the list without stealing them from the chat or the page.
+ * shell scopes `j`/`k` to the list without stealing them from the page.
  */
 async function listPane(api = seeded()) {
   const result = renderWorkspace(
@@ -104,7 +104,7 @@ describe("the list by keyboard alone", () => {
     );
   });
 
-  it("opens the focused task with Enter, so its page and chat switch together", async () => {
+  it("opens the focused task's page with Enter", async () => {
     const { user } = await listPane();
     screen.getByRole("treeitem", { name: /Send the project outline/ }).focus();
     await user.keyboard("{Enter}");

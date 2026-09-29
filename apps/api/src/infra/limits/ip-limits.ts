@@ -22,8 +22,6 @@ export const ipRequestBuckets = Object.freeze({
   share_password: { limit: 10, windowMs: minute },
   /** Vault unlock: 20 per IP per 15 minutes. */
   vault_unlock: { limit: 20, windowMs: 15 * minute },
-  /** Simon submissions: 12 per authenticated session and client network per minute, before D1. */
-  simon_submit: { limit: 12, windowMs: minute },
   /** `/oauth/register`: 5 per hour. */
   oauth_register: { limit: 5, windowMs: 60 * minute },
   /** `/oauth/authorize`: 30 per 10 minutes. */

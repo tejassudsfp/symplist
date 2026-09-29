@@ -8,7 +8,7 @@ import {
   type DocumentsTestEnvironment,
 } from "../documents/test-support.ts";
 import { IdempotencyStore, redactOneTimeSecretResponse } from "../idempotency/index.ts";
-import { SimonRepository } from "../simon/repository.ts";
+import { ConnectionContext } from "./context.ts";
 import type { ConnectionWriteFold } from "./fold.ts";
 import { type ConnectionActor, ConnectionsService } from "./lifecycle.ts";
 import { ConnectionMutations } from "./mutations.ts";
@@ -127,12 +127,11 @@ function fold(requestId: string, oneTime = true): ConnectionWriteFold {
 
 function mutations() {
   return new ConnectionMutations({
-    repository: new SimonRepository({
+    repository: new ConnectionContext({
       db: env.db,
       keys,
       now: () => env.clock,
       policy: { betaAccessRequired: true },
-      quickChatTtlHours: 24,
     }),
     provider,
     sessions: service.options.sessions,

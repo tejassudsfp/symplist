@@ -1,4 +1,3 @@
-import { encryptFieldText } from "@symplist/crypto";
 import { int, sql, uuidv7, writeGuard } from "@symplist/db";
 import { buildSectionIndex, DocumentArtifacts } from "@symplist/docs";
 import { FakeClock, FakeTriggerClient } from "@symplist/testing";
@@ -8,8 +7,6 @@ import { AccountPurgeRunner } from "../account/purge.ts";
 import { accountPurgeContributor } from "../account/purge-contributors/account.ts";
 import { purgeContributors } from "../account/purge-contributors/index.ts";
 import { searchPurgeContributor } from "../account/purge-contributors/search.ts";
-import { preferencesContext } from "../preferences/service.ts";
-import { simonField } from "../simon/repository.ts";
 import { archiveContributors } from "../tasks/archive-contributors/index.ts";
 import { searchArchiveContributor } from "../tasks/archive-contributors/search.ts";
 import type { ArchiveInput } from "../tasks/archive-contributors/types.ts";
@@ -33,8 +30,6 @@ import {
 import { coalesceIntents, searchIntentStatement } from "./intents.ts";
 import { D1DocumentTextSource } from "./sources/contributors/documents.ts";
 import { createSearchSources, searchSourceContributors } from "./sources/contributors/index.ts";
-import { D1ChatOptInSource } from "./sources/contributors/preferences.ts";
-import { D1MessageTextSource } from "./sources/contributors/simon.ts";
 import { D1SearchTaskSource } from "./sources/tasks.ts";
 import { SearchIndexWriter } from "./writer.ts";
 
@@ -337,17 +332,17 @@ describe("search sources", () => {
     const sources = createSearchSources({ db: store.db, objects: store.objects, keys: store.keys });
     expect(sources.tasks).toBeInstanceOf(D1SearchTaskSource);
     expect(sources.documents).toBeInstanceOf(D1DocumentTextSource);
-    expect(sources.messages).toBeInstanceOf(D1MessageTextSource);
-    expect(sources.chatOptIn).toBeInstanceOf(D1ChatOptInSource);
     expect(searchSourceContributors.map((contributor) => contributor.domain)).toEqual([
       "documents",
-      "simon",
-      "preferences",
       "scheduling",
     ]);
+    // A domain that owns none of the sources contributes none of them: the seam is opt-in.
+    expect(
+      searchSourceContributors.some((contributor) => contributor.domain === ("vault" as never)),
+    ).toBe(false);
     const twice = [
       { domain: "documents" as const, documents: () => store.documents },
-      { domain: "simon" as const, documents: () => store.documents },
+      { domain: "scheduling" as const, documents: () => store.documents },
     ];
     expect(() =>
       createSearchSources({ db: store.db, objects: store.objects, keys: store.keys }, twice),
@@ -455,161 +450,5 @@ describe("search sources", () => {
       sql(`UPDATE users SET beta_state = 'relocked' WHERE id = :owner`, { owner }),
     );
     expect(await source.listHeads(owner, { after: null, limit: 1 })).toEqual([]);
-  });
-
-  it("keeps quick/corrupt/foreign Simon messages out and fails privacy closed", async () => {
-    const task = await writeTask(store, owner, { title: "Chat task" });
-    const other = await insertOwner(store, "chat-other@example.test");
-    const otherTask = await writeTask(store, other, { title: "Other chat task" });
-    const conversation = uuidv7(store.now);
-    const quick = uuidv7(store.now);
-    const foreignConversation = uuidv7(store.now);
-    const message = uuidv7(store.now);
-    const corrupt = uuidv7(store.now);
-    const quickMessage = uuidv7(store.now);
-    const foreignMessage = uuidv7(store.now);
-    const key = await ownerKey(store, owner);
-    const otherKey = await ownerKey(store, other);
-    await store.db.batch([
-      sql(
-        `INSERT INTO conversations (id, owner_id, kind, task_id, expires_at, created_at, updated_at, write_id)
-         VALUES (:id, :owner, 'task', :task, NULL, :now, :now, :id)`,
-        { id: conversation, owner, task, now: int(store.now) },
-      ),
-      sql(
-        `INSERT INTO conversations (id, owner_id, kind, task_id, expires_at, created_at, updated_at, write_id)
-         VALUES (:id, :owner, 'quick', NULL, :expiry, :now, :now, :id)`,
-        { id: quick, owner, expiry: int(store.now + 1), now: int(store.now) },
-      ),
-      sql(
-        `INSERT INTO conversations (id, owner_id, kind, task_id, expires_at, created_at, updated_at, write_id)
-         VALUES (:id, :owner, 'task', :task, NULL, :now, :now, :id)`,
-        { id: foreignConversation, owner: other, task: otherTask, now: int(store.now) },
-      ),
-      ...(
-        [
-          {
-            id: message,
-            ownerId: owner,
-            conversationId: conversation,
-            role: "user",
-            seq: 1,
-            content: encryptFieldText(
-              key,
-              simonField(owner, "messages", message, "content_enc"),
-              "owner marker",
-            ),
-          },
-          {
-            id: corrupt,
-            ownerId: owner,
-            conversationId: conversation,
-            role: "assistant",
-            seq: 2,
-            content: "sym1.1.AAAAAAAAAAAAAAAA.AAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-          },
-          {
-            id: quickMessage,
-            ownerId: owner,
-            conversationId: quick,
-            role: "user",
-            seq: 1,
-            content: encryptFieldText(
-              key,
-              simonField(owner, "messages", quickMessage, "content_enc"),
-              "quick marker",
-            ),
-          },
-          {
-            id: foreignMessage,
-            ownerId: other,
-            conversationId: foreignConversation,
-            role: "user",
-            seq: 1,
-            content: encryptFieldText(
-              otherKey,
-              simonField(other, "messages", foreignMessage, "content_enc"),
-              "foreign marker",
-            ),
-          },
-        ] satisfies ReadonlyArray<{
-          readonly id: string;
-          readonly ownerId: string;
-          readonly conversationId: string;
-          readonly role: "user" | "assistant";
-          readonly seq: number;
-          readonly content: string;
-        }>
-      ).map((record) =>
-        sql(
-          `INSERT INTO messages (id, owner_id, conversation_id, run_id, request_id, seq, role, status, tier,
-           content_enc, request_fingerprint_enc, created_at, write_id)
-           VALUES (:id, :owner, :conversation, NULL, :request, :seq, :role, 'completed', 'fast', :content,
-           :fingerprint, :now, :id)`,
-          {
-            id: record.id,
-            owner: record.ownerId,
-            conversation: record.conversationId,
-            request: `request:${record.id}`,
-            seq: int(record.seq),
-            role: record.role,
-            content: record.content,
-            fingerprint: record.content,
-            now: int(store.now),
-          },
-        ),
-      ),
-    ]);
-    const messages = new D1MessageTextSource(store.db);
-    expect(await messages.listMessages(owner, { after: null, limit: 100 })).toEqual(
-      [corrupt, message].sort(),
-    );
-    await expect(messages.listMessages(owner, { after: null, limit: 101 })).rejects.toThrow(
-      RangeError,
-    );
-    expect(
-      await messages.readMessages(owner, [message, corrupt, quickMessage, foreignMessage], key),
-    ).toEqual(
-      new Map([
-        [
-          message,
-          {
-            id: message,
-            taskId: task,
-            conversationId: conversation,
-            speaker: "user",
-            createdAt: store.now,
-            text: "owner marker",
-          },
-        ],
-      ]),
-    );
-
-    const privacy = new D1ChatOptInSource(store.db);
-    expect(await privacy.includeChat(owner, key)).toBe(false);
-    await store.db.run(
-      sql(
-        `INSERT INTO user_preferences (owner_id, "group", version, data_enc, updated_at, write_id)
-         VALUES (:owner, 'privacy', 1, :data, :now, :write)`,
-        {
-          owner,
-          data: encryptFieldText(
-            key,
-            preferencesContext(owner, "privacy"),
-            JSON.stringify({ includeChatInSearch: true }),
-          ),
-          now: int(store.now),
-          write: uuidv7(store.now),
-        },
-      ),
-    );
-    expect(await privacy.includeChat(owner, key)).toBe(true);
-    await store.db.run(
-      sql(`UPDATE user_preferences SET data_enc = 'corrupt' WHERE owner_id = :owner`, { owner }),
-    );
-    expect(await privacy.includeChat(owner, key)).toBe(false);
-    expect(
-      searchSourceContributors.some((contributor) => contributor.domain === ("vault" as never)),
-    ).toBe(false);
   });
 });

@@ -617,8 +617,8 @@ describe("completion with an active run (injected run-state check)", () => {
     );
     // The probe uses the id queries, so a completion archiving more tasks than D1's 100 statement
     // parameters still decides in one statement.
-    const simon: ArchiveContributor = {
-      domain: "simon",
+    const probe: ArchiveContributor = {
+      domain: "connections",
       blockingCondition: ({ taskIdsQuery }) => ({
         sql: `EXISTS (SELECT 1 FROM probe_runs WHERE task_id IN (${taskIdsQuery.sql}) AND status IN ('queued', 'running', 'awaiting_approval', 'awaiting_user'))`,
         params: taskIdsQuery.params,
@@ -639,7 +639,7 @@ describe("completion with an active run (injected run-state check)", () => {
       policy: { betaAccessRequired: true },
       now: () => app.clock.now(),
       cache: new MemoryTaskTreeCache({ now: () => app.clock.now() }),
-      archiveContributors: [simon],
+      archiveContributors: [probe],
     });
     const maya = await signedIn(app);
     const id = await created(maya, { title: "Send the project outline", collection: "now" });

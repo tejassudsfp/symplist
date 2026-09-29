@@ -145,7 +145,7 @@ describe("onboarding, the connections step (onboarding_connections.md)", () => {
     expect(screen.getByRole("button", { name: "Skip for now" })).toBeEnabled();
     expect(await screen.findByText("No connectors are set up here yet")).toBeInTheDocument();
     expect(
-      screen.getByText(/Actions that send or change something outside Symplist still ask you/),
+      screen.getByText(/A connection is a link to a service you already use/),
     ).toBeInTheDocument();
   });
 

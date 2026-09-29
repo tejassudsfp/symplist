@@ -113,9 +113,7 @@ test.beforeEach(async ({ context, page }) => {
 });
 
 test.describe("the workspace", () => {
-  test("captures a task, opens it, and keeps its page and chat together", async ({
-    page,
-  }, testInfo) => {
+  test("captures a task and opens its page", async ({ page }, testInfo) => {
     await addTasks(page, "Now", ["Refresh my portfolio", "Send the project outline"]);
     // The quick-add field is never blocked by the list's own state: it is ready before the tasks are.
     await expect(page.getByLabel("Add task to Now")).toHaveValue("");
@@ -123,12 +121,9 @@ test.describe("the workspace", () => {
     await taskTitle(page, "Send the project outline").click();
     await expect(page).toHaveURL(/\/now\/[0-9a-f-]{36}$/);
     if (testInfo.project.name !== "mobile") {
-      // The page frame's header names the task, and the chat beside it names the same one.
+      // The page frame's header names the task it opened.
       await expect(
         page.getByRole("heading", { level: 1, name: "Send the project outline" }),
-      ).toBeVisible();
-      await expect(
-        page.getByRole("complementary", { name: "Simon" }).getByText("Send the project outline"),
       ).toBeVisible();
     }
     await evidence(page, testInfo, { screen: "workspace_now", state: "task-open" });

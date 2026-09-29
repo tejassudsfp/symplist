@@ -1,34 +1,24 @@
-import { type ConversationId, conversationTopic } from "@symplist/contracts";
 import type { D1AccessService } from "@symplist/core/access";
-import {
-  type EventsContributor,
-  eventsContributors,
-  type InternalEventHandler,
-  type RunRelaySource,
-} from "@symplist/core/events";
+import type { EventsContributor, InternalEventHandler } from "@symplist/core/events";
 import { createKeyProvider } from "@symplist/crypto";
 import { newWriteId, uuidv7 } from "@symplist/db";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { InternalEventClient } from "../../worker/src/infra/internal-events.ts";
 import { createWorkerLogger, type WorkerLogSink } from "../../worker/src/infra/logger.ts";
-import { RunOutputPushClient } from "../../worker/src/infra/run-output.ts";
 import { ACCESS_SERVICE } from "../src/common/access/access.providers.ts";
 import { insertDispatchIntentStatement } from "../src/infra/executors/dispatch-intents.ts";
 import { ExecutionDispatcher } from "../src/infra/executors/dispatcher.ts";
 import { ExecutionRegistry } from "../src/infra/executors/execution-registry.ts";
 import { InternalEventHandlerRegistry } from "../src/modules/internal/internal-event-handlers.ts";
-import { TopicRegistry } from "../src/modules/realtime/topic-registry.ts";
-import { SimonTopics } from "../src/modules/simon/simon.realtime.ts";
 import { FakeTracker } from "./executors/memory-tracker.ts";
 import { bootTestApp, generatedSecret, type TestApp, type TestSession } from "./harness.ts";
 import { WsTestClient } from "./ws-client.ts";
 
 /**
- * The platform end to end (§5.1, §5.5, §6.2, §7, §8.2): the api booted with every runtime module
- * wired, real WebSockets and HTTP on its ephemeral port, and the worker's own clients pushing to it.
+ * The platform end to end (§5.1, §5.5, §6.2, §7): the api booted with every runtime module wired,
+ * real WebSockets and HTTP on its ephemeral port, and the worker's own client pushing to it.
  */
 
-const MARKER = "MARKER-e2e-5d0a-run-output";
 const PROBE_KIND = "probe_run";
 
 let apps: TestApp[] = [];
@@ -39,32 +29,16 @@ afterEach(async () => {
 });
 
 /**
- * An in-memory `runs` table standing in for Simon's (§8.1, §8.2): the tracker the executors reconcile
- * and cancel through, and the relay source the run output relay reads ownership and status from.
+ * An in-memory runs table behind one probe execution kind (§8.1): the tracker the executors
+ * reconcile and cancel through, standing in for whichever surviving domain owns a tracked kind.
  */
-class ProbeRuns implements RunRelaySource {
+class ProbeRuns {
   readonly tracker = new FakeTracker();
-  readonly conversations = new Map<string, string>();
-  generation = 1;
-
-  async ownership(runId: string) {
-    const run = this.tracker.runs.get(runId);
-    const conversationId = this.conversations.get(runId);
-    return run && conversationId ? { runId, ownerId: run.ownerId, conversationId } : null;
-  }
-
-  async state(runId: string) {
-    const run = this.tracker.runs.get(runId);
-    return run ? { status: run.status, executorGeneration: this.generation } : null;
-  }
 
   contributor(): EventsContributor {
     return {
-      domain: "simon",
+      domain: "connections",
       executionKinds: [
-        ...eventsContributors
-          .filter((contributor) => contributor.domain === "simon")
-          .flatMap((contributor) => contributor.executionKinds),
         {
           kind: PROBE_KIND,
           triggerTaskId: "probe-run",
@@ -72,17 +46,12 @@ class ProbeRuns implements RunRelaySource {
           tracker: () => this.tracker,
         },
       ],
-      runRelaySource: () => this,
     };
   }
 }
 
 async function boot(runs = new ProbeRuns()): Promise<{ app: TestApp; runs: ProbeRuns }> {
-  const app = await bootTestApp({
-    runtime: { eventsContributors: [runs.contributor()] },
-    // Synthetic relay ownership below intentionally replaces real D1 conversation ownership.
-    overrides: [{ token: SimonTopics, value: { onModuleInit() {} } }],
-  });
+  const app = await bootTestApp({ runtime: { eventsContributors: [runs.contributor()] } });
   apps.push(app);
   return { app, runs };
 }
@@ -286,69 +255,6 @@ describe("platform end to end", () => {
     expect(await announcing).toBe("delivered");
     expect(app.logs.events("internal.event_handled")).toHaveLength(1);
     expect(lines.join("\n")).not.toContain("internal_event.delivered_on_retry");
-  });
-
-  it("relays encrypted run output pushed by the worker over HTTP to the owner's conversation socket", async () => {
-    const { app, runs } = await boot();
-    const owner = await app.createSignedInUser();
-    const stranger = await app.createSignedInUser();
-    const conversationId = uuidv7(app.clock.now()) as ConversationId;
-    const runId = uuidv7(app.clock.now());
-    runs.tracker.add(runId, { ownerId: owner.id, executor: "trigger", status: "running" });
-    runs.conversations.set(runId, conversationId);
-    app.inject<TopicRegistry>(TopicRegistry).registerAuthorizer({
-      kind: "conversation",
-      authorize: async (socket, topic) =>
-        topic.conversationId === conversationId && socket.userId === owner.id,
-    });
-
-    const topic = conversationTopic(conversationId);
-    const viewer = await connect(app, owner.session);
-    viewer.send({ t: "sub", topic, cursor: null });
-    // No snapshot provider is registered yet, so the subscription starts with a resync.
-    await viewer.waitFor((frame) => frame.t === "resync");
-    const intruder = await connect(app, stranger.session);
-    intruder.send({ t: "sub", topic, cursor: null });
-    await intruder.waitFor((frame) => frame.t === "err");
-
-    const { lines, logger } = workerLog();
-    const accountKey = await app.accountKeys.require(owner.id);
-    const push = new RunOutputPushClient({
-      runId,
-      ownerId: owner.id,
-      attempt: 1,
-      accountKey,
-      keys: app.keys,
-      apiOrigin: app.baseUrl,
-      logger,
-      timers: app.clock,
-    });
-    push.write({ type: "text-start", id: "t1" });
-    push.write({ type: "text-delta", id: "t1", delta: `${MARKER} hello` });
-    push.write({ type: "text-end", id: "t1" });
-    expect(await push.close()).toEqual({
-      batchesSent: 1,
-      batchesDropped: 0,
-      chunksSent: 3,
-      chunksDropped: 0,
-    });
-
-    await viewer.waitFor(
-      (frame) =>
-        frame.t === "ev" && (frame.data as { chunk: { type: string } }).chunk.type === "text-end",
-    );
-    const events = viewer.frames.filter((frame) => frame.t === "ev");
-    expect(events.map((frame) => frame.type)).toEqual(["chunk", "chunk", "chunk"]);
-    expect(events[1]).toMatchObject({
-      topic,
-      data: { runId, chunk: { type: "text-delta", delta: `${MARKER} hello` } },
-    });
-    await intruder.settle();
-    expect(intruder.frames.filter((frame) => frame.t === "ev")).toEqual([]);
-    // Plaintext exists only in api memory and on the owner's socket: never in D1, logs or objects.
-    expect(await app.scanDatabaseFor(MARKER)).toEqual([]);
-    expect(app.logs.text()).not.toContain(MARKER);
-    expect(lines.join("\n")).not.toContain(MARKER);
   });
 
   it("closes every socket with 1001 when the api shuts down", async () => {

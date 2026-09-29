@@ -72,8 +72,8 @@ export interface ArchiveViewProps {
 
 /**
  * The archive (archive.md): completed tasks grouped by the day they were completed, keeping their
- * parent and subtask hierarchy, with a calm Restore. Selecting a record opens its retained page and
- * conversation through the shell's own seams, read only until the task is restored.
+ * parent and subtask hierarchy, with a calm Restore. Selecting a record opens its retained page
+ * through the shell's own seam, read only until the task is restored.
  */
 export function ArchiveView({ taskId }: ArchiveViewProps) {
   const { api, tasks, commands, navigate } = useWorkspace();
@@ -216,7 +216,7 @@ export function ArchiveView({ taskId }: ArchiveViewProps) {
             <EmptyState
               illustration={<ThemeIllustration />}
               title="Nothing archived yet"
-              description="Completed tasks land here with their page and conversation, ready to restore."
+              description="Completed tasks land here with their page, ready to restore."
             />
           )
         ) : null}
@@ -281,7 +281,7 @@ export function ArchiveView({ taskId }: ArchiveViewProps) {
           <EmptyState
             align="center"
             title="Pick a completed task"
-            description="Its page and conversation are kept exactly as they were."
+            description="Its page is kept exactly as it was."
           />
         </section>
       )}
@@ -390,7 +390,7 @@ function ArchiveDetail({
       {restore.kind === "failed" ? (
         <InlineError
           title={writeFailureMessage(restore.failure, "restore this task")}
-          description="Nothing changed. Its page and conversation are still here."
+          description="Nothing changed. Its page is still here."
           onRetry={record ? () => onRestore(record) : undefined}
         />
       ) : null}
@@ -400,7 +400,6 @@ function ArchiveDetail({
           <p className="sym-archive-readonly">Read only while this task is in the archive.</p>
           {slots.page?.(taskId)}
         </div>
-        <div className="sym-archive-chat">{slots.chat?.(taskId)}</div>
       </div>
     </section>
   );

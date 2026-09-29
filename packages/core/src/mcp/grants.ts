@@ -43,9 +43,13 @@ export function grantFromRow(row: DbRow): McpIdentity {
   };
 }
 
-/** Trusted predicates for the actual core decision, never predicates accepted from MCP arguments. */
+/**
+ * Trusted predicates for the actual core decision, never predicates accepted from MCP arguments.
+ * Only the grant's identity is needed, so a caller holding no more than that — a durable job
+ * carrying the ids it was authorized under — can rebuild the same predicate.
+ */
 export function mcpAuthorization(
-  identity: McpIdentity,
+  identity: Pick<McpIdentity, "id" | "ownerId" | "generation">,
   scope: McpScope,
   now: number,
   taskIds: readonly string[] | null,

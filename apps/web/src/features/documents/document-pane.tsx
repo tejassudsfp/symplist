@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useOptionalActions } from "@/actions/provider";
 import { SafeMarkdown } from "@/components/markdown/safe-markdown";
 import { Button } from "@/components/ui/button";
 import { InlineError } from "@/components/ui/inline-error";
@@ -17,7 +16,6 @@ import type { EditorHandle } from "./editor.ts";
 import { FindBar } from "./find-bar.tsx";
 import { HistoryIcon } from "./icons.tsx";
 import { isSessionFailure } from "./messages.ts";
-import { outlineRequestHandler } from "./outline-request.ts";
 import type { ToolbarCommand } from "./page-commands.ts";
 import { PageView, type PageViewHandle } from "./page-view.tsx";
 import { RawView } from "./raw-view.tsx";
@@ -76,7 +74,6 @@ export function DocumentPane({ taskId, api, timers, watch }: DocumentPaneProps) 
   const [view, setView] = useState<DocumentView>("page");
   const [finding, setFinding] = useState(false);
   const { announce } = useAnnouncer();
-  const actions = useOptionalActions();
   const pathname = usePathname();
   const doc = useDocument({
     taskId,
@@ -200,19 +197,6 @@ export function DocumentPane({ taskId, api, timers, watch }: DocumentPaneProps) 
     doc.dismissAgentUpdate();
     announce(`Moved to ${update.heading ?? "the updated section"}`);
   }, [state.agentUpdate, state.buffer, currentRef, doc, announce]);
-
-  const askForOutline = useCallback(() => {
-    if (actions) {
-      void actions.invoke("documents.ask_outline", "pointer", "page");
-      return;
-    }
-    const handler = outlineRequestHandler();
-    if (!handler) {
-      announce("Simon isn't available yet");
-      return;
-    }
-    void handler(taskId);
-  }, [actions, announce, taskId]);
 
   const failure = state.failure;
   const empty = state.buffer.trim().length === 0;
@@ -342,15 +326,11 @@ export function DocumentPane({ taskId, api, timers, watch }: DocumentPaneProps) 
                 value={state.buffer}
                 onChange={setBuffer}
                 onSelectionChange={() => setActive(pageRef.current?.activeCommands() ?? [])}
-                onAskSimon={askForOutline}
               />
               {empty ? (
                 <div className="sym-doc-starters" data-slot="page-starters">
                   <Button variant="secondary" size="sm" onClick={() => switchView("raw")}>
                     Write in Markdown
-                  </Button>
-                  <Button variant="secondary" size="sm" onClick={askForOutline}>
-                    Ask Simon for an outline
                   </Button>
                 </div>
               ) : null}

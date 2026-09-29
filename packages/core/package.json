@@ -15,11 +15,6 @@
       "types": "./dist/access/index.d.ts",
       "default": "./dist/access/index.js"
     },
-    "./ai": {
-      "source": "./src/ai/index.ts",
-      "types": "./dist/ai/index.d.ts",
-      "default": "./dist/ai/index.js"
-    },
     "./account": {
       "source": "./src/account/index.ts",
       "types": "./dist/account/index.d.ts",
@@ -54,11 +49,6 @@
       "source": "./src/search/index.ts",
       "types": "./dist/search/index.d.ts",
       "default": "./dist/search/index.js"
-    },
-    "./simon": {
-      "source": "./src/simon/index.ts",
-      "types": "./dist/simon/index.d.ts",
-      "default": "./dist/simon/index.js"
     },
     "./scheduling": {
       "source": "./src/scheduling/index.ts",

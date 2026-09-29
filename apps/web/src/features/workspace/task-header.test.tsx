@@ -1,8 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WorkspaceDialogs } from "./dialogs.tsx";
-import type { TaskRunStateSource } from "./run-state.ts";
-import { ChatTitle, TaskHeader } from "./task-header.tsx";
+import { TaskHeader } from "./task-header.tsx";
 import { FakeWorkspaceApi, renderWorkspace } from "./test-support.tsx";
 
 /** Task ids have to be real UUIDs: the shell only reads a task out of the address when it is one. */
@@ -47,8 +46,8 @@ beforeEach(() => {
 });
 
 /*
- * The task page header and the chat's subtitle (task_document.md, workspace_now.md): the states the
- * shell's page frame can be in while the task behind it is loading, missing, nested or archived.
+ * The task page header (task_document.md, workspace_now.md): the states the shell's page frame can
+ * be in while the task behind it is loading, missing, nested or archived.
  */
 
 describe("the task page header", () => {
@@ -94,16 +93,6 @@ describe("the task page header", () => {
     expect(
       screen.queryByRole("button", { name: /Task menu for Send the project outline/ }),
     ).not.toBeInTheDocument();
-  });
-
-  it("shows that Simon is working, in words and not colour alone", async () => {
-    const source: TaskRunStateSource = {
-      get: (taskId) => ({ status: taskId === OUTLINE ? "awaiting_approval" : "idle" }),
-      subscribe: () => () => undefined,
-    };
-    renderWorkspace(<TaskHeader taskId={OUTLINE} />, { api: seeded(), runState: source });
-    await screen.findByRole("heading", { name: "Send the project outline" });
-    expect(screen.getByText("Waiting for your approval")).toBeInTheDocument();
   });
 
   it("completes the open task from the header and leaves the task's address", async () => {
@@ -177,19 +166,5 @@ describe("the task page header", () => {
     expect(alert).toHaveAttribute("role", "alert");
     expect(within(alert).getByText("Rename didn't save.")).toBeInTheDocument();
     expect(again).toHaveValue("Send the outline");
-  });
-});
-
-describe("the chat subtitle", () => {
-  it("names the task the conversation belongs to, and nothing before it is known", async () => {
-    renderWorkspace(<ChatTitle taskId={OUTLINE} />, { api: seeded() });
-    expect(await screen.findByText("Send the project outline")).toBeInTheDocument();
-  });
-
-  it("stays out of the way when the task cannot be read", async () => {
-    renderWorkspace(<ChatTitle taskId="gone" />, { api: seeded() });
-    // Nothing is rendered at all rather than an empty subtitle or a placeholder.
-    await waitFor(() => expect(document.querySelector(".truncate")).toBeNull());
-    expect(screen.queryByText("Send the project outline")).not.toBeInTheDocument();
   });
 });

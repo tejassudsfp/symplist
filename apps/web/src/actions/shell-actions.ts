@@ -103,35 +103,11 @@ export const shellActions: readonly AppAction[] = [
     run: ({ services }) => services.shell?.focusPane("page"),
   },
   {
-    id: "shell.focus_chat",
-    label: "Open Simon chat",
-    context: "app",
-    group: "navigation",
-    keywords: ["simon", "assistant"],
-    defaultBinding: "g c",
-    availability: (environment) => {
-      const shell = needsShell(environment);
-      return shell.enabled ? needsTask(environment) : shell;
-    },
-    run: ({ services }) => services.shell?.focusPane("chat"),
-  },
-  {
     id: "shell.toggle_inbox",
     label: "Show or hide task list",
     context: "app",
     group: "general",
     availability: needsShell,
     run: ({ services }) => services.shell?.toggleInbox(),
-  },
-  {
-    id: "shell.toggle_chat",
-    label: "Show or hide chat",
-    context: "app",
-    group: "general",
-    availability: (environment) => {
-      const shell = needsShell(environment);
-      return shell.enabled ? needsTask(environment) : shell;
-    },
-    run: ({ services }) => services.shell?.toggleChat(),
   },
 ];

@@ -26,12 +26,13 @@ export function documentWorkerFor(runtime: WorkerRuntime): DocumentWorker {
 }
 
 /**
- * Git-backed document tools for Simon when `DURABLE=true` (§8.8, §9.1, decision R6). `simon-run`
- * triggers it with `triggerAndWait`, `idempotencyKey` = the tool call id and the ids-only payload
- * `{runId, toolCallId, taskId, op}`; the operation input and result are encrypted job objects. It has
- * its own `d1-git` queue so the waiting run never holds the slot this child needs, runs on small-1x
- * and retries once on a larger machine after running out of memory. Publications are idempotent by
- * tool call id, so a retried attempt never publishes twice.
+ * Git-backed document tools for agent callers when `DURABLE=true` (§8.8, §9.1, decision R6). Simon
+ * used to be the caller; now that chat runs on the desktop (note 18) the caller is an MCP grant
+ * (§14.6), which triggers this task with `triggerAndWait`, `idempotencyKey` = the tool call id and
+ * the ids-only payload `{runId, toolCallId, taskId, op}`; the operation input and result are
+ * encrypted job objects. It has its own `d1-git` queue, runs on small-1x and retries once on a
+ * larger machine after running out of memory. Publications are idempotent by request id, so a
+ * retried attempt never publishes twice.
  */
 export const documentGit = task({
   id: "document-git",

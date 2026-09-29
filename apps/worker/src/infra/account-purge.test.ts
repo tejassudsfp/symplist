@@ -188,7 +188,7 @@ describe("account-purge task body (§5.6, §8.8)", () => {
   it("cancels the account's straggler Trigger runs and stops them before purging rows", async () => {
     const userId = await deletedAccount();
     const handle = await trigger.tasks.trigger(
-      "simon-run",
+      "document-git",
       { runId: "r1" },
       { idempotencyKey: "r1" },
     );
@@ -220,13 +220,16 @@ describe("account-purge task body (§5.6, §8.8)", () => {
       markInterrupted: async () => false,
       markStopped: async (subjectId) => active.delete(subjectId),
     };
+    // Chat used to be the one kind with a tracker, and it is gone; no shipped contributor declares
+    // one today. The straggler contract still has to hold for the next kind that does, so these
+    // fixtures stand in for it, and this file is now its only guard.
     const contributors: EventsContributor[] = [
       {
-        domain: "simon",
+        domain: "documents",
         executionKinds: [
           {
-            kind: "simon_run",
-            triggerTaskId: "simon-run",
+            kind: "document_git",
+            triggerTaskId: "document-git",
             payload: (job) => ({ runId: job.subjectId }),
             tracker: () => tracker,
           },
@@ -243,7 +246,7 @@ describe("account-purge task body (§5.6, §8.8)", () => {
   it("recovers a straggler's Trigger run id from its dispatched intent", async () => {
     const userId = await deletedAccount();
     const handle = await trigger.tasks.trigger(
-      "simon-run",
+      "document-git",
       { runId: "r2" },
       { idempotencyKey: "r2" },
     );
@@ -252,7 +255,7 @@ describe("account-purge task body (§5.6, §8.8)", () => {
       sql(
         `INSERT INTO dispatch_intents (id, owner_id, kind, subject_id, status, executor, executor_generation,
            trigger_run_id, attempts, created_at, updated_at, dispatched_at, write_id)
-         VALUES (:id, :owner, 'simon_run', :subject, 'dispatched', 'trigger', 1, :run, 1, :now, :now, :now, :w)`,
+         VALUES (:id, :owner, 'document_git', :subject, 'dispatched', 'trigger', 1, :run, 1, :now, :now, :now, :w)`,
         {
           id: uuidv7(now),
           owner: userId,
@@ -291,11 +294,11 @@ describe("account-purge task body (§5.6, §8.8)", () => {
     };
     const contributors: EventsContributor[] = [
       {
-        domain: "simon",
+        domain: "documents",
         executionKinds: [
           {
-            kind: "simon_run",
-            triggerTaskId: "simon-run",
+            kind: "document_git",
+            triggerTaskId: "document-git",
             payload: (job) => ({ runId: job.subjectId }),
             tracker: () => tracker,
           },
@@ -335,11 +338,11 @@ describe("account-purge task body (§5.6, §8.8)", () => {
     };
     const contributors: EventsContributor[] = [
       {
-        domain: "simon",
+        domain: "documents",
         executionKinds: [
           {
-            kind: "simon_run",
-            triggerTaskId: "simon-run",
+            kind: "document_git",
+            triggerTaskId: "document-git",
             payload: (job) => ({ runId: job.subjectId }),
             tracker: () => tracker,
           },
@@ -384,11 +387,11 @@ describe("account-purge task body (§5.6, §8.8)", () => {
     };
     const contributors: EventsContributor[] = [
       {
-        domain: "simon",
+        domain: "documents",
         executionKinds: [
           {
-            kind: "simon_run",
-            triggerTaskId: "simon-run",
+            kind: "document_git",
+            triggerTaskId: "document-git",
             payload: (job) => ({ runId: job.subjectId }),
             tracker: () => tracker,
           },

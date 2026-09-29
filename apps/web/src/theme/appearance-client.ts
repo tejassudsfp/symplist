@@ -31,8 +31,8 @@ export function removeAppearanceCookie(doc: Document = document): void {
 
 /**
  * Applies an appearance to the live document without remounting anything: rewrites the appearance
- * stylesheet, then the `data-theme` and `data-mode` attributes, so drafts, editors and streaming chat
- * keep their state (note 02). Pass `persist: false` to preview without writing the cookie.
+ * stylesheet, then the `data-theme` and `data-mode` attributes, so drafts and editors keep their
+ * state (note 02). Pass `persist: false` to preview without writing the cookie.
  */
 export function applyAppearance(
   appearance: Appearance,

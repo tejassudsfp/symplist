@@ -35,7 +35,6 @@ const retryableCodes = new Set([
   "network.unavailable",
   "integration.unavailable",
   "integration.rate_limited",
-  "ai.unavailable",
   "trigger.unavailable",
   "account_purge.incomplete",
 ]);
@@ -65,8 +64,6 @@ export function toWorkerError(error: unknown): WorkerError {
   if (name === "AbortError" || name === "LocalExecutionAborted" || name === "TimeoutError") {
     return mapped("run.aborted");
   }
-  // AI SDK errors are named AI_<Kind>Error (APICallError, RetryError, NoSuchModelError, …).
-  if (name.startsWith("AI_")) return mapped("ai.unavailable");
   // Composio core errors and raw client API errors, detected by shape (§14.1).
   if (name.startsWith("Composio") || (value && "requestId" in value && "status" in value)) {
     return httpFamily("integration", value?.status);

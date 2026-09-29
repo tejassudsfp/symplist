@@ -7,7 +7,7 @@ import { sharingApi } from "./api.ts";
 import { ShareDialog } from "./share-dialog.tsx";
 import { sharingFailure } from "./ui.ts";
 
-/** A Simon proposal is only a review invitation. This trusted owner surface performs release. */
+/** A proposal is only a review invitation. This trusted owner surface performs release. */
 export function ShareProposalScreen({ proposalId }: { proposalId: string }) {
   const [proposal, setProposal] = useState<SharingProposal | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -33,7 +33,7 @@ export function ShareProposalScreen({ proposalId }: { proposalId: string }) {
     (proposal.expiresAt === null || proposal.expiresAt > Date.now());
   return (
     <main className="sym-handoff-screen">
-      <h1>Review Simon’s share proposal</h1>
+      <h1>Review this share proposal</h1>
       <p>
         Nothing has been shared. Only you can release access after reviewing the exact snapshot and
         settings.

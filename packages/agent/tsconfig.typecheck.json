@@ -1,9 +1,0 @@
-{
-  "extends": "../../tsconfig.base.json",
-  "compilerOptions": {
-    "noEmit": true,
-    "customConditions": ["source"],
-    "types": ["node"]
-  },
-  "include": ["src", "vitest.config.ts"]
-}

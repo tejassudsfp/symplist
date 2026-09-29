@@ -1,12 +1,16 @@
 # Self-hosting Symplist
 
 This guide deploys the current Symplist application from a clean checkout. The simplest supported
-setup runs the Next.js web app and the NestJS API with `DURABLE=false`; Simon and scheduled work then
-run inside the always-on API process and no Trigger.dev account is required. A durable Trigger.dev
+setup runs the Next.js web app and the NestJS API with `DURABLE=false`; scheduled work then runs
+inside the always-on API process and no Trigger.dev account is required. A durable Trigger.dev
 deployment is an optional second topology.
 
+This deployment stores a workspace; it does not run an assistant. Simon runs in the desktop
+application, on a model key you give that application, so nothing here needs a provider credential —
+see [the local-first desktop note](docs/notes/files/18_local_first_desktop.md).
+
 Symplist is MIT licensed, but a deployment still incurs the costs of the infrastructure and external
-providers you choose. Billing, paywalls, and Symplist-managed AI quotas are not part of this release.
+providers you choose. Billing and paywalls are not part of this release.
 
 ## 1. Know the topology
 
@@ -98,7 +102,7 @@ environment.
 | Material | API | Trigger worker | Web |
 | --- | --- | --- | --- |
 | Twelve generated families | All | Only `CONTENT_KEK`, `INTERNAL_EVENT_SECRET`, and `REMINDER_UNSUBSCRIBE_SECRET` | Never |
-| AI provider credential | Only when `DURABLE=false` | When durable work is deployed | Never |
+| Model provider credential | Rejected | Rejected | Never |
 | `TRIGGER_SECRET_KEY` | Only when `DURABLE=true` | Injected by Trigger.dev; never put it in `apps/worker/.env` | Never |
 | D1 token | API-specific token | Separate worker token | Never |
 | Webhook secrets and PostHog personal key | API only | Rejected | Never |
@@ -122,14 +126,12 @@ it:
 - `EMAIL_DRIVER=log`
 - `DURABLE=false`
 - `ANALYTICS_ENABLED=false`
-- `BILLING_ENABLED=false`, `PAYWALL_ENABLED=false`, and `AI_USAGE_LIMITS_ENABLED=false`
+- `BILLING_ENABLED=false` and `PAYWALL_ENABLED=false`
 - Local origins from the template: web on `localhost:3000`, API on `localhost:4000`, and artifacts on
   `127.0.0.1:4000`. The different artifact hostname is intentional.
 
-Add the credential for the selected Fast/Smart AI provider to `.env.local` if you want Simon. With
-`DURABLE=false`, the distributor places provider credentials in the API, where model and tool code
-runs. Do not set `TRIGGER_SECRET_KEY` or create a Trigger project. If provider credentials are absent,
-the rest of the product still boots and Simon reports that it is unavailable.
+Do not add a model provider credential: neither runtime accepts one, and startup fails naming the
+variable if one is set. Do not set `TRIGGER_SECRET_KEY` or create a Trigger project either.
 
 Then run:
 
@@ -204,51 +206,29 @@ API logs one startup warning. Sending OTP and reminder email still requires `RES
 
 ### Simpler: `DURABLE=false`
 
-Use an always-on Render instance. Configure the selected provider credential in the API and omit
-Trigger credentials. Simon, document Git jobs, indexing, reminders, cleanup, and reconciliation run
-inside Nest. Restart recovery is database-backed, but no work runs while the API is offline.
+Use an always-on Render instance and omit the Trigger credentials. Document Git jobs, indexing,
+reminders, cleanup, and reconciliation run inside Nest. Restart recovery is database-backed, but no
+work runs while the API is offline.
 
 ### Durable: `DURABLE=true`
 
-The API receives `TRIGGER_SECRET_KEY` and `TRIGGER_PROJECT_REF` but must contain no OpenAI, Bedrock,
-Vertex, or Together credential. Those credentials belong in the worker environment. Startup rejects a
-provider key in the durable API so the API cannot call a model by accident.
+The API receives `TRIGGER_SECRET_KEY` and `TRIGGER_PROJECT_REF`. The worker's key is injected by
+Trigger.dev and must not be set by hand. Neither runtime may hold a model credential: `OPENAI_API_KEY`,
+`ANTHROPIC_API_KEY`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `GOOGLE_VERTEX_CREDENTIALS_JSON`
+and `TOGETHER_API_KEY` are refused at startup on both.
+
+They are refused rather than ignored on purpose. An instance upgrading from the version that ran
+Simon on the server still has one of them set, and a startup failure naming the variable is how its
+operator learns that the assistant — and the key it spends — moved to the desktop application.
 
 Trigger hosts execution metadata containing IDs, enums, and counts only. Symplist does not use
 Trigger Sessions or Trigger chat streams; encrypted worker-to-API output is the durable path.
 
-### Control AI cost and prompt caching
+### AI cost
 
-Use a dedicated provider project and credential for Symplist. For OpenAI, configure an enforced hard
-project spend limit plus lower notification thresholds in the project Limits page; an alert-only
-budget does not stop requests. The provider remains the authoritative billing meter. See OpenAI's
-[project controls](https://help.openai.com/en/articles/9186755-managing-projects-in-the-api-platform)
-and [spend-limit troubleshooting](https://help.openai.com/en/articles/6614457).
-
-The application adds these independent safety bounds:
-
-- at most 4,096 requested output tokens per model step and 8,192 for a whole run;
-- at most ten model/tool steps, one tool call per step, and no automatic model retries;
-- the newest 40 conversation messages and 64 KiB of encrypted-history plaintext enter a prompt;
-- provider-controlled connector results have a cumulative 96 KiB model-visible budget;
-- Simon message submissions are limited to 12 per authenticated session within its client network
-  per minute before D1/model work; only a one-way session digest enters the limiter key;
-- Fast and Smart resolve only to the explicitly configured models; there is no silent expensive
-  fallback.
-
-OpenAI GPT-5.6 receives `prompt_cache_options` for implicit 30-minute prefix caching. Stable Simon
-instructions, tools, and earlier turns can therefore be reused when a prefix is eligible; provider
-cache-read and cache-write token counts are persisted as content-free run telemetry. A live contract
-test repeats an eligible prefix and requires a real cache read. Symplist does not memoize completed
-answers or use `previous_response_id`, because a later turn must re-check access, task revisions,
-tools, and approvals. Prompt caching is provider-side and `store: false` does not disable it; review
-the provider's [prompt-caching retention and pricing](https://developers.openai.com/api/docs/guides/prompt-caching)
-as part of the deployment's privacy notice.
-
-`AI_USAGE_LIMITS_ENABLED` remains `false`: free beta has no plan allowance or per-owner billing
-quota. The application bounds each run and accidental request bursts; the provider hard spend limit
-is the deployment-wide financial circuit breaker. Start with Fast only or point both aliases at the
-lower-cost model until real cache-hit and usage telemetry justifies Smart access.
+There is none to control here. No model runs in this deployment, so it has no provider bill, no
+prompt cache, and no token budget to tune. Those bounds now belong to the desktop application and to
+the provider project whose key you give it.
 
 ## 7. Deploy the API on Render
 
@@ -258,9 +238,8 @@ plan, web/API/artifact domains, senders, executor mode, and analytics choice. Ke
 `sync: false`; enter them in Render's secret UI, never in the YAML.
 
 The reference Blueprint uses durable execution and analytics. For the simpler topology, change its
-public mode to `DURABLE=false`, set `ANALYTICS_ENABLED=false` unless PostHog is configured, leave the
-Trigger values unset, and add the selected AI provider credential to the Render service. For durable
-mode, leave all AI provider credentials out of Render.
+public mode to `DURABLE=false`, set `ANALYTICS_ENABLED=false` unless PostHog is configured, and leave
+the Trigger values unset. In either mode, no model provider credential goes into Render.
 
 If configuring the service manually, use:
 
@@ -321,8 +300,8 @@ Skip this entire section when `DURABLE=false`.
 2. Put the production worker configuration in ignored `apps/worker/.env` by running
    `pnpm env:distribute`. Confirm `NODE_ENV=production`, `DATA_DRIVER=d1`, `EMAIL_DRIVER=resend`, and
    `DURABLE=true` before deploying.
-3. Confirm the worker contains its own D1 token, the R2/Resend/Composio/provider credentials it uses,
-   and exactly the three shared secret families. It must not contain API-only digest/recovery/webhook
+3. Confirm the worker contains its own D1 token, the R2/Resend/Composio credentials it uses, and
+   exactly the three shared secret families. It must not contain API-only digest/recovery/webhook
    secrets or `TRIGGER_SECRET_KEY`.
 4. Authenticate the pinned CLI with `pnpm --filter @symplist/worker exec trigger login`.
 5. Export your own project ref in the private shell environment, then deploy from the repository:
@@ -377,7 +356,8 @@ Composio is optional. Without its API key and webhook secret, connections remain
 invent connector records in D1. The catalogue is fetched live and is not persisted.
 
 The incoming MCP server is usable without Composio. OAuth access tokens last 15 minutes. MCP clients
-can also use an owner-created `sym_` bearer key and grant from Settings → Agents.
+can also use an owner-created `sym_` bearer key and grant from Settings → Agents. This is the
+interface the desktop assistant uses to reach a workspace it does not host.
 
 ## 11. Bootstrap the administrator and admission
 
@@ -423,9 +403,8 @@ without logging private content or tokens:
 4. Edit a task's Markdown, save two revisions, inspect Changes, compare them, and restore the first.
    Run `git --version` in the Render shell and, in durable mode, confirm the Trigger build installed
    Git. No external Git host is involved.
-5. Send a Simon message. If an action requires approval, verify the exact arguments and approve it
-   through the approval control; a chat reply is not approval. Stop another run and confirm it does
-   not continue after reconnect.
+5. Connect a service from Settings → Connections, confirm it appears as linked, and disconnect it.
+   The deployment records the link only; it performs no connector action of its own.
 6. Set up the Vault, allow it to idle-lock, unlock it, create an item, and perform the fresh-OTP reset
    flow. Ordinary login must not unlock the Vault.
 7. Create an artifact snapshot and expiring share. Open HTML and Raw Markdown in a signed-out private
@@ -484,7 +463,7 @@ Use PostHog US Cloud. The current account-deletion client targets PostHog's US m
 or self-hosted management endpoint is not configurable in this release.
 
 The implementation uses an explicit event/property allowlist. Autocapture, automatic page/URL
-collection, session replay, task/document/chat text, emails, share URLs, and Vault content remain
+collection, session replay, task and document text, emails, share URLs, and Vault content remain
 excluded. The browser posts allowed events to `POST /v1/analytics/events`; identity stays on the
 server. User consent is still required after the operator enables PostHog.
 
@@ -636,15 +615,15 @@ the version's contracts match the API commit before promotion.
 | Symptom | Checks |
 | --- | --- |
 | Configuration fails before boot | Run `pnpm env:check`. Look for a variable in the wrong runtime, an empty required value, a reused credential, or API/worker shared-family mismatch. Errors name variables but should never print values. |
-| Local mode unexpectedly starts Trigger or rejects a provider key | Remove an exported shell `DURABLE`, set `DURABLE=false` in the master file before distribution, and put the selected provider key in the API. Process variables override `.env`. |
-| API or worker rejects `OPENAI_API_KEY` or another model credential | This is intentional, in either mode. Model keys are per account: remove every provider credential from the environment, and have each person add their own OpenAI or Anthropic key in Settings → Models. Nothing needs a deployment-wide key. |
+| Local mode unexpectedly starts Trigger | Remove an exported shell `DURABLE` and set `DURABLE=false` in the master file before distribution. Process variables override `.env`. |
+| API or worker rejects `OPENAI_API_KEY` or another model credential | This is intentional, in either mode. No deployment runs a model: remove every provider credential from the environment, and give the key to the desktop application instead. |
 | Sign-in works at the API but not from the web app | Verify HTTPS custom domains, exact `WEB_ORIGIN`, public API/WS build variables, credentialed CORS, and that the web/API hosts share the intended site. Redeploy Vercel after public-variable changes. |
 | Unsafe API call returns 403 | Browser requests need an exact `Origin` plus the session-bound CSRF header. Do not proxy authenticated API calls through Next or disable the check. |
 | WebSocket never connects | Verify `NEXT_PUBLIC_WS_URL`, `WS_ORIGIN`, `wss`, proxy upgrade support, and exact web-origin allowlisting. |
 | Artifact URL returns generic unavailable | Request it on the configured artifact hostname, not the API hostname; verify DNS/TLS and `ARTIFACT_ORIGIN`, then check expiry/revocation. Generic 404-style output intentionally hides whether private content exists. |
 | OTP email is missing | In development, read the API console with `EMAIL_DRIVER=log`. In production, verify Resend domain/sender/API key. The webhook is delivery tracking, not the sender. |
 | Reminder did not fire | Confirm an IANA timezone, top-of-hour semantics, quiet hours/snooze, max lateness, email preference, and that exactly one scheduler owner is running. Local mode requires an always-on API; durable mode requires deployed schedules. |
-| Simon is unavailable | Check `AI_ENABLED`, provider/model names, and the credential in the executor runtime. In durable mode also check the Trigger project/environment and worker-to-API origin/signing family. |
+| The web app shows no assistant | It has none. Simon is the desktop application; the web app is a viewer over the same workspace. |
 | Worker output cannot decrypt/verify | Stop retries and compare the names, versions, and offline fingerprints of the three shared families. Do not print values. Restore the missing historical version instead of generating a replacement under the same number. |
 | D1 returns 429 | Honor `Retry-After`; the client opens a circuit intentionally. Check that API/worker use separate scoped tokens and that no extra workers or inline Trigger queues bypass the fixed concurrency. |
 | Document saves/history fail | Run `git --version`; check private temp-directory permissions/free space and R2 access. `GIT_TMP_DIR` is disposable and must not be restored as durable state. |

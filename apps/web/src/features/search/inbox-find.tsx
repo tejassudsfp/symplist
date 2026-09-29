@@ -25,7 +25,7 @@ import { useAsyncSearch, useDebouncedValue } from "./use-async-search.ts";
 
 /*
  * Find in the task list (note 14 entry point 3, the sample's quiet inbox search): the collection is
- * the filter, so a query here never reaches other collections, the archive or chat. With no query the
+ * the filter, so a query here never reaches other collections or the archive. With no query the
  * list below is shown untouched. The task list feature renders this around its tree.
  */
 

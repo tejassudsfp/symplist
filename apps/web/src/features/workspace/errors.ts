@@ -17,8 +17,6 @@ export type FailureKind =
   | "not_found"
   /** The task was completed, possibly on another device (`task.archived`). */
   | "archived"
-  /** Simon is still working on the task (`task.run_active`). */
-  | "run_active"
   /** The tree or a preference group changed while the write was prepared. */
   | "conflict"
   /** An impossible place or depth (`task.placement_invalid`, `task.depth_limit`). */
@@ -59,7 +57,6 @@ export function classifyFailure(error: unknown): Failure {
     }
     if (code === "not_found") return { kind: "not_found", retryable: false };
     if (code === "task.archived") return { kind: "archived", retryable: false };
-    if (code === "task.run_active") return { kind: "run_active", retryable: false };
     if (
       code === "task.conflict" ||
       code === "preferences.conflict" ||
@@ -150,8 +147,6 @@ export function writeFailureMessage(failure: Failure, attempt: string): string {
       return `Couldn't ${attempt}. It isn't there any more.`;
     case "archived":
       return `Couldn't ${attempt}. It was already completed.`;
-    case "run_active":
-      return `Couldn't ${attempt}. Simon is still working on it.`;
     case "conflict":
       return `Couldn't ${attempt}. Your tasks changed on another device; try again.`;
     case "invalid_place":

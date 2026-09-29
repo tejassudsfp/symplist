@@ -26,7 +26,7 @@ interface Message {
 
 /**
  * The beta gate (beta_gate.md): a verified account that is signed in but not admitted. No task,
- * document, chat, vault or connector content renders behind this screen — the app is simply not
+ * document, vault or connector content renders behind this screen — the app is simply not
  * mounted. One paste-friendly code field unlocks the account; Check access picks up an administrator's
  * direct unlock without sending anything.
  */

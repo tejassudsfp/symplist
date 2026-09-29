@@ -1,8 +1,8 @@
 import type { ActionContext, PaneId } from "./types.ts";
 
-/** Marks an editor or composer region: `data-action-context="editor"` or `"composer"`. */
+/** Marks an editor region: `data-action-context="editor"`. */
 export const ACTION_CONTEXT_ATTRIBUTE = "data-action-context";
-/** Marks a workspace pane: `data-pane="inbox" | "page" | "chat"`. */
+/** Marks a workspace pane: `data-pane="inbox" | "page"`. */
 export const PANE_ATTRIBUTE = "data-pane";
 /** Marks a modal or menu layer rendered by the shared primitives. */
 export const ACTION_LAYER_ATTRIBUTE = "data-action-layer";
@@ -95,12 +95,12 @@ export interface FocusDescription {
 
 function paneOf(element: Element | null): PaneId | null {
   const pane = element?.closest(`[${PANE_ATTRIBUTE}]`)?.getAttribute(PANE_ATTRIBUTE);
-  return pane === "inbox" || pane === "page" || pane === "chat" ? pane : null;
+  return pane === "inbox" || pane === "page" ? pane : null;
 }
 
 /**
  * Derives the active contexts for a key event from the DOM: an open modal blocks everything beneath
- * it, an open menu blocks the page, and otherwise editor or composer, pane and app apply in order.
+ * it, an open menu blocks the page, and otherwise editor, pane and app apply in order.
  */
 export function describeFocus(target: EventTarget | null, doc: Document): FocusDescription {
   const element = asElement(target);
@@ -121,7 +121,7 @@ export function describeFocus(target: EventTarget | null, doc: Document): FocusD
   const region = element
     ?.closest(`[${ACTION_CONTEXT_ATTRIBUTE}]`)
     ?.getAttribute(ACTION_CONTEXT_ATTRIBUTE);
-  if (region === "editor" || region === "composer") contexts.push(region);
+  if (region === "editor") contexts.push(region);
   if (pane) contexts.push("pane");
   contexts.push("app");
   return { contexts, pane, typing, activation };

@@ -104,7 +104,6 @@ describe("generation-fenced shared hourly cleanup", () => {
           keys: env.keys,
           now: () => env.clock,
           policy: { betaAccessRequired: true },
-          quickChatTtlHours: 24,
           cleanupFeatureExpiries: (_input, cleanup) => cleanupSharedFeatures(cleanup, store),
         },
         { executor, generation: 1 },
@@ -276,7 +275,6 @@ describe("generation-fenced shared hourly cleanup", () => {
       keys: env.keys,
       now: () => env.clock,
       policy: { betaAccessRequired: true },
-      quickChatTtlHours: 24,
       cleanupFeatureExpiries: cleanup,
       requeueSearch: search,
     };

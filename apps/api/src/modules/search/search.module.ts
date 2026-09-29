@@ -5,7 +5,6 @@ import {
   type OnModuleDestroy,
   type OnModuleInit,
 } from "@nestjs/common";
-import { onPreferenceCommitted } from "@symplist/core/preferences";
 import {
   createSearchSources,
   DEFAULT_SEARCH_CACHE_IDLE_MS,
@@ -53,7 +52,6 @@ import { SearchIndexCoordinator } from "./search-index.coordinator.ts";
 @Injectable()
 export class SearchRegistration implements OnModuleInit, OnModuleDestroy {
   private stopRequests: (() => void) | undefined;
-  private stopPreferences: (() => void) | undefined;
   constructor(
     @Inject(DB_CLIENT) private readonly db: DbClient,
     @Inject(SEARCH_QUERY_SERVICE) private readonly queries: SearchQueryService,
@@ -69,14 +67,6 @@ export class SearchRegistration implements OnModuleInit, OnModuleDestroy {
     this.stopRequests = onSearchIndexRequested(this.db, ({ ownerId, reason }) =>
       this.coordinator.request(ownerId, reason),
     );
-    this.stopPreferences = onPreferenceCommitted(this.db, (event) => {
-      if (event.group !== "privacy") return;
-      // The next read must not reuse either the old opt-in or its index-state snapshot. Rebuilding
-      // removes previously indexed chat immediately after an opt-out and adds it after an opt-in.
-      this.queries.invalidateChatOptIn(event.ownerId);
-      this.queries.invalidateState(event.ownerId);
-      this.coordinator.request(event.ownerId, "rebuild");
-    });
     this.restrictionEffects.register({
       name: "search_cache_eviction",
       afterCommit: async (event) => {
@@ -111,7 +101,6 @@ export class SearchRegistration implements OnModuleInit, OnModuleDestroy {
   }
   onModuleDestroy(): void {
     this.stopRequests?.();
-    this.stopPreferences?.();
   }
 }
 

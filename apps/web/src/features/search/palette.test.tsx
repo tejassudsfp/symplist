@@ -50,13 +50,13 @@ const recentTasks: readonly TaskLocation[] = [
 ];
 
 /** Registry actions the palette lists in Actions mode, plus the search feature's own. */
-const focusChat: AppAction = {
-  id: "shell.focus_chat",
-  label: "Open Simon chat",
+const focusPage: AppAction = {
+  id: "shell.focus_page",
+  label: "Open task page",
   context: "app",
   group: "navigation",
-  keywords: ["simon", "assistant"],
-  defaultBinding: "g c",
+  keywords: ["document", "markdown"],
+  defaultBinding: "g d",
   availability: ({ services }) =>
     services.route?.taskId ? { enabled: true } : { enabled: false, reason: "Open a task first" },
   run: vi.fn(),
@@ -73,7 +73,7 @@ const completeTask: AppAction = {
   run: vi.fn(),
 };
 
-const actions = [...searchActions, focusChat, completeTask];
+const actions = [...searchActions, focusPage, completeTask];
 
 function openPalette() {
   act(() => {
@@ -84,7 +84,7 @@ function openPalette() {
 beforeEach(() => {
   navigation.pathname = "/now";
   navigation.push.mockClear();
-  (focusChat.run as ReturnType<typeof vi.fn>).mockClear();
+  (focusPage.run as ReturnType<typeof vi.fn>).mockClear();
 });
 
 afterEach(() => {
@@ -274,15 +274,15 @@ describe("the palette's actions mode", () => {
     await screen.findByRole("combobox", { name: "Search actions" });
     expect(screen.getByRole("listbox", { name: "Actions" })).toBeInTheDocument();
     expect(screen.getByText("Navigation")).toBeInTheDocument();
-    const chat = screen.getByRole("option", { name: /Open Simon chat/ });
-    expect(chat).toHaveTextContent("Open a task first");
-    expect(chat).toHaveAttribute("aria-disabled", "true");
-    expect(within(chat).getByText("G")).toBeInTheDocument();
-    expect(within(chat).getByText("then")).toBeInTheDocument();
+    const page = screen.getByRole("option", { name: /Open task page/ });
+    expect(page).toHaveTextContent("Open a task first");
+    expect(page).toHaveAttribute("aria-disabled", "true");
+    expect(within(page).getByText("G")).toBeInTheDocument();
+    expect(within(page).getByText("then")).toBeInTheDocument();
 
     // A disabled action never runs from the palette either (note 13).
     await user.keyboard("{Enter}");
-    expect(focusChat.run).not.toHaveBeenCalled();
+    expect(focusPage.run).not.toHaveBeenCalled();
     expect(screen.getByRole("combobox")).toBeInTheDocument();
 
     // Backspace on an empty actions query goes back to task search.
@@ -299,13 +299,13 @@ describe("the palette's actions mode", () => {
       services: { route: { collection: "now", taskId: "0192f0a0-0000-7000-8000-000000000101" } },
     });
     openPalette();
-    await user.type(await screen.findByRole("combobox"), ">chat");
-    const chat = await screen.findByRole("option", { name: /Open Simon chat/ });
-    expect(chat).not.toHaveAttribute("aria-disabled");
+    await user.type(await screen.findByRole("combobox"), ">task page");
+    const page = await screen.findByRole("option", { name: /Open task page/ });
+    expect(page).not.toHaveAttribute("aria-disabled");
     await user.keyboard("{Enter}");
     await waitFor(() => expect(screen.queryByRole("combobox")).not.toBeInTheDocument());
-    await waitFor(() => expect(focusChat.run).toHaveBeenCalledTimes(1));
-    expect((focusChat.run as ReturnType<typeof vi.fn>).mock.calls[0]?.[0]).toMatchObject({
+    await waitFor(() => expect(focusPage.run).toHaveBeenCalledTimes(1));
+    expect((focusPage.run as ReturnType<typeof vi.fn>).mock.calls[0]?.[0]).toMatchObject({
       source: "palette",
     });
   });

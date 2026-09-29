@@ -4,7 +4,6 @@ export * from "./maintenance.ts";
 export * from "./oauth-requests.ts";
 export * from "./oauth-tokens.ts";
 export * from "./search-tools.ts";
-export * from "./simon-tools.ts";
 export * from "./task-tools.ts";
 export * from "./types.ts";
 export * from "./write-fold.ts";

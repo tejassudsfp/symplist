@@ -1,4 +1,4 @@
-import { simonConversationCreatedSchema, vaultGrantResponseSchema } from "@symplist/contracts";
+import { vaultGrantResponseSchema } from "@symplist/contracts";
 import { int, sql, uuidv7 } from "@symplist/db";
 import { afterEach, describe, expect, it } from "vitest";
 import { idempotencyKey, lastOtpMessage } from "./access/helpers.ts";
@@ -96,13 +96,17 @@ describe("§6.1 Vault capability and passphrase scans", () => {
         { task, owner: owner.id, now: int(app.clock.now()) },
       ),
     );
-    const conversation = await app.post("/v1/conversations", {
-      session: owner.session,
-      idempotencyKey: idempotencyKey(),
-      body: { kind: "task", taskId: task },
-    });
-    expect(conversation.status, conversation.text).toBe(201);
-    const conversationId = simonConversationCreatedSchema.parse(conversation.json()).conversationId;
+    // A grant is still bound to the task's conversation row, which `vault_grants` inserts against.
+    // Chat left the cloud, so nothing creates one any more and the row is seeded directly: the
+    // proof this case exists for is that the passphrase, the vault token and the secret value never
+    // reach D1, the object store or the logs, not how the conversation came to be.
+    const conversationId = uuidv7();
+    await app.db.run(
+      sql(
+        "INSERT INTO conversations(id,owner_id,kind,task_id,created_at,updated_at,write_id) VALUES(:id,:owner,'task',:task,:now,:now,'seed')",
+        { id: conversationId, owner: owner.id, task, now: int(app.clock.now()) },
+      ),
+    );
     const grantOptions = {
       session: owner.session,
       headers: { cookie: session.cookie },
@@ -135,7 +139,9 @@ describe("§6.1 Vault capability and passphrase scans", () => {
         [value, passphrase, session.token],
         [created, replay, grant, grantReplay, list],
       ),
-    ).toBe(4);
+      // Vault setup, the item and the grant: three encrypted idempotency records were scanned. The
+      // fourth was the conversation this case used to create through the api.
+    ).toBe(3);
     // An authorized explicit item read is intentionally plaintext. This is not a one-time secret
     // response, and retaining encrypted item/grant values is required by the Vault design.
     const read = await app.get(`/v1/vault/items/${item.id}`, {

@@ -89,7 +89,7 @@ describe("the restriction routine (§5.5)", () => {
     const service = new D1AccessService({
       db,
       policy,
-      contributors: [probeContributor("vault"), probeContributor("simon")],
+      contributors: [probeContributor("vault"), probeContributor("mcp")],
       effects: [{ name: "record", afterCommit: async (event) => void effects.push(event) }],
     });
     const userId = await createUser(db);
@@ -106,7 +106,7 @@ describe("the restriction routine (§5.5)", () => {
       await db.all(sql(`SELECT domain, reason FROM probe_revocations ORDER BY rowid`)),
     ).toEqual([
       { domain: "vault", reason: "relocked" },
-      { domain: "simon", reason: "relocked" },
+      { domain: "mcp", reason: "relocked" },
     ]);
     expect(effects).toEqual([
       { userId, reason: "relocked", accessGeneration: 1, committedAt: now + 1 },
@@ -322,7 +322,6 @@ describe("the restriction routine (§5.5)", () => {
     expect(restrictContributors.map((contributor) => contributor.domain)).toEqual([
       "access",
       "vault",
-      "simon",
       "scheduling",
       "sharing",
       "mcp",

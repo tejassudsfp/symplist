@@ -23,7 +23,7 @@ export interface FreshnessWatchInput {
   readonly status: SearchIndexStatus;
   /**
    * A rebuild has been asked for and is still coming, so a new generation is expected even with no
-   * pending change: the chat opt-in turned on before chat entered the index (`chat_indexing`).
+   * pending change: an edit saved before the index caught up with it (`changes_pending`).
    */
   readonly rebuildExpected?: boolean;
 }

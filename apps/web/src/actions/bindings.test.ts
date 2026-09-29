@@ -25,10 +25,10 @@ function action(partial: Partial<AppAction> & Pick<AppAction, "id" | "context">)
 
 const actions: AppAction[] = [
   action({ id: "palette.open", context: "app", defaultBinding: "mod+k" }),
-  action({ id: "shell.focus_chat", context: "app", defaultBinding: "g c" }),
+  action({ id: "shell.focus_page", context: "app", defaultBinding: "g d" }),
   action({ id: "shell.focus_inbox", context: "app", defaultBinding: "g i" }),
   action({ id: "task.complete", context: "pane", pane: "inbox", defaultBinding: "x" }),
-  action({ id: "chat.send", context: "composer", defaultBinding: "mod+enter" }),
+  action({ id: "doc.submit", context: "editor", defaultBinding: "mod+enter" }),
   action({ id: "doc.save", context: "editor", defaultBinding: "mod+s" }),
   action({ id: "task.next", context: "pane", pane: "inbox", defaultBinding: "j" }),
   action({ id: "dialog.confirm", context: "modal", defaultBinding: "mod+enter" }),
@@ -43,7 +43,7 @@ describe("effective bindings", () => {
     });
     expect(bindings.get("task.complete")?.canonical).toBe("shift+x");
     expect(bindings.get("palette.open")).toBeNull();
-    expect(bindings.get("shell.focus_chat")?.canonical).toBe("g c");
+    expect(bindings.get("shell.focus_page")?.canonical).toBe("g d");
     expect(bindings.get("run.stop")).toBeNull();
   });
 
@@ -55,18 +55,13 @@ describe("effective bindings", () => {
 });
 
 describe("context overlap and collisions", () => {
-  it("treats different panes, editor versus composer and modal versus app as exclusive", () => {
+  it("treats different panes, editor versus a pane and modal versus app as exclusive", () => {
     const inbox = action({ id: "a", context: "pane", pane: "inbox" });
-    const chatPane = action({ id: "b", context: "pane", pane: "chat" });
+    const pagePane = action({ id: "b", context: "pane", pane: "page" });
     const anyPane = action({ id: "c", context: "pane" });
-    expect(contextsOverlap(inbox, chatPane)).toBe(false);
+    expect(contextsOverlap(inbox, pagePane)).toBe(false);
     expect(contextsOverlap(inbox, anyPane)).toBe(true);
-    expect(
-      contextsOverlap(
-        action({ id: "e", context: "editor" }),
-        action({ id: "f", context: "composer" }),
-      ),
-    ).toBe(false);
+    expect(contextsOverlap(action({ id: "e", context: "editor" }), anyPane)).toBe(false);
     expect(
       contextsOverlap(action({ id: "g", context: "modal" }), action({ id: "h", context: "app" })),
     ).toBe(false);
@@ -156,15 +151,15 @@ describe("validateRemap", () => {
   });
 
   it("reports conflicts in overlapping contexts, including sequence prefixes", () => {
-    expect(validateRemap("run.stop", "g c", actions, prefs, "other")).toMatchObject({
+    expect(validateRemap("run.stop", "g d", actions, prefs, "other")).toMatchObject({
       ok: false,
       reason: "conflict",
-      conflictsWith: ["shell.focus_chat"],
+      conflictsWith: ["shell.focus_page"],
     });
     expect(validateRemap("run.stop", "g", actions, prefs, "other")).toMatchObject({
       ok: false,
       reason: "conflict",
-      conflictsWith: ["shell.focus_chat", "shell.focus_inbox"],
+      conflictsWith: ["shell.focus_page", "shell.focus_inbox"],
     });
     // An app shortcut would be shadowed inside the inbox pane.
     expect(validateRemap("run.stop", "x", actions, prefs, "other")).toMatchObject({
@@ -177,10 +172,10 @@ describe("validateRemap", () => {
   it("allows duplicate bindings in mutually exclusive contexts", () => {
     const exclusive = [
       ...actions,
-      action({ id: "chat.next", context: "pane", pane: "chat", defaultBinding: "k" }),
+      action({ id: "page.next", context: "pane", pane: "page", defaultBinding: "k" }),
     ];
-    expect(validateRemap("chat.next", "j", exclusive, prefs, "other")).toMatchObject({ ok: true });
-    // Modal Mod+Enter and composer Mod+Enter already coexist.
+    expect(validateRemap("page.next", "j", exclusive, prefs, "other")).toMatchObject({ ok: true });
+    // Modal Mod+Enter and editor Mod+Enter already coexist.
     expect(findConflicts(exclusive, effectiveBindings(exclusive, prefs))).toEqual([]);
   });
 
@@ -193,10 +188,10 @@ describe("validateRemap", () => {
   });
 
   it("frees a binding for reuse once its owner is remapped", () => {
-    const moved = validateRemap("shell.focus_chat", "g h", actions, prefs, "other");
+    const moved = validateRemap("shell.focus_page", "g h", actions, prefs, "other");
     expect(moved.ok).toBe(true);
     if (!moved.ok) return;
-    expect(validateRemap("run.stop", "g c", actions, moved.preferences, "other")).toMatchObject({
+    expect(validateRemap("run.stop", "g d", actions, moved.preferences, "other")).toMatchObject({
       ok: true,
     });
   });
@@ -211,15 +206,15 @@ describe("stored keyboard preferences", () => {
           "run.stop": "mod+t",
           "task.complete": "not a key",
           "palette.open": 42,
-          "shell.focus_inbox": "g c",
-          "chat.send": null,
+          "shell.focus_inbox": "g d",
+          "doc.submit": null,
           unknown: "mod+u",
         },
       },
       actions,
       "other",
     );
-    expect(parsed).toEqual({ singleKeyShortcuts: false, overrides: { "chat.send": null } });
+    expect(parsed).toEqual({ singleKeyShortcuts: false, overrides: { "doc.submit": null } });
   });
 
   it("falls back to defaults for non-objects", () => {

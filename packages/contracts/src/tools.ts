@@ -5,7 +5,6 @@ import { documentsTools } from "./documents/tools.ts";
 import { schedulingTools } from "./scheduling/tools.ts";
 import { searchTools } from "./search/tools.ts";
 import { sharingTools } from "./sharing/tools.ts";
-import { simonTools } from "./simon/tools.ts";
 import { vaultTools } from "./vault/tools.ts";
 import { workspaceTools } from "./workspace/tools.ts";
 
@@ -15,7 +14,6 @@ export const toolContractsByFeature = {
   workspace: workspaceTools,
   documents: documentsTools,
   search: searchTools,
-  simon: simonTools,
   scheduling: schedulingTools,
   vault: vaultTools,
   sharing: sharingTools,
@@ -29,7 +27,6 @@ export const toolContracts = Object.freeze({
   ...workspaceTools,
   ...documentsTools,
   ...searchTools,
-  ...simonTools,
   ...schedulingTools,
   ...vaultTools,
   ...sharingTools,

@@ -22,15 +22,12 @@ describe("search filters", () => {
   it("keeps at least one collection and one content type selected", () => {
     const one = toggleInList(collectionOrder, ["now"], "now");
     expect(one).toEqual(["now"]);
-    expect(toggleInList(contentTypeOrder, ["tasks", "documents"], "chat")).toEqual([
-      "tasks",
-      "documents",
-      "chat",
-    ]);
-    expect(toggleInList(contentTypeOrder, ["tasks", "chat"], "tasks")).toEqual(["chat"]);
+    expect(toggleInList(contentTypeOrder, ["tasks", "documents"], "tasks")).toEqual(["documents"]);
+    expect(toggleInList(contentTypeOrder, ["documents"], "tasks")).toEqual(["tasks", "documents"]);
+    expect(toggleInList(contentTypeOrder, ["documents"], "documents")).toEqual(["documents"]);
   });
 
-  it("always states the scope, including the archive opt-in and chat", () => {
+  it("always states the scope, including the archive opt-in", () => {
     expect(
       describeScope({
         collections: ["now", "later", "unclassified"],
@@ -45,10 +42,10 @@ describe("search filters", () => {
       describeScope({
         collections: ["now"],
         archive: "only",
-        types: ["chat"],
+        types: ["documents"],
         deadline: null,
       }),
-    ).toBe("Chat in Now. Only archived tasks.");
+    ).toBe("Documents in Now. Only archived tasks.");
     expect(
       describeScope({
         collections: ["now", "later"],

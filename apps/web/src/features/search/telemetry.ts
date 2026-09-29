@@ -5,13 +5,18 @@
  * analytics feature, which owns consent and the provider client, registers the reporter.
  */
 
-export type SearchSurface = "command_palette" | "full_search" | "collection" | "document" | "chat";
+export type SearchSurface = "command_palette" | "full_search" | "collection" | "document";
 
 export type ResultCountBucket = "0" | "1-5" | "6-20" | "21+";
 
 export interface SearchUsedEvent {
   readonly surface: SearchSurface;
   readonly include_archive: boolean;
+  /**
+   * Always false: no chat is searched any more. The analytics event's properties are a strict
+   * allowlist in `@symplist/analytics` that still requires the field, so it is sent as it is rather
+   * than dropped here and rejected there.
+   */
   readonly include_chat: boolean;
   readonly result_count: ResultCountBucket;
 }

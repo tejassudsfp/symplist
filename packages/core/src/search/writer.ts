@@ -95,12 +95,12 @@ type RebuildReason =
   | "generation"
   | "decryption"
   | "malformed"
-  | "chat_opt_in";
+  | "chat_removed";
 
 /**
  * The single index writer of a mode (§10.1): loads the published generation g, applies a bounded batch
  * of pending intents (or rebuilds from authoritative records when the index is missing, corrupt, from
- * another format or tokenizer, or the chat opt-in changed), uploads `u/<ownerId>/search/<g+1>-<writeId>.idx`
+ * another format or tokenizer, or still holds chat), uploads `u/<ownerId>/search/<g+1>-<writeId>.idx`
  * with `If-None-Match: *`, and advances `search_indexes` with a generation compare-and-set guarded by
  * the executor mode and generation and by the account still existing. Applied intents are deleted in
  * the same batch. A writer that loses the race deletes its own object and reports `conflict`.
@@ -157,10 +157,7 @@ export class SearchIndexWriter {
     });
     try {
       input.signal?.throwIfAborted();
-      const includeChat = sources.chatOptIn
-        ? await sources.chatOptIn.includeChat(ownerId, key)
-        : false;
-      const loaded = await this.load(ownerId, row, key, includeChat);
+      const loaded = await this.load(ownerId, row, key);
       if ("index" in loaded && intents.length === 0) {
         return { status: "up_to_date", generation: (row as SearchIndexRow).generation };
       }
@@ -172,19 +169,14 @@ export class SearchIndexWriter {
         index = loaded.index;
         appliedThrough = (intents[intents.length - 1] as { id: number }).id;
         rebuilt = false;
-        await applyIntents(index, coalesceIntents(intents), {
-          ownerId,
-          key,
-          sources,
-          includeChat,
-        });
+        await applyIntents(index, coalesceIntents(intents), { ownerId, key, sources });
       } else {
         this.log.info("search.index_rebuild", {
           ownerId,
           reason: loaded.rebuild,
           generation: row?.generation ?? 0,
         });
-        index = SearchIndex.create({ ownerId, includeChat, limits: this.limits });
+        index = SearchIndex.create({ ownerId, includeChat: false, limits: this.limits });
         // Everything committed up to the highest intent read in the first batch is covered: the
         // records below are read afterwards, and later intents are applied by the next run.
         appliedThrough = Math.max(summary.maxId, row?.appliedThrough ?? 0);
@@ -193,7 +185,6 @@ export class SearchIndexWriter {
           ownerId,
           key,
           sources,
-          includeChat,
           ...(input.signal ? { signal: input.signal } : {}),
         });
       }
@@ -218,12 +209,13 @@ export class SearchIndexWriter {
     ownerId: string,
     row: SearchIndexRow | null,
     key: Parameters<typeof openSearchIndex>[0],
-    includeChat: boolean,
   ): Promise<{ readonly index: SearchIndex } | { readonly rebuild: RebuildReason }> {
     if (!row) return { rebuild: "missing" };
     if (row.indexFormatVersion !== INDEX_FORMAT_VERSION) return { rebuild: "format_version" };
     if (row.tokenizerFingerprint !== TOKENIZER_FINGERPRINT) return { rebuild: "fingerprint" };
-    if (row.includeChat !== includeChat) return { rebuild: "chat_opt_in" };
+    // A generation sealed while chat was indexed still holds messages. Nothing removes them
+    // incrementally now that the message intents are gone, so it is rebuilt once, without them.
+    if (row.includeChat) return { rebuild: "chat_removed" };
     const parsed = parseSearchIndexObjectKey(ownerId, row.objectKey);
     if (!parsed || parsed.generation !== row.generation) return { rebuild: "malformed" };
     const stored = await this.options.objects.get(row.objectKey);
@@ -295,7 +287,9 @@ export class SearchIndexWriter {
       format: int(INDEX_FORMAT_VERSION),
       fingerprint: TOKENIZER_FINGERPRINT,
       object_key: sealed.key,
-      include_chat: int(input.index.includeChat ? 1 : 0),
+      // Written explicitly rather than dropped: the column stays (expand-only) and clearing it is
+      // what stops `indexingNeed` and `load` asking for the chat-removal rebuild again.
+      include_chat: int(0),
       truncated: int(truncated ? 1 : 0),
       bytes: int(sealed.plaintextBytes),
       mode: input.mode,

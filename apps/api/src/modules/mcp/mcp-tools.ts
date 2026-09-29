@@ -5,9 +5,7 @@ import {
   mcpTaskContextSchema,
   mcpTaskCreateSchema,
   mcpTaskListSchema,
-  mcpTaskMessageSchema,
   mcpTaskMoveSchema,
-  mcpTaskRunSchema,
   mcpTaskSearchSchema,
   taskDocumentChangesInputSchema,
   taskDocumentDiffInputSchema,
@@ -28,12 +26,10 @@ import {
   type McpGrants,
   type McpIdentity,
   McpSearchTools,
-  McpSimonTools,
   McpTaskTools,
   mcpAuthorization,
 } from "@symplist/core/mcp";
 import type { SearchQueryService } from "@symplist/core/search";
-import type { SimonRepository } from "@symplist/core/simon";
 import type { TaskService } from "@symplist/core/tasks";
 import { uuidv7 } from "@symplist/db";
 import { type McpToolExtension, registerMcpExtensions } from "./mcp-extensions.ts";
@@ -64,20 +60,16 @@ export class McpTools {
   readonly documents: DocumentTools;
   readonly budgets: GrantRetrievalBudgets;
   readonly search: McpSearchTools;
-  readonly simon: McpSimonTools;
   constructor(
     readonly grants: McpGrants,
     tasks: TaskService,
     readonly repository: DocumentRepository,
     queries: SearchQueryService,
-    simon: SimonRepository,
-    accepted: () => void,
     readonly extensions: readonly McpToolExtension[] = [],
     onTaskConfirmed?: McpTaskTools["onConfirmed"],
   ) {
     this.tasks = new McpTaskTools(grants, tasks, onTaskConfirmed);
     this.search = new McpSearchTools(grants, queries);
-    this.simon = new McpSimonTools(grants, simon, accepted);
     this.documents = new DocumentTools(repository);
     this.budgets = new GrantRetrievalBudgets({ now: grants.options.now });
   }
@@ -108,24 +100,6 @@ export class McpTools {
 
   server(identity: McpIdentity): McpServer {
     const server = new McpServer({ name: "Symplist", version: "1.0.0" });
-    server.registerTool(
-      "task_message_send",
-      {
-        description:
-          "Send a task message to Simon. Approvals and user questions can only be answered in the owner's UI. Reuse requestId for an exact retry.",
-        inputSchema: mcpTaskMessageSchema,
-      },
-      (args) => safe(() => this.simon.message(identity, args)),
-    );
-    server.registerTool(
-      "task_run_status",
-      {
-        description: "Read a task run's state within this grant's task scope.",
-        inputSchema: mcpTaskRunSchema,
-        annotations: { readOnlyHint: true },
-      },
-      (args) => safe(() => this.simon.run(identity, args.runId)),
-    );
     server.registerTool(
       "task_search",
       {

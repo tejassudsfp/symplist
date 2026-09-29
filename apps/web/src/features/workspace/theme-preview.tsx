@@ -29,7 +29,7 @@ export interface ThemeMiniatureProps {
 }
 
 /**
- * A miniature of the real workspace — task list, page and chat — drawn with the theme's own tokens,
+ * A miniature of the real workspace — rail, task list and page — drawn with the theme's own tokens,
  * typography and panel treatment (note 02: a palette alone is not enough). Decorative: the card's
  * control carries the name and the selected state.
  */
@@ -54,10 +54,6 @@ export function ThemeMiniature({ themeId, mode, accent }: ThemeMiniatureProps) {
         <span className="sym-theme-mini-line" />
         <span className="sym-theme-mini-line" data-short="true" />
         <span className="sym-theme-mini-button">Save</span>
-      </span>
-      <span className="sym-theme-mini-chat">
-        <span className="sym-theme-mini-bubble">Which sections need work?</span>
-        <span className="sym-theme-mini-reply" />
       </span>
     </span>
   );

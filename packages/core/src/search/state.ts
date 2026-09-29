@@ -7,6 +7,7 @@ export interface SearchIndexRow {
   readonly indexFormatVersion: number;
   readonly tokenizerFingerprint: string;
   readonly objectKey: string;
+  /** Whether the sealed object predates chat leaving the cloud, and so must be rebuilt once. */
   readonly includeChat: boolean;
   readonly truncated: boolean;
   readonly byteSize: number;

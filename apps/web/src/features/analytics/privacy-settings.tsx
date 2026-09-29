@@ -10,7 +10,7 @@ export function PrivacySettings() {
       <h2 id="privacy-title">Privacy</h2>
       <p>
         Optional product usage helps improve Symplist. We measure categories of actions, never task
-        text, documents, chats, searches or Vault contents. No session replay.{" "}
+        text, documents, searches or Vault contents. No session replay.{" "}
         <a href="/privacy">Privacy notice</a>
       </p>
       {state.settings ? (
@@ -57,7 +57,7 @@ export function PrivacySettings() {
       )}
       {state.pending && state.settings && <p role="status">Saving…</p>}
       {state.settings?.consent.state === "denied" && !state.pending && !state.error && (
-        <p role="status">Product usage sharing is off. Tasks, Simon and reminders are unchanged.</p>
+        <p role="status">Product usage sharing is off. Tasks and reminders are unchanged.</p>
       )}
     </section>
   );

@@ -11,6 +11,5 @@ export * as preferences from "./preferences/index.ts";
 export * as scheduling from "./scheduling/index.ts";
 export * as search from "./search/index.ts";
 export * as sharing from "./sharing/index.ts";
-export * as simon from "./simon/index.ts";
 export * as tasks from "./tasks/index.ts";
 export * as vault from "./vault/index.ts";

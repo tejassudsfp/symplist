@@ -105,11 +105,11 @@ function ProfileMenu() {
 
 /**
  * The restrained top bar (overall.md): profile control at top left with Vault and its status beside
- * it, then slots for the running indicator and the notification control. The Vault link is a full
+ * it, then the notification control. The Vault link is a full
  * document navigation into its excluded route group and never names items (§15, profile_menu.md).
  */
 export function TopBar() {
-  const { vaultStatus, runningIndicator, notificationControl } = useShellSlots();
+  const { vaultStatus, notificationControl } = useShellSlots();
   return (
     <header className="sym-topbar">
       <Link href="/now" className="sym-chrome-button sym-topbar-brand" aria-label="Symplist home">
@@ -124,9 +124,6 @@ export function TopBar() {
         {vaultStatus}
       </div>
       <div className="sym-topbar-spacer" />
-      <div className="sym-topbar-slot" data-slot="running-indicator">
-        {runningIndicator}
-      </div>
       <div className="sym-topbar-slot" data-slot="notification-control">
         {notificationControl}
       </div>

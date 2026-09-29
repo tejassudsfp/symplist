@@ -5,7 +5,6 @@ import {
   type DocumentController,
   setActiveDocument,
 } from "./controller.ts";
-import { outlineRequestHandler, setOutlineRequestHandler } from "./outline-request.ts";
 
 function controller(taskId: string, editable = true): DocumentController {
   return { taskId, editable, save: vi.fn(), find: vi.fn(() => true) };
@@ -13,7 +12,6 @@ function controller(taskId: string, editable = true): DocumentController {
 
 afterEach(() => {
   setActiveDocument(null);
-  setOutlineRequestHandler(null);
 });
 
 describe("the mounted task page's controller", () => {
@@ -52,24 +50,5 @@ describe("the mounted task page's controller", () => {
     setActiveDocument(controller("task-1"));
     setActiveDocument(null);
     expect(activeDocument()).toBeNull();
-  });
-});
-
-describe("the outline request seam", () => {
-  it("is absent until Simon registers a handler", () => {
-    expect(outlineRequestHandler()).toBeNull();
-  });
-
-  it("hands the task id to the registered handler", async () => {
-    const handler = vi.fn();
-    setOutlineRequestHandler(handler);
-    await outlineRequestHandler()?.("task-1");
-    expect(handler).toHaveBeenCalledWith("task-1");
-  });
-
-  it("is removed again with null", () => {
-    setOutlineRequestHandler(vi.fn());
-    setOutlineRequestHandler(null);
-    expect(outlineRequestHandler()).toBeNull();
   });
 });

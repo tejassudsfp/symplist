@@ -38,7 +38,7 @@ export const searchActions: readonly AppAction[] = [
     label: "Search all content",
     context: "app",
     group: "search",
-    keywords: ["full search", "documents", "chat", "find"],
+    keywords: ["full search", "documents", "find"],
     availability: () => enabled,
     run: ({ services }) => services.navigate(SEARCH_PATH),
   },

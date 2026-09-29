@@ -22,11 +22,20 @@ import { ConnectionReturnTask } from "./return-context.tsx";
 import { TaskScope } from "./task-scope.tsx";
 import { useIntent } from "./use-intent.ts";
 
-export const permissionLabels: Record<McpScope, string> = {
+/*
+ * `mcpScopeSchema` still declares `ai:run`, because a granted scope outlives the feature it named,
+ * and an existing grant must still be describable. The cloud runs no assistant, so it is never
+ * offered on a new key and an unknown scope falls back to its own name rather than to nothing.
+ */
+const permissionLabels: Readonly<Record<string, string | undefined>> = {
   "tasks:read": "Read tasks and pages",
   "tasks:write": "Edit tasks and pages",
-  "ai:run": "Start Simon work",
+  "ai:run": "Start assistant work (no longer available)",
 };
+
+export function permissionLabel(scope: McpScope): string {
+  return permissionLabels[scope] ?? scope;
+}
 export function AgentConnections() {
   const session = useSession();
   return <Agents key={`${session.user?.id}:${session.access?.accessGeneration}`} />;
@@ -73,9 +82,8 @@ function Agents() {
         <p>Let another agent work with selected Symplist tasks.</p>
       </header>
       <p className="sym-connection-help">
-        Use this MCP server in your agent's connection settings. Service accounts used by Simon are
-        managed separately in Connections. These credentials never bypass beta access or owner-only
-        approvals.
+        Use this MCP server in your agent's connection settings. Linked service accounts are managed
+        separately in Connections. These credentials never bypass beta access.
       </p>
       {resource.loading && (
         <p role="status">
@@ -129,7 +137,7 @@ function Agents() {
                       ? "All current and future tasks"
                       : `${grant.taskIds.length} selected tasks`}
                   </span>
-                  <span>{grant.scopes.map((scope) => permissionLabels[scope]).join(" · ")}</span>
+                  <span>{grant.scopes.map(permissionLabel).join(" · ")}</span>
                   <span>
                     Created {date(grant.createdAt)} ·{" "}
                     {grant.lastUsedAt ? `Last used ${date(grant.lastUsedAt)}` : "Not used yet"} ·
@@ -256,7 +264,7 @@ function CreateAgentKey({
               <>
                 <Notice tone="warning" title="Shown once" live="none">
                   The full key is not stored by Symplist and cannot be shown again. Do not paste it
-                  into Simon or a task page.
+                  into a task page.
                 </Notice>
                 <TextField
                   label="One-time API key"
@@ -397,7 +405,7 @@ export function Permissions({
   value: McpScope[];
   onChange: (value: McpScope[]) => void;
 }) {
-  const choices: McpScope[] = ["tasks:read", "tasks:write", "ai:run"];
+  const choices: McpScope[] = ["tasks:read", "tasks:write"];
   return (
     <fieldset className="sym-connection-fields">
       <legend>Permissions</legend>
@@ -412,12 +420,11 @@ export function Permissions({
               )
             }
           />{" "}
-          {permissionLabels[scope]}
+          {permissionLabel(scope)}
         </label>
       ))}
       <p className="sym-connection-help">
         Editing also permits reading, moving and scheduling tasks, and revoking artifact links.
-        Starting Simon work never permits this agent to approve an action.
       </p>
     </fieldset>
   );

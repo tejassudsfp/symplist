@@ -570,11 +570,11 @@ describe("completing (§2.1, P1)", () => {
        CREATE TABLE probe_effects (task_id TEXT NOT NULL, note TEXT NOT NULL) STRICT;`,
     );
     const inputs: unknown[] = [];
-    const simon: ArchiveContributor = {
-      domain: "simon",
+    const mcp: ArchiveContributor = {
+      domain: "mcp",
       blockingCondition: ({ taskIds }) => ({
-        sql: "EXISTS (SELECT 1 FROM probe_runs WHERE task_id IN (:simon_task_ids) AND status IN ('queued', 'running', 'awaiting_approval', 'awaiting_user'))",
-        params: { simon_task_ids: taskIds },
+        sql: "EXISTS (SELECT 1 FROM probe_runs WHERE task_id IN (:mcp_task_ids) AND status IN ('queued', 'running', 'awaiting_approval', 'awaiting_user'))",
+        params: { mcp_task_ids: taskIds },
       }),
       statements: (input) => {
         inputs.push(input);
@@ -599,7 +599,7 @@ describe("completing (§2.1, P1)", () => {
         ];
       },
     };
-    const tasks = service({ contributors: [simon, scheduling] });
+    const tasks = service({ contributors: [mcp, scheduling] });
     const parent = await create(tasks, owner, "Parent", { collection: "now" });
     const child = await create(tasks, owner, "Child", { parentId: parent });
     await db.run(

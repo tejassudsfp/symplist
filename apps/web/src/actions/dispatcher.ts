@@ -77,7 +77,6 @@ const contextRank: Readonly<Record<ActionContext, number>> = {
   modal: 0,
   menu: 0,
   editor: 1,
-  composer: 1,
   pane: 2,
   app: 3,
 };

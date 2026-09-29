@@ -11,7 +11,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@symplist/agent": "workspace:*",
     "@symplist/analytics": "workspace:*",
     "@symplist/config": "workspace:*",
     "@symplist/contracts": "workspace:*",

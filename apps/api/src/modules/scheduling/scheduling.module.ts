@@ -100,7 +100,6 @@ export class SchedulingLifecycle implements OnModuleInit {
         await cleanupHourly(
           {
             ...this.service.options,
-            quickChatTtlHours: this.config.QUICK_CHAT_TTL_HOURS,
             cleanupFeatureExpiries: (_input, cleanup) =>
               cleanupSharedFeatures(cleanup, this.objects),
           },

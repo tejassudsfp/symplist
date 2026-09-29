@@ -87,7 +87,7 @@ describe("restricted account management (settings_account.md)", () => {
     await user.click(await screen.findByRole("button", { name: "Delete account" }));
 
     const dialog = await screen.findByRole("alertdialog");
-    expect(dialog).toHaveTextContent(/tasks, pages, document history, conversations, vault items/);
+    expect(dialog).toHaveTextContent(/tasks, pages, document history, vault items/);
     expect(api.sendDeletionCode).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "Send confirmation code" }));
 

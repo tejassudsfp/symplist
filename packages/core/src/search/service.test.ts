@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { int, sql, uuidv7 } from "@symplist/db";
+import { int, sql } from "@symplist/db";
 import { searchIndexObjectPrefix } from "@symplist/search";
 import type { ObjectStore } from "@symplist/storage";
 import { StorageError } from "@symplist/storage";
@@ -438,45 +438,7 @@ describe("cache eviction (§3.3, §5.5)", () => {
   });
 });
 
-describe("content types, chat opt-in and deadline filters", () => {
-  it("returns chat hits only for an opted-in, indexed owner and explains why otherwise", async () => {
-    const task = await writeTask(store, owner, { title: "Portfolio" });
-    const messageId = uuidv7(store.now);
-    store.messages.persist(owner, {
-      id: messageId,
-      taskId: task,
-      conversationId: uuidv7(store.now),
-      speaker: "simon",
-      createdAt: store.now,
-      text: "Three projects have no image yet",
-    });
-    await recordIntent(store, owner, "message", messageId);
-    await publish();
-    const search = service({ tuning: { stateTtlMs: 0, chatOptInTtlMs: 0 } });
-
-    let result = await search.search(principal, { q: "image", types: ["chat"] });
-    expect(result.response.items).toEqual([]);
-    expect(result.response.notices).toContain("chat_opt_in_required");
-
-    store.chatOptIn.set(owner, true);
-    result = await search.search(principal, { q: "image", types: ["chat"] });
-    expect(result.response.status).toBe("partial");
-    expect(result.response.notices).toContain("chat_indexing");
-    expect(result.indexing).toBe("rebuild");
-
-    await publish();
-    search.invalidateState(owner);
-    result = await search.search(principal, { q: "image", types: ["chat"] });
-    expect(result.response.status).toBe("ready");
-    expect(result.response.items[0]).toMatchObject({
-      match: "chat",
-      messageCount: 1,
-      messages: [
-        { messageId, speaker: "simon", snippet: { text: "Three projects have no image yet" } },
-      ],
-    });
-  });
-
+describe("content types and deadline filters", () => {
   it("answers filter_unavailable for deadline filters without schedule metadata", async () => {
     await writeTask(store, owner, { title: "Deadline task" });
     await publish();

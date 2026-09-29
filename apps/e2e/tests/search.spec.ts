@@ -275,9 +275,7 @@ async function openApp(page: Page, path: string) {
   await expect(page.locator("html")).toHaveAttribute("data-theme", /.+/);
   if (path.startsWith("/search")) {
     // The search screen takes focus on arrival, which only happens once it is hydrated (note 14).
-    await expect(
-      page.getByRole("searchbox", { name: "Search tasks, documents and chat" }),
-    ).toBeFocused();
+    await expect(page.getByRole("searchbox", { name: /^Search tasks/ })).toBeFocused();
   } else {
     // Wait for hydration: the keyboard dispatcher attaches on the client.
     await page.waitForFunction(() => document.querySelector("[data-group]") !== null);
@@ -322,14 +320,14 @@ test.describe("the command palette", () => {
     // Reopen and run an action: the palette and the shortcut show the same registry (note 13).
     await page.keyboard.press("ControlOrMeta+k");
     await expect(page.getByRole("combobox", { name: "Search tasks" })).toBeFocused();
-    await page.keyboard.type(">chat");
-    const action = page.getByRole("option", { name: /Open Simon chat/ });
+    await page.keyboard.type(">later");
+    const action = page.getByRole("option", { name: /Go to Later/ });
     await expect(action).toBeVisible();
     await expect(action).toContainText("Navigation");
     await evidence(page, testInfo, "palette-actions");
     await page.keyboard.press("Enter");
     await expect(page.getByRole("combobox", { name: "Search tasks" })).toHaveCount(0);
-    await expect(page.getByRole("complementary", { name: "Simon" })).toBeVisible();
+    await expect(page).toHaveURL(/\/later$/);
 
     expect(requests.some((path) => path.startsWith("/v1/search/titles?q=portfolio"))).toBe(true);
     // The query never reaches the address bar (note 14).
@@ -398,7 +396,7 @@ test.describe("full search", () => {
     await page.getByRole("option", { name: /Search all content/ }).click();
     await expect(page).toHaveURL(/\/search$/);
 
-    const query = page.getByRole("searchbox", { name: "Search tasks, documents and chat" });
+    const query = page.getByRole("searchbox", { name: /^Search tasks/ });
     await expect(query).toHaveValue("portfolio");
     await expect(
       page.getByText(/Task titles and documents in Now, Later and Unclassified/),
@@ -433,9 +431,7 @@ test.describe("full search", () => {
     // Coming back keeps the query and the filter (search.md).
     await page.goBack();
     await expect(page).toHaveURL(/\/search$/);
-    await expect(
-      page.getByRole("searchbox", { name: "Search tasks, documents and chat" }),
-    ).toHaveValue("portfolio");
+    await expect(page.getByRole("searchbox", { name: /^Search tasks/ })).toHaveValue("portfolio");
     // The restored page can replace the one the back navigation left on screen, so the disclosure
     // and the filter are checked together until they agree.
     await expect(async () => {
@@ -451,7 +447,7 @@ test.describe("full search", () => {
     test.skip(project(testInfo) === "mobile", "Hardware keyboard flows run at the larger widths.");
     await stubApi(page);
     await openApp(page, "/search");
-    const query = page.getByRole("searchbox", { name: "Search tasks, documents and chat" });
+    const query = page.getByRole("searchbox", { name: /^Search tasks/ });
     await expect(query).toBeFocused();
     await page.keyboard.type("portfolio");
     await expect(page.getByRole("article").first()).toBeVisible();
@@ -529,16 +525,14 @@ test.describe("full search", () => {
     await expect(page.getByText("Search your work")).toBeVisible();
     await evidence(page, testInfo, "empty-query");
 
-    await page.getByRole("searchbox", { name: "Search tasks, documents and chat" }).fill("kayak");
+    await page.getByRole("searchbox", { name: /^Search tasks/ }).fill("kayak");
     // The message is both shown and announced, so the visible one is asserted.
     await expect(page.getByText("No results for “kayak”").first()).toBeVisible();
     await expect(page.getByRole("button", { name: "Include archived" })).toBeVisible();
     await evidence(page, testInfo, "no-matches");
 
     mode = "failure";
-    await page
-      .getByRole("searchbox", { name: "Search tasks, documents and chat" })
-      .fill("kayaking");
+    await page.getByRole("searchbox", { name: /^Search tasks/ }).fill("kayaking");
     await expect(page.getByText("Search is temporarily unavailable").first()).toBeVisible();
     await evidence(page, testInfo, "failure");
 
@@ -591,8 +585,8 @@ test.describe("the shortcut help overlay", () => {
     await expectNoAxeViolations(page);
 
     const search = dialog.getByRole("searchbox", { name: "Search shortcuts by action or keys" });
-    await search.fill("g c");
-    await expect(dialog.getByText("Open Simon chat")).toBeVisible();
+    await search.fill("g v");
+    await expect(dialog.getByText("Open vault")).toBeVisible();
     await expect(dialog.getByText("Go to Now")).toHaveCount(0);
     await evidence(page, testInfo, "shortcut-help-search");
 

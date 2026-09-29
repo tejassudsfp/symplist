@@ -39,7 +39,7 @@ it("uses one immediate emitter per runtime and rechecks consent/access for each 
     const properties = {
       target: "coding_assistant" as const,
       sections: "whole_document" as const,
-      author: "simon" as const,
+      author: "user" as const,
     };
     await service.capture(owner, "handoff_prepared", properties, event);
     expect(capture).not.toHaveBeenCalled();

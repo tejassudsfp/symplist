@@ -64,13 +64,14 @@ export function failureMessage(failure: SearchFailure): FailureMessage {
   }
 }
 
-/** The notices the api sends with results, each explaining one thing that is not in the results. */
+/**
+ * The notices the api sends with results, each explaining one thing that is not in the results. The
+ * notice enum is expand-only and still declares the two chat notices, which nothing raises now that
+ * no message is indexed; the fallback states the shape of the problem rather than naming a surface
+ * this app no longer has.
+ */
 export function noticeMessage(notice: SearchNotice): string {
   switch (notice) {
-    case "chat_opt_in_required":
-      return "Chat messages aren't searchable until you turn chat search on in Settings → Account.";
-    case "chat_indexing":
-      return "Chat messages are still being added to search.";
     case "index_truncated":
       return "This account is past the search size limit, so some document text isn't searchable.";
     case "changes_pending":
@@ -79,6 +80,8 @@ export function noticeMessage(notice: SearchNotice): string {
       return "Many matches were found; narrow the search to see the best ones.";
     case "partial_terms":
       return "Nothing matched every word, so these results match some of them.";
+    default:
+      return "Some matches aren't included in these results.";
   }
 }
 

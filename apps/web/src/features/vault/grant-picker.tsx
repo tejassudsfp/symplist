@@ -5,7 +5,7 @@ import { RealtimeClient, realtimeUrl } from "@/lib/realtime";
 import { getVaultApi, type VaultApi, vaultIsLocked, vaultMessage } from "./api";
 import { VaultKeyForm } from "./key-form";
 
-/** Trusted approval-UI seam: context is explicit; a chat message never creates this grant. */
+/** Trusted approval-UI seam: the context is always explicit and given by the caller. */
 export function VaultGrantPicker({
   context,
   onGranted,
@@ -135,7 +135,7 @@ export function VaultGrantPicker({
       <h3>Use a vault item</h3>
       <p>
         Allow one item for this task’s {context.toolSlug} action, at {context.argumentPath}, for one
-        hour. Simon receives a handle, not the value.
+        hour. The caller receives a handle, not the value.
       </p>
       {locked ? (
         <>

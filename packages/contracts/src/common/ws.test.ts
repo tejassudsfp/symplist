@@ -250,7 +250,6 @@ describe("events", () => {
       "notifications.summary": "scheduling",
       "access.changed": "access",
       "preferences.changed": "workspace",
-      "run.status": "simon",
       "document.head_changed": "documents",
       "schedule.changed": "scheduling",
       "vault.locked": "vault",
@@ -258,7 +257,7 @@ describe("events", () => {
       "share_grant.changed": "sharing",
       "search.freshness": "search",
     });
-    expect(userTopicEventTypes).toHaveLength(13);
+    expect(userTopicEventTypes).toHaveLength(12);
     expect(unadmittedUserTopicEventTypes).toEqual(["access.changed"]);
     expect(isUserTopicEventType("access.changed")).toBe(true);
     expect(isUserTopicEventType("chunk")).toBe(false);
@@ -268,7 +267,7 @@ describe("events", () => {
   it("reports user-topic events declared by a feature that does not own them", () => {
     const data = z.strictObject({});
     expect(
-      misownedUserTopicEvents({ workspace: { "tasks.changed": data }, simon: { chunk: data } }),
+      misownedUserTopicEvents({ workspace: { "tasks.changed": data }, search: { chunk: data } }),
     ).toEqual([]);
     expect(misownedUserTopicEvents({ vault: { "tasks.changed": data } })).toEqual([
       "tasks.changed is owned by workspace but declared by vault",

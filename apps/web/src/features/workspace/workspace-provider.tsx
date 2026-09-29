@@ -32,7 +32,6 @@ import {
   type WorkspaceRealtimeSource,
   workspaceRealtimeSource,
 } from "./realtime.ts";
-import { type TaskRunStatus, useTaskRunStateSource } from "./run-state.ts";
 import { type CollectionSnapshot, type DetailSnapshot, TaskStore } from "./task-store.ts";
 import { ancestorsOf } from "./tree.ts";
 import { type WorkspaceUiState, WorkspaceUiStore } from "./ui-store.ts";
@@ -47,7 +46,7 @@ export interface WorkspaceContextValue {
   /** The collection and task in the address bar, or null outside the workspace routes. */
   readonly collection: TaskCollection | null;
   readonly openTaskId: string | null;
-  /** Opens a task so its page and chat switch together. */
+  /** Opens a task's page. */
   readonly openTask: (collection: TaskCollection, taskId: string) => void;
   /** Client-side navigation inside the app shell. */
   readonly navigate: (href: string, options?: { readonly replace?: boolean }) => void;
@@ -76,7 +75,6 @@ export function WorkspaceProvider({ children, userId, api, realtime }: Workspace
   const pathname = usePathname();
   const toast = useToast();
   const { announce } = useAnnouncer();
-  const runStateSource = useTaskRunStateSource();
   const route = useMemo(() => parseWorkspaceRoute(pathname), [pathname]);
 
   const client = useMemo(() => api ?? createWorkspaceApi(), [api]);
@@ -109,8 +107,6 @@ export function WorkspaceProvider({ children, userId, api, realtime }: Workspace
 
   const routeRef = useRef(route);
   routeRef.current = route;
-  const runStateRef = useRef(runStateSource);
-  runStateRef.current = runStateSource;
 
   const navigate = useCallback(
     (href: string, options?: { readonly replace?: boolean }) => {
@@ -129,7 +125,6 @@ export function WorkspaceProvider({ children, userId, api, realtime }: Workspace
         announce,
         navigate,
         openTaskId: () => routeRef.current?.taskId ?? null,
-        runStatus: (taskId: string): TaskRunStatus => runStateRef.current.get(taskId).status,
         keys: stores.keys,
       }),
     [stores, toast, announce, navigate],

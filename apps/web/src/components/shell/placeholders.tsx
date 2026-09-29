@@ -10,7 +10,7 @@ export function CollectionHome({ collection }: { collection: CollectionId }) {
         align="center"
         illustration={<PageIllustration />}
         title="Pick a task to open its page"
-        description="Its page and conversation open together. Or add a new task in the list."
+        description="Or add a new task in the list."
       />
     </>
   );

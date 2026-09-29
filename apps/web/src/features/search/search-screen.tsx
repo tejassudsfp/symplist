@@ -2,12 +2,10 @@
 
 import type {
   SearchArchiveMode,
-  SearchMessageHit,
   SearchResponse,
   SearchResultGroup,
   SearchSectionHit,
 } from "@symplist/contracts";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   type KeyboardEvent as ReactKeyboardEvent,
@@ -176,8 +174,7 @@ export function SearchScreen() {
     shownGeneration: data?.indexGeneration ?? 0,
     pending: data?.pendingIntents ?? 0,
     status: data?.status ?? "ready",
-    // The only `partial` result a later publication changes: chat was opted into but is not indexed.
-    rebuildExpected: data?.notices.includes("chat_indexing") ?? false,
+    rebuildExpected: false,
   });
 
   // One report per settled search, with counts only (decision C5.3).
@@ -186,7 +183,7 @@ export function SearchScreen() {
     reportSearchUsed({
       surface: "full_search",
       include_archive: data.scope.archive !== "exclude",
-      include_chat: data.scope.types.includes("chat"),
+      include_chat: false,
       result_count: resultCountBucket(data.items.length),
     });
   }, [data]);
@@ -272,10 +269,7 @@ export function SearchScreen() {
 
   /** Opens a result: the task is read again first, so a moved or archived task still opens right. */
   const open = useCallback(
-    async (
-      group: SearchResultGroup,
-      hit?: { readonly section?: SearchSectionHit; readonly message?: SearchMessageHit },
-    ) => {
+    async (group: SearchResultGroup, hit?: { readonly section?: SearchSectionHit }) => {
       let location: { collection: SearchResultGroup["task"]["collection"]; archived: boolean } = {
         collection: group.task.collection,
         archived: group.task.archived,
@@ -293,7 +287,6 @@ export function SearchScreen() {
       const base = taskHref({ id: group.task.id, ...location });
       const params = new URLSearchParams();
       if (hit?.section) params.set(SEARCH_JUMP_PARAMS.section, hit.section.sectionId);
-      if (hit?.message) params.set(SEARCH_JUMP_PARAMS.message, hit.message.messageId);
       const href = params.size > 0 ? `${base}?${params.toString()}` : base;
       setSearchJump({
         taskId: group.task.id,
@@ -307,14 +300,6 @@ export function SearchScreen() {
                 indexedRevision: hit.section.indexedRevision,
                 currentRevision: hit.section.currentRevision,
                 stale: hit.section.stale,
-              },
-            }
-          : {}),
-        ...(hit?.message
-          ? {
-              message: {
-                messageId: hit.message.messageId,
-                conversationId: hit.message.conversationId,
               },
             }
           : {}),
@@ -423,7 +408,7 @@ export function SearchScreen() {
           </svg>
         </span>
         <label className="sr-only" htmlFor={`${baseId}-query`}>
-          Search tasks, documents and chat
+          Search tasks and documents
         </label>
         <input
           id={`${baseId}-query`}
@@ -617,14 +602,6 @@ export function SearchScreen() {
               {notices.map((notice) => (
                 <p key={notice} className="m-0">
                   {noticeMessage(notice)}
-                  {notice === "chat_opt_in_required" ? (
-                    <>
-                      {" "}
-                      <Link href="/settings/account" className="text-sym-link">
-                        Open Settings
-                      </Link>
-                    </>
-                  ) : null}
                 </p>
               ))}
               {freshness.newerAvailable ? (
@@ -680,7 +657,7 @@ export function SearchScreen() {
               <p className="m-0 font-medium text-sym-text">Search your work</p>
               <p className="m-0 mt-1">
                 Task titles and current pages are searched by default. Put words in quotes for an
-                exact phrase, and use the filters to include the archive or chat.
+                exact phrase, and use the filters to include the archive.
               </p>
             </div>
           ) : null}
@@ -706,20 +683,6 @@ export function SearchScreen() {
                     Include archived
                   </Button>
                 ) : null}
-                {filters.types.includes("chat") ? null : (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() =>
-                      setFilters((current) => ({
-                        ...current,
-                        types: toggleInList(contentTypeOrder, current.types, "chat"),
-                      }))
-                    }
-                  >
-                    Search chat too
-                  </Button>
-                )}
               </div>
             </div>
           ) : null}
@@ -804,14 +767,12 @@ function ResultGroup({
   readonly expanded: ExpandedGroup | undefined;
   readonly onOpen: (
     group: SearchResultGroup,
-    hit?: { readonly section?: SearchSectionHit; readonly message?: SearchMessageHit },
+    hit?: { readonly section?: SearchSectionHit },
   ) => void | Promise<void>;
   readonly onToggleExpand: (taskId: string) => void;
 }): ReactNode {
   const titleId = `search-result-${group.task.id}`;
-  const hiddenSections = Math.max(0, group.sectionCount - group.sections.length);
-  const hiddenMessages = Math.max(0, group.messageCount - group.messages.length);
-  const more = hiddenSections + hiddenMessages;
+  const more = Math.max(0, group.sectionCount - group.sections.length);
   return (
     <article
       aria-labelledby={titleId}
@@ -858,7 +819,7 @@ function ResultGroup({
         ) : null}
       </p>
 
-      {group.sections.length > 0 || group.messages.length > 0 ? (
+      {group.sections.length > 0 ? (
         <ul className="m-0 mt-2 flex list-none flex-col gap-1.5 p-0">
           {group.sections.map((section) => (
             <li key={section.sectionId}>
@@ -891,25 +852,6 @@ function ResultGroup({
               </a>
             </li>
           ))}
-          {group.messages.map((message) => (
-            <li key={message.messageId}>
-              <a
-                href={`${taskHref(group.task)}?${SEARCH_JUMP_PARAMS.message}=${encodeURIComponent(message.messageId)}`}
-                data-search-nav
-                data-slot="message-hit"
-                className="flex flex-col gap-0.5 rounded-sym px-2 py-1.5 text-sym-text no-underline hover:bg-sym-hover"
-                onClick={(event) => {
-                  event.preventDefault();
-                  void onOpen(group, { message });
-                }}
-              >
-                <span className="text-[13px] text-sym-muted">
-                  {`${message.speaker === "simon" ? "Simon" : "You"} · ${new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(message.createdAt))}`}
-                </span>
-                <SnippetText snippet={message.snippet} className="line-clamp-3" />
-              </a>
-            </li>
-          ))}
         </ul>
       ) : null}
 
@@ -931,7 +873,7 @@ function ResultGroup({
         >
           {expanded?.status === "ready"
             ? "Show fewer matches"
-            : `Show all ${group.sectionCount + group.messageCount} matches in this task`}
+            : `Show all ${group.sectionCount} matches in this task`}
         </button>
       ) : null}
     </article>

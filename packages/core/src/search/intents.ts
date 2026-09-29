@@ -1,8 +1,18 @@
 import { type DbRow, int, type Statement, sql } from "@symplist/db";
 
-/** What a search intent names (§10.1). */
-export const searchIntentEntities = ["task", "document", "message"] as const;
+/** What a search intent names (§10.1). Chat left the cloud (note 18), so nothing writes `message`. */
+export const searchIntentEntities = ["task", "document"] as const;
 export type SearchIntentEntity = (typeof searchIntentEntities)[number];
+
+/**
+ * What a stored row may name. Rows written before chat left the cloud still say `message`, and the
+ * CHECK constraint that permits them cannot be tightened because migrations are expand-only. The
+ * parser therefore keeps accepting them: a throw here would leave the owner's first batch unparsed,
+ * and because the writer deletes applied intents only after a publication, those rows would never be
+ * cleared and that owner's index would stop updating for good. {@link coalesceIntents} drops them.
+ */
+export const storedSearchIntentEntities = [...searchIntentEntities, "message"] as const;
+export type StoredSearchIntentEntity = (typeof storedSearchIntentEntities)[number];
 
 export const searchIntentOps = ["upsert", "delete"] as const;
 export type SearchIntentOp = (typeof searchIntentOps)[number];
@@ -11,7 +21,7 @@ export interface SearchIntentInput {
   readonly ownerId: string;
   readonly entity: SearchIntentEntity;
   readonly entityId: string;
-  /** The task version, document head revision number or message sequence the change produced. */
+  /** The task version or document head revision number the change produced. */
   readonly revisionOrSeq: number;
   readonly op: SearchIntentOp;
   readonly now: number;
@@ -25,8 +35,8 @@ export interface SearchIntentGuard {
 
 /**
  * The statement that records a search intent in the same batch as its source change (§10.1): task
- * create, rename, move, archive or restore; document head publication; message persist. Pass the
- * deciding statement's write guard, so the intent exists exactly when the change committed.
+ * create, rename, move, archive or restore; document head publication. Pass the deciding statement's
+ * write guard, so the intent exists exactly when the change committed.
  */
 export function searchIntentStatement(
   input: SearchIntentInput,
@@ -60,7 +70,7 @@ export function searchIntentStatement(
 /** One stored intent. */
 export interface SearchIntentRow {
   readonly id: number;
-  readonly entity: SearchIntentEntity;
+  readonly entity: StoredSearchIntentEntity;
   readonly entityId: string;
   readonly revisionOrSeq: number;
   readonly op: SearchIntentOp;
@@ -77,7 +87,7 @@ function integer(value: unknown, what: string): number {
 export function searchIntentFromRow(row: DbRow): SearchIntentRow {
   const entity = row.entity;
   const op = row.op;
-  if (!searchIntentEntities.includes(entity as SearchIntentEntity)) {
+  if (!storedSearchIntentEntities.includes(entity as StoredSearchIntentEntity)) {
     throw new Error("Unexpected search_intents.entity");
   }
   if (!searchIntentOps.includes(op as SearchIntentOp))
@@ -85,7 +95,7 @@ export function searchIntentFromRow(row: DbRow): SearchIntentRow {
   if (typeof row.entity_id !== "string") throw new Error("Unexpected search_intents.entity_id");
   return {
     id: integer(row.id, "id"),
-    entity: entity as SearchIntentEntity,
+    entity: entity as StoredSearchIntentEntity,
     entityId: row.entity_id,
     revisionOrSeq: integer(row.revision_or_seq, "revision_or_seq"),
     op: op as SearchIntentOp,
@@ -137,26 +147,26 @@ export function pendingSummaryStatement(ownerId: string): Statement {
   );
 }
 
-/** The last operation per entity, so a batch applies each task, document or message once. */
+/** The last operation per entity, so a batch applies each task or document once. */
 export interface CoalescedIntents {
   readonly tasks: ReadonlyMap<string, SearchIntentOp>;
   readonly documents: ReadonlyMap<string, SearchIntentOp>;
-  readonly messages: ReadonlyMap<string, SearchIntentOp>;
 }
 
 /**
  * Collapses intents to the last operation per entity. Every upsert re-reads the current authoritative
- * record, so applying the last operation once is equivalent to applying them all in order.
+ * record, so applying the last operation once is equivalent to applying them all in order. Legacy
+ * `message` rows name content the index no longer holds and are dropped here; they still count
+ * towards `applied_through`, so the publication that ignores them also deletes them.
  */
 export function coalesceIntents(intents: readonly SearchIntentRow[]): CoalescedIntents {
   const tasks = new Map<string, SearchIntentOp>();
   const documents = new Map<string, SearchIntentOp>();
-  const messages = new Map<string, SearchIntentOp>();
   for (const intent of [...intents].sort((left, right) => left.id - right.id)) {
-    const target =
-      intent.entity === "task" ? tasks : intent.entity === "document" ? documents : messages;
+    if (intent.entity === "message") continue;
+    const target = intent.entity === "task" ? tasks : documents;
     target.delete(intent.entityId);
     target.set(intent.entityId, intent.op);
   }
-  return { tasks, documents, messages };
+  return { tasks, documents };
 }

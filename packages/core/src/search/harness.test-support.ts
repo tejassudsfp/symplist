@@ -20,12 +20,7 @@ import {
 import { createLocalObjectStore, type LocalObjectStore } from "@symplist/storage";
 import { AccountKeyStore } from "../account/keys.ts";
 import { type SearchIntentEntity, type SearchIntentOp, searchIntentStatement } from "./intents.ts";
-import {
-  InMemoryChatOptInSource,
-  InMemoryDeadlineFilterSource,
-  InMemoryDocumentTextSource,
-  InMemoryMessageTextSource,
-} from "./sources/memory.ts";
+import { InMemoryDeadlineFilterSource, InMemoryDocumentTextSource } from "./sources/memory.ts";
 import { D1SearchTaskSource, taskTitleContext } from "./sources/tasks.ts";
 import type { SearchSources } from "./sources/types.ts";
 
@@ -40,8 +35,6 @@ export interface SearchTestStore {
   readonly keys: ManagedKeyProvider;
   readonly accountKeys: AccountKeyStore;
   readonly documents: InMemoryDocumentTextSource;
-  readonly messages: InMemoryMessageTextSource;
-  readonly chatOptIn: InMemoryChatOptInSource;
   readonly deadlines: InMemoryDeadlineFilterSource;
   readonly deadlineMatches: Map<string, Set<string>>;
   readonly sources: SearchSources;
@@ -63,8 +56,6 @@ export async function createSearchTestStore(): Promise<SearchTestStore> {
     ),
   );
   const documents = new InMemoryDocumentTextSource();
-  const messages = new InMemoryMessageTextSource();
-  const chatOptIn = new InMemoryChatOptInSource();
   const deadlineMatches = new Map<string, Set<string>>();
   const deadlines = new InMemoryDeadlineFilterSource(
     (ownerId) => deadlineMatches.get(ownerId) ?? new Set(),
@@ -75,17 +66,9 @@ export async function createSearchTestStore(): Promise<SearchTestStore> {
     keys,
     accountKeys: new AccountKeyStore({ db, keys }),
     documents,
-    messages,
-    chatOptIn,
     deadlines,
     deadlineMatches,
-    sources: {
-      tasks: new D1SearchTaskSource(db),
-      documents,
-      messages,
-      chatOptIn,
-      deadlines,
-    },
+    sources: { tasks: new D1SearchTaskSource(db), documents, deadlines },
     now: 1_789_500_000_000,
     close() {
       db.close();

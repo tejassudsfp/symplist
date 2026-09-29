@@ -28,7 +28,6 @@ export function searchDigest(input: {
   readonly types: readonly SearchContentType[];
   readonly taskId: string | null;
   readonly deadline: SearchDeadlineFilter | null;
-  readonly chat: boolean;
 }): string {
   const canonical = JSON.stringify([
     input.query.sequence,
@@ -38,7 +37,10 @@ export function searchDigest(input: {
     [...input.types].sort(),
     input.taskId,
     input.deadline,
-    input.chat,
+    // Chat is gone (note 18), but its slot stays a constant so that cursors minted for the
+    // overwhelming majority of requests — the ones where chat resolved false — keep paging across
+    // the deploy instead of failing search.cursor_invalid.
+    false,
   ]);
   return createHash("sha256").update(canonical).digest("base64url").slice(0, 22);
 }

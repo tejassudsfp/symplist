@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AccountKeyStore } from "@symplist/core/account";
 import { type DocumentGitJobActor, DurableDocumentGit } from "@symplist/core/documents";
-import { SimonRepository } from "@symplist/core/simon";
 import { createKeyProvider, type ManagedKeyProvider } from "@symplist/crypto";
 import {
   applyMigrations,
@@ -131,22 +130,25 @@ describe("document-git body with local drivers (§9.1, §8.3)", () => {
       ),
     ]);
     const marker = "MARKER-worker-document-git";
-    await db.run(sql("UPDATE executor_state SET mode = 'durable'"));
-    const simon = new SimonRepository({
-      db,
-      keys,
-      now: () => now,
-      policy: { betaAccessRequired: true },
-      quickChatTtlHours: 24,
-    });
-    const conversationId = await simon.createConversation(owner, taskId);
-    const accepted = await simon.acceptMessage(owner, conversationId, "document-job", {
-      text: "Edit page",
-      tier: "fast",
-    });
-    const claim = await simon.claim(String(accepted.runId), "trigger");
-    if (!claim) throw new Error("missing claim");
-    simon.releaseClaim(claim);
+    const grantId = uuidv7(now);
+    await db.batch([
+      sql("UPDATE executor_state SET mode = 'durable'"),
+      // The job's own guard re-reads this grant inside the deciding batch, so it has to exist and
+      // still authorize the task when the write lands. Nothing here decrypts the client name.
+      sql(
+        `INSERT INTO mcp_grants (id, owner_id, kind, client_name_enc, key_digest, digest_version,
+           scopes, task_ids, created_at, expires_at, generation, write_id)
+         VALUES (:id, :owner, 'api_key', 'unused', 'digest', 1, :scopes, NULL, :now, :expiry, 1, :w)`,
+        {
+          id: grantId,
+          owner,
+          scopes: JSON.stringify(["tasks:read", "tasks:write"]),
+          now: int(now),
+          expiry: int(now + 30 * 24 * 60 * 60 * 1000),
+          w: uuidv7(now),
+        },
+      ),
+    ]);
     const payloads: unknown[] = [];
     const results: unknown[] = [];
     const durable = new DurableDocumentGit({
@@ -160,12 +162,13 @@ describe("document-git body with local drivers (§9.1, §8.3)", () => {
       },
     });
     const actor: DocumentGitJobActor = {
-      conversationId,
-      runId: claim.run.id,
+      runId: uuidv7(now),
       toolCallId: "call_worker_1",
-      contextEpoch: 0,
-      mode: "task",
-      taskId,
+      grantId,
+      grantGeneration: 1,
+      scopes: ["tasks:read", "tasks:write"],
+      taskIds: null,
+      requestId: "req_worker_1",
       executorGeneration: 1,
     };
     const accountKey = await accountKeys.require(owner);
@@ -183,7 +186,7 @@ describe("document-git body with local drivers (§9.1, §8.3)", () => {
       expect.objectContaining({
         type: "document.head_changed",
         ownerId: owner,
-        payload: expect.objectContaining({ taskId, generation: 1, author: "simon" }),
+        payload: expect.objectContaining({ taskId, generation: 1, author: "mcp" }),
       }),
     ]);
     for (const sink of [payloads, results, announced, logLines]) {

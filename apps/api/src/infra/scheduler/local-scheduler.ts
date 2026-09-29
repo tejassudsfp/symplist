@@ -85,7 +85,7 @@ export class LocalScheduler {
     return this.add(this.scan, registration);
   }
 
-  /** Registers an hourly job such as quick-chat expiry or Vault grant expiry. */
+  /** Registers an hourly job such as Vault grant expiry or the MCP cleanup. */
   registerHourlyJob(registration: HourlyJobRegistration): () => void {
     const minute = registration.minute ?? 5;
     if (!Number.isInteger(minute) || minute < 0 || minute > 59) {

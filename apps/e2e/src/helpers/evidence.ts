@@ -10,7 +10,7 @@ import type { Locator, Page, TestInfo } from "@playwright/test";
 export interface EvidenceName {
   /** The screen brief, for example `workspace_now`. */
   readonly screen: string;
-  /** The state shown, for example `populated` or `approval-pending`. */
+  /** The state shown, for example `populated` or `task-open`. */
   readonly state: string;
   /** Theme id; defaults to `studio`. */
   readonly theme?: string;

@@ -47,9 +47,9 @@ const SESSION_WAKE_INTERVAL_MS = 120;
 
 export interface TriggerExecutorOptions {
   /**
-   * `SIMON_CHAT_SESSIONS`: route a kind that declares a session task to `sessions.start` instead of
-   * `tasks.trigger`, so a follow-up inside the idle window answers from a parked run rather than
-   * paying a cold boot. Off leaves every dispatch exactly as it was.
+   * Route a kind that declares a session task to `sessions.start` instead of `tasks.trigger`, so a
+   * follow-up inside the idle window answers from a parked run rather than paying a cold boot. Off
+   * leaves every dispatch exactly as it was, and no surviving kind declares a session task.
    */
   readonly sessions?: boolean;
   /** Overridden in tests so waking a session does not spend real time. */

@@ -1,12 +1,11 @@
 import { int, sql, uuidv7 } from "@symplist/db";
 import type { VerifiedConnectionWebhook } from "@symplist/integrations";
-import type { SimonRepository } from "../simon/repository.ts";
-import { connectionApprovalExpiryStatements } from "./approval-expiry.ts";
+import type { ConnectionContext } from "./context.ts";
 import type { ComposioSessions } from "./sessions.ts";
 
 export class ConnectionWebhooks {
   constructor(
-    private readonly repository: SimonRepository,
+    private readonly repository: ConnectionContext,
     private readonly sessions: Pick<ComposioSessions, "use">,
     private readonly changed?: (ownerId: string, connectionId: string) => Promise<void>,
   ) {}
@@ -48,12 +47,6 @@ export class ConnectionWebhooks {
                 receipt: event.receiptId,
               },
             ),
-            ...connectionApprovalExpiryStatements(this.repository, {
-              ownerId: String(connection.owner_id),
-              connectionId: String(connection.id),
-              writeId: write,
-              now: now(),
-            }),
           ]
         : []),
       sql(

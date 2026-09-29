@@ -203,7 +203,7 @@ export function NotificationSettings({ api: provided }: { api?: SchedulingApi })
                 <p>
                   {data.emailPreview
                     ? "Your task title will be visible to your email provider and in your inbox."
-                    : "No task title, document text, chat, or Vault content is included."}
+                    : "No task title, document text, or Vault content is included."}
                 </p>
               </div>
             </fieldset>

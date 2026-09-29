@@ -16,8 +16,8 @@ import type { AppLogger } from "../../common/logging/logger.ts";
 import type { TopicHub } from "../realtime/topic-hub.ts";
 
 /**
- * Announces committed publications made by the api (user saves, restores, MCP and in-process Simon
- * edits) as `document.head_changed` on the owner's `user` topic (§7). Only ids go on the socket.
+ * Announces committed publications made by the api (user saves, restores and incoming MCP edits) as
+ * `document.head_changed` on the owner's `user` topic (§7). Only ids go on the socket.
  */
 export class RealtimeDocumentEvents implements DocumentEventSink {
   constructor(
@@ -46,6 +46,8 @@ const payloadSchema = z.object({
   taskId: taskIdSchema,
   revision: z.string().regex(/^[0-9a-f]{40}$/),
   generation: z.number().int().min(1),
+  // `simon` stays: `doc_repos.head_author` and Git commit authorship still hold it for every
+  // document Simon ever edited, and a real historical row must keep parsing.
   author: z.enum(["user", "simon", "mcp"]),
   changedSectionIds: z.array(z.string().regex(/^s[A-Za-z0-9_-]{25}$/)).max(100),
 });

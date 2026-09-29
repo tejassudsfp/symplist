@@ -26,7 +26,6 @@ export interface AccessRequirement {
  * `@Access(level, { fresh: true })`; background code calls `SessionService.loadFresh`.
  */
 export const freshReadOperations = Object.freeze([
-  "approval_decision",
   "vault_unlock",
   "vault_reset",
   "vault_grant_create",
@@ -37,7 +36,6 @@ export const freshReadOperations = Object.freeze([
   "connection_completion",
   "admin_action",
   "account_deletion",
-  "run_dispatch",
 ] as const);
 
 export type FreshReadOperation = (typeof freshReadOperations)[number];

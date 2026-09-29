@@ -102,7 +102,6 @@ function action(partial: Partial<AppAction> & Pick<AppAction, "id" | "context">)
 beforeEach(() => {
   document.body.innerHTML = `
     <div data-pane="inbox"><div id="row" role="treeitem" tabindex="0">Row</div><button id="inbox-button">B</button></div>
-    <div data-pane="chat" data-action-context="composer"><textarea id="composer"></textarea></div>
     <div data-pane="page"><div data-action-context="editor"><div id="editor" contenteditable="true"></div></div></div>
     <input id="search" type="search" />
     <input id="checkbox" type="checkbox" />
@@ -128,10 +127,10 @@ describe("precedence", () => {
     const h = setup((r) => [
       action({ id: "app", context: "app", defaultBinding: "mod+enter", run: track("app", r) }),
       action({
-        id: "composer",
-        context: "composer",
+        id: "editor",
+        context: "editor",
         defaultBinding: "mod+enter",
-        run: track("composer", r),
+        run: track("editor", r),
       }),
       action({
         id: "modal",
@@ -140,16 +139,16 @@ describe("precedence", () => {
         run: track("modal", r),
       }),
     ]);
-    h.press(byId("composer"), { key: "Enter", ctrlKey: true });
-    expect(h.ran).toEqual(["composer"]);
+    h.press(byId("editor"), { key: "Enter", ctrlKey: true });
+    expect(h.ran).toEqual(["editor"]);
     h.press(byId("plain"), { key: "Enter", ctrlKey: true });
-    expect(h.ran).toEqual(["composer", "app"]);
+    expect(h.ran).toEqual(["editor", "app"]);
     document.body.insertAdjacentHTML(
       "beforeend",
       '<div role="dialog" aria-modal="true"><button id="in-modal">OK</button></div>',
     );
     h.press(byId("in-modal"), { key: "Enter", ctrlKey: true });
-    expect(h.ran).toEqual(["composer", "app", "modal"]);
+    expect(h.ran).toEqual(["editor", "app", "modal"]);
   });
 
   it("blocks pane and app actions while a modal is open, even if focus escaped it", () => {
@@ -254,12 +253,12 @@ describe("disabled actions", () => {
       actionId: "locked",
       reason: "Locked",
     });
-    await expect(h.dispatcher.invoke("open", "palette", "chat")).resolves.toEqual({
+    await expect(h.dispatcher.invoke("open", "palette", "page")).resolves.toEqual({
       kind: "ran",
       actionId: "open",
     });
     expect(run).toHaveBeenCalledTimes(1);
-    expect(run.mock.calls[0]?.[0]).toMatchObject({ source: "palette", pane: "chat" });
+    expect(run.mock.calls[0]?.[0]).toMatchObject({ source: "palette", pane: "page" });
     await expect(h.dispatcher.invoke("missing", "pointer")).resolves.toEqual({ kind: "unknown" });
   });
 
@@ -291,13 +290,13 @@ describe("disabled actions", () => {
 });
 
 describe("typing and IME guard", () => {
-  const typingTargets = ["search", "composer", "editor", "rich"];
+  const typingTargets = ["search", "editor", "rich"];
 
   it.each(typingTargets)("ignores unmodified keys and sequences in %s", (id) => {
     const h = setup((r) => [
       action({ id: "new", context: "app", defaultBinding: "n", run: track("new", r) }),
       action({ id: "help", context: "app", defaultBinding: "?", run: track("help", r) }),
-      action({ id: "chat", context: "app", defaultBinding: "g c", run: track("chat", r) }),
+      action({ id: "go", context: "app", defaultBinding: "g c", run: track("go", r) }),
       action({
         id: "subtask",
         context: "app",
@@ -338,7 +337,7 @@ describe("typing and IME guard", () => {
       }),
     ]);
     // AltGr+Q types "@" on a German layout and reports both Control and Alt.
-    const typed = h.press(byId("composer"), {
+    const typed = h.press(byId("editor"), {
       key: "@",
       code: "KeyQ",
       ctrlKey: true,
@@ -349,7 +348,7 @@ describe("typing and IME guard", () => {
     expect(typed.event.defaultPrevented).toBe(false);
     expect(h.ran).toEqual([]);
     // The same chord without AltGr is still the shortcut, even while typing.
-    h.press(byId("composer"), { key: "q", ctrlKey: true, altKey: true });
+    h.press(byId("editor"), { key: "q", ctrlKey: true, altKey: true });
     expect(h.ran).toEqual(["remapped"]);
   });
 
@@ -357,14 +356,14 @@ describe("typing and IME guard", () => {
     const h = setup((r) => [
       action({
         id: "send",
-        context: "composer",
+        context: "editor",
         defaultBinding: "mod+enter",
         run: track("send", r),
       }),
     ]);
-    const composing = h.press(byId("composer"), { key: "Enter", ctrlKey: true, isComposing: true });
+    const composing = h.press(byId("editor"), { key: "Enter", ctrlKey: true, isComposing: true });
     expect(composing.result).toEqual({ kind: "ignored" });
-    const process = h.press(byId("composer"), { key: "Process", ctrlKey: true, keyCode: 229 });
+    const process = h.press(byId("editor"), { key: "Process", ctrlKey: true, keyCode: 229 });
     expect(process.result).toEqual({ kind: "ignored" });
     expect(h.ran).toEqual([]);
   });
@@ -406,7 +405,7 @@ describe("typing and IME guard", () => {
 describe("sequences", () => {
   function sequenceSetup() {
     return setup((r) => [
-      action({ id: "chat", context: "app", defaultBinding: "g c", run: track("chat", r) }),
+      action({ id: "go", context: "app", defaultBinding: "g c", run: track("go", r) }),
       action({ id: "inbox", context: "app", defaultBinding: "g i", run: track("inbox", r) }),
       action({ id: "complete", context: "app", defaultBinding: "c", run: track("complete", r) }),
       action({ id: "deep", context: "app", defaultBinding: "g o d", run: track("deep", r) }),
@@ -420,7 +419,7 @@ describe("sequences", () => {
     expect(first.event.defaultPrevented).toBe(true);
     expect(h.dispatcher.pendingSequence).toEqual(["g"]);
     h.press(byId("plain"), { key: "c" });
-    expect(h.ran).toEqual(["chat"]);
+    expect(h.ran).toEqual(["go"]);
     expect(h.sequences).toEqual([["g"], null]);
   });
 
@@ -530,7 +529,7 @@ describe("preferences", () => {
   it("disables single-key shortcuts and sequences without touching chords", () => {
     const h = setup((r) => [
       action({ id: "complete", context: "app", defaultBinding: "x", run: track("complete", r) }),
-      action({ id: "chat", context: "app", defaultBinding: "g c", run: track("chat", r) }),
+      action({ id: "go", context: "app", defaultBinding: "g c", run: track("go", r) }),
       action({ id: "palette", context: "app", defaultBinding: "mod+k", run: track("palette", r) }),
     ]);
     h.setPreferences({ overrides: {}, singleKeyShortcuts: false });

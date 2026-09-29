@@ -1,8 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiError } from "@/lib/api";
 import { WorkspaceDialogs } from "./dialogs.tsx";
-import type { TaskRunStateSource } from "./run-state.ts";
 import { TaskInbox } from "./task-inbox.tsx";
 import { FakeWorkspaceApi, renderWorkspace } from "./test-support.tsx";
 
@@ -179,7 +177,7 @@ describe("the task list", () => {
     expect(await screen.findByText("Book the bike shop")).toBeInTheDocument();
   });
 
-  it("opens a task so its page and chat switch together", async () => {
+  it("opens a task's page", async () => {
     const { user } = await loaded();
     await user.click(screen.getByText("Send the project outline"));
     expect(navigation.push).toHaveBeenCalledWith("/now/outline");
@@ -220,43 +218,6 @@ describe("the task list", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(api.archivedIds()).toEqual([]);
     expect(screen.getByText("Refresh my portfolio")).toBeInTheDocument();
-  });
-
-  it("offers to stop Simon before completing a task he is working on", async () => {
-    const api = seeded();
-    const source: TaskRunStateSource = {
-      get: (taskId) => ({ status: taskId === "outline" ? "running" : "idle" }),
-      subscribe: () => () => undefined,
-    };
-    const { user } = inbox({ api, runState: source });
-    await screen.findByText("Send the project outline");
-    expect(screen.getByText("Simon is working")).toBeInTheDocument();
-
-    await user.click(screen.getByRole("checkbox", { name: "Complete Send the project outline" }));
-    const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText("Stop Simon and complete this task?")).toBeInTheDocument();
-    await user.click(within(dialog).getByRole("button", { name: "Stop and complete" }));
-    await waitFor(() => expect(api.archivedIds()).toContain("outline"));
-    const completion = api.calls.find((call) => call.method === "completeTask");
-    expect(completion?.detail).toMatchObject({ body: { stopRun: true } });
-  });
-
-  it("asks the same question when the server refuses because a run started", async () => {
-    const { user, api } = await loaded();
-    api.fail(
-      "completeTask",
-      new ApiError({
-        status: 409,
-        code: "task.run_active",
-        message: "Simon is working",
-        requestId: "req-test",
-      }),
-    );
-    await user.click(screen.getByRole("checkbox", { name: "Complete Book a bike tune-up" }));
-    const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText("Stop Simon and complete this task?")).toBeInTheDocument();
-    await user.click(within(dialog).getByRole("button", { name: "Stop and complete" }));
-    await waitFor(() => expect(api.archivedIds()).toContain("bike"));
   });
 
   it("moves a task to another collection from its menu, with Undo", async () => {

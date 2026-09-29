@@ -59,8 +59,8 @@ beforeEach(() => {
 });
 
 describe("AppShell on a collection route", () => {
-  it("renders the top bar, rail, task list and page with a quick chat slot", () => {
-    renderShell({ path: "/now", slots: { quickChat: <button type="button">Quick chat</button> } });
+  it("renders the top bar, rail, task list and page", () => {
+    renderShell({ path: "/now" });
     const banner = screen.getByRole("banner");
     expect(within(banner).getByRole("link", { name: "Symplist home" })).toHaveAttribute(
       "href",
@@ -77,9 +77,6 @@ describe("AppShell on a collection route", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Page content" })).toBeInTheDocument();
     expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
     expect(screen.getByText("Nothing here yet")).toBeInTheDocument();
-    expect(document.querySelector('[data-slot="quick-chat"]')).toContainElement(
-      screen.getByRole("button", { name: "Quick chat" }),
-    );
     expect(screen.getByRole("separator", { name: "Resize task list" })).toHaveAttribute(
       "aria-valuemin",
     );
@@ -90,49 +87,22 @@ describe("AppShell on a collection route", () => {
       path: "/later",
       slots: {
         inbox: (collection) => <p>{`Tasks in ${collection}`}</p>,
-        runningIndicator: <span>Simon is working on “Plan a quiet weekend”</span>,
         notificationControl: <button type="button">Notifications</button>,
         identity: { displayName: "Maya Rao", email: "maya@example.com", isAdmin: false },
       },
     });
     expect(screen.getByText("Tasks in later")).toBeInTheDocument();
-    expect(screen.getByText(/Simon is working on/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Notifications" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Account menu, Maya Rao" })).toHaveTextContent("MR");
   });
 });
 
 describe("AppShell on a task route", () => {
-  it("adds the chat panel and collapses it to a corner control", async () => {
-    const user = userEvent.setup();
-    renderShell({
-      path: `/now/${taskId}`,
-      slots: {
-        chatTitle: () => "Refresh my portfolio",
-        chatStatus: (id) => (id === taskId ? "Approval waiting" : null),
-      },
-    });
-    const chat = screen.getByRole("complementary", { name: "Simon" });
-    expect(chat).toHaveAttribute("data-pane", "chat");
-    expect(within(chat).getByText("Refresh my portfolio")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Hide chat" }));
-    const corner = await screen.findByRole("button", { name: "Show chat, Approval waiting" });
-    expect(corner.querySelector('[data-slot="chat-status"]')).not.toBeNull();
-    expect(document.querySelector(".sym-workspace")).toHaveAttribute("data-chat", "collapsed");
-    await waitFor(() => expect(corner).toHaveFocus());
-    await user.click(corner);
-    expect(document.querySelector(".sym-workspace")).toHaveAttribute("data-chat", "expanded");
-    expect(screen.queryByRole("button", { name: /Show chat/ })).not.toBeInTheDocument();
-    await waitFor(() =>
-      expect(screen.getByRole("heading", { level: 2, name: "Simon" })).toHaveFocus(),
-    );
-  });
-
-  it("adds the chat panel when a task opens through client-side navigation", async () => {
-    // Opening a task from the palette or a search result re-renders the workspace with a new panel;
-    // the panel group has no constraints for it yet, so the collapse sync must not crash the app.
+  it("keeps the page panel addressable when a task opens through client-side navigation", async () => {
+    // Opening a task from the palette or a search result re-renders the workspace; the panel group
+    // registers its panels in a layout effect, so the sync that follows must not crash the app.
     const { rerender } = renderShell({ path: "/now" });
-    expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Back to Now" })).not.toBeInTheDocument();
     navigation.pathname = `/now/${taskId}`;
     await act(async () => {
       rerender(
@@ -147,7 +117,7 @@ describe("AppShell on a task route", () => {
         </StatusAnnouncerProvider>,
       );
     });
-    expect(screen.getByRole("complementary", { name: "Simon" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Back to Now" })).toHaveAttribute("href", "/now");
   });
 
   it("collapses the task list to the rail's Show task list control", async () => {
@@ -166,16 +136,15 @@ describe("AppShell on a task route", () => {
     );
   });
 
-  it("switches the phone surfaces between page and chat", async () => {
-    const user = userEvent.setup();
+  it("shows the page as the phone's single surface, with a way back to the collection", () => {
     renderShell({ path: `/now/${taskId}` });
-    const workspace = document.querySelector(".sym-workspace");
-    expect(workspace).toHaveAttribute("data-mobile-view", "page");
-    await user.click(screen.getByRole("button", { name: "Chat" }));
-    expect(workspace).toHaveAttribute("data-mobile-view", "chat");
-    await user.click(screen.getByRole("button", { name: "Page", exact: true } as never));
-    expect(workspace).toHaveAttribute("data-mobile-view", "page");
-    expect(screen.getByRole("link", { name: "Back to Now" })).toHaveAttribute("href", "/now");
+    expect(document.querySelector(".sym-workspace")).toHaveAttribute("data-mobile-view", "page");
+    renderShell({ path: "/now" });
+    expect(document.querySelectorAll(".sym-workspace")[1]).toHaveAttribute(
+      "data-mobile-view",
+      "list",
+    );
+    expect(screen.getAllByRole("link", { name: "Back to Now" })[0]).toHaveAttribute("href", "/now");
   });
 });
 
@@ -189,7 +158,7 @@ describe("AppShell outside the workspace", () => {
 });
 
 describe("keyboard actions through the shell", () => {
-  it("runs g then l to navigate and g then c to focus the chat", async () => {
+  it("runs g then l to navigate and g then d to focus the page", async () => {
     const user = userEvent.setup();
     renderShell({ path: `/now/${taskId}` });
     await user.keyboard("gl");
@@ -198,10 +167,8 @@ describe("keyboard actions through the shell", () => {
     await waitFor(() =>
       expect(screen.getByRole("heading", { level: 2, name: "Now" })).toHaveFocus(),
     );
-    await user.keyboard("gc");
-    await waitFor(() =>
-      expect(screen.getByRole("heading", { level: 2, name: "Simon" })).toHaveFocus(),
-    );
+    await user.keyboard("gd");
+    await waitFor(() => expect(screen.getByRole("main")).toHaveFocus());
   });
 
   it("expands a collapsed task list before focusing it for a collection shortcut", async () => {
@@ -220,9 +187,9 @@ describe("keyboard actions through the shell", () => {
   it("announces why a shortcut is unavailable", async () => {
     const user = userEvent.setup();
     renderShell({ path: "/now" });
-    await user.keyboard("gc");
+    await user.keyboard("gd");
     const polite = document.querySelector('[data-slot="status-announcer"] [aria-live="polite"]');
-    await waitFor(() => expect(polite).toHaveTextContent("Open Simon chat: Open a task first"));
+    await waitFor(() => expect(polite).toHaveTextContent("Open task page: Open a task first"));
   });
 
   it("offers Sign out only through a registered action", async () => {

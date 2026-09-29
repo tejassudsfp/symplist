@@ -9,7 +9,7 @@ import { buildAppearanceCss } from "@/theme/css";
 import { fontVariableClassNames } from "./fonts";
 import "./globals.css";
 
-const DESCRIPTION = "A calm task workspace. Every task has a page and a conversation.";
+const DESCRIPTION = "A calm task workspace. Every task has an editable page of its own.";
 
 /*
  * `metadataBase` resolves the relative asset paths below into the absolute URLs that link previews

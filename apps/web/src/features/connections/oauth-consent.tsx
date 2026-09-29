@@ -9,7 +9,7 @@ import { EntryFrame } from "@/features/access/ui/entry-frame";
 import { Notice } from "@/features/access/ui/notice";
 import { useQueryParam } from "@/features/access/ui/use-query-param";
 import { publicOrigins } from "@/lib/public-config";
-import { permissionLabels } from "./agent-connections.tsx";
+import { permissionLabel } from "./agent-connections.tsx";
 import { useConnectionsEnvironment } from "./api.tsx";
 import { useConnectionResource } from "./resource.ts";
 import { TaskScope } from "./task-scope.tsx";
@@ -129,7 +129,7 @@ function Consent({ id }: { id: string }) {
           <h3>Requested permissions</h3>
           <ul>
             {resource.data.scopes.map((scope) => (
-              <li key={scope}>{permissionLabels[scope]}</li>
+              <li key={scope}>{permissionLabel(scope)}</li>
             ))}
           </ul>
           {resource.data.offlineAccess && (
@@ -144,8 +144,7 @@ function Consent({ id }: { id: string }) {
             disabled={intent.busy || intent.uncertain || expired}
           />
           <p className="sym-connection-help">
-            Your Vault, service credentials and approval decisions are never shared. Simon actions
-            still require your own approval where applicable.
+            Your Vault and service credentials are never shared.
           </p>
           {expired && (
             <Notice tone="warning">

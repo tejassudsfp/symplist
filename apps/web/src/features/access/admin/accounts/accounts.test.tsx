@@ -103,7 +103,7 @@ describe("the account list (admin_accounts.md)", () => {
     expect(within(row).getByText("Unlocked")).toBeInTheDocument();
     expect(within(row).getByText("Finished")).toBeInTheDocument();
     expect(within(row).getByText("Invite code")).toBeInTheDocument();
-    expect(screen.queryByText(/task|vault|conversation/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/task|vault|page/i)).not.toBeInTheDocument();
   });
 
   it("distinguishes a pending registration from a verified locked account", async () => {
