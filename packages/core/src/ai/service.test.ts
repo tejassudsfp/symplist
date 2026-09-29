@@ -36,6 +36,44 @@ afterEach(async () => {
   await env.close();
 });
 
+/** Counts D1 round trips, which is the thing being protected here rather than any single value. */
+function countingDb(db: DocumentsTestEnvironment["db"]) {
+  const counts = { requests: 0 };
+  const wrap =
+    <A extends unknown[], R>(fn: (...args: A) => Promise<R>) =>
+    (...args: A): Promise<R> => {
+      counts.requests += 1;
+      return fn(...args);
+    };
+  return {
+    counts,
+    db: {
+      ...db,
+      batch: wrap(db.batch.bind(db)),
+      all: wrap(db.all.bind(db)),
+      first: wrap(db.first.bind(db)),
+      run: wrap(db.run.bind(db)),
+    } as DocumentsTestEnvironment["db"],
+  };
+}
+
+describe("the cost of a credential", () => {
+  it("reads what a model call needs in one request", async () => {
+    const owner = await env.createUser();
+    await store.setKey(owner, "openai", "sk-one-request-0123456789");
+
+    const { counts, db } = countingDb(env.db);
+    const counted = new AiKeyStore({ db, keys: env.keys, defaults, now: () => now });
+    const credential = await counted.credentialFor(owner, "fast");
+
+    // This read sits in front of every model call. On the worker D1 lane a request costs about
+    // seven seconds, so three sequential reads — choices, key, account key — were twenty-one
+    // seconds of a turn spent before the provider was addressed.
+    expect(counts.requests).toBe(1);
+    expect(credential.apiKey).toBe("sk-one-request-0123456789");
+  });
+});
+
 describe("storing a provider key", () => {
   it("never writes the key, or any part of it, in the clear", async () => {
     const owner = await env.createUser();

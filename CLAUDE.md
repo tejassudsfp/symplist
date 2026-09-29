@@ -112,6 +112,14 @@ by any route. There is no server-side fallback: an account without a key is told
   (`ai.unavailable`), this account has no key (`ai.key_required`), something broke
   (`ai.provider_failed`).
 
+**A D1 request on the worker lane costs about seven seconds.** `D1_BUDGET.worker` is 1 req/s for all
+runtimes, divided by the D1 queue family's total concurrency (7), so each task process gets 0.143
+req/s after a burst of 4. Every Trigger run is its own container, so the bucket cannot be shared and
+the divisor cannot be dynamic. That makes **round trips, not statements, the thing to count**: D1
+takes `{batch:[{sql,params}]}`, so independent reads belong in one batch. A turn that makes eighteen
+sequential requests spends about a hundred seconds doing nothing else, which is what durable chat
+did before the reads were batched. Adding a sequential read to the turn path is adding seven seconds.
+
 ## Hard rules
 
 **Git**
