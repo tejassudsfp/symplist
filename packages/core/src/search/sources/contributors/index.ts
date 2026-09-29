@@ -2,17 +2,15 @@ import type { SearchLog } from "../../log.ts";
 import { D1SearchTaskSource } from "../tasks.ts";
 import type { SearchSourceContributor, SearchSourceDependencies, SearchSources } from "../types.ts";
 import { documentsSearchSourceContributor } from "./documents.ts";
-import { preferencesSearchSourceContributor } from "./preferences.ts";
 import { schedulingSearchSourceContributor } from "./scheduling.ts";
 
 /** Every domain's search source contribution (§2.3). */
 export const searchSourceContributors: readonly SearchSourceContributor[] = [
   documentsSearchSourceContributor,
-  preferencesSearchSourceContributor,
   schedulingSearchSourceContributor,
 ];
 
-type OptionalSource = "documents" | "messages" | "chatOptIn" | "deadlines";
+type OptionalSource = "documents" | "deadlines";
 
 /**
  * Builds the sources of a runtime from the contributors. Throws when two domains supply the same
@@ -35,8 +33,6 @@ export function createSearchSources(
   return {
     tasks: new D1SearchTaskSource(dependencies.db, dependencies.log),
     documents: pick("documents") as SearchSources["documents"],
-    messages: pick("messages") as SearchSources["messages"],
-    chatOptIn: pick("chatOptIn") as SearchSources["chatOptIn"],
     deadlines: pick("deadlines") as SearchSources["deadlines"],
   };
 }

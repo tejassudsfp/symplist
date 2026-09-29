@@ -12,9 +12,7 @@ function environment(route: WorkspaceRoute | null, withShell = true) {
     focusPane: vi.fn(),
     revealInbox: vi.fn(),
     toggleInbox: vi.fn(),
-    toggleChat: vi.fn(),
     isInboxVisible: () => true,
-    isChatVisible: () => false,
   };
   const services: ActionServices = {
     navigate: vi.fn(),
@@ -79,37 +77,25 @@ describe("shell actions", () => {
 
   it("focuses panes through the shell and explains when a task is needed", async () => {
     const onCollection = environment({ collection: "later", taskId: null });
-    expect(byId("shell.focus_chat").availability(onCollection.env)).toEqual({
+    expect(byId("shell.focus_page").availability(onCollection.env)).toEqual({
       enabled: false,
       reason: "Open a task first",
     });
-    expect(byId("shell.focus_page").availability(onCollection.env).enabled).toBe(false);
-    expect(byId("shell.toggle_chat").availability(onCollection.env).enabled).toBe(false);
     expect(byId("shell.focus_inbox").availability(onCollection.env)).toEqual({ enabled: true });
 
     const onTask = environment({ collection: "later", taskId: "t1" });
-    expect(byId("shell.focus_chat").availability(onTask.env)).toEqual({ enabled: true });
-    await byId("shell.focus_chat").run(onTask.env);
+    expect(byId("shell.focus_page").availability(onTask.env)).toEqual({ enabled: true });
     await byId("shell.focus_page").run(onTask.env);
     await byId("shell.focus_inbox").run(onTask.env);
     await byId("shell.toggle_inbox").run(onTask.env);
-    await byId("shell.toggle_chat").run(onTask.env);
-    expect(onTask.shell.focusPane).toHaveBeenNthCalledWith(1, "chat");
-    expect(onTask.shell.focusPane).toHaveBeenNthCalledWith(2, "page");
-    expect(onTask.shell.focusPane).toHaveBeenNthCalledWith(3, "inbox");
+    expect(onTask.shell.focusPane).toHaveBeenNthCalledWith(1, "page");
+    expect(onTask.shell.focusPane).toHaveBeenNthCalledWith(2, "inbox");
     expect(onTask.shell.toggleInbox).toHaveBeenCalledTimes(1);
-    expect(onTask.shell.toggleChat).toHaveBeenCalledTimes(1);
   });
 
   it("disables pane actions outside the workspace", () => {
     const { env } = environment(null, false);
-    for (const id of [
-      "shell.focus_inbox",
-      "shell.focus_page",
-      "shell.focus_chat",
-      "shell.toggle_inbox",
-      "shell.toggle_chat",
-    ]) {
+    for (const id of ["shell.focus_inbox", "shell.focus_page", "shell.toggle_inbox"]) {
       expect(byId(id).availability(env)).toEqual({
         enabled: false,
         reason: "Available in the task workspace",
@@ -131,7 +117,6 @@ describe("shell actions", () => {
       "shell.go_vault": "g v",
       "shell.focus_inbox": "g i",
       "shell.focus_page": "g d",
-      "shell.focus_chat": "g c",
     });
   });
 });

@@ -64,7 +64,6 @@ const groupLabels: Readonly<Record<ActionGroup, string>> = {
   navigation: "Navigation",
   tasks: "Tasks",
   page: "Page",
-  chat: "Chat",
   search: "Search",
   general: "General",
 };
@@ -178,14 +177,7 @@ function buildContent(options: {
         .map((entry) => toItem(entry.action));
       return flatten(items.length > 0 ? [{ label: "Actions", items }] : []);
     }
-    const order: readonly ActionGroup[] = [
-      "navigation",
-      "tasks",
-      "page",
-      "chat",
-      "search",
-      "general",
-    ];
+    const order: readonly ActionGroup[] = ["navigation", "tasks", "page", "search", "general"];
     const groups = order
       .map((group) => ({
         label: groupLabels[group],

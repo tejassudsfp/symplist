@@ -10,9 +10,7 @@ export { ACCOUNT_PURGE_TASK_ID } from "./account.ts";
 export type { EventsContributor } from "./types.ts";
 
 /** Every domain's execution contribution (§2.3). */
-export const eventsContributors: readonly EventsContributor[] = [
-  accountEventsContributor,
-];
+export const eventsContributors: readonly EventsContributor[] = [accountEventsContributor];
 
 /**
  * The execution kinds of a contributor list, keyed by kind. Throws when two definitions claim the

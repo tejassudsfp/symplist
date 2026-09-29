@@ -31,7 +31,6 @@ import { StatusAnnouncerProvider } from "@/components/ui/status-announcer";
 import { ToastProvider } from "@/components/ui/toast";
 import { ApiError } from "@/lib/api";
 import type { WorkspaceApi } from "./api.ts";
-import { idleRunStateSource, TaskRunStateProvider, type TaskRunStateSource } from "./run-state.ts";
 import { WorkspaceProvider } from "./workspace-provider.tsx";
 
 /*
@@ -530,11 +529,6 @@ export class FakeWorkspaceApi implements WorkspaceApi {
 export interface RenderWorkspaceOptions {
   readonly api?: FakeWorkspaceApi;
   readonly userId?: string;
-  /**
-   * A run-state source, mounted *above* `WorkspaceProvider` — the provider reads the source once, so
-   * a `TaskRunStateProvider` rendered as a child of the workspace is invisible to its commands.
-   */
-  readonly runState?: TaskRunStateSource;
 }
 
 export interface RenderWorkspaceResult extends RenderResult {
@@ -556,11 +550,9 @@ export function renderWorkspace(
     <StatusAnnouncerProvider>
       <ToastProvider>
         <ActionsProvider actions={actionRegistry} services={testActionServices()}>
-          <TaskRunStateProvider source={options.runState ?? idleRunStateSource}>
-            <WorkspaceProvider api={api} realtime={null} userId={options.userId ?? "user-1"}>
-              {node}
-            </WorkspaceProvider>
-          </TaskRunStateProvider>
+          <WorkspaceProvider api={api} realtime={null} userId={options.userId ?? "user-1"}>
+            {node}
+          </WorkspaceProvider>
         </ActionsProvider>
       </ToastProvider>
     </StatusAnnouncerProvider>,

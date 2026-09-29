@@ -100,8 +100,7 @@ export function AboutScreen({ buildSha }: AboutScreenProps) {
             “The most productive thing is often the most simple.”
           </blockquote>
           <p className="m-0 text-[13.5px] text-sym-muted leading-6">
-            A calm, personal task workspace where every task has a page and a conversation with
-            Simon.
+            A calm, personal task workspace where every task has an editable page of its own.
           </p>
         </div>
         <p className="m-0 text-[12.5px] text-sym-muted">

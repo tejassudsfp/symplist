@@ -55,8 +55,6 @@ function dependencies(
   const sources: SearchSources = {
     tasks: new D1SearchTaskSource(db),
     documents: null,
-    messages: null,
-    chatOptIn: null,
     deadlines: null,
   };
   return {

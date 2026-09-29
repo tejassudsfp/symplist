@@ -33,29 +33,16 @@ import {
   type SecretRuntime,
   secretFamiliesFor,
 } from "./secrets.ts";
-import type { AiProvider, NodeEnv, SecretFamilyConfig } from "./shared.ts";
+import type { NodeEnv, SecretFamilyConfig } from "./shared.ts";
 
 /**
  * Schemas and cross-field rules shared by the api and the worker (§16.1, §16.2). Node-only.
  */
 
 export const nodeEnvs = ["development", "test", "production"] as const satisfies readonly NodeEnv[];
-export const aiProviders = ["openai", "anthropic"] as const satisfies readonly AiProvider[];
-
-/** Model ids from decision D8, used when `AI_FAST_MODEL` or `AI_SMART_MODEL` is unset. */
-export const defaultAiModels = Object.freeze({ fast: "gpt-5.6-luna", smart: "gpt-5.6-terra" });
 
 /** The largest document body: 1 MiB, so an encrypted draft stays within D1's 2 MB value limit (§3.2). */
 export const docMaxBytesLimit = 1_048_576;
-
-function modelIdVariable(defaultValue: string) {
-  const invalid = "must be a provider model id such as gpt-5.6-luna";
-  return z
-    .string({ error: invalid })
-    .regex(/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,199}$/, { error: invalid })
-    .optional()
-    .transform((value) => value ?? defaultValue);
-}
 
 function gitTmpDirVariable() {
   const invalid = "must be an absolute directory path";
@@ -105,13 +92,11 @@ export const sharedVariableShape = {
   BETA_ACCESS_REQUIRED: booleanVariable(true),
   BILLING_ENABLED: disabledFlagVariable("billing"),
   PAYWALL_ENABLED: disabledFlagVariable("the paywall"),
-  AI_USAGE_LIMITS_ENABLED: disabledFlagVariable("AI usage limits"),
 
   REMINDERS_ENABLED: booleanVariable(true),
   REMINDER_EMAIL_ENABLED: booleanVariable(true),
   REMINDER_MAX_LATENESS_HOURS: integerWithDefaultVariable({ min: 1, max: 168, default: 24 }),
   DEFAULT_TIMEZONE: timeZoneVariable("UTC"),
-  QUICK_CHAT_TTL_HOURS: integerWithDefaultVariable({ min: 1, max: 168, default: 24 }),
   DOC_MAX_BYTES: integerWithDefaultVariable({
     min: 1024,
     max: docMaxBytesLimit,
@@ -119,15 +104,6 @@ export const sharedVariableShape = {
   }),
   GIT_TMP_DIR: gitTmpDirVariable(),
   LOCAL_DATA_DIR: localDataDirVariable(),
-
-  AI_ENABLED: booleanVariable(true),
-  AI_DEFAULT_TIER: enumWithDefaultVariable(["fast", "smart"], "fast"),
-  AI_FAST_PROVIDER: enumWithDefaultVariable(aiProviders, "openai"),
-  AI_FAST_MODEL: modelIdVariable(defaultAiModels.fast),
-  AI_SMART_PROVIDER: enumWithDefaultVariable(aiProviders, "openai"),
-  AI_SMART_MODEL: modelIdVariable(defaultAiModels.smart),
-  AI_PROVIDER_MODE: enumWithDefaultVariable(["live", "scripted"], "live"),
-  AI_TELEMETRY_ENABLED: booleanVariable(true),
 
   CLOUDFLARE_ACCOUNT_ID: optionalPatternVariable(
     /^[0-9a-f]{32}$/,
@@ -160,7 +136,6 @@ export interface SharedRuleValues {
   readonly WS_ORIGIN: string;
   readonly DATA_DRIVER: "d1" | "local";
   readonly EMAIL_DRIVER: "resend" | "log";
-  readonly AI_PROVIDER_MODE: "live" | "scripted";
   readonly ANALYTICS_ENABLED: boolean;
   readonly POSTHOG_PROJECT_KEY?: string | undefined;
   readonly POSTHOG_HOST?: string | undefined;
@@ -187,10 +162,9 @@ function requireWhen(
 }
 
 /**
- * Cross-field rules shared by both runtimes (§16.1): production refuses the local drivers and the
- * scripted model and requires secure origins; drivers require their credentials; provider
- * credential groups are complete; analytics with a project key needs its host, which production
- * refuses on loopback.
+ * Cross-field rules shared by both runtimes (§16.1): production refuses the local drivers and
+ * requires secure origins; drivers require their credentials; provider credential groups are
+ * complete; analytics with a project key needs its host, which production refuses on loopback.
  */
 export function sharedRuleIssues(
   values: SharedRuleValues,
@@ -211,13 +185,6 @@ export function sharedRuleIssues(
       issues.push({
         variable: "EMAIL_DRIVER",
         message: "must be resend when NODE_ENV=production: the log driver is for development only",
-      });
-    }
-    if (values.AI_PROVIDER_MODE !== "live") {
-      issues.push({
-        variable: "AI_PROVIDER_MODE",
-        message:
-          "must be live when NODE_ENV=production: the scripted model is for development only",
       });
     }
     for (const name of ["WEB_ORIGIN", "API_ORIGIN", "WS_ORIGIN"] as const) {

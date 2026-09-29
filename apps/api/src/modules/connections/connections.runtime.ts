@@ -1,11 +1,11 @@
 import {
   ComposioSessions,
+  ConnectionContext,
   ConnectionMutations,
   ConnectionReconciler,
   ConnectionsService,
   ConnectionWebhooks,
 } from "@symplist/core/connections";
-import { SimonRepository } from "@symplist/core/simon";
 import type { KeyProvider } from "@symplist/crypto";
 import type { DbClient } from "@symplist/db";
 import {
@@ -56,13 +56,7 @@ export function createConnectionsRuntime(
   const catalogue = client
     ? new ToolkitCatalogue(client.getClient(), now)
     : { list: async () => [] };
-  const repository = new SimonRepository({
-    db,
-    keys,
-    policy,
-    now,
-    quickChatTtlHours: config.QUICK_CHAT_TTL_HOURS,
-  });
+  const repository = new ConnectionContext({ db, keys, policy, now });
   const reconciler = new ConnectionReconciler({ repository, provider, sessions, changed });
   return {
     enabled: client !== undefined,

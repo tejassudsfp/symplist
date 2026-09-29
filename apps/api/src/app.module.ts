@@ -10,7 +10,6 @@ import { DocumentsModule } from "./modules/documents/documents.module.ts";
 import { SchedulingModule } from "./modules/scheduling/scheduling.module.ts";
 import { SearchModule } from "./modules/search/search.module.ts";
 import { SharingModule } from "./modules/sharing/sharing.module.ts";
-import { SimonModule } from "./modules/simon/simon.module.ts";
 import { SystemModule } from "./modules/system/system.module.ts";
 import { VaultModule } from "./modules/vault/vault.module.ts";
 import { WorkspaceModule } from "./modules/workspace/workspace.module.ts";
@@ -22,7 +21,6 @@ export const featureModules = [
   WorkspaceModule,
   DocumentsModule,
   SearchModule,
-  SimonModule,
   SchedulingModule,
   VaultModule,
   SharingModule,

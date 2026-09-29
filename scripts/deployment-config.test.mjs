@@ -39,7 +39,6 @@ test("Render keeps production origins and durable executor placement explicit", 
   assert.match(envEntry("WS_ORIGIN"), /value: wss:\/\/api\.symplist\.tejassuds\.com/);
   assert.match(envEntry("ARTIFACT_ORIGIN"), /value: https:\/\/artifacts\.symplist\.tejassuds\.com/);
   assert.match(envEntry("DURABLE"), /value: "true"/);
-  assert.match(envEntry("SIMON_CHAT_SESSIONS"), /value: "(true|false)"/);
   assert.match(envEntry("DATA_DRIVER"), /value: d1/);
   assert.match(envEntry("EMAIL_DRIVER"), /value: resend/);
   assert.match(envEntry("TRUST_PROXY_HOPS"), /value: "1"/);
@@ -79,7 +78,9 @@ test("Render prompts for every API secret and never carries worker, CI or model 
 
   for (const forbidden of [
     "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
     "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
     "GOOGLE_VERTEX_CREDENTIALS_JSON",
     "TOGETHER_API_KEY",
     "CLOUDFLARE_D1_WORKER_API_TOKEN",

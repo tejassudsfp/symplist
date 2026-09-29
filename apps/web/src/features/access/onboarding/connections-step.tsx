@@ -82,14 +82,13 @@ export function OnboardingConnections({ catalogue }: OnboardingConnectionsProps)
         {catalogue ?? (
           <Notice tone="info" live="none" title="No connectors are set up here yet">
             When this deployment offers connectors, they appear here and in Settings → Connections.
-            Until then, tasks, pages and Simon work on their own.
+            Until then, tasks and pages work on their own.
           </Notice>
         )}
       </div>
       <p className="m-0 text-[12.5px] text-sym-muted [text-wrap:pretty]">
-        A connection decides what Simon may reach on your behalf. Actions that send or change
-        something outside Symplist still ask you to approve them first, and you can disconnect a
-        service at any time in Settings → Connections.
+        A connection is a link to a service you already use, and nothing in Symplist acts on it by
+        itself. You can disconnect a service at any time in Settings → Connections.
       </p>
       {failure ? <Notice tone="error">{failure}</Notice> : null}
       <div className="flex flex-wrap gap-2">

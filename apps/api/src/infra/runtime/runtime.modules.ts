@@ -1,14 +1,9 @@
 import type { DynamicModule } from "@nestjs/common";
 import type { AccessService } from "@symplist/core/access";
-import type { AccountKeyStore } from "@symplist/core/account";
-import {
-  createRunRelaySource,
-  type EventsContributor,
-  eventsContributors,
-} from "@symplist/core/events";
+import { type EventsContributor, eventsContributors } from "@symplist/core/events";
 import type { KeyProvider } from "@symplist/crypto";
 import type { DbClient } from "@symplist/db";
-import { ACCESS_SERVICE, ACCOUNT_KEYS } from "../../common/access/access.providers.ts";
+import { ACCESS_SERVICE } from "../../common/access/access.providers.ts";
 import { SessionService } from "../../common/auth/session.service.ts";
 import { AppLogger } from "../../common/logging/logger.ts";
 import { appOperationalLog } from "../../common/logging/operational-log.ts";
@@ -78,7 +73,6 @@ export function runtimeModules(options: RuntimeOptions = {}): DynamicModule[] {
         betaAccessRequired: config.BETA_ACCESS_REQUIRED,
         durable: config.DURABLE,
         trigger,
-        chatSessions: config.SIMON_CHAT_SESSIONS,
         timers,
         log: appOperationalLog(logger),
         contributors,
@@ -112,17 +106,13 @@ export function runtimeModules(options: RuntimeOptions = {}): DynamicModule[] {
       }),
     }),
     InternalModule.forRoot({
-      inject: [DB_CLIENT, KEY_PROVIDER, ACCOUNT_KEYS, RUNTIME_TIMERS, AppLogger],
+      inject: [KEY_PROVIDER, RUNTIME_TIMERS, AppLogger],
       useFactory: (
-        db: DbClient,
         keys: KeyProvider,
-        accountKeys: AccountKeyStore,
         timers: RuntimeTimers,
         logger: AppLogger,
       ): InternalDependencies => ({
         keys,
-        accountKeys,
-        runRelaySource: createRunRelaySource({ db }, contributors),
         timers,
         log: appOperationalLog(logger),
         ...(options.internal?.tuning === undefined ? {} : { tuning: options.internal.tuning }),

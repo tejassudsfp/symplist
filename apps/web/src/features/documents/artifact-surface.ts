@@ -7,9 +7,9 @@ import type { ReactNode } from "react";
  * documents feature owns the frame — the task's page, its current version, and the way back — while
  * snapshots and grants belong to the sharing feature (§13), which is a later wave.
  *
- * So the list is a seam, registered the same way Simon registers its outline handler
- * (`outline-request.ts`). Until sharing registers one the surface says plainly that no link can be
- * created yet, rather than showing controls that would do nothing.
+ * So the list is a seam: a feature registers the implementation and the documents pane reads it.
+ * Until sharing registers one the surface says plainly that no link can be created yet, rather than
+ * showing controls that would do nothing.
  */
 
 export interface ArtifactSurfaceContext {

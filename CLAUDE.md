@@ -4,7 +4,7 @@ Guidance for Claude Code (and any coding agent) working in this repository.
 
 # Symplist
 
-A calm, personal task workspace. Every task has one editable Markdown document and one persistent AI conversation (the assistant is **Simon**). Hosted as a free closed beta; fully self-hostable. MIT, by Tejas Parthasarathi Sudarshan.
+A calm, personal task workspace. Every task has one editable Markdown document with real Git history. The assistant (**Simon**) is a desktop application over this workspace, not part of it. Hosted as a free closed beta; fully self-hostable. MIT, by Tejas Parthasarathi Sudarshan.
 
 Founding idea, and the tie-breaker for design arguments: **the most productive thing is often the most simple.**
 
@@ -19,12 +19,18 @@ Four phases: **(1)** strip chat from the cloud, **(2)** Electron shell with `dsh
 local SQLite mode, **(4)** local→cloud promotion. Note 18 is binding and supersedes the parts of
 notes 07 and 12 that put Simon on the server.
 
-Sections below that describe the executor rule, `chat.agent`, chat sessions and BYOK describe code
-that phase 1 removes. They stay until the strip lands, then go.
-
 ## Status
 
-**Released.** The full specification is implemented and verified: workspace, documents (real Git engine), Simon with approvals and Quick Chat, scheduling/notifications, Vault, sharing/handoffs, connections/incoming MCP, analytics/consent, and self-hosting. The release gate passed with zero lint errors, all projects typechecked, 4,767 Vitest + 61 script tests, 212 Playwright cases (16 intentional skips) across three viewports, both production builds, and the local smoke/deploy checks. All 46 expand-only migrations were verified live.
+**Released, and mid-phase-1.** Everything the cloud still owns shipped and was verified: workspace,
+documents over a real Git engine, scheduling/notifications, Vault, sharing/handoffs, connection
+links and incoming MCP, search, analytics/consent, access, and self-hosting. All 46 expand-only
+migrations were verified live.
+
+Phase 1 removed the agent from the server: `packages/agent`, `core/src/simon`, `core/src/ai`, the
+Simon and AI contracts, the web chat feature, the api's Simon module and the `simon-run` /
+`simon-chat` Trigger tasks are gone, and with them approvals, transcripts, run authority and
+deployment model keys. Their tables stay — migrations are expand-only — and simply stop being
+written.
 
 New work is features, fixes, and docs — not catch-up. Verify claims with the commands below before reporting anything as passing.
 
@@ -35,14 +41,15 @@ pnpm 12.4.2 workspaces · Node 24 LTS (`>=24.15.0 <25`) · TypeScript 7.0.2 (`sk
 - ESLint and typescript-eslint do not support TS 7 — use Biome.
 - The Nest CLI refuses TS 7 — build the api with `tsc -b`.
 - **Data:** Cloudflare D1 over REST only (`{batch:[{sql,params}]}`), R2 via `@aws-sdk/client-s3`. The account-wide Cloudflare limit is ~1,200 requests / 5 min, so D1 access runs in budget lanes (api 2 req/s, worker ≤1 req/s) behind a circuit breaker.
+- **A D1 request on the worker lane costs about seven seconds.** `D1_BUDGET.worker` is 1 req/s for all runtimes, divided by the D1 queue family's total concurrency (7), so each task process gets 0.143 req/s after a burst of 4. Every Trigger run is its own container, so the bucket cannot be shared and the divisor cannot be dynamic. That makes **round trips, not statements, the thing to count**: D1 takes `{batch:[{sql,params}]}`, so independent reads belong in one batch. Adding a sequential read to a task is adding seven seconds to it.
 
 ## Layout
 
 ```
 apps/      api (NestJS) · web (Next.js) · worker (Trigger.dev) · e2e (Playwright)
 packages/  contracts config crypto db core storage email analytics search docs
-           integrations agent testing
-docs/notes/files/  17 numbered product notes (binding product decisions)
+           integrations testing
+docs/notes/files/  18 numbered product notes (binding product decisions)
 ```
 
 ## Commands
@@ -64,32 +71,27 @@ pnpm secrets:generate
 
 > If durable, then everything on Trigger. If not, then no Trigger.
 
-- `DURABLE=true` — **all** model and tool execution happens in the `simon-run` Trigger task. The api only accepts the message, claims the conversation, and dispatches; it never runs model or tool code. It used to prove that by rejecting `OPENAI_API_KEY` at boot; model keys are now per account (see BYOK below), so **no** runtime holds one and that variable is refused everywhere.
-- `DURABLE=false` — the api runs the same loop in process and makes **zero** Trigger calls, needing no Trigger credentials. Used for local development and the Playwright harness; also the simplest self-hosted topology.
+The rule outlived the thing it was written for. It arrived to keep model and tool execution out of
+the api; the cloud runs neither any more (note 18), and what it governs now is the background work
+the workspace still needs — Git commits, index rebuilds, reminder scans, purges, reconciliation.
 
-**Execution location and content retention are separate questions.** Trigger payloads/outputs/tags stay ids/enums/counts only; encrypted content returns through the signed worker-to-API relay.
+- `DURABLE=true` — every background job runs as a Trigger task. The api decides that a job is due,
+  records the intent and dispatches; it does not do the work itself.
+- `DURABLE=false` — the api runs the same jobs in process and makes **zero** Trigger calls, needing
+  no Trigger credentials. Used for local development and the Playwright harness; also the simplest
+  self-hosted topology.
 
-**`chat.agent` is allowed, under three conditions that are the whole reason it is allowed.** It was previously forbidden outright, because its default persistence writes the accumulated conversation to Trigger's own object storage after every turn — plaintext, overwritten rather than expired, and outside the account-deletion crypto-shred promise. Registering a transcript storage replaces that write entirely, so:
+The dispatcher framework in `apps/api/src/infra/executors` is what makes those two paths one
+implementation. It is not chat machinery and did not leave with the agent.
 
-1. **A transcript storage is mandatory.** `simon-chat` stores the conversation in D1 under the account data key (`chat_transcript_messages`, `chat_transcript_state`), and the Simon purge contributor deletes both. `purge-coverage.test.ts` fails if any owner-scoped table is left uncovered.
-2. **Approvals stay ours.** A connector action is gated by an `approvals` row bound to exact arguments, connection and expiry, one pending per run. That row is the authorization; the gate is never delegated to Trigger's human-in-the-loop mechanism.
-3. **Delivery stays Nest.** Chunks reach the browser through the signed relay. Direct Trigger-to-browser streaming remains an evaluated alternative (note 07), not the route.
+**Execution location and content retention are separate questions.** Trigger payloads/outputs/tags
+stay ids/enums/counts only; encrypted content returns through the signed worker-to-API relay.
 
-What still rests on Trigger is the session's `.in` / `.out` streams, which carry turn content in plaintext for the platform's realtime retention window. That is a narrowing of the at-rest promise and is deliberate; it is not the unbounded snapshot the original prohibition was about. Do not remove the transcript storage to "simplify" the agent — that single change reinstates the snapshot.
-
-**Simon's prompts stay in code**, versioned with git and changed only by deploy. Trigger managed prompts are not used: prompt changes must not bypass review, and the prompt behind any run must be recoverable from the commit.
-
-**A chat session gets a run two different ways, and only one of them is `sessions.start`.** `start`
-creates the session and triggers its **first** run; called again it is idempotent, answers
-`isCached: true`, and starts nothing. A turn arriving after the parked run has gone therefore has to
-**append** to the session's `.in` (`sessions.open(id).in.send`), which boots a continuation. The api
-does both: it starts, checks whether the run it was handed is still active, and wakes the session
-when it is not. Taking `start`'s run id on trust pins a turn to a run that finished turns ago.
-
-The wake record carries the conversation id and nothing else, because `.in` is plaintext on the
-platform and the task resolves the run it must execute from D1 anyway.
-
-Trigger tasks (`apps/worker/src/trigger/`): `symplist-healthcheck`, `account-purge`, `document-git`, `documents-maintenance`, `search-index`, `simon-run`, `simon-chat` (durable chat session), `reminder-scan` (concurrency 1), `cleanup-hourly`, `connections-reconcile`.
+Trigger tasks (`apps/worker/src/trigger/`): `symplist-healthcheck`, `account-purge`, `document-git`,
+`documents-maintenance`, `search-index`, `reminder-scan` (concurrency 1), `cleanup-hourly`,
+`connections-reconcile`. There is no chat task: `simon-run` and `simon-chat` are gone, and with them
+the `chat.agent` transcript-storage argument, the `sessions.start` / `.in` wake protocol and the
+prompts-in-code rule. Anything that needs a model belongs in the desktop app.
 
 ## Secret placement (enforced by config; wrong file = refuses to boot)
 
@@ -102,37 +104,18 @@ With `DURABLE=true`:
 | `RESEND_WEBHOOK_SECRET`, `COMPOSIO_WEBHOOK_SECRET`, `POSTHOG_PERSONAL_API_KEY` | yes | **rejected** |
 | `COMPOSIO_API_KEY`, `RESEND_API_KEY`, `POSTHOG_PROJECT_KEY` | yes | yes |
 
-## Model access is bring-your-own-key
+## The cloud runs no models
 
-Simon runs on the **account's** provider key, not the deployment's. An account stores its own OpenAI
-and/or Anthropic key in Settings → Models; it is a `sym1` envelope under that account's data key,
-bound to its provider, decrypted only in the executor about to call the provider, and never returned
-by any route. There is no server-side fallback: an account without a key is told to add one.
+There is no `AI_*` configuration left. `AI_ENABLED`, `AI_DEFAULT_TIER`, the `AI_FAST_*` /
+`AI_SMART_*` pairs, `AI_PROVIDER_MODE`, `AI_TELEMETRY_ENABLED`, `AI_USAGE_LIMITS_ENABLED`,
+`QUICK_CHAT_TTL_HOURS` and `SIMON_CHAT_SESSIONS` configured an executor that no longer exists and
+were removed from `packages/config`, the env templates and `render.yaml`.
 
-- Providers are **OpenAI and Anthropic only**. Bedrock, Vertex and Together were removed with the
-  environment credentials that configured them.
-- `AI_FAST_PROVIDER` / `AI_FAST_MODEL` / `AI_SMART_*` remain, as the **defaults** a tier falls back
-  to until an account chooses its own. They configure model ids, never credentials.
-- The suggested model ids in `packages/core/src/ai/service.ts` are a convenience, not an allowlist —
-  a typed id is accepted, so a new model works without a deploy.
-- Storage is `ai_provider_keys` and `ai_model_choices` (migration `1100`), both covered by the AI
-  purge contributor. Never add a column holding any part of a key, including a last-four hint.
-- `verified_at` answers "has this key ever worked", not "when was it last used". Only the provider
-  can say a key is live, so it is set from a real accepted call and written **once** — re-stamping
-  it every turn would spend a D1 write per model call. Replacing a key clears it.
-- A run that stops for want of a key ends `ai.key_required`, not `ai.provider_failed`. It travels
-  intact to the browser, which offers the way to Settings → Models instead of a Retry that can only
-  fail again. Keep the three AI outcomes distinct: the deployment cannot run models
-  (`ai.unavailable`), this account has no key (`ai.key_required`), something broke
-  (`ai.provider_failed`).
-
-**A D1 request on the worker lane costs about seven seconds.** `D1_BUDGET.worker` is 1 req/s for all
-runtimes, divided by the D1 queue family's total concurrency (7), so each task process gets 0.143
-req/s after a burst of 4. Every Trigger run is its own container, so the bucket cannot be shared and
-the divisor cannot be dynamic. That makes **round trips, not statements, the thing to count**: D1
-takes `{batch:[{sql,params}]}`, so independent reads belong in one batch. A turn that makes eighteen
-sequential requests spends about a hundred seconds doing nothing else, which is what durable chat
-did before the reads were batched. Adding a sequential read to the turn path is adding seven seconds.
+The six model credentials in the table above stay **rejected on both runtimes** rather than being
+dropped from the inventory. An instance upgrading from the version that ran Simon still has them
+set, and failing to boot with the variable named is how its operator learns that the assistant — and
+the key it spends — moved to the desktop app. Silently ignoring a set `OPENAI_API_KEY` would leave
+them believing the server was still using it.
 
 ## Hard rules
 

@@ -6,7 +6,7 @@ import type {
   SharingRelease,
 } from "@symplist/contracts";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { useNavigationGuard } from "@/features/access/ui/navigation-guard";
@@ -14,16 +14,9 @@ import { type DocumentApi, documentApi } from "@/features/documents/api";
 import { createIdempotencyKey } from "@/lib/api";
 import { type SharingApi, sharingApi } from "./api.ts";
 import { registerHandoff } from "./controller.ts";
-import {
-  handoffDraftFailure,
-  handoffDraftHandler,
-  subscribeHandoffDraftHandler,
-} from "./handoff-draft.ts";
 import { ShareDialog } from "./share-dialog.tsx";
 import { SnapshotDialog } from "./snapshot-dialog.tsx";
 import { copySharingText, downloadSharingText, expiryLabel, sharingFailure } from "./ui.ts";
-
-export { type HandoffDraftHandler, setHandoffDraftHandler } from "./handoff-draft.ts";
 
 export function manualHandoffPrompt(outcome: string): string {
   return `## Objective\n${outcome.trim() || "Describe the result you need."}\n\n## Instructions\nUse the supplied artifact as source context. Distinguish facts from assumptions. Ask about unresolved requirements before making irreversible choices.\n\n## Constraints\nList the scope, limitations and relevant deadline here. Do not invent missing task properties.\n\n## Expected output\nDescribe the deliverable and the checks it should pass.\n\n## Acceptance checks\n- Address the stated objective.\n- Explain assumptions and remaining questions.\n\n## Open questions\nList anything the source does not answer.\n\n## Return instructions\nReturn the result to me to review and paste into Symplist. Shared links are read-only and do not authorize edits or connector use.\n`;
@@ -40,11 +33,6 @@ export function HandoffScreen({
 }) {
   const api = useRef(injected ?? sharingApi()).current;
   const documents = useRef(injectedDocuments ?? documentApi()).current;
-  const draftHandler = useSyncExternalStore(
-    subscribeHandoffDraftHandler,
-    handoffDraftHandler,
-    handoffDraftHandler,
-  );
   const [head, setHead] = useState<DocumentHeadResponse | null>(null);
   const [artifacts, setArtifacts] = useState<readonly SharingArtifact[]>([]);
   const [selected, setSelected] = useState<readonly string[]>([]);
@@ -56,7 +44,7 @@ export function HandoffScreen({
   const [busy, setBusy] = useState(false);
   const [review, setReview] = useState<string | null>(null);
   const [capture, setCapture] = useState(false);
-  const [replaceDraft, setReplaceDraft] = useState<"manual" | "simon" | null>(null);
+  const [replaceDraft, setReplaceDraft] = useState(false);
   const [links, setLinks] = useState<Readonly<Record<string, SharingRelease>>>({});
   const [savedPrompt, setSavedPrompt] = useState(prompt);
   const [savedSelection, setSavedSelection] = useState("[]");
@@ -71,7 +59,6 @@ export function HandoffScreen({
     },
   );
   const request = useRef<{ input: string; key: string } | null>(null);
-  const draftAbort = useRef<AbortController | null>(null);
   const alive = useRef(true);
   useEffect(() => {
     alive.current = true;
@@ -93,8 +80,6 @@ export function HandoffScreen({
       });
     return () => {
       alive.current = false;
-      draftAbort.current?.abort();
-      draftAbort.current = null;
     };
   }, [api, documents, taskId]);
   const assembled = useCallback(() => {
@@ -154,52 +139,13 @@ export function HandoffScreen({
       if (alive.current) setBusy(false);
     }
   }
-  async function generate() {
-    if (!head?.revision || !draftHandler || busy) return;
-    draftAbort.current?.abort();
-    const controller = new AbortController();
-    draftAbort.current = controller;
-    setBusy(true);
-    setError(null);
-    setStatus("Simon is reading the selected task context and drafting…");
-    try {
-      const draft = await draftHandler({
-        taskId,
-        revision: head.revision,
-        target,
-        outcome: outcome.trim(),
-        artifactIds: selected,
-        signal: controller.signal,
-      });
-      if (alive.current && draftAbort.current === controller) {
-        setPrompt(draft);
-        setStatus("Draft ready. Review facts, assumptions and the exact context before sharing.");
-      }
-    } catch (error) {
-      const drafting = handoffDraftFailure(error);
-      const message = drafting === null ? sharingFailure(error) : drafting;
-      if (alive.current && draftAbort.current === controller && message) {
-        setStatus(null);
-        setError(message);
-      }
-    } finally {
-      if (alive.current && draftAbort.current === controller) {
-        draftAbort.current = null;
-        setBusy(false);
-      }
-    }
-  }
-  function startDraft(kind: "manual" | "simon") {
-    if (kind === "simon") {
-      void generate();
-      return;
-    }
+  function startDraft() {
     setPrompt(manualHandoffPrompt(outcome));
     setStatus("Manual template ready. Review and fill in the details.");
   }
-  function requestDraft(kind: "manual" | "simon") {
-    if (prompt !== manualHandoffPrompt("")) setReplaceDraft(kind);
-    else startDraft(kind);
+  function requestDraft() {
+    if (prompt !== manualHandoffPrompt("")) setReplaceDraft(true);
+    else startDraft();
   }
   return (
     <main className="sym-handoff-screen">
@@ -246,22 +192,10 @@ export function HandoffScreen({
         placeholder="What should come back?"
       />
       <div className="sym-sharing-buttons">
-        <Button variant="secondary" disabled={busy} onClick={() => requestDraft("manual")}>
+        <Button variant="secondary" disabled={busy} onClick={requestDraft}>
           Start a manual draft
         </Button>
-        <Button
-          variant="secondary"
-          disabled={busy || !head?.revision || !draftHandler || !outcome.trim()}
-          onClick={() => requestDraft("simon")}
-        >
-          Ask Simon to draft
-        </Button>
       </div>
-      {!draftHandler && (
-        <p className="sym-sharing-meta">
-          You can write a handoff manually here. Simon drafting is not connected in this build.
-        </p>
-      )}
       <fieldset className="sym-sharing-fieldset" disabled={busy}>
         <legend>Context inventory</legend>
         <p>
@@ -356,16 +290,14 @@ export function HandoffScreen({
       )}
       {guard.dialog}
       <ConfirmDialog
-        open={replaceDraft !== null}
-        onOpenChange={(open) => {
-          if (!open) setReplaceDraft(null);
-        }}
+        open={replaceDraft}
+        onOpenChange={setReplaceDraft}
         title="Replace this prompt?"
         description="Starting a new draft replaces the prompt in this editor. Save or copy your current text first if you need to keep it."
         confirmLabel="Replace prompt"
         onConfirm={() => {
-          if (replaceDraft) startDraft(replaceDraft);
-          setReplaceDraft(null);
+          startDraft();
+          setReplaceDraft(false);
         }}
       />
     </main>

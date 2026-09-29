@@ -132,7 +132,7 @@ test("splits a durable source by runtime, validates it and writes only private f
   const worker = parseEnv(await readFile(join(root, "apps/worker/.env"), "utf8"));
   const web = parseEnv(await readFile(join(root, "apps/web/.env"), "utf8"));
 
-  // No runtime receives a model credential any more: accounts hold their own keys.
+  // No runtime receives a model credential any more: the assistant runs on the desktop app.
   assert.equal(api.OPENAI_API_KEY, undefined);
   assert.equal(api.CLOUDFLARE_D1_WORKER_API_TOKEN, undefined);
   assert.equal(api.CLOUDFLARE_D1_MIGRATE_API_TOKEN, undefined);
@@ -164,7 +164,7 @@ test("splits a durable source by runtime, validates it and writes only private f
   await checkDistributedEnvironment({ repoRoot: root });
 });
 
-test("keeps model credentials in the api only for the local non-durable executor", async () => {
+test("places no model credential in either runtime, in either mode", async () => {
   const source = await productionSource({
     NODE_ENV: "development",
     DATA_DRIVER: "local",

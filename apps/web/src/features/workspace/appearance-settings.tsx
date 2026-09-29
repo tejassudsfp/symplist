@@ -105,7 +105,7 @@ export function AppearanceSettings() {
       </div>
       <p className="sym-settings-intro">
         Style, accent and brightness are three separate choices. Changes show here at once and save
-        to your account; your drafts and anything Simon is working on keep going.
+        to your account; your drafts keep going.
       </p>
 
       {themeMissing ? (

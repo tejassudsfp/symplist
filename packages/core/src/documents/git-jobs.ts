@@ -17,10 +17,11 @@ import {
   type SqlGuard,
 } from "@symplist/docs";
 import type { AccountKeyStore } from "../account/keys.ts";
-import type { SimonDocumentActor } from "./actor.ts";
+import { mcpAuthorization } from "../mcp/grants.ts";
+import type { McpDocumentActor } from "./actor.ts";
 import type { RetrievalBudget } from "./budgets.ts";
 import { DocumentAccessDeniedError } from "./context.ts";
-import type { DocumentTools } from "./tools.ts";
+import type { AgentDocumentActor, DocumentTools } from "./tools.ts";
 
 /** The `document-git` Trigger task id (§8.8). */
 export const DOCUMENT_GIT_TASK_ID = "document-git";
@@ -28,15 +29,25 @@ export const DOCUMENT_GIT_TASK_ID = "document-git";
 /** The document tools that reconstruct Git, and so run in `document-git` when `DURABLE=true` (§9.1). */
 export type DocumentGitOperation = DocumentGitPayload["op"];
 
-/** Simon's trusted context for a document-git job; written only inside the encrypted input object. */
+/**
+ * The trusted context of a document-git job; written only inside the encrypted input object. Git
+ * work reaches the durable task on behalf of an MCP grant (§14.6) — the only agent caller left now
+ * that chat runs on the desktop (note 18) — so the job carries the grant it was authorized under and
+ * nothing the caller could restate at execution time.
+ */
 export interface DocumentGitJobActor {
-  readonly conversationId: string;
+  /** Groups the job objects of one call: `u/<ownerId>/jobs/<runId>/<toolCallId>` (§8.3). */
   readonly runId: string;
   readonly toolCallId: string;
-  readonly contextEpoch: number;
-  readonly mode: "task" | "quick";
-  readonly taskId: string | null;
-  /** The executor generation the run step authorized; writes are guarded by it (§8.1). */
+  readonly grantId: string;
+  /** The grant generation the call was authorized under; re-scoping the grant fences the job. */
+  readonly grantGeneration: number;
+  readonly scopes: readonly string[];
+  /** The grant's task scope, or null for every task. */
+  readonly taskIds: readonly string[] | null;
+  /** A request id unique per MCP call, for publication idempotency (§9.2). */
+  readonly requestId: string;
+  /** The executor generation the caller was authorized under; writes are guarded by it (§8.1). */
   readonly executorGeneration: number;
 }
 
@@ -81,38 +92,34 @@ function budgetOf(bytes: number): RetrievalBudget {
   };
 }
 
-/** Child Git work retains its parent's live claim; generation alone cannot fence Stop or a forged context. */
-function parentRunGuard(ownerId: string, actor: DocumentGitJobActor, now: number): SqlGuard {
-  return {
-    sql: `EXISTS (SELECT 1 FROM runs r JOIN conversations c ON c.id = r.conversation_id
-      JOIN executor_state e ON e.id = 1
-      WHERE r.id = :doc_parent_run AND r.owner_id = :doc_parent_owner AND c.owner_id = r.owner_id
-      AND r.conversation_id = :doc_parent_conversation AND c.active_run_id = r.id
-      AND COALESCE(r.task_id, '') = :doc_parent_task AND c.task_id IS r.task_id AND c.context_epoch = CAST(:doc_parent_epoch AS INTEGER)
-      AND c.kind = :doc_parent_kind AND (c.expires_at IS NULL OR c.expires_at > CAST(:doc_parent_now AS INTEGER))
-      AND r.status = 'running' AND r.cancel_requested_at IS NULL AND r.executor = 'trigger'
-      AND e.mode = 'durable' AND e.generation = r.executor_generation AND e.generation = CAST(:doc_parent_generation AS INTEGER)
-      AND (r.task_id IS NULL OR EXISTS (SELECT 1 FROM tasks t WHERE t.id = r.task_id AND t.owner_id = r.owner_id AND t.status = 'active')))`,
-    params: {
-      doc_parent_run: actor.runId,
-      doc_parent_owner: ownerId,
-      doc_parent_conversation: actor.conversationId,
-      doc_parent_task: actor.taskId ?? "",
-      doc_parent_epoch: int(actor.contextEpoch),
-      doc_parent_kind: actor.mode,
-      doc_parent_now: int(now),
-      doc_parent_generation: int(actor.executorGeneration),
-    },
-  };
+/**
+ * The grant must still authorize this exact task when the job's write lands, not merely when the
+ * call was accepted: a job object outlives the request that wrote it, so revocation, expiry and
+ * re-scoping have to be re-read from D1 inside the deciding batch.
+ */
+function grantGuard(
+  ownerId: string,
+  actor: DocumentGitJobActor,
+  taskId: string,
+  op: DocumentGitOperation,
+  now: number,
+): SqlGuard {
+  const writes = op === "update_section" || op === "restore";
+  return mcpAuthorization(
+    { id: actor.grantId, ownerId, generation: actor.grantGeneration },
+    writes ? "tasks:write" : "tasks:read",
+    now,
+    [taskId],
+  );
 }
 
 /**
- * Runs one Git-backed document tool operation for Simon. The same function serves the in-process path
+ * Runs one Git-backed document tool operation. The same function serves the in-process path
  * (`DURABLE=false`) and the `document-git` task, so both executors behave identically (§9.1).
  */
 export async function executeDocumentGitOperation(
   tools: DocumentTools,
-  actor: SimonDocumentActor,
+  actor: AgentDocumentActor,
   op: DocumentGitOperation,
   args: unknown,
   budget?: RetrievalBudget,
@@ -166,7 +173,7 @@ function jobRef(
   return { ownerId, runId: payload.runId, toolCallId: payload.toolCallId, direction };
 }
 
-/** Starts a Trigger task and waits for it (inside `simon-run`, `tasks.triggerAndWait`). */
+/** Starts a Trigger task and waits for it (`tasks.triggerAndWait`). */
 export type TriggerAndWait = (
   taskId: typeof DOCUMENT_GIT_TASK_ID,
   payload: DocumentGitPayload,
@@ -174,9 +181,9 @@ export type TriggerAndWait = (
 ) => Promise<{ readonly ok: boolean }>;
 
 /**
- * Simon's side of a durable document-git call (§9.1): the operation input goes into an encrypted job
- * object, the ids-only payload is triggered with `idempotencyKey` = the tool call id, and the result
- * comes back from the encrypted output object. Both objects are deleted afterwards; the hourly sweep
+ * The caller's side of a durable document-git call (§9.1): the operation input goes into an encrypted
+ * job object, the ids-only payload is triggered with `idempotencyKey` = the tool call id, and the
+ * result comes back from the encrypted output object. Both objects are deleted afterwards; the hourly sweep
  * removes any left by a crash (§8.3).
  */
 export class DurableDocumentGit {
@@ -261,10 +268,10 @@ function isRetryable(error: unknown): boolean {
 
 /**
  * The `document-git` task body (§8.8, §9.1): resolve the owner from the task, read and check the
- * encrypted input (its run and tool call must match the payload), run the operation with the input's
- * trusted actor and executor generation guard, and write the encrypted output. A completed output is
- * reused on a retried attempt, and publications are idempotent by tool call id, so a retry never
- * publishes twice. Returns ids and codes only.
+ * encrypted input (its job group and tool call must match the payload), run the operation with the
+ * input's trusted actor, its grant guard and the executor generation guard, and write the encrypted
+ * output. A completed output is reused on a retried attempt, and publications are idempotent by
+ * request id, so a retry never publishes twice. Returns ids and codes only.
  */
 export async function runDocumentGitJob(input: {
   readonly payload: unknown;
@@ -304,10 +311,17 @@ export async function runDocumentGitJob(input: {
       jobInput.op !== payload.op ||
       jobInput.actor?.runId !== payload.runId ||
       jobInput.actor?.toolCallId !== payload.toolCallId ||
+      typeof jobInput.actor.grantId !== "string" ||
+      typeof jobInput.actor.requestId !== "string" ||
+      jobInput.actor.requestId.length === 0 ||
       !Number.isSafeInteger(jobInput.actor.executorGeneration) ||
-      !Number.isSafeInteger(jobInput.actor.contextEpoch) ||
-      jobInput.actor.contextEpoch < 0 ||
-      !["task", "quick"].includes(jobInput.actor.mode) ||
+      !Number.isSafeInteger(jobInput.actor.grantGeneration) ||
+      jobInput.actor.grantGeneration < 1 ||
+      !Array.isArray(jobInput.actor.scopes) ||
+      jobInput.actor.scopes.some((scope) => typeof scope !== "string") ||
+      (jobInput.actor.taskIds !== null &&
+        (!Array.isArray(jobInput.actor.taskIds) ||
+          jobInput.actor.taskIds.some((taskId) => typeof taskId !== "string"))) ||
       !Number.isSafeInteger(jobInput.remainingBudgetBytes) ||
       jobInput.remainingBudgetBytes < 0 ||
       jobInput.remainingBudgetBytes > 96_000 ||
@@ -315,16 +329,14 @@ export async function runDocumentGitJob(input: {
     ) {
       return { status: "failed", code: "document_git.input_invalid" };
     }
-    const claimGuard = parentRunGuard(ownerId, jobInput.actor, input.now());
-    const actor: SimonDocumentActor = {
-      kind: "simon",
+    const claimGuard = grantGuard(ownerId, jobInput.actor, payload.taskId, payload.op, input.now());
+    const actor: McpDocumentActor = {
+      kind: "mcp",
       userId: ownerId,
-      conversationId: jobInput.actor.conversationId,
-      runId: jobInput.actor.runId,
-      toolCallId: jobInput.actor.toolCallId,
-      contextEpoch: jobInput.actor.contextEpoch,
-      mode: jobInput.actor.mode,
-      taskId: jobInput.actor.taskId,
+      grantId: jobInput.actor.grantId,
+      scopes: jobInput.actor.scopes,
+      taskIds: jobInput.actor.taskIds,
+      requestId: jobInput.actor.requestId,
       guards: [executorGenerationGuard(jobInput.actor.executorGeneration), claimGuard],
     };
     const budget = budgetOf(jobInput.remainingBudgetBytes);

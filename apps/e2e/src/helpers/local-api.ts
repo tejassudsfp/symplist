@@ -59,7 +59,6 @@ export function e2eApiEnv(options: { readonly apiPort: number; readonly webPort:
     DATA_DRIVER: "local",
     EMAIL_DRIVER: "log",
     DURABLE: "false",
-    AI_PROVIDER_MODE: "scripted",
     ANALYTICS_ENABLED: "true",
     POSTHOG_PROJECT_KEY: "phc_e2e_fixture_not_a_real_project_key",
     POSTHOG_HOST: "https://posthog.invalid",

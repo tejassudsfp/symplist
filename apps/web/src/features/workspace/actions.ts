@@ -159,7 +159,7 @@ export const workspaceActions: readonly AppAction[] = [
     context: "pane",
     pane: "inbox",
     group: "navigation",
-    keywords: ["select", "page", "chat"],
+    keywords: ["select", "page"],
     defaultBinding: "enter",
     availability: rowAvailability,
     run: () => {

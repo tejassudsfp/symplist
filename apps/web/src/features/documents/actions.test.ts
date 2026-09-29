@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ActionEnvironment, ActionServices, WorkspaceRoute } from "@/actions/types";
 import { documentsActions } from "./actions.ts";
 import { type DocumentController, setActiveDocument } from "./controller.ts";
-import { setOutlineRequestHandler } from "./outline-request.ts";
 
 function environment(route: WorkspaceRoute | null, shell: ActionServices["shell"] = null) {
   const services: ActionServices = {
@@ -36,7 +35,6 @@ const taskId = "01929f3e-7c1a-7b2e-9a55-3c2f1d0e9b8a";
 
 afterEach(() => {
   setActiveDocument(null);
-  setOutlineRequestHandler(null);
 });
 
 describe("the documents actions", () => {
@@ -167,54 +165,5 @@ describe("documents.find_in_document", () => {
     expect(byId("documents.find_in_document").availability(env)).toEqual({ enabled: true });
     await byId("documents.find_in_document").run(env);
     expect(controller.find).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe("documents.ask_outline", () => {
-  it("needs an open task", () => {
-    const { env } = environment(null);
-    expect(byId("documents.ask_outline").availability(env)).toEqual({
-      enabled: false,
-      reason: "Open a task first",
-    });
-  });
-
-  it("is present but unavailable with a reason until Simon registers a handler", () => {
-    const { env } = environment({ collection: "now", taskId });
-    expect(byId("documents.ask_outline").availability(env)).toEqual({
-      enabled: false,
-      reason: "Simon isn't available yet",
-    });
-  });
-
-  it("runs Simon's handler for the open task once it is registered", async () => {
-    const handler = vi.fn();
-    setOutlineRequestHandler(handler);
-    const { env } = environment({ collection: "now", taskId });
-    expect(byId("documents.ask_outline").availability(env)).toEqual({ enabled: true });
-    await byId("documents.ask_outline").run(env);
-    expect(handler).toHaveBeenCalledWith(taskId);
-  });
-
-  it("reveals and focuses chat after Simon prepares the outline request", async () => {
-    const handler = vi.fn();
-    const focusPane = vi.fn();
-    setOutlineRequestHandler(handler);
-    const shell = {
-      focusPane,
-      revealInbox: vi.fn(),
-      toggleInbox: vi.fn(),
-      toggleChat: vi.fn(),
-      isInboxVisible: vi.fn(() => true),
-      isChatVisible: vi.fn(() => false),
-    };
-    const { env } = environment({ collection: "now", taskId }, shell);
-    await byId("documents.ask_outline").run(env);
-    expect(focusPane).toHaveBeenCalledWith("chat");
-  });
-
-  it("does nothing when the handler disappeared between the check and the run", async () => {
-    const { env } = environment({ collection: "now", taskId });
-    await expect(byId("documents.ask_outline").run(env)).resolves.toBeUndefined();
   });
 });

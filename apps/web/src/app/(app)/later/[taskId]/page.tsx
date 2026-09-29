@@ -1,6 +1,6 @@
 /**
- * The shell's page and chat frames show the selected task through the documents and Simon seams
- * (`components/shell/feature-slots.tsx`), so the route adds nothing and the panes keep their state
+ * The shell's page frame shows the selected task through the documents seam
+ * (`components/shell/feature-slots.tsx`), so the route adds nothing and the pane keeps its state
  * when the task moves to another collection.
  */
 export default function LaterTaskPage() {

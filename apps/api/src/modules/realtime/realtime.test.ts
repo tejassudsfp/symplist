@@ -16,7 +16,6 @@ import { rawUpgrade, WsTestClient } from "../../../test/ws-client.ts";
 import { ACCESS_SERVICE } from "../../common/access/access.providers.ts";
 import { REALTIME_ACCESS_NOTIFIER, REALTIME_SHUTDOWN } from "../../common/seams.ts";
 import type { OperationalLog, OperationalLogFields } from "../../infra/scheduler/runtime.ts";
-import { SimonTopics } from "../simon/simon.realtime.ts";
 import { AccessSweep } from "./access-sweep.ts";
 import { REALTIME_PUBLISHER, type RealtimeDependencies } from "./realtime.tokens.ts";
 import { RingBuffer } from "./ring-buffer.ts";
@@ -82,9 +81,8 @@ async function start(
   options: Pick<TestAppOptions, "env"> & { readonly backgroundLoops?: boolean } = {},
 ): Promise<Harness> {
   const app = await bootTestApp({
-    // These infrastructure tests install deliberately synthetic owners/providers below. Production
-    // Simon topic registration is covered by its real-conversation HTTP/WebSocket tests instead.
-    overrides: [{ token: SimonTopics, value: { onModuleInit() {} } }],
+    // These infrastructure tests install deliberately synthetic owners, authorizers and snapshot
+    // providers below; no feature registers a topic of its own any more.
     ...(options.env ? { env: options.env } : {}),
     runtime: {
       ...(options.backgroundLoops === undefined

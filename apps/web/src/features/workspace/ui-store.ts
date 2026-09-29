@@ -20,7 +20,7 @@ export interface MenuState {
 }
 
 export interface WorkspaceDialog {
-  readonly kind: "complete-subtasks" | "stop-run" | "restore-defaults";
+  readonly kind: "complete-subtasks" | "restore-defaults";
   readonly title: string;
   readonly description: ReactNode;
   /** Named consequences, for example the subtasks a completion would archive. */
@@ -76,7 +76,7 @@ export const initialWorkspaceUiState: WorkspaceUiState = {
 /**
  * Workspace view state that outlives a single component: quick-add drafts, the open sublists, the
  * focused row, an inline rename, the open task menu and the confirmation dialog. It lives outside
- * React state so typing in the quick-add field never re-renders the page or the chat, and so keyboard
+ * React state so typing in the quick-add field never re-renders the page, and so keyboard
  * actions (which run outside the list) can drive the same state.
  */
 export class WorkspaceUiStore {

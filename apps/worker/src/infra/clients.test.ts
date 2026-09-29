@@ -2,20 +2,11 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createAccountKey, createKeyProvider, KeyUnavailableError } from "@symplist/crypto";
-import {
-  applyMigrations,
-  createLocalSqliteClient,
-  D1RestClient,
-  int,
-  newWriteId,
-  sql,
-  uuidv7,
-} from "@symplist/db";
+import { KeyUnavailableError } from "@symplist/crypto";
+import { applyMigrations, createLocalSqliteClient, D1RestClient, sql } from "@symplist/db";
 import { R2ObjectStore } from "@symplist/storage";
 import { FakeClock } from "@symplist/testing";
 import { describe, expect, it, vi } from "vitest";
-import { loadAccountKey } from "./account-keys.ts";
 import {
   createWorkerDb,
   createWorkerKeyProvider,
@@ -157,37 +148,5 @@ describe("worker clients", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
-  });
-
-  it("loads an account data key and fails with a stable code for a shredded account", async () => {
-    const db = createLocalSqliteClient({ path: ":memory:", env: { NODE_ENV: "test" } });
-    await applyMigrations(db);
-    const keys = createKeyProvider({
-      CONTENT_KEK: { current: 1, versions: new Map([[1, family()]]) },
-    });
-    const ownerId = uuidv7();
-    const { key, wrapped } = createAccountKey(keys, ownerId);
-    await db.batch([
-      sql(
-        "INSERT INTO users (id, email, created_at, updated_at, write_id) VALUES (:id, 'o@example.com', '1', '1', :w)",
-        { id: ownerId, w: newWriteId() },
-      ),
-      sql(
-        "INSERT INTO account_keys (owner_id, kek_version, wrapped_key, created_at, updated_at, write_id) VALUES (:id, :v, :k, '1', '1', :w)",
-        {
-          id: ownerId,
-          v: int(wrapped.kekVersion),
-          k: wrapped.wrapped,
-          w: newWriteId(),
-        },
-      ),
-    ]);
-    const loaded = await loadAccountKey(db, keys, ownerId);
-    expect(Buffer.from(loaded.key).equals(Buffer.from(key.key))).toBe(true);
-    await expect(loadAccountKey(db, keys, uuidv7())).rejects.toMatchObject({
-      name: "WorkerError",
-      code: "account.key_missing",
-    });
-    db.close();
   });
 });

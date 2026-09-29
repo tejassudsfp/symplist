@@ -11,13 +11,16 @@ export interface ShellIdentity {
   readonly isAdmin: boolean;
 }
 
-/** The desktop panel layout the workspace persists per account (§10.3, `panels` group). */
+/**
+ * The desktop panel layout the workspace persists per account (§10.3, `panels` group). The stored
+ * group still carries the chat panel's width and collapse; the shell no longer owns a chat panel, so
+ * the workspace feature carries those two fields through untouched rather than the shell reporting
+ * them.
+ */
 export interface ShellPanelLayout {
   /** Task list width in CSS pixels, or null for the theme's default. */
   readonly inboxWidth: number | null;
-  readonly chatWidth: number | null;
   readonly inboxCollapsed: boolean;
-  readonly chatCollapsed: boolean;
 }
 
 /**
@@ -50,8 +53,6 @@ export interface ShellSlots {
   readonly vaultStatus?: ReactNode;
   /** Top bar, right side: the notification control (scheduling feature). */
   readonly notificationControl?: ReactNode;
-  /** Top bar: "Simon is working on …" while a run is active elsewhere (Simon feature). */
-  readonly runningIndicator?: ReactNode;
   /** Task list content for a collection (workspace feature). */
   readonly inbox?: (collection: CollectionId) => ReactNode;
   /** Task page header controls: title, completion, view switch, menu (documents and workspace). */
@@ -62,17 +63,6 @@ export interface ShellSlots {
    * to another collection.
    */
   readonly page?: (taskId: string) => ReactNode;
-  /** Task chat content and composer (Simon feature). */
-  readonly chat?: (taskId: string) => ReactNode;
-  /** Chat header subtitle, normally the task title. */
-  readonly chatTitle?: (taskId: string) => ReactNode;
-  /**
-   * A short status for the collapsed chat's corner control, such as "Approval waiting" or "Simon is
-   * working" (Simon feature). It shows as a dot on the control and is part of its accessible name.
-   */
-  readonly chatStatus?: (taskId: string) => string | null;
-  /** Bottom-right floating quick chat, shown only when no task is selected (decision D1). */
-  readonly quickChat?: ReactNode;
   /**
    * The command palette (search feature), mounted once inside the action registry and kept mounted
    * when the route moves between the workspace and other pages.

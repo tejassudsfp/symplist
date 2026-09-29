@@ -76,10 +76,7 @@ describe("internal event wire format (§6.2)", () => {
 
 describe("execution contributors (§8.1)", () => {
   it("registers every contributor file once", () => {
-    expect(eventsContributors.map((contributor) => contributor.domain).sort()).toEqual([
-      "account",
-      "simon",
-    ]);
+    expect(eventsContributors.map((contributor) => contributor.domain).sort()).toEqual(["account"]);
     expect(() => collectExecutionKinds()).not.toThrow();
   });
 

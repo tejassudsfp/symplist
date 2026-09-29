@@ -57,7 +57,7 @@ afterEach(() => vi.useRealTimers());
 
 /*
  * The archive (archive.md): completed tasks by the day they were completed, keeping their hierarchy,
- * with a calm Restore. The record's own page and conversation come from the shell's seams, so this
+ * with a calm Restore. The record's own retained page comes from the shell's page seam, so this
  * file covers the list, the search, the four states of the detail, and Restore with its result.
  */
 
@@ -142,9 +142,7 @@ describe("the archive", () => {
     await user.click(within(detail).getByRole("button", { name: "Restore" }));
     const alert = await findInlineError();
     expect(within(alert).getByText(/Couldn't restore this task/)).toBeInTheDocument();
-    expect(
-      within(alert).getByText("Nothing changed. Its page and conversation are still here."),
-    ).toBeInTheDocument();
+    expect(within(alert).getByText("Nothing changed. Its page is still here.")).toBeInTheDocument();
     expect(api.archivedIds()).toContain("bike");
 
     await user.click(within(alert).getByRole("button", { name: "Try again" }));

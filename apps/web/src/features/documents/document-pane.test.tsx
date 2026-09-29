@@ -1,7 +1,7 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { AnchorHTMLAttributes, ReactNode } from "react";
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { StatusAnnouncerProvider } from "@/components/ui/status-announcer";
 import { ApiError, ApiNetworkError } from "@/lib/api";
 import { activeDocument } from "./controller.ts";
@@ -9,7 +9,6 @@ import { clearDocumentCache } from "./document-cache.ts";
 import { DocumentPane } from "./document-pane.tsx";
 import { FakeDocuments } from "./fake-api.ts";
 import { installJsdomLayout } from "./jsdom-layout.ts";
-import { setOutlineRequestHandler } from "./outline-request.ts";
 import type { DocumentHeadListener, watchDocumentHead } from "./realtime.ts";
 import { SAVE_IDLE_MS, type SchedulerTimers } from "./save-scheduler.ts";
 
@@ -150,10 +149,6 @@ beforeEach(() => {
   clearDocumentCache();
 });
 
-afterEach(() => {
-  setOutlineRequestHandler(null);
-});
-
 describe("loading and framing", () => {
   it("shows a loading state, then the page", async () => {
     mount(new FakeDocuments({ commits: [{ markdown: page }] }));
@@ -210,11 +205,10 @@ describe("loading and framing", () => {
     expect(await slot("page-view")).toHaveAttribute("data-empty", "true");
   });
 
-  it("keeps both starters available on an empty page without blocking it", async () => {
+  it("keeps the Markdown starter available on an empty page without blocking it", async () => {
     mount(new FakeDocuments());
     await slot("page-starters");
     expect(screen.getByRole("button", { name: "Write in Markdown" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Ask Simon for an outline" })).toBeInTheDocument();
   });
 
   it("opens the Markdown view from the empty page", async () => {
@@ -222,22 +216,6 @@ describe("loading and framing", () => {
     mount(new FakeDocuments());
     await user.click(await screen.findByRole("button", { name: "Write in Markdown" }));
     await slot("raw-view");
-  });
-
-  it("asks Simon for an outline once a handler is registered", async () => {
-    const handler = vi.fn();
-    setOutlineRequestHandler(handler);
-    const user = userEvent.setup();
-    mount(new FakeDocuments());
-    await user.click(await screen.findByRole("button", { name: "Ask Simon for an outline" }));
-    expect(handler).toHaveBeenCalledWith(taskId);
-  });
-
-  it("says Simon is unavailable rather than pretending it started", async () => {
-    const user = userEvent.setup();
-    mount(new FakeDocuments());
-    await user.click(await screen.findByRole("button", { name: "Ask Simon for an outline" }));
-    await waitFor(() => expect(document.body.textContent).toContain("Simon isn't available yet"));
   });
 });
 

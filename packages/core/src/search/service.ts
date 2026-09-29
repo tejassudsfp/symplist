@@ -5,7 +5,6 @@ import {
   type SearchDeadlineFilter,
   type SearchFreshness,
   type SearchIndexStatus,
-  type SearchMessageHit,
   type SearchNotice,
   type SearchResponse,
   type SearchResultGroup,
@@ -93,8 +92,8 @@ export interface SearchTitleRequest {
 
 /**
  * Work the runtime should start for the owner after answering (§10.1): `rebuild` when the published
- * index is missing, unreadable or out of date with the chat opt-in, `stale` when intents have waited
- * longer than expected. The api enqueues the writer; it never writes the index itself in durable mode.
+ * index is missing, unreadable or still carries chat, `stale` when intents have waited longer than
+ * expected. The api enqueues the writer; it never writes the index itself in durable mode.
  */
 export type SearchIndexingNeed = "rebuild" | "stale" | null;
 
@@ -106,16 +105,12 @@ export interface SearchServiceResult<Response> {
 export interface SearchQueryTuning {
   /** How long the owner's index row and pending counts are reused. */
   readonly stateTtlMs: number;
-  /** How long the chat opt-in is reused. */
-  readonly chatOptInTtlMs: number;
   /** Pending intents older than this ask for the writer again. */
   readonly staleIntentMs: number;
   /** Pending intents applied in memory at most; beyond it results are `partial`. */
   readonly maxOverlayIntents: number;
   /** Changed documents re-read into the overlay at most. */
   readonly maxOverlayDocuments: number;
-  /** Changed messages re-read into the overlay at most. */
-  readonly maxOverlayMessages: number;
   /** Task titles served while the index is rebuilt. */
   readonly maxFallbackTasks: number;
   /** How long an unreadable published generation is not downloaded again. */
@@ -124,11 +119,9 @@ export interface SearchQueryTuning {
 
 export const DEFAULT_SEARCH_QUERY_TUNING: SearchQueryTuning = Object.freeze({
   stateTtlMs: 5_000,
-  chatOptInTtlMs: 60_000,
   staleIntentMs: 2 * 60_000,
   maxOverlayIntents: 200,
   maxOverlayDocuments: 10,
-  maxOverlayMessages: 200,
   maxFallbackTasks: 5_000,
   failureTtlMs: 60_000,
 });
@@ -158,7 +151,6 @@ interface ResolvedView {
   readonly pendingThrough: number;
   readonly complete: boolean;
   readonly rebuilding: boolean;
-  readonly includesChat: boolean;
 }
 
 const MAX_TITLE_CHARS = 4096;
@@ -184,7 +176,6 @@ export class SearchQueryService {
   private readonly limits: SearchLimits;
   private readonly tuning: SearchQueryTuning;
   private readonly states = new Map<string, OwnerState>();
-  private readonly chatOptIns = new Map<string, { readonly value: boolean; readonly at: number }>();
   private readonly failures = new Map<
     string,
     { readonly generation: number; readonly at: number }
@@ -204,7 +195,6 @@ export class SearchQueryService {
   /** Index freshness without running a query. */
   async freshness(principal: SearchPrincipal): Promise<SearchServiceResult<SearchFreshness>> {
     const state = await this.state(principal.userId);
-    const optIn = await this.withKey(state, (key) => this.chatOptIn(principal.userId, key));
     const unreadable = this.unreadable(principal.userId, state.row);
     const rebuilding = state.row === null || unreadable;
     const partial =
@@ -216,7 +206,7 @@ export class SearchQueryService {
         indexGeneration: state.row?.generation ?? 0,
         pendingIntents: state.summary.pending,
       },
-      indexing: this.indexingNeed(state, rebuilding, optIn),
+      indexing: this.indexingNeed(state, rebuilding),
     };
   }
 
@@ -241,10 +231,8 @@ export class SearchQueryService {
 
     const state = await this.state(ownerId);
     return this.withKey(state, async (key) => {
-      const optIn = await this.chatOptIn(ownerId, key);
-      let resolved = await this.resolveView(principal, state, key, optIn);
-      const chat = types.includes("chat") && optIn && resolved.includesChat;
-      const digest = searchDigest({ query, collections, archive, types, taskId, deadline, chat });
+      let resolved = await this.resolveView(principal, state, key);
+      const digest = searchDigest({ query, collections, archive, types, taskId, deadline });
       if (cursor) {
         if (cursor.digest !== digest) throw new SearchServiceError("search.cursor_invalid");
         if (
@@ -288,7 +276,8 @@ export class SearchQueryService {
         archive,
         types: new Set(types),
         taskIds,
-        chat,
+        // Nothing indexes chat any more (note 18); a request for it simply matches nothing.
+        chat: false,
         limits: this.limits,
       });
       const offset = cursor?.offset ?? 0;
@@ -303,9 +292,6 @@ export class SearchQueryService {
       });
 
       const notices: SearchNotice[] = [];
-      if (types.includes("chat") && !optIn) notices.push("chat_opt_in_required");
-      const chatIndexing = types.includes("chat") && optIn && !resolved.includesChat;
-      if (chatIndexing) notices.push("chat_indexing");
       if (resolved.view.truncated) notices.push("index_truncated");
       if (!resolved.complete || resolved.rebuilding) notices.push("changes_pending");
       if (run.capped) notices.push("results_capped");
@@ -313,7 +299,7 @@ export class SearchQueryService {
 
       const status: SearchIndexStatus = resolved.rebuilding
         ? "rebuilding"
-        : !resolved.complete || resolved.view.truncated || run.capped || chatIndexing
+        : !resolved.complete || resolved.view.truncated || run.capped
           ? "partial"
           : "ready";
       const response: SearchResponse = {
@@ -350,7 +336,7 @@ export class SearchQueryService {
       });
       return {
         response,
-        indexing: this.indexingNeed(state, resolved.rebuilding, optIn),
+        indexing: this.indexingNeed(state, resolved.rebuilding),
       };
     });
   }
@@ -366,8 +352,7 @@ export class SearchQueryService {
     const archive = request.archive ?? "exclude";
     const state = await this.state(ownerId);
     return this.withKey(state, async (key) => {
-      const optIn = await this.chatOptIn(ownerId, key);
-      const resolved = await this.resolveView(principal, state, key, optIn);
+      const resolved = await this.resolveView(principal, state, key);
       const run = runSearch(resolved.view, query, {
         collections: new Set(searchCollections),
         archive,
@@ -399,7 +384,7 @@ export class SearchQueryService {
           pendingIntents: state.summary.pending,
           items,
         },
-        indexing: this.indexingNeed(state, resolved.rebuilding, optIn),
+        indexing: this.indexingNeed(state, resolved.rebuilding),
       };
     });
   }
@@ -411,7 +396,6 @@ export class SearchQueryService {
   evictOwner(ownerId: string, reason: "restricted" | "deleted"): void {
     this.options.cache.evictOwner(ownerId, reason);
     this.states.delete(ownerId);
-    this.chatOptIns.delete(ownerId);
     this.failures.delete(ownerId);
   }
 
@@ -420,20 +404,12 @@ export class SearchQueryService {
     this.states.delete(ownerId);
   }
 
-  /** Forgets the cached chat opt-in, after the owner changed the privacy preference. */
-  invalidateChatOptIn(ownerId: string): void {
-    this.chatOptIns.delete(ownerId);
-  }
-
   /** Drops idle decrypted indexes and expired state. */
   sweep(): void {
     this.options.cache.evictIdle();
     const now = this.options.now();
     for (const [owner, state] of this.states) {
       if (now - state.readAt >= this.tuning.stateTtlMs) this.states.delete(owner);
-    }
-    for (const [owner, optIn] of this.chatOptIns) {
-      if (now - optIn.at >= this.tuning.chatOptInTtlMs) this.chatOptIns.delete(owner);
     }
     for (const [owner, failure] of this.failures) {
       if (now - failure.at >= this.tuning.failureTtlMs) this.failures.delete(owner);
@@ -488,17 +464,6 @@ export class SearchQueryService {
     }
   }
 
-  private async chatOptIn(ownerId: string, key: AccountDataKey): Promise<boolean> {
-    const source = this.options.sources.chatOptIn;
-    if (!source) return false;
-    const now = this.options.now();
-    const cached = this.chatOptIns.get(ownerId);
-    if (cached && now - cached.at < this.tuning.chatOptInTtlMs) return cached.value;
-    const value = await source.includeChat(ownerId, key);
-    this.chatOptIns.set(ownerId, { value, at: now });
-    return value;
-  }
-
   private unreadable(ownerId: string, row: SearchIndexRow | null): boolean {
     if (!row) return false;
     if (row.indexFormatVersion !== INDEX_FORMAT_VERSION) return true;
@@ -511,9 +476,11 @@ export class SearchQueryService {
     );
   }
 
-  private indexingNeed(state: OwnerState, rebuilding: boolean, optIn: boolean): SearchIndexingNeed {
+  private indexingNeed(state: OwnerState, rebuilding: boolean): SearchIndexingNeed {
     if (rebuilding) return "rebuild";
-    if (state.row && state.row.includeChat !== optIn) return "rebuild";
+    // A generation published while chat was indexed still holds messages: ask for one rebuild that
+    // drops them, exactly as a format or tokenizer change would.
+    if (state.row?.includeChat === true) return "rebuild";
     if (
       state.summary.pending > 0 &&
       state.summary.oldestAt !== null &&
@@ -528,7 +495,6 @@ export class SearchQueryService {
     principal: SearchPrincipal,
     initial: OwnerState,
     key: AccountDataKey,
-    optIn: boolean,
   ): Promise<ResolvedView> {
     const ownerId = principal.userId;
     let state = initial;
@@ -563,7 +529,6 @@ export class SearchQueryService {
     const pendingThrough = state.summary.maxId;
     const viewKey = `${generation}:${pendingThrough}`;
     const cached = this.options.cache.view(ownerId, viewKey);
-    const includesChat = base ? base.includeChat : false;
     if (cached) {
       return {
         view: cached.view,
@@ -571,7 +536,6 @@ export class SearchQueryService {
         pendingThrough,
         complete: cached.complete,
         rebuilding: base === null,
-        includesChat,
       };
     }
 
@@ -588,7 +552,6 @@ export class SearchQueryService {
         ownerId,
         key,
         sources: this.options.sources,
-        includeChat: false,
         titlesOnly: true,
         maxTasks: this.tuning.maxFallbackTasks,
       });
@@ -609,7 +572,7 @@ export class SearchQueryService {
       const intents = rows.map(searchIntentFromRow);
       const builder = new SearchOverlayBuilder(base, {
         ownerId,
-        includeChat: base.includeChat,
+        includeChat: false,
         limits: this.limits,
       });
       let applied: Awaited<ReturnType<typeof applyIntents>>;
@@ -618,12 +581,10 @@ export class SearchQueryService {
           ownerId,
           key,
           sources: this.options.sources,
-          includeChat: base.includeChat && optIn,
           maxDocuments: this.tuning.maxOverlayDocuments,
-          maxMessages: this.tuning.maxOverlayMessages,
         });
       } catch (error) {
-        // A source another feature owns (head snapshots, messages) failed: a temporary error with retry.
+        // A source another feature owns (head snapshots) failed: a temporary error with retry.
         if (error instanceof DbRateLimitedError) throw error;
         this.log.warn("search.overlay_failed", { ownerId, code: searchErrorCode(error) });
         throw new SearchServiceError("search.unavailable");
@@ -633,7 +594,7 @@ export class SearchQueryService {
       bytes = builder.overlayChars * 2;
     }
     this.options.cache.setView(ownerId, viewKey, { view, complete, bytes });
-    return { view, generation, pendingThrough, complete, rebuilding: base === null, includesChat };
+    return { view, generation, pendingThrough, complete, rebuilding: base === null };
   }
 
   /** A cached view a cursor was issued for, while its generation is still held. */
@@ -653,7 +614,6 @@ export class SearchQueryService {
       pendingThrough,
       complete: cached.complete,
       rebuilding: held.base === null,
-      includesChat: held.base?.includeChat ?? false,
     };
   }
 
@@ -850,19 +810,6 @@ export class SearchQueryService {
             stale: currentRevision !== hit.entry.revision,
           };
         });
-      const messages: SearchMessageHit[] = group.messages
-        .slice(0, filters.hitsPerGroup)
-        .map((hit) => ({
-          messageId: hit.message.id as SearchMessageHit["messageId"],
-          conversationId: hit.message.conversationId as SearchMessageHit["conversationId"],
-          speaker: hit.message.speaker,
-          createdAt: hit.message.createdAt,
-          snippet: buildSnippet(hit.message.text, query, {
-            rules: textRules,
-            maxChars: this.limits.snippetChars,
-            maxHighlights: this.limits.maxHighlights,
-          }),
-        }));
       items.push({
         task: summary.task,
         match: group.match,
@@ -870,8 +817,9 @@ export class SearchQueryService {
         titleStale: summary.titleStale,
         sections,
         sectionCount: group.sections.length,
-        messages,
-        messageCount: group.messages.length,
+        // The response still carries the chat fields; nothing indexes messages any more (note 18).
+        messages: [],
+        messageCount: 0,
       });
     }
     return items;

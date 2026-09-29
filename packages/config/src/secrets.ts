@@ -38,10 +38,9 @@ export type SecretRuntime = "api" | "worker";
  * There was a fifth, `durable_false_only`, which held a secret only under `DURABLE=false`. Model
  * credentials were the only thing it ever described: the api was allowed `OPENAI_API_KEY` when it
  * ran the loop in process and refused it when Trigger did, so that a durable api could not run
- * model code even by accident. Bringing your own key retires the placement rather than weakens it —
- * those variables are now `rejected` on both runtimes, because no deployment holds a model
- * credential at all, and the guarantee that the durable api cannot call a provider no longer
- * depends on a conditional.
+ * model code even by accident. The assistant has since left the cloud altogether (note 18), so
+ * those variables are `rejected` on both runtimes: neither of them runs a model, and the guarantee
+ * no longer depends on a conditional.
  */
 export type SecretHolding = "yes" | "rejected" | "no" | "platform_injected";
 
@@ -79,13 +78,13 @@ export const providerCredentialInventory = {
   RESEND_API_KEY: { api: "yes", worker: "yes", ci: false },
   POSTHOG_PROJECT_KEY: { api: "yes", worker: "yes", ci: false },
   /**
-   * Model credentials are the account's, not the deployment's (§8.6), so no runtime may hold one.
+   * The cloud runs no models (note 18), so no runtime may hold a model credential.
    *
    * These stay listed as rejected rather than being dropped from the inventory: a deployment
-   * upgrading from server-paid models has these in its environment already, and failing to boot
-   * with a named variable is how its operator finds out that keys moved into each account's
-   * settings. Silently ignoring a set `OPENAI_API_KEY` would leave them believing it was still
-   * being used.
+   * upgrading from a server that ran the assistant has these in its environment already, and
+   * failing to boot with a named variable is how its operator finds out that the assistant — and
+   * its keys — moved to the desktop app. Silently ignoring a set `OPENAI_API_KEY` would leave them
+   * believing it was still being used.
    */
   OPENAI_API_KEY: { api: "rejected", worker: "rejected", ci: false },
   ANTHROPIC_API_KEY: { api: "rejected", worker: "rejected", ci: false },
@@ -151,7 +150,7 @@ function rejectionMessage(runtime: SecretRuntime, holding: SecretHolding, name: 
   // Generic placement wording would send an operator looking for the runtime that does hold this.
   // None does: it says where the key went instead.
   if (retiredModelCredentials.has(name)) {
-    return "must not be set: each account now adds its own provider key in Settings, and no deployment holds one";
+    return "must not be set: the assistant runs on the desktop app now, and no deployment holds a model credential";
   }
   if (holding === "no") {
     return `must not be set on the ${runtime}: only CI uses it`;

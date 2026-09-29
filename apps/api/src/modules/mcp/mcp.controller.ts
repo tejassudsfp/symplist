@@ -64,7 +64,7 @@ export function oauthMetadata(issuer: string): OAuthMetadata {
     revocation_endpoint_auth_methods_supported: ["none"],
     client_id_metadata_document_supported: true,
     authorization_response_iss_parameter_supported: true,
-    scopes_supported: ["tasks:read", "tasks:write", "ai:run", "offline_access"],
+    scopes_supported: ["tasks:read", "tasks:write", "offline_access"],
   };
 }
 
@@ -90,7 +90,7 @@ export class McpController {
     this.metadata = mcpAuthMetadataRouter({
       oauthMetadata: oauthMetadata(config.API_ORIGIN),
       resourceServerUrl: new URL(`${config.API_ORIGIN}/mcp`),
-      scopesSupported: ["tasks:read", "tasks:write", "ai:run"],
+      scopesSupported: ["tasks:read", "tasks:write"],
       resourceName: "Symplist",
     });
   }

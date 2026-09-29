@@ -37,7 +37,11 @@ export interface ExecutorsDependencies {
   readonly durable: boolean;
   /** The Trigger client; required when `durable` and never used otherwise. */
   readonly trigger?: TriggerRunsClient | null;
-  /** `SIMON_CHAT_SESSIONS`: dispatch a kind that declares a session task through its session. */
+  /**
+   * Dispatch a kind that declares a session task through its session. Chat left the cloud with the
+   * `SIMON_CHAT_SESSIONS` variable that used to set this, so no deployment turns it on today; the
+   * routing stays because it belongs to the executor, not to the kind that first needed it.
+   */
   readonly chatSessions?: boolean;
   readonly timers?: RuntimeTimers;
   readonly log?: OperationalLog;

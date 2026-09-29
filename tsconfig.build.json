@@ -13,7 +13,6 @@
     { "path": "packages/email" },
     { "path": "packages/analytics" },
     { "path": "packages/core" },
-    { "path": "packages/agent" },
     { "path": "packages/testing" },
     { "path": "apps/api" }
   ]

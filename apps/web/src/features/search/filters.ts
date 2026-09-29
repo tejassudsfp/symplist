@@ -4,16 +4,15 @@ import {
   type SearchContentType,
   type SearchDeadlineFilter,
   searchCollections,
-  searchContentTypes,
   searchDateSchema,
   searchDefaultContentTypes,
   searchTimeZoneSchema,
 } from "@symplist/contracts";
 
 /*
- * Full search filters (search.md, note 14): collections, the Archive opt-in, content types with Chat
- * as its own opt-in, and deadline filters derived from schedule metadata. Everything here is plain
- * data so the scope sentence, validation and request building are tested without rendering.
+ * Full search filters (search.md, note 14): collections, the Archive opt-in, content types and
+ * deadline filters derived from schedule metadata. Everything here is plain data so the scope
+ * sentence, validation and request building are tested without rendering.
  */
 
 export const collectionLabels: Readonly<Record<SearchCollection, string>> = {
@@ -22,11 +21,25 @@ export const collectionLabels: Readonly<Record<SearchCollection, string>> = {
   unclassified: "Unclassified",
 };
 
-export const contentTypeLabels: Readonly<Record<SearchContentType, string>> = {
+/**
+ * The content types the filter offers. `searchContentTypes` still declares `chat` — the stored index
+ * and its schema are expand-only — but no chat message is written or indexed any more, so the form
+ * neither offers it nor labels it.
+ */
+export const contentTypeOrder = [
+  "tasks",
+  "documents",
+] as const satisfies readonly SearchContentType[];
+
+export type SearchableContentType = (typeof contentTypeOrder)[number];
+
+export const contentTypeLabels: Readonly<Record<SearchableContentType, string>> = {
   tasks: "Task titles",
   documents: "Documents",
-  chat: "Chat",
 };
+
+/** The same labels by any content type, so a scope the api reports is never labelled blindly. */
+const labelByContentType: Readonly<Record<string, string | undefined>> = contentTypeLabels;
 
 export const archiveLabels: Readonly<Record<SearchArchiveMode, string>> = {
   exclude: "Active tasks",
@@ -127,7 +140,6 @@ export function toggleInList<Value extends string>(
 }
 
 export const collectionOrder = searchCollections;
-export const contentTypeOrder = searchContentTypes;
 
 /** "Now, Later and Unclassified" */
 export function joinLabels(labels: readonly string[]): string {
@@ -175,10 +187,10 @@ export interface ScopeDescription {
  * example "Task titles and documents in Now, Later and Unclassified. Archived tasks aren't included."
  */
 export function describeScope(scope: ScopeDescription): string {
-  const types = scope.types.map((type, index) => {
-    const label = contentTypeLabels[type];
-    return index === 0 ? label : label.toLowerCase();
-  });
+  const types = scope.types
+    .map((type) => labelByContentType[type])
+    .filter((label) => label !== undefined)
+    .map((label, index) => (index === 0 ? label : label.toLowerCase()));
   const where = joinLabels(scope.collections.map((collection) => collectionLabels[collection]));
   const deadline = describeDeadline(scope.deadline);
   const archive =

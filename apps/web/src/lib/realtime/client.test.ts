@@ -1,9 +1,4 @@
-import {
-  type ConversationId,
-  conversationIdSchema,
-  type TaskId,
-  taskIdSchema,
-} from "@symplist/contracts";
+import { type TaskId, taskIdSchema } from "@symplist/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CLOSE_FORBIDDEN,
@@ -14,7 +9,7 @@ import {
   type TopicHandlers,
   type WebSocketLike,
 } from "./client.ts";
-import { conversationTopic, MAX_SERVER_FRAME_LENGTH, parseServerFrame } from "./frames.ts";
+import { MAX_SERVER_FRAME_LENGTH, parseServerFrame } from "./frames.ts";
 
 class FakeSocket implements WebSocketLike {
   static instances: FakeSocket[] = [];
@@ -63,17 +58,19 @@ class FakeSocket implements WebSocketLike {
 }
 
 /** A valid lowercase UUIDv7 literal: `kind` names the id family, `sequence` fills the last group. */
-function uuidV7(kind: "a" | "c" | "e", sequence: number): string {
+function uuidV7(kind: "a" | "e", sequence: number): string {
   return `01929f3e-7c1a-7${kind}00-8000-${sequence.toString(16).padStart(12, "0")}`;
 }
 
 const taskId = (sequence: number): TaskId => taskIdSchema.parse(uuidV7("a", sequence));
-const conversationIdAt = (sequence: number): ConversationId =>
-  conversationIdSchema.parse(uuidV7("c", sequence));
 const eventId = (sequence: number): string => uuidV7("e", sequence);
 
-const conversationId = conversationIdAt(1);
-const conversation = conversationTopic(conversationId);
+/*
+ * `user` is the only topic the browser subscribes to now that conversations are gone. The cursor,
+ * resync, error-routing, reconnect and queueing machinery below is per topic, so it is exercised
+ * through that one topic rather than left uncovered.
+ */
+const topic = "user";
 
 let online = true;
 let onlineListeners: Array<() => void> = [];
@@ -138,7 +135,7 @@ afterEach(() => {
 });
 
 describe("subscriptions", () => {
-  it("subscribes to the user topic with open tasks and to conversations with cursors", () => {
+  it("subscribes to the user topic with its open tasks", () => {
     const client = makeClient();
     const user = recorder();
     client.subscribeUser([taskId(1), taskId(2)], user.handlers);
@@ -146,72 +143,56 @@ describe("subscriptions", () => {
     expect(latest().url).toBe("wss://api.symplist.test/v1/ws");
     expect(statuses).toEqual(["connecting"]);
     latest().serverOpen();
-    client.subscribeConversation(conversationId, recorder().handlers);
     expect(latest().sent).toEqual([
-      { t: "sub", topic: "user", cursor: null, openTasks: [taskId(1), taskId(2)] },
-      { t: "sub", topic: conversation, cursor: null },
+      { t: "sub", topic, cursor: null, openTasks: [taskId(1), taskId(2)] },
     ]);
     expect(client.status).toBe("open");
   });
 
   it("delivers snapshots and events, advances cursors and drops replayed duplicates", () => {
     const client = makeClient();
-    const convo = recorder();
+    const user = recorder();
     client.connect();
     latest().serverOpen();
-    client.subscribeConversation(conversationId, convo.handlers);
-    latest().serverSend({ t: "snapshot", topic: conversation, seq: 10, data: { messages: [] } });
+    client.subscribeUser([], user.handlers);
+    latest().serverSend({ t: "snapshot", topic, seq: 10, data: { taskTreeVersion: 1 } });
+    for (const seq of [11, 11, 9]) {
+      latest().serverSend({
+        t: "ev",
+        topic,
+        seq,
+        id: eventId(seq),
+        type: "tasks.changed",
+        data: {},
+      });
+    }
     latest().serverSend({
       t: "ev",
-      topic: conversation,
-      seq: 11,
-      id: eventId(11),
-      type: "chunk",
-      data: {},
-    });
-    latest().serverSend({
-      t: "ev",
-      topic: conversation,
-      seq: 11,
-      id: eventId(11),
-      type: "chunk",
-      data: {},
-    });
-    latest().serverSend({
-      t: "ev",
-      topic: conversation,
-      seq: 9,
-      id: eventId(9),
-      type: "chunk",
-      data: {},
-    });
-    latest().serverSend({
-      t: "ev",
-      topic: conversation,
+      topic,
       seq: 12,
       id: eventId(12),
-      type: "run.status",
+      type: "preferences.changed",
       data: {},
     });
-    expect(convo.events).toEqual([
+    expect(user.events).toEqual([
       ["snapshot", 10],
-      ["ev", 11, "chunk"],
-      ["ev", 12, "run.status"],
+      ["ev", 11, "tasks.changed"],
+      ["ev", 12, "preferences.changed"],
     ]);
-    expect(client.cursorOf(conversation)).toBe(12);
+    expect(client.cursorOf(topic)).toBe(12);
   });
 
   it("shares one topic between listeners and unsubscribes when the last one leaves", () => {
     const client = makeClient();
     client.connect();
     latest().serverOpen();
-    const first = client.subscribeConversation(conversationId, recorder().handlers);
-    const second = client.subscribeConversation(conversationId, recorder().handlers);
+    const first = client.subscribeUser([], recorder().handlers);
+    const second = client.subscribeUser([], recorder().handlers);
     expect(latest().sent).toHaveLength(1);
     first.unsubscribe();
     expect(latest().sent).toHaveLength(1);
     second.unsubscribe();
-    expect(latest().sent.at(-1)).toEqual({ t: "unsub", topic: conversation });
+    expect(latest().sent.at(-1)).toEqual({ t: "unsub", topic });
   });
 
   it("updates open tasks and validates limits", () => {
@@ -230,15 +211,9 @@ describe("subscriptions", () => {
     expect(() =>
       user.setOpenTasks(Array.from({ length: 21 }, (_, index) => taskId(index))),
     ).toThrow(RangeError);
-    expect(() =>
-      client.subscribeConversation("../../etc" as ConversationId, recorder().handlers),
-    ).toThrow(TypeError);
-    expect(() => client.subscribeConversation("" as ConversationId, recorder().handlers)).toThrow(
-      TypeError,
-    );
   });
 
-  it("rejects task and conversation ids that are not lowercase UUIDv7s", () => {
+  it("rejects task ids that are not lowercase UUIDv7s", () => {
     const client = makeClient();
     client.connect();
     latest().serverOpen();
@@ -257,63 +232,40 @@ describe("subscriptions", () => {
       expect(() => client.subscribeUser([invalid as TaskId], recorder().handlers)).toThrow(
         TypeError,
       );
-      expect(() =>
-        client.subscribeConversation(invalid as ConversationId, recorder().handlers),
-      ).toThrow(TypeError);
-      expect(() => conversationTopic(invalid as ConversationId)).toThrow(TypeError);
     }
     const user = client.subscribeUser([taskId(1)], recorder().handlers);
     expect(() => user.setOpenTasks([taskId(2), "task-3" as TaskId])).toThrow(TypeError);
     // Rejected ids never reach the socket or leave a subscription behind.
-    expect(latest().sent).toEqual([
-      { t: "sub", topic: "user", cursor: null, openTasks: [taskId(1)] },
-    ]);
-  });
-
-  it("refuses more than 50 subscriptions", () => {
-    const client = makeClient();
-    for (let index = 0; index < 50; index += 1) {
-      client.subscribeConversation(conversationIdAt(index), recorder().handlers);
-    }
-    expect(() => client.subscribeConversation(conversationIdAt(50), recorder().handlers)).toThrow(
-      RangeError,
-    );
+    expect(latest().sent).toEqual([{ t: "sub", topic, cursor: null, openTasks: [taskId(1)] }]);
   });
 
   it("ignores malformed or unexpected frames", () => {
     const client = makeClient();
-    const convo = recorder();
+    const user = recorder();
     client.connect();
     latest().serverOpen();
-    client.subscribeConversation(conversationId, convo.handlers);
+    client.subscribeUser([], user.handlers);
     for (const frame of [
       "not json",
       "{}",
-      { t: "ev", topic: conversation, seq: -1, id: eventId(1), type: "chunk", data: {} },
-      { t: "ev", topic: conversation, seq: 1, id: "x", type: "chunk", data: {} },
-      { t: "ev", topic: conversation, seq: 1, id: eventId(1), type: "Chunk!", data: {} },
-      { t: "ev", topic: "conversation:<script>", seq: 1, id: eventId(1), type: "chunk", data: {} },
-      {
-        t: "ev",
-        topic: conversation.toUpperCase(),
-        seq: 1,
-        id: eventId(1),
-        type: "chunk",
-        data: {},
-      },
-      { t: "snapshot", topic: "conversation:other", seq: 1, data: {} },
-      { t: "snapshot", topic: conversation, seq: 1, data: {}, extra: true },
+      { t: "ev", topic, seq: -1, id: eventId(1), type: "tasks.changed", data: {} },
+      { t: "ev", topic, seq: 1, id: "x", type: "tasks.changed", data: {} },
+      { t: "ev", topic, seq: 1, id: eventId(1), type: "Tasks Changed!", data: {} },
+      { t: "ev", topic: "<script>", seq: 1, id: eventId(1), type: "tasks.changed", data: {} },
+      { t: "ev", topic: "USER", seq: 1, id: eventId(1), type: "tasks.changed", data: {} },
+      { t: "snapshot", topic: "other", seq: 1, data: {} },
+      { t: "snapshot", topic, seq: 1, data: {}, extra: true },
       { t: "shell", cmd: "rm" },
       JSON.stringify({
         t: "snapshot",
-        topic: conversation,
+        topic,
         seq: 1,
         data: "x".repeat(MAX_SERVER_FRAME_LENGTH),
       }),
     ]) {
       latest().serverSend(frame);
     }
-    expect(convo.events).toEqual([]);
+    expect(user.events).toEqual([]);
     expect(parseServerFrame(42)).toBeNull();
   });
 });
@@ -321,42 +273,39 @@ describe("subscriptions", () => {
 describe("resync, snapshot and err handling", () => {
   it("resets the cursor on resync and resubscribes for a fresh snapshot", () => {
     const client = makeClient();
-    const convo = recorder();
+    const user = recorder();
     client.connect();
     latest().serverOpen();
-    client.subscribeConversation(conversationId, convo.handlers);
+    client.subscribeUser([taskId(1)], user.handlers);
     latest().serverSend({
       t: "ev",
-      topic: conversation,
+      topic,
       seq: 5,
       id: eventId(5),
-      type: "chunk",
+      type: "tasks.changed",
       data: {},
     });
-    latest().serverSend({ t: "resync", topic: conversation });
-    expect(client.cursorOf(conversation)).toBeNull();
-    expect(latest().sent.at(-1)).toEqual({ t: "sub", topic: conversation, cursor: null });
-    latest().serverSend({ t: "snapshot", topic: conversation, seq: 40, data: {} });
-    expect(convo.events).toEqual([["ev", 5, "chunk"], ["resync"], ["snapshot", 40]]);
+    latest().serverSend({ t: "resync", topic });
+    expect(client.cursorOf(topic)).toBeNull();
+    expect(latest().sent.at(-1)).toEqual({
+      t: "sub",
+      topic,
+      cursor: null,
+      openTasks: [taskId(1)],
+    });
+    latest().serverSend({ t: "snapshot", topic, seq: 40, data: {} });
+    expect(user.events).toEqual([["ev", 5, "tasks.changed"], ["resync"], ["snapshot", 40]]);
   });
 
-  it("attributes err to the oldest unconfirmed subscription and forgets unknown conversations", () => {
+  it("attributes err to the oldest unconfirmed subscription", () => {
     const client = makeClient();
-    const convo = recorder();
     const user = recorder();
     client.connect();
     latest().serverOpen();
     client.subscribeUser([], user.handlers);
-    latest().serverSend({ t: "snapshot", topic: "user", seq: 1, data: {} });
-    client.subscribeConversation(conversationId, convo.handlers);
-    latest().serverSend({ t: "err", code: "not_found" });
-    expect(convo.events).toEqual([["err", "not_found"]]);
-    expect(user.events).toEqual([["snapshot", 1]]);
-    // A reconnect never resubscribes to the unknown conversation.
-    latest().serverClose(1006);
-    vi.advanceTimersByTime(1000);
-    latest().serverOpen();
-    expect(latest().sent).toEqual([{ t: "sub", topic: "user", cursor: null, openTasks: [] }]);
+    latest().serverSend({ t: "err", code: "rate.limited" });
+    expect(user.events).toEqual([["err", "rate.limited"]]);
+    expect(clientErrors).toEqual([]);
   });
 
   it("reports err frames that match no pending subscription to the client", () => {
@@ -369,18 +318,17 @@ describe("resync, snapshot and err handling", () => {
 });
 
 describe("reconnect", () => {
-  it("reconnects with jittered exponential backoff and resubscribes with cursors", () => {
+  it("reconnects with jittered exponential backoff and resubscribes", () => {
     const client = makeClient({ initialBackoffMs: 1000, maxBackoffMs: 8000 });
     client.subscribeUser([taskId(1)], recorder().handlers);
-    client.subscribeConversation(conversationId, recorder().handlers);
     client.connect();
     latest().serverOpen();
     latest().serverSend({
       t: "ev",
-      topic: conversation,
+      topic,
       seq: 77,
       id: eventId(77),
-      type: "chunk",
+      type: "tasks.changed",
       data: {},
     });
 
@@ -411,10 +359,7 @@ describe("reconnect", () => {
     expect(FakeSocket.instances.length).toBe(count + 1);
 
     latest().serverOpen();
-    expect(latest().sent).toEqual([
-      { t: "sub", topic: "user", cursor: null, openTasks: [taskId(1)] },
-      { t: "sub", topic: conversation, cursor: 77 },
-    ]);
+    expect(latest().sent).toEqual([{ t: "sub", topic, cursor: null, openTasks: [taskId(1)] }]);
   });
 
   it("resets the backoff after a stable connection", () => {
@@ -500,15 +445,17 @@ describe("heartbeat and frame budget", () => {
       frameWindowMs: 10_000,
       heartbeatIntervalMs: 999_999,
     });
-    for (let index = 0; index < 5; index += 1) {
-      client.subscribeConversation(conversationIdAt(index), recorder().handlers);
-    }
     client.connect();
     latest().serverOpen();
+    // Four frames at once: subscribing and unsubscribing the one topic twice over.
+    client.subscribeUser([], recorder().handlers).unsubscribe();
+    client.subscribeUser([taskId(1)], recorder().handlers).unsubscribe();
+    // Only the window's budget leaves the socket; the fourth waits for the window to turn over.
     expect(latest().sent).toHaveLength(3);
     vi.advanceTimersByTime(9_999);
     expect(latest().sent).toHaveLength(3);
     vi.advanceTimersByTime(1);
-    expect(latest().sent).toHaveLength(5);
+    expect(latest().sent).toHaveLength(4);
+    expect(latest().sent.at(-1)).toEqual({ t: "unsub", topic });
   });
 });

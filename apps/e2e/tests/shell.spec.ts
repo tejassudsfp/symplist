@@ -125,15 +125,14 @@ test.describe("app shell", () => {
     await evidence(page, testInfo, "now");
   });
 
-  test("renders a task page with its chat frame", async ({ page }, testInfo) => {
+  test("renders a task page", async ({ page }, testInfo) => {
     await openShell(page, taskPath);
     await expect(page.getByRole("main")).toBeVisible();
     await expect(page.getByRole("heading", { level: 1, name: "Task page" })).toBeAttached();
+    // Chat left the cloud (note 18), so a task route is the list and the page and nothing beside.
+    await expect(page.getByRole("complementary")).toHaveCount(0);
     if (project(testInfo) === "mobile") {
-      await expect(page.getByRole("complementary")).toBeHidden();
       await expect(page.getByRole("link", { name: "Back to Now" })).toBeVisible();
-    } else {
-      await expect(page.getByRole("complementary", { name: "Simon" })).toBeVisible();
     }
     await evidence(page, testInfo, "task");
   });
@@ -191,9 +190,9 @@ test.describe("app shell", () => {
     expect(await tabSequence(page, nowOrder.length)).toEqual(nowOrder);
 
     await openShell(page, taskPath);
-    // A task route adds the page region's own controls between the list and the chat: the documents
-    // feature's view switch, the link to the document's history, and that pane's failed-load retry
-    // (this spec runs with no api, so the document never loads either).
+    // A task route adds the page region's own controls after the list: the documents feature's
+    // view switch, the link to the document's history, and that pane's failed-load retry (this
+    // spec runs with no api, so the document never loads either).
     const expectedTask: Record<ProjectName, string[]> = {
       desktop: [
         "a:Skip to content",
@@ -213,8 +212,6 @@ test.describe("app shell", () => {
         "button:Markdown",
         "a:Document history",
         "button:Try again",
-        "separator:Resize chat",
-        "button:Hide chat",
       ],
       laptop: [
         "a:Skip to content",
@@ -230,7 +227,6 @@ test.describe("app shell", () => {
         "button:Markdown",
         "a:Document history",
         "button:Try again",
-        "button:Hide chat",
       ],
       mobile: [
         "a:Skip to content",
@@ -239,7 +235,6 @@ test.describe("app shell", () => {
         "a:Vault",
         "button:Notifications",
         "a:Back to Now",
-        "button:Chat",
         "button:Page",
         "button:Markdown",
         "a:Document history",
@@ -318,12 +313,9 @@ test.describe("app shell", () => {
         expect(html).toContain(`data-mode="${mode}"`);
         await page.waitForFunction(() => document.querySelector("[data-group]") !== null);
         await expect(page.locator("html")).toHaveCSS("color-scheme", mode);
-        // The sample's panel widths (task list 280 px, chat 340 px) hold inside every theme's
-        // inset frame.
+        // The sample's task list width (280 px) holds inside every theme's inset frame.
         const inboxBox = await page.getByRole("region", { name: "Now" }).boundingBox();
-        const chatBox = await page.getByRole("complementary", { name: "Simon" }).boundingBox();
         expect(Math.round(inboxBox?.width ?? 0), `${themeId} task list width`).toBe(280);
-        expect(Math.round(chatBox?.width ?? 0), `${themeId} chat width`).toBe(340);
         await expectNoAxeViolations(page);
         await evidence(page, testInfo, `theme-${themeId}-${mode}`);
       }
@@ -363,16 +355,13 @@ test.describe("app shell", () => {
     await expect(page.locator("html")).toHaveAttribute("data-mode", "dark");
   });
 
-  test("desktop panels collapse to the rail and corner controls and come back", async ({
-    page,
-  }, testInfo) => {
+  test("the desktop task list collapses to the rail and comes back", async ({ page }, testInfo) => {
     test.skip(
       project(testInfo) !== "desktop",
       "Resizable, collapsible panels are the desktop layout.",
     );
     await openShell(page, taskPath);
     const inbox = page.getByRole("region", { name: "Now" });
-    const chat = page.getByRole("complementary", { name: "Simon" });
     const separator = page.getByRole("separator", { name: "Resize task list" });
     const before = await separator.getAttribute("aria-valuenow");
     await separator.focus();
@@ -383,14 +372,8 @@ test.describe("app shell", () => {
     await expect(inbox).toBeHidden();
     const showList = page.getByRole("button", { name: "Show task list" });
     await expect(showList).toBeVisible();
-    await page.getByRole("button", { name: "Hide chat" }).click();
-    await expect(chat).toBeHidden();
-    const corner = page.getByRole("button", { name: "Show chat" });
-    await expect(corner).toBeFocused();
     await evidence(page, testInfo, "panels-collapsed");
 
-    await corner.click();
-    await expect(chat).toBeVisible();
     await showList.click();
     await expect(inbox).toBeVisible();
     const box = await inbox.boundingBox();
@@ -415,7 +398,7 @@ test.describe("app shell", () => {
 
     await openShell(page, taskPath);
     await expect(inbox).toBeHidden();
-    await expect(page.getByRole("complementary", { name: "Simon" })).toBeVisible();
+    await expect(page.getByRole("main")).toBeVisible();
     await page.getByRole("button", { name: "Show task list" }).click();
     await expect(inbox).toBeVisible();
     await evidence(page, testInfo, "drawer-open");
@@ -430,13 +413,8 @@ test.describe("app shell", () => {
 
     await openShell(page, taskPath);
     await expect(page.getByRole("region", { name: "Now" })).toBeHidden();
-    await page.getByRole("button", { name: "Chat" }).click();
-    const chat = page.getByRole("complementary", { name: "Simon" });
-    await expect(chat).toBeVisible();
-    await expect(page.getByRole("main")).toBeHidden();
-    await evidence(page, testInfo, "chat");
-    await chat.getByRole("button", { name: "Page", exact: true }).click();
     await expect(page.getByRole("main")).toBeVisible();
+    await evidence(page, testInfo, "task-surface");
     await page.getByRole("link", { name: "Back to Now" }).click();
     await expect(page).toHaveURL(/\/now$/);
     await expect(page.getByRole("region", { name: "Now" })).toBeVisible();

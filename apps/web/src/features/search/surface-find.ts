@@ -3,12 +3,12 @@ import type { PaneId } from "@/actions/types";
 
 /*
  * Find within the current surface (note 14 entry point 3, note 13's `/`): the task list filters its
- * collection, the page finds within the opened revision and chat finds within the conversation. Each
- * surface marks its find field with `data-surface-find`, so `/` focuses whichever one is showing
- * without search knowing anything about the other features.
+ * collection and the page finds within the opened revision. Each surface marks its find field with
+ * `data-surface-find`, so `/` focuses whichever one is showing without search knowing anything about
+ * the other features.
  */
 
-/** `data-surface-find="inbox" | "page" | "chat" | "search"` marks a surface's find field. */
+/** `data-surface-find="inbox" | "page" | "search"` marks a surface's find field. */
 export const SURFACE_FIND_ATTRIBUTE = "data-surface-find";
 
 function isVisible(element: HTMLElement): boolean {

@@ -14,9 +14,6 @@
   "exclude": ["src/**/*.test.ts"],
   "references": [
     {
-      "path": "../../packages/agent"
-    },
-    {
       "path": "../../packages/analytics"
     },
     {

@@ -19,21 +19,21 @@ import {
   type PanelSize,
   usePanelRef,
 } from "react-resizable-panels";
-import { ACTION_CONTEXT_ATTRIBUTE, describeFocus, PANE_ATTRIBUTE } from "@/actions/focus";
+import { describeFocus, PANE_ATTRIBUTE } from "@/actions/focus";
 import { useOptionalActions } from "@/actions/provider";
 import type { PaneId, ShellController, WorkspaceRoute } from "@/actions/types";
 import { EmptyState, ThemeIllustration } from "@/components/ui/empty-state";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { HintTooltip } from "@/components/ui/tooltip";
 import { DEFAULT_THEME_ID, isThemeId, type ThemeId, themes } from "@/theme/registry";
-import { ChatIcon, ChevronIcon, CollectionIcon, PanelToggleIcon } from "./collection-icons.tsx";
+import { ChevronIcon, CollectionIcon, PanelToggleIcon } from "./collection-icons.tsx";
 import { type CollectionId, collectionMeta, collections } from "./routes.ts";
 import {
   INBOX_SIZE,
   initialShellState,
-  isChatVisible,
   isInboxVisible,
   type LayoutMode,
+  mobileSurface,
   PAGE_MIN_SIZE,
   panelSizes,
   shellReducer,
@@ -42,7 +42,6 @@ import { type ShellPanelLayout, useShellSlots } from "./slots.tsx";
 import { useLayoutMode } from "./use-layout-mode.ts";
 
 export const INBOX_TITLE_ID = "sym-inbox-title";
-export const CHAT_TITLE_ID = "sym-chat-title";
 export const MAIN_ID = "main";
 export const SHOW_LIST_ID = "sym-show-task-list";
 
@@ -211,19 +210,7 @@ function InboxFrame({ route, onHide }: { route: WorkspaceRoute; onHide: () => vo
   );
 }
 
-function PageFrame({
-  route,
-  chatCollapsed,
-  onShowChat,
-  onOpenChatView,
-  children,
-}: {
-  route: WorkspaceRoute;
-  chatCollapsed: boolean;
-  onShowChat: () => void;
-  onOpenChatView: () => void;
-  children: ReactNode;
-}) {
+function PageFrame({ route, children }: { route: WorkspaceRoute; children: ReactNode }) {
   const slots = useShellSlots();
   const meta = collectionMeta(route.collection);
   if (route.taskId === null) {
@@ -234,7 +221,6 @@ function PageFrame({
     );
   }
   const taskId = route.taskId;
-  const chatStatus = slots.chatStatus?.(taskId) ?? null;
   return (
     <main id={MAIN_ID} className="sym-page" tabIndex={-1} {...{ [PANE_ATTRIBUTE]: "page" }}>
       <div className="sym-page-header">
@@ -246,14 +232,6 @@ function PageFrame({
           <ChevronIcon direction="left" size={18} />
         </Link>
         <div className="flex min-w-0 flex-1 items-center gap-2.5">{slots.taskHeader?.(taskId)}</div>
-        <button
-          type="button"
-          className="sym-mobile-only h-[30px] items-center gap-1.5 rounded-sym border border-sym-line-strong bg-sym-surface px-2.5 font-medium text-[13px]"
-          onClick={onOpenChatView}
-        >
-          <ChatIcon size={14} />
-          Chat
-        </button>
       </div>
       <div className="sym-page-scroll">
         <div className="sym-sheet">
@@ -261,21 +239,6 @@ function PageFrame({
           {children}
         </div>
       </div>
-      {chatCollapsed ? (
-        <button
-          type="button"
-          id="sym-chat-corner"
-          className="sym-floating-control sym-chat-corner"
-          aria-label={chatStatus ? `Show chat, ${chatStatus}` : "Show chat"}
-          onClick={onShowChat}
-        >
-          <ChatIcon />
-          Chat
-          {chatStatus ? (
-            <span aria-hidden="true" className="sym-chat-corner-dot" data-slot="chat-status" />
-          ) : null}
-        </button>
-      ) : null}
     </main>
   );
 }
@@ -302,10 +265,11 @@ function panelSizeOf(panel: PanelImperativeHandle | null): number {
 
 /**
  * Runs `apply` against a panel once its group has registered it, and returns a cleanup that cancels
- * the wait. A panel mounted by the render this effect belongs to — the chat panel, the moment a task
- * is opened — is not addressable yet, and calling it threw, which took down the whole app on the
- * first navigation into a task. The attempt is repeated on following frames while the panel is still
- * there, and given up quietly if it never registers.
+ * the wait. A panel mounted by the render this effect belongs to is not addressable yet, and calling
+ * it threw, which took down the whole app on the first navigation into a task — the chat panel, now
+ * gone, was the case that found this, and the task list panel reaches the handle the same way. The
+ * attempt is repeated on following frames while the panel is still there, and given up quietly if it
+ * never registers.
  */
 function whenPanelReady(
   ref: RefObject<PanelImperativeHandle | null>,
@@ -330,65 +294,6 @@ function whenPanelReady(
   };
 }
 
-function ChatFrame({
-  taskId,
-  onHide,
-  onBackToPage,
-}: {
-  taskId: string;
-  onHide: () => void;
-  onBackToPage: () => void;
-}) {
-  const slots = useShellSlots();
-  return (
-    <aside
-      className="sym-panel sym-chat"
-      aria-labelledby={CHAT_TITLE_ID}
-      {...{ [PANE_ATTRIBUTE]: "chat" }}
-    >
-      <div className="sym-panel-header gap-1.5">
-        <button
-          type="button"
-          className="sym-icon-button sym-mobile-only -ml-2 size-8"
-          aria-label="Back to page"
-          onClick={onBackToPage}
-        >
-          <ChevronIcon direction="left" size={18} />
-        </button>
-        <div className="min-w-0 flex-1">
-          <h2 id={CHAT_TITLE_ID} className="sym-chat-kicker m-0" tabIndex={-1}>
-            <span aria-hidden="true" className="sym-chat-badge">
-              S
-            </span>
-            Simon
-          </h2>
-          {slots.chatTitle ? (
-            <div className="truncate font-medium text-[13.5px]">{slots.chatTitle(taskId)}</div>
-          ) : null}
-        </div>
-        <button
-          type="button"
-          className="sym-mobile-only h-[30px] items-center rounded-sym border border-sym-line-strong bg-sym-surface px-2.5 font-medium text-[13px]"
-          onClick={onBackToPage}
-        >
-          Page
-        </button>
-        <HintTooltip label="Hide chat" side="bottom">
-          <button
-            type="button"
-            className="sym-icon-button sym-desktop-only"
-            aria-label="Hide chat"
-            onClick={onHide}
-          >
-            <PanelToggleIcon side="right" />
-          </button>
-        </HintTooltip>
-      </div>
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{slots.chat?.(taskId)}</div>
-    </aside>
-  );
-}
-
 /**
  * Desktop panel sizes for the theme on screen: the live document theme when there is one, else the
  * first-paint theme from the appearance cookie.
@@ -411,11 +316,11 @@ export interface WorkspaceProps {
 }
 
 /**
- * The workspace frame from the sample: icon rail, task list, page and chat. Desktop panels resize
- * (task list 240–400 px, chat 300–480 px) and collapse to the rail's "Show task list" control and the
- * chat corner control; at laptop width the task list becomes a drawer; on phones one surface shows at
- * a time. The DOM tree is identical in every mode, so page and chat content never remount when the
- * window crosses a breakpoint.
+ * The workspace frame from the sample: icon rail, task list and page. The task list resizes on the
+ * desktop (240–400 px) and collapses to the rail's "Show task list" control, leaving the page the
+ * whole remainder; at laptop width the task list becomes a drawer; on phones one surface shows at a
+ * time. The DOM tree is identical in every mode, so the page content never remounts when the window
+ * crosses a breakpoint.
  */
 export function Workspace({
   route,
@@ -434,7 +339,6 @@ export function Workspace({
   const slots = useShellSlots();
   const [state, dispatch] = useReducer(shellReducer, route, initialShellState);
   const inboxPanel = usePanelRef();
-  const chatPanel = usePanelRef();
   const modeRef = useRef(mode);
   const drawerTrigger = useRef<HTMLElement | null>(null);
   /** Set by `revealInbox` while the list is not visible yet (for example during navigation). */
@@ -457,22 +361,9 @@ export function Workspace({
     });
   }, [mode, state.inboxCollapsed, inboxPanel]);
 
-  useEffect(() => {
-    if (mode !== "desktop" || route.taskId === null) return;
-    return whenPanelReady(chatPanel, (panel) => {
-      if (state.chatCollapsed && !panel.isCollapsed()) panel.collapse();
-      if (!state.chatCollapsed && panel.isCollapsed()) panel.expand();
-    });
-  }, [mode, state.chatCollapsed, chatPanel, route.taskId]);
-
   const onInboxResize = useCallback((size: PanelSize) => {
     if (modeRef.current !== "desktop") return;
     dispatch({ type: "set-inbox-collapsed", collapsed: size.inPixels < 1 });
-  }, []);
-
-  const onChatResize = useCallback((size: PanelSize) => {
-    if (modeRef.current !== "desktop") return;
-    dispatch({ type: "set-chat-collapsed", collapsed: size.inPixels < 1 });
   }, []);
 
   const showList = useCallback(() => {
@@ -493,7 +384,7 @@ export function Workspace({
     }
     requestAnimationFrame(() => {
       // Return focus to whatever opened the drawer, else to the rail's "Show task list" control that
-      // replaces the hidden list (as the chat corner control does for the chat), else the rail item.
+      // replaces the hidden list, else the rail item.
       const target =
         drawerTrigger.current?.isConnected && drawerTrigger.current
           ? drawerTrigger.current
@@ -512,26 +403,6 @@ export function Workspace({
     }
   }, [state.drawerOpen, hideList, showList]);
 
-  const showChat = useCallback(() => {
-    dispatch({ type: "set-chat-collapsed", collapsed: false });
-    focusById(CHAT_TITLE_ID);
-  }, []);
-
-  const hideChat = useCallback(() => {
-    dispatch({ type: "set-chat-collapsed", collapsed: true });
-    focusById("sym-chat-corner");
-  }, []);
-
-  const openChatView = useCallback(() => {
-    dispatch({ type: "show", view: "chat" });
-    focusById(CHAT_TITLE_ID);
-  }, []);
-
-  const backToPage = useCallback(() => {
-    dispatch({ type: "show", view: "page" });
-    focusById(MAIN_ID);
-  }, []);
-
   // Escape closes the laptop drawer unless a menu or dialog above it handles the key first.
   useEffect(() => {
     if (mode !== "laptop" || !state.drawerOpen) return;
@@ -546,7 +417,7 @@ export function Workspace({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [mode, state.drawerOpen, hideList]);
 
-  // Clicking the page or chat while the laptop drawer is open closes it (sample 1024 behavior).
+  // Clicking the page while the laptop drawer is open closes it (sample 1024 behavior).
   const onPanelsPointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
       if (modeRef.current !== "laptop" || !state.drawerOpen) return;
@@ -573,10 +444,7 @@ export function Workspace({
   const panelsRef = useRef(panels);
   /** The layout last applied or reported, so the shell never echoes a layout back unchanged. */
   const knownLayout = useRef<string | null>(null);
-  const storedWidths = useRef<{ inbox: number | null; chat: number | null }>({
-    inbox: null,
-    chat: null,
-  });
+  const storedWidths = useRef<{ inbox: number | null }>({ inbox: null });
   useEffect(() => {
     panelsRef.current = panels;
   }, [panels]);
@@ -586,9 +454,7 @@ export function Workspace({
     if (!seam || knownLayout.current === null) return;
     const next: ShellPanelLayout = {
       inboxWidth: storedWidths.current.inbox,
-      chatWidth: storedWidths.current.chat,
       inboxCollapsed: stateRef.current.inboxCollapsed,
-      chatCollapsed: stateRef.current.chatCollapsed,
     };
     const key = JSON.stringify(next);
     if (key === knownLayout.current) return;
@@ -600,12 +466,10 @@ export function Workspace({
     (_layout: Layout, meta: LayoutChangedMeta) => {
       if (!meta.isUserInteraction || modeRef.current !== "desktop") return;
       const inboxSize = panelSizeOf(inboxPanel.current);
-      const chatSize = panelSizeOf(chatPanel.current);
       if (inboxSize > 1) storedWidths.current.inbox = Math.round(inboxSize - inset);
-      if (chatSize > 1) storedWidths.current.chat = Math.round(chatSize - inset);
       reportLayout();
     },
-    [inboxPanel, chatPanel, inset, reportLayout],
+    [inboxPanel, inset, reportLayout],
   );
 
   // The account's layout, applied once it is known and whenever another device changes it.
@@ -615,29 +479,19 @@ export function Workspace({
     const key = JSON.stringify(storedLayout);
     if (knownLayout.current === key) return;
     knownLayout.current = key;
-    storedWidths.current = { inbox: storedLayout.inboxWidth, chat: storedLayout.chatWidth };
+    storedWidths.current = { inbox: storedLayout.inboxWidth };
     dispatch({ type: "set-inbox-collapsed", collapsed: storedLayout.inboxCollapsed });
-    dispatch({ type: "set-chat-collapsed", collapsed: storedLayout.chatCollapsed });
     if (modeRef.current !== "desktop") return;
-    const cancels: Array<() => void> = [];
-    if (storedLayout.inboxWidth !== null && !storedLayout.inboxCollapsed) {
-      const width = storedLayout.inboxWidth + inset;
-      cancels.push(whenPanelReady(inboxPanel, (panel) => panel.resize(width)));
-    }
-    if (storedLayout.chatWidth !== null && !storedLayout.chatCollapsed) {
-      const width = storedLayout.chatWidth + inset;
-      cancels.push(whenPanelReady(chatPanel, (panel) => panel.resize(width)));
-    }
-    return () => {
-      for (const cancel of cancels) cancel();
-    };
-  }, [storedLayout, inset, inboxPanel, chatPanel]);
+    if (storedLayout.inboxWidth === null || storedLayout.inboxCollapsed) return;
+    const width = storedLayout.inboxWidth + inset;
+    return whenPanelReady(inboxPanel, (panel) => panel.resize(width));
+  }, [storedLayout, inset, inboxPanel]);
 
   // Collapsing or showing a panel is part of the stored layout too.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the collapse flags are what this reports.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the collapse flag is what this reports.
   useEffect(() => {
     reportLayout();
-  }, [reportLayout, state.inboxCollapsed, state.chatCollapsed]);
+  }, [reportLayout, state.inboxCollapsed]);
 
   // Complete a pending `revealInbox` once the list is visible (after navigation or expansion).
   useEffect(() => {
@@ -656,20 +510,9 @@ export function Workspace({
           else focusById(INBOX_TITLE_ID);
           return;
         }
+        // The page is the only other pane, and on a phone the route already put it on screen.
         if (current.route.taskId === null) return;
-        if (pane === "page") {
-          if (modeRef.current === "mobile") dispatch({ type: "show", view: "page" });
-          focusById(MAIN_ID);
-          return;
-        }
-        if (modeRef.current === "mobile") dispatch({ type: "show", view: "chat" });
-        else dispatch({ type: "set-chat-collapsed", collapsed: false });
-        requestAnimationFrame(() => {
-          const composer = document.querySelector<HTMLElement>(
-            `[${PANE_ATTRIBUTE}="chat"] [${ACTION_CONTEXT_ATTRIBUTE}="composer"] textarea, [${PANE_ATTRIBUTE}="chat"] [${ACTION_CONTEXT_ATTRIBUTE}="composer"] [contenteditable="true"]`,
-          );
-          (composer ?? document.getElementById(CHAT_TITLE_ID))?.focus();
-        });
+        focusById(MAIN_ID);
       },
       revealInbox: () => {
         const current = stateRef.current;
@@ -692,21 +535,9 @@ export function Workspace({
         if (isInboxVisible(stateRef.current, modeRef.current)) hideList();
         else showList();
       },
-      toggleChat: () => {
-        const current = stateRef.current;
-        if (current.route.taskId === null) return;
-        if (modeRef.current === "mobile") {
-          dispatch({ type: "show", view: current.mobileView === "chat" ? "page" : "chat" });
-        } else if (current.chatCollapsed) {
-          showChat();
-        } else {
-          hideChat();
-        }
-      },
       isInboxVisible: () => isInboxVisible(stateRef.current, modeRef.current),
-      isChatVisible: () => isChatVisible(stateRef.current, modeRef.current),
     }),
-    [showList, hideList, showChat, hideChat],
+    [showList, hideList],
   );
 
   useEffect(() => {
@@ -715,16 +546,14 @@ export function Workspace({
   }, [controller, onController]);
 
   const inboxVisible = isInboxVisible(state, mode);
-  const mobileView = route.taskId === null ? "list" : state.mobileView;
 
   return (
     <div
       className="sym-workspace"
       data-layout={mode}
       data-inbox={state.inboxCollapsed ? "collapsed" : "expanded"}
-      data-chat={route.taskId === null ? "absent" : state.chatCollapsed ? "collapsed" : "expanded"}
       data-drawer={state.drawerOpen ? "open" : "closed"}
-      data-mobile-view={mobileView}
+      data-mobile-view={mobileSurface(route)}
     >
       <IconRail
         route={route}
@@ -760,45 +589,11 @@ export function Workspace({
           aria-label="Resize task list"
           disabled={mode !== "desktop"}
         />
+        {/* The page has no default or maximum size, so it takes the whole remainder by itself. */}
         <ResizablePanel id="sym-page-panel" className="sym-panel-slot" minSize={PAGE_MIN_SIZE}>
-          <PageFrame
-            route={route}
-            chatCollapsed={state.chatCollapsed && mode !== "mobile"}
-            onShowChat={showChat}
-            onOpenChatView={openChatView}
-          >
-            {children}
-          </PageFrame>
+          <PageFrame route={route}>{children}</PageFrame>
         </ResizablePanel>
-        {route.taskId !== null ? (
-          <>
-            <ResizableHandle
-              id="sym-chat-resizer"
-              aria-label="Resize chat"
-              disabled={mode !== "desktop"}
-            />
-            <ResizablePanel
-              id="sym-chat-panel"
-              panelRef={chatPanel}
-              className="sym-panel-slot sym-panel-slot--framed"
-              defaultSize={state.chatCollapsed ? 0 : sizes.chat.default}
-              minSize={sizes.chat.min}
-              maxSize={sizes.chat.max}
-              collapsible
-              collapsedSize={0}
-              groupResizeBehavior="preserve-pixel-size"
-              onResize={onChatResize}
-            >
-              <ChatFrame taskId={route.taskId} onHide={hideChat} onBackToPage={backToPage} />
-            </ResizablePanel>
-          </>
-        ) : null}
       </ResizablePanelGroup>
-      {route.taskId === null ? (
-        <div className="sym-quick-chat-slot" data-slot="quick-chat">
-          {slots.quickChat}
-        </div>
-      ) : null}
     </div>
   );
 }

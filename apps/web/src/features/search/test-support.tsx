@@ -1,6 +1,5 @@
 import type {
   SearchFreshness,
-  SearchMessageHit,
   SearchResponse,
   SearchResultGroup,
   SearchSectionHit,
@@ -8,13 +7,8 @@ import type {
   SearchTitleResponse,
   SearchTitleResult,
 } from "@symplist/contracts";
-import {
-  conversationIdSchema,
-  messageIdSchema,
-  taskIdSchema,
-  userIdSchema,
-} from "@symplist/contracts";
-import { fixtureId, mayaTask, mayaTasks, mayaUser } from "@symplist/testing";
+import { taskIdSchema, userIdSchema } from "@symplist/contracts";
+import { mayaTask, mayaTasks, mayaUser } from "@symplist/testing";
 import { type RenderResult, render } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { ActionsProvider } from "@/actions/provider";
@@ -119,22 +113,6 @@ export function sectionHit(overrides: Partial<SearchSectionHit> = {}): SearchSec
   };
 }
 
-export function messageHit(overrides: Partial<SearchMessageHit> = {}): SearchMessageHit {
-  return {
-    messageId: messageIdSchema.parse(fixtureId(0x5a1)),
-    conversationId: conversationIdSchema.parse(fixtureId(0x5b1)),
-    speaker: "simon",
-    createdAt: 1_756_724_400_000,
-    snippet: {
-      text: "Tightened the Projects section: one framing sentence.",
-      highlights: [{ start: 10, end: 18 }],
-      truncatedStart: false,
-      truncatedEnd: false,
-    },
-    ...overrides,
-  };
-}
-
 export function resultGroup(
   title: string,
   overrides: Partial<SearchResultGroup> = {},
@@ -146,6 +124,7 @@ export function resultGroup(
     titleStale: false,
     sections: [],
     sectionCount: 0,
+    // `SearchResultGroup` still declares the message half of a hit; nothing fills it any more.
     messages: [],
     messageCount: 0,
     ...overrides,

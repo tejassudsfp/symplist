@@ -32,12 +32,12 @@ const nextTask: AppAction = {
   run: vi.fn(),
 };
 
-const focusChat: AppAction = {
-  id: "shell.focus_chat",
-  label: "Open Simon chat",
+const focusPage: AppAction = {
+  id: "shell.focus_page",
+  label: "Open task page",
   context: "app",
   group: "navigation",
-  defaultBinding: "g c",
+  defaultBinding: "g d",
   availability: () => ({ enabled: false, reason: "Open a task first" }),
   run: vi.fn(),
 };
@@ -52,15 +52,15 @@ const saveDocument: AppAction = {
 };
 
 const unbound: AppAction = {
-  id: "simon.stop",
-  label: "Stop Simon",
+  id: "documents.restore",
+  label: "Restore this revision",
   context: "app",
-  group: "chat",
+  group: "page",
   availability: () => ({ enabled: true }),
   run: vi.fn(),
 };
 
-const actions = [...searchActions, nextTask, focusChat, saveDocument, unbound];
+const actions = [...searchActions, nextTask, focusPage, saveDocument, unbound];
 const api = stubSearchApi({});
 
 beforeEach(() => {
@@ -76,7 +76,7 @@ describe("shortcut grouping and notes", () => {
   it("puts an action in its own group, or the one its context implies", () => {
     expect(groupOf(nextTask)).toBe("tasks");
     expect(groupOf(saveDocument)).toBe("page");
-    expect(groupOf({ ...saveDocument, context: "composer", group: undefined })).toBe("chat");
+    expect(groupOf({ ...saveDocument, group: undefined })).toBe("page");
     expect(groupOf({ ...nextTask, group: undefined, pane: "page" })).toBe("page");
   });
 
@@ -97,7 +97,7 @@ describe("shortcut grouping and notes", () => {
       spoken: "Command S",
     };
     expect(contextNotes(saveDocument, chord, undefined)).toEqual(["In the page editor"]);
-    expect(contextNotes(focusChat, caps, "Open a task first")).toContain("Open a task first");
+    expect(contextNotes(focusPage, caps, "Open a task first")).toContain("Open a task first");
   });
 
   it("normalizes typed bindings so cmd, ⌘ and control all find the same shortcut", () => {
@@ -135,17 +135,17 @@ describe("the shortcut help overlay", () => {
     expect(within(palette as HTMLElement).getByText("Control K")).toBeInTheDocument();
 
     // A sequence is shown differently from a chord (keyboard_shortcuts.md).
-    const chat = within(dialog).getByText("Open Simon chat").closest("li") as HTMLElement;
-    expect(within(chat).getByText("then")).toBeInTheDocument();
-    expect(chat.querySelector("[data-binding]")).toHaveAttribute("data-binding", "sequence");
-    expect(chat).toHaveTextContent("Open a task first");
+    const page = within(dialog).getByText("Open task page").closest("li") as HTMLElement;
+    expect(within(page).getByText("then")).toBeInTheDocument();
+    expect(page.querySelector("[data-binding]")).toHaveAttribute("data-binding", "sequence");
+    expect(page).toHaveTextContent("Open a task first");
     const next = within(dialog).getByText("Next task").closest("li") as HTMLElement;
     expect(next).toHaveTextContent("While the task list is focused");
     expect(next).toHaveTextContent("Unavailable while typing");
     expect(next.querySelector("[data-binding]")).toHaveAttribute("data-binding", "chord");
 
     // Unbound actions stay in the palette rather than showing a decorative key cap.
-    expect(within(dialog).queryByText("Stop Simon")).not.toBeInTheDocument();
+    expect(within(dialog).queryByText("Restore this revision")).not.toBeInTheDocument();
 
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
@@ -177,8 +177,8 @@ describe("the shortcut help overlay", () => {
     expect(within(dialog).queryByText("Save page")).not.toBeInTheDocument();
 
     await user.clear(search);
-    await user.type(search, "g c");
-    expect(within(dialog).getByText("Open Simon chat")).toBeInTheDocument();
+    await user.type(search, "g d");
+    expect(within(dialog).getByText("Open task page")).toBeInTheDocument();
     expect(within(dialog).queryByText("Next task")).not.toBeInTheDocument();
 
     await user.clear(search);

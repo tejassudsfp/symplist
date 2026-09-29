@@ -6,7 +6,7 @@ import { type KeyboardPreferences, parseKeyboardPreferences } from "@/actions/bi
 import { usePlatform } from "@/actions/provider";
 import { actionRegistry } from "@/actions/registry-index";
 import type { ShellPanelLayout, ShellPanelSeam, ShellSlots } from "@/components/shell/slots";
-import { ChatTitle, TaskHeader } from "./task-header.tsx";
+import { TaskHeader } from "./task-header.tsx";
 import { TaskInbox } from "./task-inbox.tsx";
 import { usePreferenceGroup, usePreferencesStatus, useWorkspace } from "./workspace-provider.tsx";
 
@@ -18,13 +18,13 @@ function clampWidth(value: number | null, min: number, max: number): number | nu
 
 export type WorkspaceShellSlots = Pick<
   ShellSlots,
-  "inbox" | "taskHeader" | "chatTitle" | "keyboardPreferences" | "panels"
+  "inbox" | "taskHeader" | "keyboardPreferences" | "panels"
 >;
 
 /**
  * What the workspace feature contributes to the shell (§2.3, decision W11): the task list for each
- * collection, the task page header, the chat's subtitle, the account's keyboard remaps and the
- * persisted desktop panel layout. `FeatureSlots` decides where each one mounts.
+ * collection, the task page header, the account's keyboard remaps and the persisted desktop panel
+ * layout. `FeatureSlots` decides where each one mounts.
  */
 export function useWorkspaceSlots(): WorkspaceShellSlots {
   const { preferences } = useWorkspace();
@@ -38,14 +38,19 @@ export function useWorkspaceSlots(): WorkspaceShellSlots {
     [keyboard.data, platform],
   );
 
+  /*
+   * The stored `panels` group still carries `chatCollapsed` and `chatWidth`, and its schema is a
+   * strict object that requires both. There is no chat panel left to report them, so they are
+   * vestigial: merged through from whatever the account already has rather than written as fresh
+   * defaults, which would rewrite every stored row on the first resize.
+   */
   const onLayoutChange = useCallback(
     (layout: ShellPanelLayout) => {
-      preferences.set("panels", {
+      preferences.update("panels", (current) => ({
+        ...current,
         inboxCollapsed: layout.inboxCollapsed,
-        chatCollapsed: layout.chatCollapsed,
         inboxWidth: clampWidth(layout.inboxWidth, 200, 640),
-        chatWidth: clampWidth(layout.chatWidth, 280, 960),
-      });
+      }));
     },
     [preferences],
   );
@@ -63,7 +68,6 @@ export function useWorkspaceSlots(): WorkspaceShellSlots {
     () => ({
       inbox: (collection) => <TaskInbox collection={collection as TaskCollection} />,
       taskHeader: (taskId) => <TaskHeader taskId={taskId} />,
-      chatTitle: (taskId) => <ChatTitle taskId={taskId} />,
       keyboardPreferences,
       panels: panelSeam,
     }),

@@ -1,6 +1,5 @@
 import type { ActionAvailability, AppAction } from "@/actions/types";
 import { activeDocument } from "./controller.ts";
-import { outlineRequestHandler } from "./outline-request.ts";
 import { documentHistoryPath, taskArtifactsPath } from "./routes.ts";
 
 /**
@@ -71,26 +70,6 @@ export const documentsActions: readonly AppAction[] = [
     availability: () => (activeDocument() ? enabled : noPage),
     run: () => {
       activeDocument()?.find();
-    },
-  },
-  {
-    id: "documents.ask_outline",
-    label: "Ask Simon for an outline",
-    context: "app",
-    group: "page",
-    keywords: ["draft", "simon", "start"],
-    availability: ({ services }) => {
-      if (!services.route?.taskId) return { enabled: false, reason: "Open a task first" };
-      return outlineRequestHandler()
-        ? enabled
-        : { enabled: false, reason: "Simon isn't available yet" };
-    },
-    run: async ({ services }) => {
-      const taskId = services.route?.taskId;
-      const handler = outlineRequestHandler();
-      if (!taskId || !handler) return;
-      await handler(taskId);
-      services.shell?.focusPane("chat");
     },
   },
 ];

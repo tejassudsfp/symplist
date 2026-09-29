@@ -43,9 +43,9 @@ function chunk<Item>(items: readonly Item[], size: number): Item[][] {
 /**
  * The workspace's realtime and analytics side (§3.3, §7, §15):
  *
- * - every committed task tree write made through the api's D1 client (the workspace routes, and Simon
- *   or MCP tools calling `core/tasks` in this process) keeps the tree cache exact or evicts it and
- *   publishes `tasks.changed` to the owner;
+ * - every committed task tree write made through the api's D1 client (the workspace routes, and the
+ *   incoming MCP tools calling `core/tasks` in this process) keeps the tree cache exact or evicts it
+ *   and publishes `tasks.changed` to the owner;
  * - worker writes arrive as the `task_tree.changed` internal event, whose payload is only a hint: the
  *   version and the owner's task ids are read again from D1 before anything is published;
  * - the `user` topic snapshot carries the owner's `taskTreeVersion`, read fresh from D1.

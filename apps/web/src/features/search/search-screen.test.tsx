@@ -14,7 +14,6 @@ import {
 } from "./store.ts";
 import {
   lockedSession,
-  messageHit,
   renderSearch,
   resultGroup,
   searchResponse,
@@ -71,7 +70,7 @@ describe("the full search screen", () => {
   it("focuses the query, states the scope and prompts before anything is typed", async () => {
     const content = vi.fn();
     renderSearch(<SearchScreen />, { api: stubSearchApi({ content }) });
-    const input = screen.getByRole("searchbox", { name: "Search tasks, documents and chat" });
+    const input = screen.getByRole("searchbox", { name: "Search tasks and documents" });
     await waitFor(() => expect(input).toHaveFocus());
     expect(
       screen.getByText(/Task titles and documents in Now, Later and Unclassified/),
@@ -83,14 +82,7 @@ describe("the full search screen", () => {
   it("groups matches under their task with headings, snippets and counts", async () => {
     const user = userEvent.setup({ delay: null });
     const content = vi.fn(async () =>
-      searchResponse([
-        groupWithSection(),
-        resultGroup("Send the project outline", {
-          messages: [messageHit()],
-          messageCount: 1,
-          match: "chat",
-        }),
-      ]),
+      searchResponse([groupWithSection(), resultGroup("Send the project outline")]),
     );
     renderSearch(<SearchScreen />, { api: stubSearchApi({ content }) });
     await user.type(screen.getByRole("searchbox"), "portfolio");
@@ -108,7 +100,9 @@ describe("the full search screen", () => {
       within(first).getByRole("button", { name: "Show all 3 matches in this task" }),
     ).toBeInTheDocument();
     const second = groups[1] as HTMLElement;
-    expect(within(second).getByText(/Simon ·/)).toBeInTheDocument();
+    expect(within(second).getByRole("heading", { level: 2 })).toHaveTextContent(
+      "Send the project outline",
+    );
     expect(content).toHaveBeenLastCalledWith(
       expect.objectContaining({ q: "portfolio", archive: "exclude" }),
       expect.anything(),
@@ -217,7 +211,6 @@ describe("the full search screen", () => {
     // The visible empty state and the polite live region both say it, as the failure states do.
     expect(await screen.findAllByText("No results for “kayak”")).toHaveLength(2);
     expect(screen.getByRole("button", { name: "Include archived" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Search chat too" })).toBeInTheDocument();
 
     await user.type(screen.getByRole("searchbox"), " trip");
     expect(await screen.findAllByText("Search is temporarily unavailable")).not.toHaveLength(0);
@@ -265,18 +258,14 @@ describe("the full search screen", () => {
         status: "partial",
         indexGeneration: generation,
         pendingIntents: 2,
-        notices: ["changes_pending", "chat_opt_in_required"],
+        notices: ["changes_pending", "results_capped"],
       }),
     );
     renderSearch(<SearchScreen />, { api: stubSearchApi({ content, freshness: vi.fn() }) });
     await user.type(screen.getByRole("searchbox"), "portfolio");
     await screen.findAllByRole("article");
     expect(screen.getByText("Some changes aren't searchable yet.")).toBeInTheDocument();
-    expect(screen.getByText(/Chat messages aren't searchable/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Open Settings" })).toHaveAttribute(
-      "href",
-      "/settings/account",
-    );
+    expect(screen.getByText(/narrow the search to see the best ones/)).toBeInTheDocument();
 
     generation = 8;
     act(() => {

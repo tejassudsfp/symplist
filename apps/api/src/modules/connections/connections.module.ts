@@ -5,7 +5,6 @@ import { McpGrants } from "@symplist/core/mcp";
 import { SchedulingService } from "@symplist/core/scheduling";
 import { createSearchSources, SearchIndexCache, SearchQueryService } from "@symplist/core/search";
 import { SharingRepository } from "@symplist/core/sharing";
-import { SimonRepository } from "@symplist/core/simon";
 import { TaskService } from "@symplist/core/tasks";
 import type { KeyProvider } from "@symplist/crypto";
 import type { DbClient } from "@symplist/db";
@@ -17,7 +16,6 @@ import { API_CONFIG, type ApiConfig } from "../../infra/config/api-config.ts";
 import { KEY_PROVIDER } from "../../infra/crypto/crypto.providers.ts";
 import { DB_CLIENT } from "../../infra/db/db.providers.ts";
 import { DOCUMENT_GIT } from "../../infra/documents/git.module.ts";
-import { ExecutionDispatcher } from "../../infra/executors/dispatcher.ts";
 import { OBJECT_STORE } from "../../infra/storage/storage.providers.ts";
 import { McpController } from "../mcp/mcp.controller.ts";
 import { McpRegistration } from "../mcp/mcp.registration.ts";
@@ -46,22 +44,13 @@ import { CONNECTIONS_RUNTIME, createConnectionsRuntime } from "./connections.run
     McpRegistration,
     {
       provide: MCP_TOOLS,
-      inject: [
-        MCP_GRANTS,
-        OBJECT_STORE,
-        DOCUMENT_GIT,
-        API_CONFIG,
-        TopicHub,
-        ExecutionDispatcher,
-        SERVER_ANALYTICS,
-      ],
+      inject: [MCP_GRANTS, OBJECT_STORE, DOCUMENT_GIT, API_CONFIG, TopicHub, SERVER_ANALYTICS],
       useFactory: (
         grants: McpGrants,
         objects: ObjectStore,
         git: GitService,
         config: ApiConfig,
         hub: TopicHub,
-        dispatcher: ExecutionDispatcher,
         analytics: ServerAnalyticsEmitter,
       ) =>
         new McpTools(
@@ -93,11 +82,6 @@ import { CONNECTIONS_RUNTIME, createConnectionsRuntime } from "./connections.run
             sources: createSearchSources({ ...grants.options, objects }),
             cache: new SearchIndexCache({ now: grants.options.now, maxBytes: 8 * 1024 * 1024 }),
           }),
-          new SimonRepository({
-            ...grants.options,
-            quickChatTtlHours: config.QUICK_CHAT_TTL_HOURS,
-          }),
-          () => dispatcher.kick(),
           mcpFeatureExtensions(
             grants,
             new SchedulingService({

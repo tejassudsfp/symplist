@@ -60,7 +60,7 @@ const overlayStore = new Store<SearchOverlay>({ kind: "closed" });
 let openCount = 0;
 
 function isPane(value: string | null | undefined): value is PaneId {
-  return value === "inbox" || value === "page" || value === "chat";
+  return value === "inbox" || value === "page";
 }
 
 /**
@@ -187,9 +187,9 @@ export function forgetSearchScreen(): void {
  * --------------------------------------------------------------------------------------------- */
 
 /**
- * What a task page needs to open a search hit accurately (note 14): the section or message, the
- * revision it was indexed from, and whether the head has moved since. Opaque ids also travel in the
- * task URL (`SEARCH_JUMP_PARAMS`); the heading and query stay in memory only.
+ * What a task page needs to open a search hit accurately (note 14): the section, the revision it was
+ * indexed from, and whether the head has moved since. Opaque ids also travel in the task URL
+ * (`SEARCH_JUMP_PARAMS`); the heading and query stay in memory only.
  */
 export interface SearchJump {
   readonly taskId: string;
@@ -202,7 +202,6 @@ export interface SearchJump {
     readonly currentRevision: string | null;
     readonly stale: boolean;
   };
-  readonly message?: { readonly messageId: string; readonly conversationId: string };
 }
 
 /** A jump older than this is ignored, so a later visit never scrolls to an old result. */
@@ -224,7 +223,7 @@ export function peekSearchJump(taskId: string, now: number = Date.now()): Search
   return pendingJump.jump;
 }
 
-/** Takes the pending jump for a task once; the documents and chat panes call this when they open. */
+/** Takes the pending jump for a task once; the documents pane calls this when it opens. */
 export function consumeSearchJump(taskId: string, now: number = Date.now()): SearchJump | null {
   const jump = peekSearchJump(taskId, now);
   if (jump) pendingJump = null;

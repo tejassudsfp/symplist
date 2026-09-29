@@ -153,11 +153,9 @@ describe("the revision list", () => {
     );
   });
 
-  it("says how page revisions relate to chat, as the brief asks", async () => {
+  it("says what a revision records, as the brief asks", async () => {
     mount(threeVersions());
-    expect(
-      await screen.findByText(/Chat messages stay in the task's conversation/),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/Revisions record page changes only/)).toBeInTheDocument();
   });
 });
 

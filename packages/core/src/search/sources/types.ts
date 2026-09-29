@@ -1,16 +1,15 @@
 import type { SearchDeadlineFilter } from "@symplist/contracts";
 import type { AccountDataKey, KeyProvider } from "@symplist/crypto";
 import type { DbClient, DbRow, Statement } from "@symplist/db";
-import type { SearchDocumentInput, SearchMessageRecord, SearchTaskRecord } from "@symplist/search";
+import type { SearchDocumentInput, SearchTaskRecord } from "@symplist/search";
 import type { ObjectStore } from "@symplist/storage";
 import type { AccessPolicy } from "../../access/evaluate.ts";
 import type { CoreDomain } from "../../domains.ts";
 
 /**
  * Authoritative content the index is built from (§10.1). Search is a derived index: it reads task
- * rows directly, and document heads, chat messages, the chat opt-in and schedule metadata through
- * these interfaces, which the owning features implement. Every method is scoped to one owner and never
- * returns another owner's data.
+ * rows directly, and document heads and schedule metadata through these interfaces, which the owning
+ * features implement. Every method is scoped to one owner and never returns another owner's data.
  */
 
 /** Paging through an owner's records in id order. */
@@ -70,22 +69,6 @@ export interface DocumentTextSource {
   headRevisionsStatement(ownerId: string, taskIds: readonly string[]): Statement;
 }
 
-/** Simon's persisted task-conversation messages; quick chats are never returned (decision D1). */
-export interface MessageTextSource {
-  /** Ids of the owner's task-conversation messages, in id order. */
-  listMessages(ownerId: string, page: SearchPage): Promise<readonly string[]>;
-  readMessages(
-    ownerId: string,
-    messageIds: readonly string[],
-    key: AccountDataKey,
-  ): Promise<ReadonlyMap<string, SearchMessageRecord>>;
-}
-
-/** The owner's `privacy` preference: whether chat content may enter search (§10.1, §10.3). */
-export interface ChatOptInSource {
-  includeChat(ownerId: string, key: AccountDataKey): Promise<boolean>;
-}
-
 /** Schedule metadata for deadline filters (note 14, note 15); never derived from the index. */
 export interface DeadlineFilterSource {
   /** The owner's task ids whose schedule satisfies the filter at `now`. */
@@ -100,8 +83,6 @@ export interface DeadlineFilterSource {
 export interface SearchSources {
   readonly tasks: SearchTaskSource;
   readonly documents: DocumentTextSource | null;
-  readonly messages: MessageTextSource | null;
-  readonly chatOptIn: ChatOptInSource | null;
   readonly deadlines: DeadlineFilterSource | null;
 }
 
@@ -115,14 +96,12 @@ export interface SearchSourceDependencies {
 }
 
 /**
- * A domain's contribution of search sources (§2.3). The documents feature supplies `documents`, Simon
- * `messages`, preferences `chatOptIn` and scheduling `deadlines`; each is a plain factory, so the api and
- * the worker build identical sources without Nest.
+ * A domain's contribution of search sources (§2.3). The documents feature supplies `documents` and
+ * scheduling `deadlines`; each is a plain factory, so the api and the worker build identical sources
+ * without Nest.
  */
 export interface SearchSourceContributor {
   readonly domain: CoreDomain;
   readonly documents?: (dependencies: SearchSourceDependencies) => DocumentTextSource;
-  readonly messages?: (dependencies: SearchSourceDependencies) => MessageTextSource;
-  readonly chatOptIn?: (dependencies: SearchSourceDependencies) => ChatOptInSource;
   readonly deadlines?: (dependencies: SearchSourceDependencies) => DeadlineFilterSource;
 }

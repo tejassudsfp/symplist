@@ -61,8 +61,6 @@ async function boot(options: TestAppOptions = {}): Promise<Booted> {
   const sources: SearchSources = {
     tasks: new D1SearchTaskSource(lazyDb),
     documents,
-    messages: null,
-    chatOptIn: null,
     deadlines: null,
   };
   booted = await bootTestApp({

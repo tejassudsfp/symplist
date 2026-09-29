@@ -40,12 +40,6 @@ describe("worker error mapping (§8.3)", () => {
       false,
     ],
     [
-      "an AI SDK call failure",
-      withDetail(Object.assign(new Error(`429 for ${MARKER}`), { name: "AI_APICallError" })),
-      "ai.unavailable",
-      true,
-    ],
-    [
       "a Composio rate limit",
       withDetail(
         Object.assign(new Error(MARKER), {

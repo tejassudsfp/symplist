@@ -422,9 +422,9 @@ export interface SafeMarkdownProps {
 }
 
 /**
- * Renders untrusted Markdown (chat messages, tool activity, approval previews, notification text and
- * document previews, §10.4) by mapping the syntax tree to an allowlist of React elements. Raw HTML is
- * shown as text, remote images become labeled links and are never fetched, and links allow only
+ * Renders untrusted Markdown (document previews and notification text, §10.4) by mapping the syntax
+ * tree to an allowlist of React elements. Raw HTML is shown as text, remote images become labeled
+ * links and are never fetched, and links allow only
  * `https` and `mailto`, show their destination and use `rel="noopener noreferrer"`.
  */
 export function SafeMarkdown({ source, className, headingLevelStart = 3 }: SafeMarkdownProps) {

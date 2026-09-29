@@ -46,14 +46,6 @@ describe("filterSlashCommands", () => {
     expect(filterSlashCommands("h".repeat(MAX_SLASH_QUERY + 1))).toEqual([]);
   });
 
-  it("keeps Simon out of the editor's own command set", () => {
-    const simon = slashCommands.find((command) => command.id === "ask_simon");
-    expect(simon?.external).toBe(true);
-    for (const command of slashCommands) {
-      if (command.id !== "ask_simon") expect(command.external).toBeUndefined();
-    }
-  });
-
   it("gives every command a distinct id and a hint", () => {
     expect(new Set(slashCommands.map((command) => command.id)).size).toBe(slashCommands.length);
     for (const command of slashCommands) {

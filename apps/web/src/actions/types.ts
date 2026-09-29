@@ -1,8 +1,8 @@
-/** Where an action applies. Dispatch precedence: modal or menu, then editor or composer, then the focused pane, then the app (§10.2). */
-export type ActionContext = "modal" | "menu" | "editor" | "composer" | "pane" | "app";
+/** Where an action applies. Dispatch precedence: modal or menu, then editor, then the focused pane, then the app (§10.2). */
+export type ActionContext = "modal" | "menu" | "editor" | "pane" | "app";
 
-/** Workspace panes that can hold focus (inbox list, task page, chat). */
-export type PaneId = "inbox" | "page" | "chat";
+/** Workspace panes that can hold focus (inbox list, task page). */
+export type PaneId = "inbox" | "page";
 
 /** How an action was invoked. Every source runs the same action and the same availability check. */
 export type ActionSource = "keyboard" | "pointer" | "menu" | "palette";
@@ -11,7 +11,7 @@ export type ActionSource = "keyboard" | "pointer" | "menu" | "palette";
 export type Platform = "mac" | "other";
 
 /** Groups in the shortcut reference (keyboard_shortcuts.md). */
-export type ActionGroup = "navigation" | "tasks" | "page" | "chat" | "search" | "general";
+export type ActionGroup = "navigation" | "tasks" | "page" | "search" | "general";
 
 /** Whether an action can run now, with the reason shown when it cannot. */
 export interface ActionAvailability {
@@ -35,9 +35,7 @@ export interface ShellController {
    */
   revealInbox(): void;
   toggleInbox(): void;
-  toggleChat(): void;
   isInboxVisible(): boolean;
-  isChatVisible(): boolean;
 }
 
 /** Runtime services an action may use; provided by the app shell. */

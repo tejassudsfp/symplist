@@ -101,7 +101,7 @@ describe("search actions", () => {
     });
 
     document.body.innerHTML = `
-      <div data-pane="chat"><input id="chat-find" ${SURFACE_FIND_ATTRIBUTE}="chat" /></div>
+      <div data-pane="page"><input id="page-find" ${SURFACE_FIND_ATTRIBUTE}="page" /></div>
       <div data-pane="inbox"><input id="inbox-find" ${SURFACE_FIND_ATTRIBUTE}="inbox" /></div>`;
     for (const element of document.querySelectorAll("input")) {
       element.checkVisibility = () => true;
@@ -113,6 +113,6 @@ describe("search actions", () => {
     // Outside a pane (the full search screen) the visible field is focused.
     const outside = environment({ pane: null });
     void find.run(outside.env);
-    expect(document.activeElement?.id).toBe("chat-find");
+    expect(document.activeElement?.id).toBe("page-find");
   });
 });

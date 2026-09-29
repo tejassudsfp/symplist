@@ -66,19 +66,19 @@ function definition(
   overrides: Partial<ExecutionKindDefinition> = {},
 ): ExecutionKindDefinition {
   return {
-    kind: "simon_run",
-    triggerTaskId: "simon-run",
+    kind: "probe_run",
+    triggerTaskId: "probe-run",
     payload: (job) => ({ runId: job.subjectId }),
     ...(tracker ? { tracker: () => tracker } : {}),
     ...overrides,
   };
 }
 
-/** A `simon_run` job for one subject, owned by `OWNER` at generation 1 and outside a session. */
+/** A `probe_run` job for one subject, owned by `OWNER` at generation 1 and outside a session. */
 function job(overrides: Partial<ExecutionJob> & { readonly subjectId: string }): ExecutionJob {
   return {
     intentId: "i",
-    kind: "simon_run",
+    kind: "probe_run",
     ownerId: OWNER,
     generation: 1,
     sessionExternalId: null,
@@ -87,7 +87,7 @@ function job(overrides: Partial<ExecutionJob> & { readonly subjectId: string }):
 }
 
 function contributors(...definitions: ExecutionKindDefinition[]): EventsContributor[] {
-  return [{ domain: "simon", executionKinds: definitions }];
+  return [{ domain: "connections", executionKinds: definitions }];
 }
 
 async function migratedDb(): Promise<LocalSqliteClient> {
@@ -129,7 +129,7 @@ async function addIntent(
     insertDispatchIntentStatement({
       id,
       ownerId: input.ownerId ?? OWNER,
-      kind: input.kind ?? "simon_run",
+      kind: input.kind ?? "probe_run",
       subjectId,
       sessionExternalId: input.sessionExternalId ?? null,
       now: input.now ?? 1_000,
@@ -163,7 +163,7 @@ async function harness(
   const clock = new FakeClock(1_789_462_800_000);
   const log = new RecordingLog();
   const tracker = new FakeTracker();
-  const registry = new ExecutionRegistry(new Map([["simon_run", kind(tracker)]]), db);
+  const registry = new ExecutionRegistry(new Map([["probe_run", kind(tracker)]]), db);
   return {
     db,
     clock,
@@ -379,7 +379,7 @@ describe("dispatch in local mode", () => {
   it("runs the registered handler in process and never calls Trigger", async () => {
     const h = await track(harness("local"));
     const handler = vi.fn<LocalExecutionHandler>(async () => undefined);
-    h.registry.registerLocalHandler("simon_run", handler);
+    h.registry.registerLocalHandler("probe_run", handler);
     const local = new LocalExecutor({ registry: h.registry, timers: h.clock, log: h.log });
     const dispatcher = new ExecutionDispatcher({
       repository: h.repository,
@@ -411,7 +411,7 @@ describe("dispatch in local mode", () => {
 
   function localDispatch(h: Harness) {
     const handler = vi.fn<LocalExecutionHandler>(async () => undefined);
-    h.registry.registerLocalHandler("simon_run", handler);
+    h.registry.registerLocalHandler("probe_run", handler);
     const local = new LocalExecutor({ registry: h.registry, timers: h.clock, log: h.log });
     const dispatcher = new ExecutionDispatcher({
       repository: h.repository,
@@ -527,7 +527,7 @@ describe("dispatch in local mode", () => {
     expect(await intentRow(h.db, id)).toMatchObject({ status: "pending", local_started_at: null });
 
     const handler = vi.fn<LocalExecutionHandler>(async () => undefined);
-    h.registry.registerLocalHandler("simon_run", handler);
+    h.registry.registerLocalHandler("probe_run", handler);
     await h.clock.advance(60_000);
     expect((await dispatcher.dispatchPending()).dispatched).toBe(1);
     await h.clock.advance(0);
@@ -552,7 +552,7 @@ describe("dispatch in local mode", () => {
   it("dispatches nothing while executor_state records another mode", async () => {
     const h = await track(harness("local"));
     await setMode(h.db, "durable", 2);
-    h.registry.registerLocalHandler("simon_run", async () => undefined);
+    h.registry.registerLocalHandler("probe_run", async () => undefined);
     const dispatcher = new ExecutionDispatcher({
       repository: h.repository,
       state: h.state,
@@ -571,10 +571,10 @@ describe("dispatch in local mode", () => {
   });
 });
 
-/** The kind as Simon declares it once `SIMON_CHAT_SESSIONS` may route it: a session task and its key. */
+/** A kind that declares a session task and its key, the shape the session routing dispatches. */
 function chatDefinition(tracker: FakeTracker | undefined): ExecutionKindDefinition {
   return definition(tracker, {
-    sessionTaskId: "simon-chat",
+    sessionTaskId: "probe-chat",
     sessionExternalId: (candidate) => candidate.sessionExternalId,
   });
 }
@@ -583,9 +583,9 @@ describe("dispatch in durable mode", () => {
   async function durable(options: { sessions?: boolean; chat?: boolean } = {}) {
     const h = await track(harness("durable", options.chat ? chatDefinition : definition));
     const handler = vi.fn<LocalExecutionHandler>(async () => undefined);
-    h.registry.registerLocalHandler("simon_run", handler);
-    h.trigger.registerTask("simon-run", async () => ({ ok: true }), { maxAttempts: 1 });
-    h.trigger.registerTask("simon-chat", async () => ({ ok: true }), { maxAttempts: 1 });
+    h.registry.registerLocalHandler("probe_run", handler);
+    h.trigger.registerTask("probe-run", async () => ({ ok: true }), { maxAttempts: 1 });
+    h.trigger.registerTask("probe-chat", async () => ({ ok: true }), { maxAttempts: 1 });
     const executor = new TriggerExecutor(h.trigger, { sessions: options.sessions ?? false });
     const dispatcher = new ExecutionDispatcher({
       repository: h.repository,
@@ -606,7 +606,7 @@ describe("dispatch in durable mode", () => {
     expect(report.dispatched).toBe(1);
     expect(h.trigger.triggers).toHaveLength(1);
     expect(h.trigger.triggers[0]).toMatchObject({
-      taskIdentifier: "simon-run",
+      taskIdentifier: "probe-run",
       payload: { runId: subjectId },
       options: { idempotencyKey: subjectId },
       deduplicated: false,
@@ -683,13 +683,13 @@ describe("dispatch in durable mode", () => {
  * Chat sessions
  * --------------------------------------------------------------------------------------------- */
 
-describe("dispatch into a chat session (SIMON_CHAT_SESSIONS)", () => {
+describe("dispatch into a session", () => {
   const CONVERSATION = "01996d2a-4c00-7000-8000-0000000000c1";
 
   async function chat(options: { sessions: boolean }) {
     const h = await track(harness("durable", chatDefinition));
-    h.trigger.registerTask("simon-run", async () => ({ ok: true }), { maxAttempts: 1 });
-    h.trigger.registerTask("simon-chat", async () => ({ ok: true }), { maxAttempts: 1 });
+    h.trigger.registerTask("probe-run", async () => ({ ok: true }), { maxAttempts: 1 });
+    h.trigger.registerTask("probe-chat", async () => ({ ok: true }), { maxAttempts: 1 });
     const executor = new TriggerExecutor(h.trigger, {
       sessions: options.sessions,
       wait: async () => undefined,
@@ -715,7 +715,7 @@ describe("dispatch into a chat session (SIMON_CHAT_SESSIONS)", () => {
     expect(h.trigger.triggers).toHaveLength(1);
     expect(h.trigger.triggers[0]).toMatchObject({
       via: "trigger",
-      taskIdentifier: "simon-run",
+      taskIdentifier: "probe-run",
       payload: { runId: subjectId },
       options: { idempotencyKey: subjectId },
     });
@@ -731,12 +731,12 @@ describe("dispatch into a chat session (SIMON_CHAT_SESSIONS)", () => {
     const { id, subjectId } = await addIntent(h.db, { sessionExternalId: CONVERSATION });
     expect((await h.dispatcher.dispatchPending()).dispatched).toBe(1);
     expect(h.trigger.sessionStarts).toMatchObject([
-      { externalId: CONVERSATION, taskIdentifier: "simon-chat", isCached: false },
+      { externalId: CONVERSATION, taskIdentifier: "probe-chat", isCached: false },
     ]);
     // The session spans the conversation, so its payload names the conversation and never the run.
     expect(h.trigger.triggers[0]).toMatchObject({
       via: "session",
-      taskIdentifier: "simon-chat",
+      taskIdentifier: "probe-chat",
       payload: { chatId: CONVERSATION },
     });
     expect(JSON.stringify(h.trigger.triggers[0]?.payload)).not.toContain(subjectId);
@@ -749,7 +749,7 @@ describe("dispatch into a chat session (SIMON_CHAT_SESSIONS)", () => {
     });
     expect(h.tracker.dispatches).toMatchObject([{ subjectId, triggerRunId: runId }]);
 
-    const target = { kind: "simon_run", subjectId, triggerRunId: runId ?? null };
+    const target = { kind: "probe_run", subjectId, triggerRunId: runId ?? null };
     expect(await h.executor.observe(target)).toEqual({ state: "active" });
     await h.executor.cancel(target);
     expect(h.trigger.cancellations).toEqual([runId]);
@@ -798,7 +798,7 @@ describe("dispatch into a chat session (SIMON_CHAT_SESSIONS)", () => {
     expect(String(row?.trigger_run_id ?? "")).not.toBe("");
     expect(
       await h.executor.observe({
-        kind: "simon_run",
+        kind: "probe_run",
         subjectId: second.subjectId,
         triggerRunId: String(row?.trigger_run_id),
       }),
@@ -831,8 +831,8 @@ describe("dispatch into a chat session (SIMON_CHAT_SESSIONS)", () => {
     expect(
       h.log.entries.find((entry) => entry.event === "executor.session_skipped")?.fields,
     ).toMatchObject({
-      kind: "simon_run",
-      task: "simon-run",
+      kind: "probe_run",
+      task: "probe-run",
       reason: "sessions_disabled",
     });
   });
@@ -843,7 +843,7 @@ describe("dispatch into a chat session (SIMON_CHAT_SESSIONS)", () => {
     expect((await h.dispatcher.dispatchPending()).dispatched).toBe(1);
     expect(h.trigger.sessionStarts).toEqual([]);
     expect(h.trigger.triggers[0]).toMatchObject({
-      taskIdentifier: "simon-run",
+      taskIdentifier: "probe-run",
       payload: { runId: subjectId },
     });
   });
@@ -903,7 +903,7 @@ describe("local executor", () => {
   it("gives every job its own AbortController and turns a stop into stopped", async () => {
     const h = await track(harness("local"));
     const signals: AbortSignal[] = [];
-    h.registry.registerLocalHandler("simon_run", (_job, context) => {
+    h.registry.registerLocalHandler("probe_run", (_job, context) => {
       signals.push(context.signal);
       return new Promise((_resolve, reject) => {
         context.signal.addEventListener("abort", () => reject(context.signal.reason));
@@ -922,21 +922,21 @@ describe("local executor", () => {
     expect(signals).toHaveLength(2);
     expect(local.runningCount()).toBe(2);
 
-    await local.cancel({ kind: "simon_run", subjectId: a, triggerRunId: null });
+    await local.cancel({ kind: "probe_run", subjectId: a, triggerRunId: null });
     await h.clock.advance(0);
     expect(signals[0]?.aborted).toBe(true);
     expect(signals[0]?.reason).toBeInstanceOf(LocalExecutionAborted);
     expect(signals[1]?.aborted).toBe(false);
     expect(h.tracker.runs.get(a)?.status).toBe("stopped");
     expect(h.tracker.runs.get(b)?.status).toBe("running");
-    expect(local.isRunning("simon_run", a)).toBe(false);
+    expect(local.isRunning("probe_run", a)).toBe(false);
   });
 
   it("writes heartbeats for running jobs and marks a crashed handler interrupted", async () => {
     const h = await track(harness("local"));
     let fail: (error: Error) => void = () => undefined;
     h.registry.registerLocalHandler(
-      "simon_run",
+      "probe_run",
       () =>
         new Promise((_resolve, reject) => {
           fail = reject;
@@ -966,7 +966,7 @@ describe("local executor", () => {
   it("aborts jobs on shutdown, marks them interrupted and refuses new work", async () => {
     const h = await track(harness("local"));
     h.registry.registerLocalHandler(
-      "simon_run",
+      "probe_run",
       (_job, context) =>
         new Promise((_resolve, reject) => {
           context.signal.addEventListener("abort", () => reject(context.signal.reason));
@@ -994,7 +994,7 @@ describe("local executor", () => {
     await expect(local.start(turn, definition(h.tracker))).rejects.toMatchObject({
       code: "executor.handler_missing",
     });
-    h.registry.registerLocalHandler("simon_run", async () => undefined);
+    h.registry.registerLocalHandler("probe_run", async () => undefined);
     await expect(local.start(turn, definition(h.tracker), "run_1")).rejects.toThrow(ExecutorError);
   });
 });
@@ -1008,7 +1008,7 @@ describe("reconciler", () => {
     const h = await track(harness("local"));
     let release: () => void = () => undefined;
     h.registry.registerLocalHandler(
-      "simon_run",
+      "probe_run",
       () =>
         new Promise<void>((resolve) => {
           release = resolve;
@@ -1084,7 +1084,7 @@ describe("reconciler", () => {
     });
     const handles = await Promise.all(
       ["crashed", "cancelled", "executing", "completed", "failed_stop", "local"].map((name) =>
-        h.trigger.tasks.trigger("simon-run", { runId: name }, { idempotencyKey: name }),
+        h.trigger.tasks.trigger("probe-run", { runId: name }, { idempotencyKey: name }),
       ),
     );
     const [crashed, cancelled, executing, completed, failedStop] = handles.map(
@@ -1151,7 +1151,7 @@ describe("reconciler", () => {
 
   it("re-dispatches only intents without a Trigger run id and does nothing on a mode mismatch", async () => {
     const h = await track(harness("durable"));
-    h.trigger.registerTask("simon-run", async () => undefined);
+    h.trigger.registerTask("probe-run", async () => undefined);
     const trigger = new TriggerExecutor(h.trigger);
     const dispatcher = new ExecutionDispatcher({
       repository: h.repository,
@@ -1217,7 +1217,7 @@ describe("reconciler", () => {
   it("aborts in-process jobs of a retired generation or mode after an executor switch", async () => {
     const h = await track(harness("local"));
     const aborted: string[] = [];
-    h.registry.registerLocalHandler("simon_run", (job, context) => {
+    h.registry.registerLocalHandler("probe_run", (job, context) => {
       return new Promise((_resolve, reject) => {
         context.signal.addEventListener("abort", () => {
           aborted.push(
@@ -1256,7 +1256,7 @@ describe("reconciler", () => {
     await reconciler.reconcileOnce();
     await h.clock.advance(0);
     expect(aborted).toEqual(["old:switched"]);
-    expect(local.isRunning("simon_run", "current")).toBe(true);
+    expect(local.isRunning("probe_run", "current")).toBe(true);
 
     // Switched to durable: nothing may keep running in process.
     await setMode(h.db, "durable", 4);
@@ -1289,7 +1289,7 @@ describe("reconciler", () => {
     });
     const { id, subjectId } = await addIntent(h.db);
     const handle = await h.trigger.tasks.trigger(
-      "simon-run",
+      "probe-run",
       { runId: subjectId },
       { idempotencyKey: subjectId },
     );
@@ -1358,7 +1358,7 @@ describe("executor switch (§8.1)", () => {
       let oldTriggerRunId: string | null = null;
       if (from === "durable") {
         const handle = await h.trigger.tasks.trigger(
-          "simon-run",
+          "probe-run",
           { runId: active },
           { idempotencyKey: active },
         );
@@ -1400,7 +1400,7 @@ describe("executor switch (§8.1)", () => {
         expect((await h.trigger.runs.retrieve(oldTriggerRunId)).status).toBe("CANCELED");
 
       const localCalls = vi.fn(async () => {});
-      if (to === "local") h.registry.registerLocalHandler("simon_run", localCalls);
+      if (to === "local") h.registry.registerLocalHandler("probe_run", localCalls);
       const local =
         to === "local"
           ? new LocalExecutor({ registry: h.registry, timers: h.clock, log: h.log })
@@ -1474,7 +1474,7 @@ describe("executor switch (§8.1)", () => {
   it("durable → local cancels Trigger runs itself, and a rerun completes idempotently", async () => {
     const h = await track(harness("durable"));
     const handle = await h.trigger.tasks.trigger(
-      "simon-run",
+      "probe-run",
       { runId: "a" },
       { idempotencyKey: "a" },
     );
@@ -1509,7 +1509,7 @@ describe("executor switch (§8.1)", () => {
     const h = await track(harness("durable"));
     const handles = await Promise.all(
       ["a", "b"].map((name) =>
-        h.trigger.tasks.trigger("simon-run", { runId: name }, { idempotencyKey: name }),
+        h.trigger.tasks.trigger("probe-run", { runId: name }, { idempotencyKey: name }),
       ),
     );
     const subjects = [
@@ -1564,7 +1564,7 @@ describe("executor switch (§8.1)", () => {
   it("leaves a run whose Trigger cancel failed active so a rerun retries it, and treats 404 as gone", async () => {
     const h = await track(harness("durable"));
     const handle = await h.trigger.tasks.trigger(
-      "simon-run",
+      "probe-run",
       { runId: "a" },
       { idempotencyKey: "a" },
     );
@@ -1832,7 +1832,7 @@ describe("restricted run canceller (§5.5)", () => {
   it("aborts only the restricted user's local controllers in local mode and never calls Trigger", async () => {
     const h = await track(harness("local"));
     h.registry.registerLocalHandler(
-      "simon_run",
+      "probe_run",
       (_job, context) =>
         new Promise((_resolve, reject) => {
           context.signal.addEventListener("abort", () => reject(context.signal.reason));
@@ -1860,9 +1860,9 @@ describe("restricted run canceller (§5.5)", () => {
     });
     await canceller.cancelRestrictedRuns({ userId: OWNER, accessGeneration: 3 });
     await h.clock.advance(0);
-    expect(local.isRunning("simon_run", mine)).toBe(false);
+    expect(local.isRunning("probe_run", mine)).toBe(false);
     expect(h.tracker.runs.get(mine)?.status).toBe("stopped");
-    expect(local.isRunning("simon_run", theirs)).toBe(true);
+    expect(local.isRunning("probe_run", theirs)).toBe(true);
     expect(h.tracker.runs.get(theirs)?.status).toBe("running");
     expect(trigger).not.toHaveBeenCalled();
   });
@@ -1891,7 +1891,7 @@ describe("ExecutorsModule", () => {
     expect(moduleRef.get(LOCAL_EXECUTOR)).toBeInstanceOf(LocalExecutor);
     expect(moduleRef.get(TRIGGER_EXECUTOR)).toBeNull();
     expect(moduleRef.get(RestrictedRunCanceller)).toBeInstanceOf(RestrictedRunCanceller);
-    expect(moduleRef.get(ExecutionRegistry).kinds()).toEqual(["simon_run"]);
+    expect(moduleRef.get(ExecutionRegistry).kinds()).toEqual(["probe_run"]);
     expect(await new ExecutorStateRepository(db).read()).toMatchObject({ mode: "local" });
     await app.close();
   });

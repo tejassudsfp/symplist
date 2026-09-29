@@ -1,6 +1,6 @@
 import { ArchiveView } from "@/features/workspace/archive-view";
 
-/** One archived record: its retained page and conversation, read only, with a calm Restore. */
+/** One archived record: its retained page, read only, with a calm Restore. */
 export default async function ArchivedTaskPage({
   params,
 }: {

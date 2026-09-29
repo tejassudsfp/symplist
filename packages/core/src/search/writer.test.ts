@@ -75,9 +75,9 @@ async function publishedTitles(query: string, ownerId = owner, types = ["tasks",
   return runSearch(SearchView.of(opened.index), parseQuery(query), {
     collections: new Set(["now", "later", "unclassified"]),
     archive: "include",
-    types: new Set(types as ("tasks" | "documents" | "chat")[]),
+    types: new Set(types as ("tasks" | "documents")[]),
     taskIds: null,
-    chat: types.includes("chat"),
+    chat: false,
   }).groups.map((group) => group.task.title);
 }
 
@@ -421,30 +421,24 @@ describe("SearchIndexWriter (§10.1)", () => {
     });
   });
 
-  it("includes chat messages only after the owner opts in, and removes them after opting out", async () => {
-    const task = await writeTask(store, owner, { title: "Portfolio" });
-    const conversationId = uuidv7(store.now);
-    const messageId = uuidv7(store.now);
-    store.messages.persist(owner, {
-      id: messageId,
-      taskId: task,
-      conversationId,
-      speaker: "user",
-      createdAt: store.now,
-      text: "which project images are missing",
-    });
-    await recordIntent(store, owner, "message", messageId);
+  it("rebuilds once to drop chat out of a generation published before it left the cloud", async () => {
+    await writeTask(store, owner, { title: "Portfolio" });
     await writer().run(owner, { mode: "local" });
-    expect(await publishedTitles("images", owner, ["chat"])).toEqual([]);
-
-    store.chatOptIn.set(owner, true);
-    expect(await writer().run(owner, { mode: "local" })).toMatchObject({ rebuilt: true });
-    expect((await indexRow())?.includeChat).toBe(true);
-    expect(await publishedTitles("images", owner, ["chat"])).toEqual(["Portfolio"]);
-
-    store.chatOptIn.set(owner, false);
-    expect(await writer().run(owner, { mode: "local" })).toMatchObject({ rebuilt: true });
-    expect(await publishedTitles("images", owner, ["chat"])).toEqual([]);
+    // The sealed object of such a generation still holds message records, and nothing removes them
+    // incrementally any more, so the flag has to force exactly one rebuild and then clear itself.
+    await store.db.run(
+      sql(`UPDATE search_indexes SET include_chat = 1 WHERE owner_id = :owner`, { owner }),
+    );
+    expect(await writer().run(owner, { mode: "local" })).toMatchObject({
+      generation: 2,
+      rebuilt: true,
+    });
+    expect((await indexRow())?.includeChat).toBe(false);
+    expect(await publishedTitles("portfolio")).toEqual(["Portfolio"]);
+    expect(await writer().run(owner, { mode: "local" })).toMatchObject({
+      status: "up_to_date",
+      generation: 2,
+    });
   });
 
   it("keeps two owners' indexes, intents and objects apart", async () => {

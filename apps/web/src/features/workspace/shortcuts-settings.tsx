@@ -24,20 +24,12 @@ import { Spinner } from "@/components/ui/spinner";
 import { loadFailureCopy, previewOnlyMessage } from "./errors.ts";
 import { usePreferenceGroup, usePreferencesStatus, useWorkspace } from "./workspace-provider.tsx";
 
-const groupOrder: readonly ActionGroup[] = [
-  "navigation",
-  "tasks",
-  "page",
-  "chat",
-  "search",
-  "general",
-];
+const groupOrder: readonly ActionGroup[] = ["navigation", "tasks", "page", "search", "general"];
 
 const groupLabels: Readonly<Record<ActionGroup, string>> = {
   navigation: "Navigation",
   tasks: "Tasks",
   page: "Page",
-  chat: "Chat",
   search: "Search",
   general: "General",
 };
@@ -49,9 +41,7 @@ const SEQUENCE_WINDOW_MS = 900;
 function contextNote(action: AppAction): string | null {
   if (action.context === "pane" && action.pane === "inbox") return "While the task list is focused";
   if (action.context === "pane" && action.pane === "page") return "While the task page is focused";
-  if (action.context === "pane" && action.pane === "chat") return "While the chat is focused";
   if (action.context === "editor") return "While you are editing the page";
-  if (action.context === "composer") return "While you are writing a message";
   return null;
 }
 

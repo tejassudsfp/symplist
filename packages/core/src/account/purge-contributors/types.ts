@@ -39,7 +39,12 @@ export interface PurgeProviderDependencies {
  * is left, so the step is recorded only once every provider reported done.
  */
 export interface PurgeContributor {
-  readonly domain: CoreDomain;
+  /**
+   * A core domain, or `retired-chat`: the tables cloud chat left behind have no domain left to
+   * belong to, and the expand-only rule keeps their rows purgeable long after the code that wrote
+   * them is gone. Nothing else may take that escape hatch — a live domain gets a folder.
+   */
+  readonly domain: CoreDomain | "retired-chat";
   statements(input: PurgeInput): readonly Statement[];
   remaining?(input: PurgeInput): readonly Statement[];
   purgeProvider?(

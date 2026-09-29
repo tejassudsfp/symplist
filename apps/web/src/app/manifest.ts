@@ -10,7 +10,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "Symplist",
     short_name: "Symplist",
-    description: "A calm task workspace. Every task has a page and a conversation.",
+    description: "A calm task workspace. Every task has an editable page of its own.",
     start_url: "/",
     display: "standalone",
     // Matches the mark's ground so the splash screen does not flash a different colour.

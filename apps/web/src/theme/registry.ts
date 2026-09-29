@@ -127,6 +127,12 @@ export interface ThemeDefinition {
   readonly id: ThemeId;
   readonly name: string;
   readonly tag: string;
+  /**
+   * The supplied sample's own description of the theme, copied verbatim (`registry.test.ts` checks
+   * it against `__fixtures__/sample-themes.json`) and shown nowhere. Two signatures still describe
+   * the chat panel the sample had; rewording them would make the registry stop matching the sample
+   * it is a copy of, for no behaviour.
+   */
   readonly signature: string;
   readonly fonts: ThemeFonts;
   readonly geometry: ThemeGeometry;

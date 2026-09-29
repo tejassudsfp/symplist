@@ -27,15 +27,15 @@ export function FeatureSlots({ children }: { children: ReactNode }) {
     <WorkspaceProvider userId={user?.id ?? null}>
       <SchedulingProvider key={user?.id ?? "signed-out"} userId={user?.id ?? null}>
         <MountedSlots
-            identity={
-              status === "signed_in" && user
-                ? {
-                    displayName: user.displayName,
-                    email: user.email,
-                    isAdmin: user.role === "admin",
-                  }
-                : null
-            }
+          identity={
+            status === "signed_in" && user
+              ? {
+                  displayName: user.displayName,
+                  email: user.email,
+                  isAdmin: user.role === "admin",
+                }
+              : null
+          }
         >
           {children}
         </MountedSlots>

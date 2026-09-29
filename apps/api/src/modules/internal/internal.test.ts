@@ -1,25 +1,9 @@
-import type { ConversationId } from "@symplist/contracts";
-import { conversationTopic } from "@symplist/contracts";
-import type { AccountKeyStore } from "@symplist/core/account";
 import {
-  eventsContributors,
   INTERNAL_CONTENT_TYPE,
   INTERNAL_EVENTS_PATH,
   type InternalEventHandler,
-  type RunLifecycleStatus,
-  type RunRelaySource,
-  runOutputPath,
 } from "@symplist/core/events";
-import {
-  type AccountDataKey,
-  computeInternalSignature,
-  createAccountKey,
-  createKeyProvider,
-  encryptFieldText,
-  generateToken,
-  runChunkContext,
-  signInternalRequest,
-} from "@symplist/crypto";
+import { computeInternalSignature, signInternalRequest } from "@symplist/crypto";
 import {
   applyMigrations,
   createLocalSqliteClient,
@@ -32,65 +16,20 @@ import { FakeClock } from "@symplist/testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { bootTestApp, generatedSecret, type TestApp } from "../../../test/harness.ts";
 import { buildRouteClassRegistry, collectRoutes } from "../../common/route-registry.ts";
-import type { ExecutorStateReader } from "../../infra/executors/executor-state.ts";
-import type { OperationalLog, OperationalLogFields } from "../../infra/scheduler/runtime.ts";
-import { TopicHub } from "../realtime/topic-hub.ts";
-import { TopicRegistry } from "../realtime/topic-registry.ts";
-import { SimonTopics } from "../simon/simon.realtime.ts";
 import { InternalEventHandlerRegistry } from "./internal-event-handlers.ts";
 import { InternalEventsController } from "./internal-events.controller.ts";
 import { EventIdMemory } from "./replay-memory.ts";
-import { RunOutputController } from "./run-output.controller.ts";
-import { RUN_OUTPUT_REPLAY_WINDOW_MS, RunOutputRelay } from "./run-output.relay.ts";
 import { recordWebhookDelivery, webhookReceiptBatch } from "./webhook-receipts.ts";
 
 /* ------------------------------------------------------------------------------------------------
  * Fixtures
  * --------------------------------------------------------------------------------------------- */
 
-const MARKER = "MARKER-2b91-run-output-plaintext";
-const secret = (seed: number) => Buffer.alloc(32, seed).toString("base64url");
-
-class Log implements OperationalLog {
-  readonly lines: string[] = [];
-  info(event: string, fields?: OperationalLogFields) {
-    this.lines.push(JSON.stringify({ event, ...fields }));
-  }
-  warn(event: string, fields?: OperationalLogFields) {
-    this.lines.push(JSON.stringify({ event, ...fields }));
-  }
-  error(event: string, fields?: OperationalLogFields) {
-    this.lines.push(JSON.stringify({ event, ...fields }));
-  }
-}
-
-class FakeRuns implements RunRelaySource {
-  readonly runs = new Map<
-    string,
-    { ownerId: string; conversationId: string; status: RunLifecycleStatus; generation: number }
-  >();
-  ownershipCalls = 0;
-  stateCalls = 0;
-
-  async ownership(runId: string) {
-    this.ownershipCalls += 1;
-    const run = this.runs.get(runId);
-    return run ? { runId, ownerId: run.ownerId, conversationId: run.conversationId } : null;
-  }
-
-  async state(runId: string) {
-    this.stateCalls += 1;
-    const run = this.runs.get(runId);
-    return run ? { status: run.status, executorGeneration: run.generation } : null;
-  }
-}
-
+const MARKER = "MARKER-2b91-internal-event-plaintext";
 interface Harness {
   readonly app: TestApp;
   readonly base: string;
   readonly clock: FakeClock;
-  readonly runs: FakeRuns;
-  readonly hub: TopicHub;
   readonly handlers: InternalEventHandlerRegistry;
   /** `INTERNAL_EVENT_SECRET_1`, still configured beside the current version 2. */
   readonly previousSecret: string;
@@ -103,37 +42,21 @@ afterEach(async () => {
   for (const harness of harnesses.splice(0)) await harness.app.close();
 });
 
-/** The platform with two internal secret versions (current 2) and a probe run relay source. */
+/** The platform with two internal secret versions (current 2). */
 async function start(tuning: { readonly replayMemoryCapacity?: number } = {}): Promise<Harness> {
-  const runs = new FakeRuns();
   const previousSecret = generatedSecret();
   const app = await bootTestApp({
-    // This relay harness deliberately owns synthetic runs/conversations, not Simon's D1 records.
-    overrides: [{ token: SimonTopics, value: { onModuleInit() {} } }],
     env: {
       INTERNAL_EVENT_SECRET_1: previousSecret,
       INTERNAL_EVENT_SECRET_2: generatedSecret(),
       INTERNAL_EVENT_SECRET_CURRENT: "2",
     },
-    runtime: {
-      eventsContributors: [
-        {
-          domain: "simon",
-          executionKinds: eventsContributors
-            .filter((contributor) => contributor.domain === "simon")
-            .flatMap((contributor) => contributor.executionKinds),
-          runRelaySource: () => runs,
-        },
-      ],
-      internal: { tuning },
-    },
+    runtime: { internal: { tuning } },
   });
   const harness: Harness = {
     app,
     base: app.baseUrl,
     clock: app.clock,
-    runs,
-    hub: app.inject(TopicHub),
     handlers: app.inject(InternalEventHandlerRegistry),
     previousSecret,
     logLines: () => app.logs.lines,
@@ -178,41 +101,6 @@ async function send(h: Harness, request: SignedRequest, extra: Record<string, st
   };
 }
 
-/** The current executor generation, which runs must carry for their output to be relayed. */
-async function currentGeneration(h: Harness): Promise<number> {
-  const row = await h.app.db.first<{ generation: number }>(
-    sql("SELECT generation FROM executor_state WHERE id = 1"),
-  );
-  return Number(row?.generation);
-}
-
-async function addOwner(h: Harness): Promise<{ ownerId: string; key: AccountDataKey }> {
-  const user = await h.app.createUser();
-  return { ownerId: user.id, key: await h.app.accountKeys.require(user.id) };
-}
-
-function collect(h: Harness, ownerId: string) {
-  const frames: Record<string, unknown>[] = [];
-  const socket = h.hub.connect(
-    { send: (text) => frames.push(JSON.parse(text)), close: () => undefined, isOpen: () => true },
-    {
-      userId: ownerId,
-      sessionId: uuidv7(),
-      access: {
-        emailVerifiedAt: 1,
-        betaState: "unlocked",
-        suspendedAt: null,
-        onboardingStep: "done",
-        role: "member",
-        accessGeneration: 0,
-        accessEpoch: 0,
-        deletionState: "none",
-      },
-    },
-  );
-  return { socket, frames };
-}
-
 /* ------------------------------------------------------------------------------------------------
  * Internal events
  * --------------------------------------------------------------------------------------------- */
@@ -237,13 +125,10 @@ describe("POST /internal/v1/events (§6.2)", () => {
     h.handlers.register({ type: "tasks.changed", handle: handled });
   });
 
-  it("declares the signed route class for both internal routes in the platform registry and skips IP throttling", () => {
+  it("declares the signed route class for the internal events route and skips IP throttling", () => {
     const registry = buildRouteClassRegistry(collectRoutes(h.app.app));
     expect(registry["POST /internal/v1/events"]).toBe("signed");
-    expect(registry["POST /internal/v1/runs/:runId/output"]).toBe("signed");
-    for (const controller of [InternalEventsController, RunOutputController]) {
-      expect(Reflect.getMetadata("THROTTLER:SKIPdefault", controller)).toBe(true);
-    }
+    expect(Reflect.getMetadata("THROTTLER:SKIPdefault", InternalEventsController)).toBe(true);
   });
 
   it("dispatches a valid signed event to its handler without the v1 prefix, cookies or CORS", async () => {
@@ -479,449 +364,8 @@ describe("event id replay memory", () => {
 });
 
 /* ------------------------------------------------------------------------------------------------
- * Run output
- * --------------------------------------------------------------------------------------------- */
-
-describe("POST /internal/v1/runs/:runId/output (§8.2)", () => {
-  let h: Harness;
-  let owner: { ownerId: string; key: AccountDataKey };
-  let runId: string;
-  let conversationId: ConversationId;
-  let generation: number;
-
-  const chunks = (text: string) => [
-    { type: "text-start", id: "t1" },
-    { type: "text-delta", id: "t1", delta: text },
-  ];
-
-  function envelopeFor(
-    key: AccountDataKey,
-    ownerId: string,
-    run: string,
-    seq: number,
-    content: unknown,
-  ): string {
-    return encryptFieldText(key, runChunkContext(ownerId, run, seq), JSON.stringify(content));
-  }
-
-  function output(
-    seq: number,
-    content: unknown = chunks(`${MARKER}-${seq}`),
-    overrides: Record<string, unknown> = {},
-    path = runOutputPath(runId),
-  ) {
-    const body = {
-      runId,
-      attempt: 1,
-      seq,
-      envelope: envelopeFor(owner.key, owner.ownerId, runId, seq, content),
-      ...overrides,
-    };
-    return signed(h, path, body);
-  }
-
-  beforeEach(async () => {
-    h = await start();
-    owner = await addOwner(h);
-    runId = uuidv7();
-    conversationId = uuidv7() as ConversationId;
-    generation = await currentGeneration(h);
-    h.runs.runs.set(runId, {
-      ownerId: owner.ownerId,
-      conversationId,
-      status: "running",
-      generation,
-    });
-    h.app.inject<TopicRegistry>(TopicRegistry).registerAuthorizer({
-      kind: "conversation",
-      authorize: async (socket, topic) =>
-        socket.userId === h.runs.runs.get(runId)?.ownerId &&
-        topic.conversationId === conversationId,
-    });
-  });
-
-  it("decrypts, relays each chunk on the conversation topic to the owner and buffers it for replay", async () => {
-    const { socket, frames } = collect(h, owner.ownerId);
-    await h.hub.subscribeConversation(socket, conversationTopic(conversationId), null);
-    const intruder = collect(h, uuidv7());
-
-    const response = await send(h, output(0));
-    expect(response).toMatchObject({ status: 202, body: { status: "accepted", relayed: 2 } });
-    const events = frames.filter((frame) => frame.t === "ev");
-    expect(events.map((frame) => frame.type)).toEqual(["chunk", "chunk"]);
-    expect(events[1]).toMatchObject({
-      topic: conversationTopic(conversationId),
-      data: { runId, chunk: { type: "text-delta", delta: `${MARKER}-0` } },
-    });
-    expect(intruder.frames).toEqual([]);
-
-    const late = collect(h, owner.ownerId);
-    const cursor = (events[0]?.seq as number) - 1;
-    await h.hub.subscribeConversation(late.socket, conversationTopic(conversationId), cursor);
-    expect(late.frames.map((frame) => frame.seq)).toEqual(events.map((frame) => frame.seq));
-    expect(h.logLines().join("\n")).not.toContain(MARKER);
-  });
-
-  it("deduplicates on (runId, seq) even when the retry carries a new event id and signature", async () => {
-    const { socket, frames } = collect(h, owner.ownerId);
-    await h.hub.subscribeConversation(socket, conversationTopic(conversationId), null);
-    expect((await send(h, output(5))).status).toBe(202);
-    const retry = await send(h, output(5));
-    expect(retry).toMatchObject({ status: 200, body: { status: "duplicate" } });
-    expect((await send(h, output(6))).status).toBe(202);
-    expect(frames.filter((frame) => frame.t === "ev")).toHaveLength(4);
-  });
-
-  it("caches ownership for the run's life and re-reads status and generation at most every 10 seconds", async () => {
-    for (const seq of [0, 1, 2]) expect((await send(h, output(seq))).status).toBe(202);
-    expect(h.runs.ownershipCalls).toBe(1);
-    expect(h.runs.stateCalls).toBe(1);
-    await h.clock.advance(10_000);
-    expect((await send(h, output(3))).status).toBe(202);
-    expect(h.runs.stateCalls).toBe(2);
-    expect(h.runs.ownershipCalls).toBe(1);
-
-    const run = h.runs.runs.get(runId);
-    if (run) run.status = "completed";
-    expect((await send(h, output(4))).status).toBe(202);
-    await h.clock.advance(10_000);
-    expect((await send(h, output(5))).status).toBe(404);
-  });
-
-  it("rejects output for a moved executor generation", async () => {
-    await h.app.db.run(
-      sql("UPDATE executor_state SET generation = generation + 1, write_id = :w WHERE id = 1", {
-        w: newWriteId(),
-      }),
-    );
-    await h.clock.advance(10_000);
-    expect((await send(h, output(0))).status).toBe(404);
-    expect(h.logLines().some((line) => line.includes("stale_generation"))).toBe(true);
-  });
-
-  it("answers 503 when the owner's account key cannot be loaded, and relays the identical retry", async () => {
-    const { socket, frames } = collect(h, owner.ownerId);
-    await h.hub.subscribeConversation(socket, conversationTopic(conversationId), null);
-    const load = vi
-      .spyOn(h.app.accountKeys, "load")
-      .mockRejectedValueOnce(
-        Object.assign(new Error(`D1 timed out ${MARKER}`), { code: "db.unavailable" }),
-      );
-    const request = output(0);
-    const failed = await send(h, request);
-    expect(failed.status).toBe(503);
-    expect(failed.headers.get("retry-after")).toBe("1");
-    expect((failed.body.error as { code: string }).code).toBe("rate.limited");
-    expect(frames.filter((frame) => frame.t === "ev")).toEqual([]);
-
-    // The worker retries the byte-identical request once D1 answers again.
-    const retried = await send(h, request);
-    expect(retried).toMatchObject({ status: 202, body: { status: "accepted", relayed: 2 } });
-    expect(load).toHaveBeenCalledTimes(2);
-    expect(frames.filter((frame) => frame.t === "ev")).toHaveLength(2);
-    expect(h.logLines().some((line) => line.includes("undecryptable"))).toBe(false);
-    expect(h.logLines().join("\n")).not.toContain(MARKER);
-  });
-
-  it("rejects the wrong run: a path that differs from the body, an unknown run, or another run's envelope", async () => {
-    const other = uuidv7();
-    const unknown = uuidv7();
-    expect((await send(h, output(0, undefined, {}, runOutputPath(other)))).status).toBe(404);
-    expect(
-      (await send(h, output(0, undefined, { runId: unknown }, runOutputPath(unknown)))).status,
-    ).toBe(404);
-
-    // Another run of the same owner: the envelope's AAD binds the run id, so it cannot be moved.
-    h.runs.runs.set(other, {
-      ownerId: owner.ownerId,
-      conversationId,
-      status: "running",
-      generation,
-    });
-    const moved = signed(h, runOutputPath(other), {
-      runId: other,
-      attempt: 1,
-      seq: 0,
-      envelope: envelopeFor(owner.key, owner.ownerId, runId, 0, chunks("x")),
-    });
-    expect((await send(h, moved)).status).toBe(400);
-  });
-
-  it("rejects envelopes that fail decryption: another seq, another owner's key, garbage plaintext", async () => {
-    const { socket, frames } = collect(h, owner.ownerId);
-    await h.hub.subscribeConversation(socket, conversationTopic(conversationId), null);
-    const swappedSeq = signed(h, runOutputPath(runId), {
-      runId,
-      attempt: 1,
-      seq: 2,
-      envelope: envelopeFor(owner.key, owner.ownerId, runId, 1, chunks(MARKER)),
-    });
-    expect((await send(h, swappedSeq)).status).toBe(400);
-
-    const stranger = await addOwner(h);
-    const foreign = signed(h, runOutputPath(runId), {
-      runId,
-      attempt: 1,
-      seq: 3,
-      envelope: envelopeFor(stranger.key, stranger.ownerId, runId, 3, chunks(MARKER)),
-    });
-    expect((await send(h, foreign)).status).toBe(400);
-
-    expect((await send(h, output(4, { not: "an array" }))).status).toBe(400);
-    expect((await send(h, output(5, [{ delta: "missing type" }]))).status).toBe(400);
-    expect(frames.filter((frame) => frame.t === "ev")).toEqual([]);
-    // A rejected seq was not remembered: the genuine envelope for it is still relayed.
-    expect((await send(h, output(2))).status).toBe(202);
-    expect(h.logLines().join("\n")).not.toContain(MARKER);
-  });
-
-  it("rejects forged and stale output requests and wrong key versions, and relays a replay once", async () => {
-    const { socket, frames } = collect(h, owner.ownerId);
-    await h.hub.subscribeConversation(socket, conversationTopic(conversationId), null);
-    const request = output(0);
-    const forged = {
-      ...request,
-      headers: { ...request.headers, "x-sym-signature": `v1=${"0".repeat(64)}` },
-    };
-    expect((await send(h, forged)).status).toBe(404);
-    const wrongVersion = { ...request, headers: { ...request.headers, "x-sym-key": "9" } };
-    expect((await send(h, wrongVersion)).status).toBe(404);
-    const stale = signed(h, runOutputPath(runId), JSON.parse(request.body.toString()), {
-      timestamp: Math.floor(h.clock.now() / 1000) - 3_600,
-    });
-    expect((await send(h, stale)).status).toBe(404);
-    expect((await send(h, request)).status).toBe(202);
-    // A byte-identical replay meets its (runId, seq) and relays nothing, even long after the run
-    // went quiet, for as long as its signature could still be fresh.
-    await h.clock.advance(RUN_OUTPUT_REPLAY_WINDOW_MS - 1_000);
-    const replayed = signed(h, runOutputPath(runId), JSON.parse(request.body.toString()), {
-      timestamp: Math.floor(h.clock.now() / 1000),
-    });
-    expect(await send(h, replayed)).toMatchObject({ status: 200, body: { status: "duplicate" } });
-    expect(frames.filter((frame) => frame.t === "ev")).toHaveLength(2);
-  });
-
-  it("keeps run output out of the event id replay memory, so streaming never starves internal events", async () => {
-    // A replay memory that holds three ids: before run output had its own dedupe, the fourth batch
-    // of one streaming run filled it and every internal request answered 503.
-    h = await start({ replayMemoryCapacity: 3 });
-    owner = await addOwner(h);
-    generation = await currentGeneration(h);
-    h.runs.runs.set(runId, {
-      ownerId: owner.ownerId,
-      conversationId,
-      status: "running",
-      generation,
-    });
-    const handle = vi.fn<InternalEventHandler["handle"]>(async () => undefined);
-    h.handlers.register({ type: "tasks.changed", handle });
-
-    for (let seq = 0; seq < 12; seq += 1) {
-      expect((await send(h, output(seq))).status).toBe(202);
-    }
-    // Every retry of a batch is re-signed with a fresh event id; the (runId, seq) dedupe answers it.
-    expect((await send(h, output(11))).status).toBe(200);
-
-    const announcement = {
-      id: uuidv7(),
-      type: "tasks.changed",
-      ownerId: owner.ownerId,
-      occurredAt: h.clock.now(),
-      payload: { taskIds: [uuidv7()], taskTreeVersion: 1 },
-    };
-    const accepted = await send(
-      h,
-      signed(h, INTERNAL_EVENTS_PATH, announcement, { eventId: announcement.id }),
-    );
-    expect(accepted.status).toBe(202);
-    expect(handle).toHaveBeenCalledTimes(1);
-  });
-
-  it("stops relaying when the api shuts down", async () => {
-    h.hub.beginShutdown();
-    expect((await send(h, output(0))).status).toBe(503);
-  });
-});
-
-/* ------------------------------------------------------------------------------------------------
  * Webhook receipts
  * --------------------------------------------------------------------------------------------- */
-
-describe("run output relay dedupe as replay protection (§6.2, §8.2)", () => {
-  function relayFor(options: { readonly maxRuns?: number } = {}) {
-    const clock = new FakeClock(Date.UTC(2026, 8, 15, 10));
-    const keys = createKeyProvider({
-      CONTENT_KEK: { current: 1, versions: new Map([[1, secret(41)]]) },
-    });
-    const ownerId = uuidv7();
-    const conversationId = uuidv7();
-    const { key } = createAccountKey(keys, ownerId);
-    const active = new Map<string, RunLifecycleStatus>();
-    const lookups = { ownership: 0, state: 0 };
-    const log = new Log();
-    const relay = new RunOutputRelay({
-      source: {
-        ownership: async (runId) => {
-          lookups.ownership += 1;
-          return active.has(runId) ? { runId, ownerId, conversationId } : null;
-        },
-        state: async (runId) => {
-          lookups.state += 1;
-          const status = active.get(runId);
-          return status ? { status, executorGeneration: 1 } : null;
-        },
-      },
-      accountKeys: {
-        load: async () => ({ ...key, key: Uint8Array.from(key.key) }),
-      } as unknown as Pick<AccountKeyStore, "load">,
-      executorState: {
-        readCached: async () => ({ generation: 1 }),
-      } as unknown as ExecutorStateReader,
-      hub: new TopicHub({
-        registry: new TopicRegistry(),
-        access: { satisfies: () => true },
-        timers: clock,
-        log,
-      }),
-      timers: clock,
-      log,
-      ...options,
-    });
-    const body = (runId: string, seq: number) => ({
-      runId,
-      attempt: 1,
-      seq,
-      envelope: encryptFieldText(
-        key,
-        runChunkContext(ownerId, runId, seq),
-        JSON.stringify([{ type: "text-start", id: "t1" }]),
-      ),
-    });
-    return { clock, relay, active, lookups, body };
-  }
-
-  it("refuses new runs while full of runs inside their replay window, instead of forgetting one", async () => {
-    const { clock, relay, active, body } = relayFor({ maxRuns: 2 });
-    const [a, b, c] = [uuidv7(), uuidv7(), uuidv7()];
-    for (const runId of [a, b, c]) active.set(runId, "running");
-    expect(await relay.accept(a, body(a, 0))).toEqual({ status: "accepted", relayed: 1 });
-    expect(await relay.accept(b, body(b, 0))).toEqual({ status: "accepted", relayed: 1 });
-    expect(await relay.accept(c, body(c, 0))).toEqual({ status: "rejected", reason: "capacity" });
-    // Run a is still remembered, so its replay is a duplicate rather than a second relay.
-    expect(await relay.accept(a, body(a, 0))).toEqual({ status: "duplicate" });
-
-    await clock.advance(RUN_OUTPUT_REPLAY_WINDOW_MS);
-    expect(await relay.accept(b, body(b, 1))).toEqual({ status: "accepted", relayed: 1 });
-    // Only a run whose last request left the replay window makes room.
-    expect(await relay.accept(c, body(c, 0))).toEqual({ status: "accepted", relayed: 1 });
-    expect(relay.trackedRuns).toBe(2);
-  });
-
-  it.each(["awaiting_approval", "awaiting_user"] as const)(
-    "relays a committed %s card while the pause owns the conversation",
-    async (status) => {
-      const { relay, active, body } = relayFor();
-      const id = uuidv7();
-      active.set(id, status);
-      expect(await relay.accept(id, body(id, 0))).toEqual({ status: "accepted", relayed: 1 });
-      expect(await relay.accept(id, body(id, 0))).toEqual({ status: "duplicate" });
-    },
-  );
-
-  it("keeps the dedupe of a run that ended, and answers repeated misses without new lookups", async () => {
-    const { clock, relay, active, lookups, body } = relayFor();
-    const runId = uuidv7();
-    active.set(runId, "running");
-    expect(await relay.accept(runId, body(runId, 0))).toEqual({ status: "accepted", relayed: 1 });
-    active.set(runId, "completed");
-    await clock.advance(10_000);
-    expect(await relay.accept(runId, body(runId, 1))).toMatchObject({ reason: "inactive_run" });
-    expect(await relay.accept(runId, body(runId, 0))).toEqual({ status: "duplicate" });
-
-    const unknown = uuidv7();
-    const before = { ...lookups };
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      expect(await relay.accept(unknown, body(unknown, 0))).toMatchObject({
-        reason: "unknown_run",
-      });
-    }
-    expect(lookups.ownership - before.ownership).toBe(1);
-    await clock.advance(10_000);
-    expect(await relay.accept(unknown, body(unknown, 0))).toMatchObject({ reason: "unknown_run" });
-    expect(lookups.ownership - before.ownership).toBe(2);
-  });
-
-  it("revokes cached ownership immediately while retaining sequence replay protection", async () => {
-    const { relay, active, lookups, body } = relayFor();
-    const runId = uuidv7();
-    active.set(runId, "running");
-    expect(await relay.accept(runId, body(runId, 0))).toEqual({ status: "accepted", relayed: 1 });
-    const before = { ...lookups };
-    relay.invalidate(runId);
-    expect(await relay.accept(runId, body(runId, 1))).toEqual({
-      status: "rejected",
-      reason: "unknown_run",
-    });
-    expect(lookups).toEqual(before);
-    expect(await relay.accept(runId, body(runId, 0))).toEqual({ status: "duplicate" });
-  });
-});
-
-describe("run output relay key cache (§8.2)", () => {
-  it("decrypts with a private copy of the cached key, so a concurrent eviction never zeroes it mid-request", async () => {
-    const clock = new FakeClock(Date.UTC(2026, 8, 15, 10));
-    const keys = createKeyProvider({
-      CONTENT_KEK: { current: 1, versions: new Map([[1, secret(31)]]) },
-    });
-    const ownerId = uuidv7();
-    const runId = uuidv7();
-    const conversationId = uuidv7();
-    const { key } = createAccountKey(keys, ownerId);
-    const log = new Log();
-    const relay = new RunOutputRelay({
-      source: {
-        ownership: async () => ({ runId, ownerId, conversationId }),
-        state: async () => ({ status: "running", executorGeneration: 1 }),
-      },
-      accountKeys: {
-        load: async () => ({ ...key, key: Uint8Array.from(key.key) }),
-      } as unknown as Pick<AccountKeyStore, "load">,
-      executorState: {
-        readCached: async () => ({ generation: 1 }),
-      } as unknown as ExecutorStateReader,
-      hub: new TopicHub({
-        registry: new TopicRegistry(),
-        access: { satisfies: () => true },
-        timers: clock,
-        log,
-      }),
-      timers: clock,
-      log,
-    });
-    const body = (seq: number) => ({
-      runId,
-      attempt: 1,
-      seq,
-      envelope: encryptFieldText(
-        key,
-        runChunkContext(ownerId, runId, seq),
-        JSON.stringify([{ type: "text-start", id: "t1" }]),
-      ),
-    });
-    expect(await relay.accept(runId, body(0))).toEqual({ status: "accepted", relayed: 1 });
-
-    // Zeroise every cached key right after the next lookup hands one out, before decryption runs.
-    const cache = (relay as unknown as { keys: Map<string, unknown> }).keys;
-    const get = cache.get.bind(cache);
-    cache.get = (ownerKey: string) => {
-      const value = get(ownerKey);
-      queueMicrotask(() => relay.clear());
-      return value;
-    };
-    expect(await relay.accept(runId, body(1))).toEqual({ status: "accepted", relayed: 1 });
-    expect(log.lines.join("\n")).not.toContain("undecryptable");
-  });
-});
 
 describe("webhook receipts (§6.2)", () => {
   let db: LocalSqliteClient;
@@ -987,6 +431,5 @@ describe("webhook receipts (§6.2)", () => {
     ).toThrow(/receipt guard/);
     expect(() => webhookReceiptBatch(delivery(""))).toThrow();
     expect(() => webhookReceiptBatch(delivery("bad id with spaces"))).toThrow();
-    expect(generateToken().length).toBeGreaterThan(0);
   });
 });

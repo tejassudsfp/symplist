@@ -164,8 +164,8 @@ export function EmailEntry() {
       <div className="flex flex-col gap-2">
         <ScreenHeading>Sign in to Symplist</ScreenHeading>
         <Lede>
-          A calm place for your tasks, their pages and one conversation each. Enter your email and
-          we'll send a sign-in code.
+          A calm place for your tasks and their pages. Enter your email and we'll send a sign-in
+          code.
         </Lede>
       </div>
       {expired ? (

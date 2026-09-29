@@ -34,7 +34,7 @@ describe("Settings → About", () => {
     expect(screen.getByText("symplist")).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 1, name: "About Symplist" })).toBeInTheDocument();
     expect(screen.getByText("“The most productive thing is often the most simple.”")).toBeVisible();
-    expect(screen.getByText(/every task has a page and a conversation with Simon/)).toBeVisible();
+    expect(screen.getByText(/every task has an editable page of its own/)).toBeVisible();
     expect(screen.getByRole("link", { name: /Tejas Parthasarathi Sudarshan/ })).toHaveAttribute(
       "href",
       "https://tejassuds.com",

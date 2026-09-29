@@ -18,10 +18,10 @@ const palette: AppAction = {
 };
 
 const stop: AppAction = {
-  id: "run.stop",
-  label: "Stop Simon",
+  id: "documents.restore",
+  label: "Restore this revision",
   context: "app",
-  availability: () => ({ enabled: false, reason: "Simon isn't running" }),
+  availability: () => ({ enabled: false, reason: "Open a task first" }),
   run: vi.fn(),
 };
 
@@ -32,8 +32,8 @@ function Labels() {
       <span data-testid="platform">{platform}</span>
       <span data-testid="palette">{bindingLabel("palette.open")?.display ?? "unbound"}</span>
       <span data-testid="palette-spoken">{bindingLabel("palette.open")?.spoken ?? ""}</span>
-      <span data-testid="stop">{bindingLabel("run.stop")?.display ?? "unbound"}</span>
-      <button type="button" onClick={() => void invoke("run.stop", "pointer")}>
+      <span data-testid="stop">{bindingLabel("documents.restore")?.display ?? "unbound"}</span>
+      <button type="button" onClick={() => void invoke("documents.restore", "pointer")}>
         Stop
       </button>
     </div>
@@ -93,14 +93,14 @@ describe("ActionsProvider", () => {
       await user.click(screen.getByRole("button", { name: "Stop" }));
     });
     expect(stop.run).not.toHaveBeenCalled();
-    expect(shellServices.announce).toHaveBeenCalledWith("Stop Simon: Simon isn't running");
+    expect(shellServices.announce).toHaveBeenCalledWith("Restore this revision: Open a task first");
   });
 
   it("reports an action's availability without running it", async () => {
     const shellServices = services();
     function Availability() {
       const { availability } = useActions();
-      const stopState = availability("run.stop", "palette");
+      const stopState = availability("documents.restore", "palette");
       const paletteState = availability("palette.open", "palette");
       return (
         <div>
@@ -127,7 +127,7 @@ describe("ActionsProvider", () => {
         <Availability />
       </ActionsProvider>,
     );
-    expect(screen.getByTestId("stop-state")).toHaveTextContent("false:Simon isn't running");
+    expect(screen.getByTestId("stop-state")).toHaveTextContent("false:Open a task first");
     expect(screen.getByTestId("palette-state")).toHaveTextContent("true");
     expect(screen.getByTestId("missing-state")).toHaveTextContent("none");
     expect(stop.run).not.toHaveBeenCalled();

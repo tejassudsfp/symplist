@@ -1,5 +1,8 @@
-import { ComposioSessions, ConnectionReconciler } from "@symplist/core/connections";
-import { SimonRepository } from "@symplist/core/simon";
+import {
+  ComposioSessions,
+  ConnectionContext,
+  ConnectionReconciler,
+} from "@symplist/core/connections";
 import {
   ComposioLifecycleProvider,
   createComposioClient,
@@ -13,12 +16,11 @@ export function connectionReconcilerFor(runtime: WorkerRuntime): ConnectionRecon
   const client = createComposioClient(runtime.config.COMPOSIO_API_KEY);
   const provider = new ComposioLifecycleProvider(client, runtime.config.COMPOSIO_API_KEY);
   const policy = { betaAccessRequired: runtime.config.BETA_ACCESS_REQUIRED };
-  const repository = new SimonRepository({
+  const repository = new ConnectionContext({
     db: runtime.db,
     keys: runtime.keys,
     now: Date.now,
     policy,
-    quickChatTtlHours: runtime.config.QUICK_CHAT_TTL_HOURS,
   });
   const sessions = new ComposioSessions({
     db: runtime.db,

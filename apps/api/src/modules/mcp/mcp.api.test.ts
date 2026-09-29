@@ -135,7 +135,7 @@ describe("incoming stateless MCP over both SDK protocol eras", () => {
               expect(metadata.json()).toMatchObject({
                 resource: `${app.config.API_ORIGIN}/mcp`,
                 authorization_servers: [app.config.API_ORIGIN],
-                scopes_supported: ["tasks:read", "tasks:write", "ai:run"],
+                scopes_supported: ["tasks:read", "tasks:write"],
               });
               const server = await app.get("/.well-known/oauth-authorization-server");
               expect(server.status, server.text).toBe(200);
@@ -506,76 +506,5 @@ describe("incoming stateless MCP over both SDK protocol eras", () => {
     await expect(
       reader.callTool({ name: "task_search", arguments: { query: "needle" } }),
     ).rejects.toThrow();
-  });
-  it("admits task messages with ai:run only, never approval actions or out-of-scope run reads", async () => {
-    const owner = await app.createSignedInUser();
-    const create = async (title: string) => {
-      const response = await app.post("/v1/tasks", {
-        session: owner.session,
-        idempotencyKey: uuidv7(),
-        body: { title, collection: "unclassified" },
-      });
-      expect(response.status, response.text).toBe(201);
-      return (response.json() as { task: { id: string } }).task.id;
-    };
-    const taskId = await create("AI task");
-    const other = await create("other task");
-    const minted = await app.post("/v1/mcp/grants", {
-      session: owner.session,
-      idempotencyKey: uuidv7(),
-      body: { name: "AI-only agent", scopes: ["ai:run"], taskIds: [taskId] },
-    });
-    const issued = mcpKeyResultSchema.parse(minted.json());
-    const client = await connect(issued.key ?? "");
-    const args = { taskId, requestId: uuidv7(), text: "private_mcp_chat_marker", tier: "fast" };
-    const first = await client.callTool({ name: "task_message_send", arguments: args });
-    expect(first.isError, JSON.stringify(first)).not.toBe(true);
-    const accepted = textOutput(first);
-    expect(accepted.runId).toBeTruthy();
-    expect(
-      textOutput(await client.callTool({ name: "task_message_send", arguments: args })),
-    ).toEqual(accepted);
-    expect(
-      (
-        await client.callTool({
-          name: "task_message_send",
-          arguments: { ...args, text: "different" },
-        })
-      ).isError,
-    ).toBe(true);
-    expect((await client.callTool({ name: "task_context", arguments: { taskId } })).isError).toBe(
-      true,
-    );
-    expect(
-      (
-        await client.callTool({
-          name: "task_message_send",
-          arguments: { ...args, taskId: other, requestId: uuidv7() },
-        })
-      ).isError,
-    ).toBe(true);
-    const status = await client.callTool({
-      name: "task_run_status",
-      arguments: { runId: accepted.runId },
-    });
-    expect(status.isError, JSON.stringify(status)).not.toBe(true);
-    expect(textOutput(status)).toMatchObject({ runId: accepted.runId, taskId });
-    const second = await app.post("/v1/mcp/grants", {
-      session: owner.session,
-      idempotencyKey: uuidv7(),
-      body: { name: "Other AI agent", scopes: ["ai:run"], taskIds: [other] },
-    });
-    const otherClient = await connect(mcpKeyResultSchema.parse(second.json()).key ?? "");
-    expect(
-      (
-        await otherClient.callTool({
-          name: "task_run_status",
-          arguments: { runId: accepted.runId },
-        })
-      ).isError,
-    ).toBe(true);
-    expect(await app.scanDatabaseFor(args.text)).toEqual([]);
-    expect(app.scanObjectsFor(args.text)).toEqual([]);
-    expect(app.logs.text()).not.toContain(args.text);
   });
 });

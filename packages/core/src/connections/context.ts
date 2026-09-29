@@ -1,8 +1,8 @@
 import type { KeyProvider } from "@symplist/crypto";
 import type { DbClient } from "@symplist/db";
-import { AccountKeyStore } from "../account/keys.ts";
 import type { AccessPolicy } from "../access/evaluate.ts";
 import { accessCondition } from "../access/sql.ts";
+import { AccountKeyStore } from "../account/keys.ts";
 
 /**
  * What the connections domain needs from the account, and nothing more.

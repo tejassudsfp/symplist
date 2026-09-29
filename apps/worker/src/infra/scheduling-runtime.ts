@@ -49,7 +49,6 @@ export async function runScheduledWork(
     return cleanupHourly(
       {
         ...options,
-        quickChatTtlHours: config.QUICK_CHAT_TTL_HOURS,
         cleanupFeatureExpiries: async (_input, context) => {
           await cleanupSharedFeatures(context, runtime.objects);
           if (!(await context.fence.current())) return;

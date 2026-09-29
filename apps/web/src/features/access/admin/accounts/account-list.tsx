@@ -49,7 +49,7 @@ const filterOptions: ReadonlyArray<{ value: Filter; label: string }> = [
 
 /**
  * The account list (admin_accounts.md): who registered, whether they verified, their beta access,
- * where onboarding got to and how they were admitted. It never shows a person's tasks, pages, chats
+ * where onboarding got to and how they were admitted. It never shows a person's tasks, pages
  * or vault.
  */
 export function AccountList() {

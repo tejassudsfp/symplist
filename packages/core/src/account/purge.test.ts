@@ -231,6 +231,7 @@ describe("account purge (§5.6)", () => {
         "runs",
         "composio",
         "r2",
+        "d1:mcp",
         "d1:tasks",
         "d1:idempotency",
         "d1:account",

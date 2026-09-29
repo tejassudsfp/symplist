@@ -3,21 +3,21 @@ export default function PrivacyPage() {
     <main className="mx-auto max-w-[720px] px-6 py-12 text-sym-text">
       <h1 className="font-heading text-2xl">Privacy in Symplist</h1>
       <p>
-        Tasks, documents, chats and other private content are encrypted at rest. The service can
-        read content to provide the features you request. This is not end-to-end encryption.
+        Tasks, documents and other private content are encrypted at rest. The service can read
+        content to provide the features you request. This is not end-to-end encryption.
       </p>
       <h2 className="mt-8 font-heading text-xl">Optional product usage</h2>
       <p>
         Product analytics is off until you accept. When enabled, PostHog US cloud receives a random
         analytics-only identifier and categories such as which theme you chose or whether you
-        created a task. It does not receive your name, email, task or document text, chats, search
-        terms, Vault data, passwords or share links. There is no session recording, advertising
-        tracking or automatic browsing history collection.
+        created a task. It does not receive your name, email, task or document text, search terms,
+        Vault data, passwords or share links. There is no session recording, advertising tracking or
+        automatic browsing history collection.
       </p>
       <p>
         You can decline just as easily as accept, or turn usage sharing off in Settings → Account →
-        Privacy. This does not change access to tasks, Simon or reminders. Analytics is not loaded
-        on sign-in, Vault, consent or shared artifact pages.
+        Privacy. This does not change access to tasks or reminders. Analytics is not loaded on
+        sign-in, Vault, consent or shared artifact pages.
       </p>
       <h2 className="mt-8 font-heading text-xl">Deletion and copies</h2>
       <p>

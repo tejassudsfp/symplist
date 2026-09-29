@@ -13,25 +13,17 @@ import { type SearchOverlay, searchOverlay } from "./store.ts";
 
 /*
  * The shortcut help overlay (keyboard_shortcuts.md, note 13): opened by `?` or the profile menu,
- * grouped Navigation, Tasks, Page, Chat, Search and General, searchable by action name or binding,
+ * grouped Navigation, Tasks, Page, Search and General, searchable by action name or binding,
  * with platform key caps and sequences shown differently from chords. It reads the live registry, so
  * a remapped binding shows its new keys here and in every menu. Remapping itself lives in Settings.
  */
 
-const groupOrder: readonly ActionGroup[] = [
-  "navigation",
-  "tasks",
-  "page",
-  "chat",
-  "search",
-  "general",
-];
+const groupOrder: readonly ActionGroup[] = ["navigation", "tasks", "page", "search", "general"];
 
 const groupLabels: Readonly<Record<ActionGroup, string>> = {
   navigation: "Navigation",
   tasks: "Tasks",
   page: "Page",
-  chat: "Chat",
   search: "Search",
   general: "General",
 };
@@ -40,12 +32,7 @@ const groupLabels: Readonly<Record<ActionGroup, string>> = {
 export function groupOf(action: AppAction): ActionGroup {
   if (action.group) return action.group;
   if (action.context === "editor") return "page";
-  if (action.context === "composer") return "chat";
-  if (action.context === "pane") {
-    if (action.pane === "page") return "page";
-    if (action.pane === "chat") return "chat";
-    return "tasks";
-  }
+  if (action.context === "pane") return action.pane === "page" ? "page" : "tasks";
   return "general";
 }
 
@@ -71,18 +58,15 @@ export function contextNotes(
 ): readonly string[] {
   const notes: string[] = [];
   if (action.context === "editor") notes.push("In the page editor");
-  else if (action.context === "composer") notes.push("In the chat composer");
   else if (action.context === "modal" || action.context === "menu")
     notes.push("In dialogs and menus");
   else if (action.context === "pane") {
     notes.push(
       action.pane === "page"
         ? "While the page is focused"
-        : action.pane === "chat"
-          ? "While the chat is focused"
-          : action.pane === "inbox"
-            ? "While the task list is focused"
-            : "While a workspace pane is focused",
+        : action.pane === "inbox"
+          ? "While the task list is focused"
+          : "While a workspace pane is focused",
     );
   }
   if (isSingleKeyLabel(binding)) notes.push("Unavailable while typing");

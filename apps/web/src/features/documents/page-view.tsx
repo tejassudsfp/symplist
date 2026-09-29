@@ -62,12 +62,6 @@ export interface PageViewProps {
   readonly onSelectionChange?: () => void;
   readonly ref?: Ref<PageViewHandle>;
   readonly label?: string;
-  /**
-   * Runs the slash menu's one non-formatting entry. Simon is not a formatting command, so the editor
-   * reports the request and the pane decides; when this is absent the entry is not offered at all
-   * rather than offered and silently inert.
-   */
-  readonly onAskSimon?: () => void;
 }
 
 interface TextSpan {
@@ -117,7 +111,6 @@ export function PageView({
   onSelectionChange,
   ref,
   label = "Document, editable",
-  onAskSimon,
 }: PageViewProps) {
   const host = useRef<HTMLDivElement>(null);
   const editorRef = useRef<Editor | null>(null);
@@ -132,15 +125,9 @@ export function PageView({
   const [slash, setSlash] = useState<SlashQuery | null>(null);
   const [slashIndex, setSlashIndex] = useState(0);
   const [slashAt, setSlashAt] = useState<{ left: number; top: number } | null>(null);
-  const askSimonRef = useRef(onAskSimon);
-  askSimonRef.current = onAskSimon;
   const listId = `${useId()}-slash`;
 
-  const matches = slash
-    ? filterSlashCommands(slash.query).filter(
-        (command) => !command.external || askSimonRef.current !== undefined,
-      )
-    : [];
+  const matches = slash ? filterSlashCommands(slash.query) : [];
   // A narrower query can leave the highlight past the end of the list.
   const selected = matches.length === 0 ? 0 : Math.min(slashIndex, matches.length - 1);
 
@@ -167,7 +154,7 @@ export function PageView({
         view.dispatch(closeSlashQuery(view.state.tr.delete(query.from, to)));
         view.focus();
       });
-      if (!runSlashCommand(editor, command.id)) askSimonRef.current?.();
+      runSlashCommand(editor, command.id);
     } catch {
       // A command can apply and still throw on its way out (scrolling needs layout jsdom lacks).
     }

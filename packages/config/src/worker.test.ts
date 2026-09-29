@@ -163,12 +163,9 @@ describe("worker configuration: rules", () => {
     ]);
   });
 
-  it.each(["BILLING_ENABLED", "PAYWALL_ENABLED", "AI_USAGE_LIMITS_ENABLED"])(
-    "rejects %s=true",
-    (name) => {
-      expect(issuesOf(localWorkerEnv({ [name]: "true" }))).toEqual([issue(name, "must be false")]);
-    },
-  );
+  it.each(["BILLING_ENABLED", "PAYWALL_ENABLED"])("rejects %s=true", (name) => {
+    expect(issuesOf(localWorkerEnv({ [name]: "true" }))).toEqual([issue(name, "must be false")]);
+  });
 
   it("production refuses a loopback PostHog host, as on the api", () => {
     expect(issuesOf(productionWorkerEnv({ POSTHOG_HOST: "http://localhost:8000" }))).toEqual([

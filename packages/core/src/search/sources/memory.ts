@@ -1,24 +1,13 @@
 import type { SearchDeadlineFilter } from "@symplist/contracts";
 import type { AccountDataKey } from "@symplist/crypto";
 import { type Statement, sql } from "@symplist/db";
-import type {
-  SearchDocumentInput,
-  SearchMessageRecord,
-  SearchSectionInput,
-} from "@symplist/search";
-import type {
-  ChatOptInSource,
-  DeadlineFilterSource,
-  DocumentTextSource,
-  MessageTextSource,
-  SearchPage,
-} from "./types.ts";
+import type { SearchDocumentInput, SearchSectionInput } from "@symplist/search";
+import type { DeadlineFilterSource, DocumentTextSource, SearchPage } from "./types.ts";
 
 /**
  * In-memory implementations of the sources other features own, for tests of search in `core`, the api
- * and the worker while documents, Simon, preferences and scheduling are built (§2.3 fixtures). They
- * keep each owner's records apart exactly as the real sources must, and count reads so tests can
- * prove bounded access.
+ * and the worker while documents and scheduling are built (§2.3 fixtures). They keep each owner's
+ * records apart exactly as the real sources must, and count reads so tests can prove bounded access.
  */
 
 function pageOf<Item>(
@@ -135,54 +124,6 @@ export class InMemoryDocumentTextSource implements DocumentTextSource {
        FROM json_each(:heads)`,
       { heads: JSON.stringify(rows) },
     );
-  }
-}
-
-/** Task-conversation messages held in memory, per owner. */
-export class InMemoryMessageTextSource implements MessageTextSource {
-  private readonly messages = new Map<string, Map<string, SearchMessageRecord>>();
-  readonly reads: string[][] = [];
-
-  persist(ownerId: string, message: SearchMessageRecord): void {
-    let owned = this.messages.get(ownerId);
-    if (!owned) {
-      owned = new Map();
-      this.messages.set(ownerId, owned);
-    }
-    owned.set(message.id, message);
-  }
-
-  remove(ownerId: string, messageId: string): void {
-    this.messages.get(ownerId)?.delete(messageId);
-  }
-
-  async listMessages(ownerId: string, page: SearchPage) {
-    return pageOf([...(this.messages.get(ownerId)?.keys() ?? [])], (id) => id, page);
-  }
-
-  async readMessages(ownerId: string, messageIds: readonly string[], _key: AccountDataKey) {
-    this.reads.push([...messageIds]);
-    const owned = this.messages.get(ownerId);
-    const found = new Map<string, SearchMessageRecord>();
-    for (const id of messageIds) {
-      const message = owned?.get(id);
-      if (message) found.set(id, message);
-    }
-    return found;
-  }
-}
-
-/** The chat opt-in per owner; owners not listed have not opted in. */
-export class InMemoryChatOptInSource implements ChatOptInSource {
-  private readonly optedIn = new Set<string>();
-
-  set(ownerId: string, include: boolean): void {
-    if (include) this.optedIn.add(ownerId);
-    else this.optedIn.delete(ownerId);
-  }
-
-  async includeChat(ownerId: string, _key: AccountDataKey): Promise<boolean> {
-    return this.optedIn.has(ownerId);
   }
 }
 

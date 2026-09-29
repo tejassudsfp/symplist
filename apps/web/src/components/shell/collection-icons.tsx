@@ -61,25 +61,6 @@ export function PanelToggleIcon({ side, size = 15 }: { side: "left" | "right"; s
   );
 }
 
-export function ChatIcon({ size = 15 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.9}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d="M21 12a8 8 0 0 1-8 8H8l-5 3V12a8 8 0 0 1 8-8h2a8 8 0 0 1 8 8z" />
-    </svg>
-  );
-}
-
 export function LockIcon({ size = 15 }: { size?: number }) {
   return (
     <svg

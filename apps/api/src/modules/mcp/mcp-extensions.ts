@@ -32,7 +32,7 @@ export interface McpServiceActor {
   readonly guards: readonly SqlGuard[];
 }
 
-/** Only these cross-feature seams may extend incoming MCP; never Simon proposals or Vault tools. */
+/** Only these cross-feature seams may extend incoming MCP; never Vault tools. */
 export interface McpToolExtension {
   readonly name:
     | "task_schedule"

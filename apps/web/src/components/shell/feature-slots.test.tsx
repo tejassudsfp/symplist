@@ -17,7 +17,7 @@ const navigation = vi.hoisted(() => ({ pathname: "/now" }));
 const seams = vi.hoisted(() => ({
   session: { status: "loading" } as Session,
   /** Each entry is one mount, recorded by a state initializer (which never reruns on update). */
-  mounts: { document: [] as string[], chat: [] as string[], palette: 0, banner: 0 },
+  mounts: { document: [] as string[], palette: 0, banner: 0 },
   /**
    * `FeatureSlots` mounts `WorkspaceProvider` around the whole `(app)` layout, so every render here
    * loads tasks and preferences. Without a fake behind it those fetches go nowhere in jsdom and the
@@ -76,16 +76,6 @@ vi.mock("@/features/documents/document-pane", async () => {
   };
 });
 
-vi.mock("@/features/simon/chat-pane", async () => {
-  const { useState } = await import("react");
-  return {
-    ChatPane: ({ taskId }: { taskId: string }) => {
-      useState(() => seams.mounts.chat.push(taskId));
-      return <p data-seam="chat-pane">{`Chat about ${taskId}`}</p>;
-    },
-  };
-});
-
 vi.mock("@/features/search/command-palette", async () => {
   const { useState } = await import("react");
   return {
@@ -109,10 +99,6 @@ vi.mock("@/features/analytics/consent-banner", async () => {
     },
   };
 });
-
-vi.mock("@/features/simon/quick-chat", () => ({
-  QuickChatLauncher: () => <button type="button">Quick chat</button>,
-}));
 
 vi.mock("@/features/scheduling/notification-control", () => ({
   NotificationControl: () => <button type="button">Notifications</button>,
@@ -143,7 +129,7 @@ function seam(name: string): HTMLElement[] {
 
 beforeEach(() => {
   seams.session = { status: "loading" };
-  seams.mounts = { document: [], chat: [], palette: 0, banner: 0 };
+  seams.mounts = { document: [], palette: 0, banner: 0 };
   seams.workspaceApi.current = new FakeWorkspaceApi([
     { id: taskA, title: "Refresh my portfolio" },
     { id: taskB, title: "Send the project outline" },
@@ -167,28 +153,19 @@ describe("feature seams in the app shell", () => {
     expect(gate).toContainElement(screen.getByRole("banner"));
   });
 
-  it("mounts the page, chat and top bar seams for a selected task", async () => {
+  it("mounts the page and top bar seams for a selected task", async () => {
     render(await appTree(`/now/${taskA}`));
     expect(within(screen.getByRole("main")).getByText(`Page of ${taskA}`)).toBeInTheDocument();
-    expect(
-      within(screen.getByRole("complementary", { name: "Simon" })).getByText(`Chat about ${taskA}`),
-    ).toBeInTheDocument();
     expect(within(slot("vault-status")).getByText("Vault locked")).toBeInTheDocument();
     expect(
       within(slot("notification-control")).getByRole("button", { name: "Notifications" }),
     ).toBeInTheDocument();
-    expect(document.querySelector('[data-slot="quick-chat"]')).toBeNull();
     expect(seam("document-pane")).toHaveLength(1);
-    expect(seam("chat-pane")).toHaveLength(1);
   });
 
-  it("offers quick chat only while no task is selected", async () => {
+  it("mounts no page pane while no task is selected", async () => {
     render(await appTree("/later"));
-    expect(
-      within(slot("quick-chat")).getByRole("button", { name: "Quick chat" }),
-    ).toBeInTheDocument();
     expect(seam("document-pane")).toHaveLength(0);
-    expect(seam("chat-pane")).toHaveLength(0);
   });
 
   it("shows the session's person in the profile control", async () => {
@@ -214,7 +191,6 @@ describe("feature seams in the app shell", () => {
     rerender(await appTree("/now"));
 
     expect(seams.mounts.document).toEqual([taskA, taskB]);
-    expect(seams.mounts.chat).toEqual([taskA, taskB]);
     expect(seams.mounts.palette).toBe(1);
     expect(seams.mounts.banner).toBe(1);
     expect(within(slot("command-palette")).getByText("Command palette")).toBeInTheDocument();
@@ -222,8 +198,8 @@ describe("feature seams in the app shell", () => {
   });
 
   /*
-   * The workspace's three shell seams (decision WS17). `FeatureSlots` mounts one `WorkspaceProvider`
-   * around the whole layout, so the list, the page header and the chat subtitle read the same stores.
+   * The workspace's shell seams (decision WS17). `FeatureSlots` mounts one `WorkspaceProvider`
+   * around the whole layout, so the list and the page header read the same stores.
    */
 
   it("fills the inbox slot with the route's own collection", async () => {
@@ -242,14 +218,12 @@ describe("feature seams in the app shell", () => {
     expect(within(inbox).queryByText("Refresh my portfolio")).not.toBeInTheDocument();
   });
 
-  it("fills the task header and the chat subtitle for the open task", async () => {
+  it("fills the task header for the open task", async () => {
     render(await appTree(`/now/${taskA}`));
     // The header is the page frame's own, beside the page pane — not the row in the list.
     const header = screen.getByRole("main");
     await waitFor(() =>
       expect(within(header).getByLabelText("Complete Refresh my portfolio")).toBeInTheDocument(),
     );
-    const chat = screen.getByRole("complementary", { name: "Simon" });
-    expect(within(chat).getByText("Refresh my portfolio")).toBeInTheDocument();
   });
 });
