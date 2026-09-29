@@ -6,7 +6,6 @@ import { documentsEvents } from "./documents/events.ts";
 import { schedulingEvents } from "./scheduling/events.ts";
 import { searchEvents } from "./search/events.ts";
 import { sharingEvents } from "./sharing/events.ts";
-import { simonEvents } from "./simon/events.ts";
 import { vaultEvents } from "./vault/events.ts";
 import { workspaceEvents } from "./workspace/events.ts";
 
@@ -16,7 +15,6 @@ export const wsEventsByFeature = {
   workspace: workspaceEvents,
   documents: documentsEvents,
   search: searchEvents,
-  simon: simonEvents,
   scheduling: schedulingEvents,
   vault: vaultEvents,
   sharing: sharingEvents,
@@ -30,7 +28,6 @@ export const wsEvents = Object.freeze({
   ...workspaceEvents,
   ...documentsEvents,
   ...searchEvents,
-  ...simonEvents,
   ...schedulingEvents,
   ...vaultEvents,
   ...sharingEvents,

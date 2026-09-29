@@ -1,11 +1,9 @@
 import { type DbClient, int } from "@symplist/db";
 import { MaintenanceFence, maintenanceStatement } from "../maintenance-fence.ts";
-import { cleanupQuickChats, SimonPauseReconciler, SimonRepository } from "../simon/index.ts";
 import type { ScannerExecution } from "./scanner.ts";
 import type { SchedulingOptions } from "./service.ts";
 
 export interface SchedulingCleanupOptions extends SchedulingOptions {
-  readonly quickChatTtlHours: number;
   /** Compose bounded feature expiry work here. Each deciding mutation must use context.fence.guard(). */
   readonly cleanupFeatureExpiries?: (
     input: ScannerExecution,
@@ -22,9 +20,6 @@ export async function cleanupHourly(options: SchedulingCleanupOptions, input: Sc
   const now = options.now();
   const fence = new MaintenanceFence(options.db, input);
   if (!(await fence.current())) return { noop: true };
-  const simon = new SimonRepository({ ...options, quickChatTtlHours: options.quickChatTtlHours });
-  await new SimonPauseReconciler(simon).run(input);
-  await cleanupQuickChats(simon, fence);
   await options.db.batch([
     maintenanceStatement(
       "DELETE FROM webhook_receipts WHERE rowid IN (SELECT rowid FROM webhook_receipts WHERE received_at<:cutoff LIMIT 100)",

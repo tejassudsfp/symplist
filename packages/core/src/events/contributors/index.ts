@@ -4,7 +4,6 @@ import type {
   RunRelaySource,
 } from "../execution.ts";
 import { accountEventsContributor } from "./account.ts";
-import { simonEventsContributor } from "./simon.ts";
 import type { EventsContributor } from "./types.ts";
 
 export { ACCOUNT_PURGE_TASK_ID } from "./account.ts";
@@ -12,7 +11,6 @@ export type { EventsContributor } from "./types.ts";
 
 /** Every domain's execution contribution (§2.3). */
 export const eventsContributors: readonly EventsContributor[] = [
-  simonEventsContributor,
   accountEventsContributor,
 ];
 

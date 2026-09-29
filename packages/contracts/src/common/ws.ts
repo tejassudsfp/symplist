@@ -222,8 +222,7 @@ export type UserTopicSnapshot = z.infer<typeof userTopicSnapshotSchema>;
 /**
  * The `user` topic events of §7, each owned by one feature. They are placeholders: the owning
  * feature declares the event and its data schema in `contracts/src/<feature>/events.ts`, and the
- * composition test fails if any other feature declares one of these names. Every event type that is
- * not listed here is a `conversation:<id>` event (owned by Simon).
+ * composition test fails if any other feature declares one of these names.
  */
 export const userTopicEventOwners = Object.freeze({
   "tasks.changed": "workspace",
@@ -232,7 +231,6 @@ export const userTopicEventOwners = Object.freeze({
   "notifications.summary": "scheduling",
   "access.changed": "access",
   "preferences.changed": "workspace",
-  "run.status": "simon",
   "document.head_changed": "documents",
   "schedule.changed": "scheduling",
   "vault.locked": "vault",

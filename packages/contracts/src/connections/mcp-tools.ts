@@ -1,7 +1,6 @@
 import { idSchema, taskIdSchema } from "../common/ids.ts";
 import { z } from "../common/zod.ts";
 import { taskScheduleToolInputSchema } from "../scheduling/tools.ts";
-import { simonTierSchema } from "../simon/dto.ts";
 import { taskCollectionSchema } from "../workspace/dto.ts";
 import { taskCreateToolInputSchema, taskMoveToolInputSchema } from "../workspace/tools.ts";
 
@@ -24,7 +23,7 @@ export const mcpTaskMessageSchema = z.strictObject({
   taskId: taskIdSchema,
   requestId: idSchema,
   text: z.string().trim().min(1).max(32000),
-  tier: simonTierSchema.default("fast"),
+  tier: z.enum(["fast", "smart"]).default("fast"),
 });
 export const mcpTaskRunSchema = z.strictObject({ runId: idSchema });
 export const mcpTaskScheduleSchema = z.union(

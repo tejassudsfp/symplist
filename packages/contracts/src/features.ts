@@ -4,7 +4,6 @@ export const featureIds = [
   "workspace",
   "documents",
   "search",
-  "simon",
   "scheduling",
   "vault",
   "sharing",

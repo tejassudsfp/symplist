@@ -17,10 +17,7 @@ import {
 import type { AccessPolicy } from "../access/evaluate.ts";
 import { accessCondition } from "../access/sql.ts";
 import { AccountKeyStore } from "../account/keys.ts";
-import { SimonRepository } from "../simon/repository.ts";
-import { connectionApprovalExpiryStatements } from "./approval-expiry.ts";
 import { ComposioAuthConfigs } from "./auth-configs.ts";
-import { connectionApprovalMode } from "./authority.ts";
 import { type ConnectionWriteFold, connectionFoldCompletion } from "./fold.ts";
 import type { ComposioSessions } from "./sessions.ts";
 
@@ -118,7 +115,7 @@ export class ConnectionsService {
             )
           : null,
         status: row.status as ConnectionView["status"],
-        approvalMode: connectionApprovalMode(row.approval_mode),
+        approvalMode: row.approval_mode === "reads" ? "reads" : "all",
         createdAt: Number(row.created_at),
       }));
     } finally {
@@ -440,10 +437,6 @@ export class ConnectionsService {
                 attempt: String(attempt.id),
                 session: actor.sessionId,
               },
-            ),
-            ...connectionApprovalExpiryStatements(
-              new SimonRepository({ ...this.options, quickChatTtlHours: 24 }),
-              { ownerId: actor.ownerId, connectionId: id, writeId: write, now: this.options.now() },
             ),
             sql(
               `INSERT INTO connection_revoke_jobs (connected_account_id, owner_id, created_at, write_id)

@@ -6,7 +6,6 @@ import { documentsActions } from "@/features/documents/actions";
 import { schedulingActions } from "@/features/scheduling/actions";
 import { searchActions } from "@/features/search/actions";
 import { sharingActions } from "@/features/sharing/actions";
-import { simonActions } from "@/features/simon/actions";
 import { vaultActions } from "@/features/vault/actions";
 import { workspaceActions } from "@/features/workspace/actions";
 import { shellActions } from "./shell-actions.ts";
@@ -18,7 +17,6 @@ export const actionsByFeature: Readonly<Record<FeatureId, readonly AppAction[]>>
   workspace: workspaceActions,
   documents: documentsActions,
   search: searchActions,
-  simon: simonActions,
   scheduling: schedulingActions,
   vault: vaultActions,
   sharing: sharingActions,

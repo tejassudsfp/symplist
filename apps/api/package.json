@@ -26,7 +26,6 @@
     "@nestjs/platform-ws": "12.0.3",
     "@nestjs/throttler": "6.5.0",
     "@nestjs/websockets": "12.0.3",
-    "@symplist/agent": "workspace:*",
     "@symplist/analytics": "workspace:*",
     "@symplist/config": "workspace:*",
     "@symplist/contracts": "workspace:*",

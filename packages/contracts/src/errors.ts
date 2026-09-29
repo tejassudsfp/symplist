@@ -6,7 +6,6 @@ import { documentsErrorCodes } from "./documents/errors.ts";
 import { schedulingErrorCodes } from "./scheduling/errors.ts";
 import { searchErrorCodes } from "./search/errors.ts";
 import { sharingErrorCodes } from "./sharing/errors.ts";
-import { simonErrorCodes } from "./simon/errors.ts";
 import { vaultErrorCodes } from "./vault/errors.ts";
 import { workspaceErrorCodes } from "./workspace/errors.ts";
 
@@ -17,7 +16,6 @@ export const errorCodesByOwner = {
   workspace: workspaceErrorCodes,
   documents: documentsErrorCodes,
   search: searchErrorCodes,
-  simon: simonErrorCodes,
   scheduling: schedulingErrorCodes,
   vault: vaultErrorCodes,
   sharing: sharingErrorCodes,
@@ -32,7 +30,6 @@ export const errorCodes = Object.freeze({
   ...workspaceErrorCodes,
   ...documentsErrorCodes,
   ...searchErrorCodes,
-  ...simonErrorCodes,
   ...schedulingErrorCodes,
   ...vaultErrorCodes,
   ...sharingErrorCodes,

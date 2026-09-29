@@ -4,12 +4,10 @@ import type { SearchSourceContributor, SearchSourceDependencies, SearchSources }
 import { documentsSearchSourceContributor } from "./documents.ts";
 import { preferencesSearchSourceContributor } from "./preferences.ts";
 import { schedulingSearchSourceContributor } from "./scheduling.ts";
-import { simonSearchSourceContributor } from "./simon.ts";
 
 /** Every domain's search source contribution (§2.3). */
 export const searchSourceContributors: readonly SearchSourceContributor[] = [
   documentsSearchSourceContributor,
-  simonSearchSourceContributor,
   preferencesSearchSourceContributor,
   schedulingSearchSourceContributor,
 ];

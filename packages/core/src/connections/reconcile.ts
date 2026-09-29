@@ -4,8 +4,7 @@ import {
   IntegrationError,
   type ProviderAccount,
 } from "@symplist/integrations";
-import type { SimonRepository } from "../simon/repository.ts";
-import { connectionApprovalExpiryStatements } from "./approval-expiry.ts";
+import type { ConnectionContext } from "./context.ts";
 import type { ComposioSessions } from "./sessions.ts";
 
 export interface ConnectionExecutorFence {
@@ -31,7 +30,7 @@ const cycleLeaseMs = 15 * 60_000;
 export class ConnectionReconciler {
   constructor(
     readonly options: {
-      repository: SimonRepository;
+      repository: ConnectionContext;
       provider: ConnectionLifecycleProvider;
       sessions: Pick<ComposioSessions, "use">;
       changed?: (owner: string, connection: string) => Promise<void>;
@@ -89,12 +88,6 @@ export class ConnectionReconciler {
               ...guard.params,
             },
           ),
-          ...connectionApprovalExpiryStatements(repository, {
-            ownerId,
-            connectionId: String(row.id),
-            writeId: write,
-            now: now(),
-          }),
         );
       }
       statements.push(
