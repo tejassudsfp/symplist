@@ -8,6 +8,20 @@ A calm, personal task workspace. Every task has one editable Markdown document a
 
 Founding idea, and the tie-breaker for design arguments: **the most productive thing is often the most simple.**
 
+## Direction — read `docs/notes/files/18_local_first_desktop.md` first
+
+**The assistant is leaving the browser.** A web agent that cannot run a command is a chat window with
+opinions: to do work it needs a CLI, a filesystem and a process, and a tab has none of those. So
+Simon moves to a desktop app on the DeepSeek Harness, and the cloud becomes what Obsidian's sync is
+— a place your data lives, not a place work happens.
+
+Four phases: **(1)** strip chat from the cloud, **(2)** Electron shell with `dsh` over ACP, **(3)**
+local SQLite mode, **(4)** local→cloud promotion. Note 18 is binding and supersedes the parts of
+notes 07 and 12 that put Simon on the server.
+
+Sections below that describe the executor rule, `chat.agent`, chat sessions and BYOK describe code
+that phase 1 removes. They stay until the strip lands, then go.
+
 ## Status
 
 **Released.** The full specification is implemented and verified: workspace, documents (real Git engine), Simon with approvals and Quick Chat, scheduling/notifications, Vault, sharing/handoffs, connections/incoming MCP, analytics/consent, and self-hosting. The release gate passed with zero lint errors, all projects typechecked, 4,767 Vitest + 61 script tests, 212 Playwright cases (16 intentional skips) across three viewports, both production builds, and the local smoke/deploy checks. All 46 expand-only migrations were verified live.

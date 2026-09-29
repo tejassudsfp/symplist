@@ -1,6 +1,9 @@
 # Symplist notes — reading order
 
-Product decisions and implementation specifications. The application is not implemented yet. Current launch scope is a free closed beta with manually shared invites; earlier paid-plan ideas are deferred.
+Product decisions and implementation specifications. The application is not implemented yet.
+
+**Note 18 supersedes** the parts of notes 07 and 12 that place Simon in the cloud: the assistant now
+runs on the desktop and the cloud holds data. Current launch scope is a free closed beta with manually shared invites; earlier paid-plan ideas are deferred.
 
 | Order | Document | Purpose |
 | --- | --- | --- |
@@ -21,6 +24,7 @@ Product decisions and implementation specifications. The application is not impl
 | 15 | [Deadlines, reminders, and calendar](15_deadlines_reminders_calendar.md) | Time semantics, notifications, deterministic scheduling, and delivery |
 | 16 | [Simon handoffs and artifact sharing](16_simon_handoffs_and_artifact_sharing.md) | Facilitator scope, specialist prompts, encrypted snapshots, and read-only grants |
 | 17 | [Product analytics](17_analytics.md) | PostHog event allowlist, privacy, consent, and configuration |
+| 18 | [Local-first desktop](18_local_first_desktop.md) | Why the assistant leaves the browser, the DeepSeek Harness, and the four-phase port |
 
 
 The notes preserve current decisions; the design briefs expand them into visual states and explicitly mark new assumptions. No payment or automatic-invite flows belong in beta. Direct Trigger-to-browser output remains an evaluated alternative, not a confirmed replacement for backend delivery.
