@@ -437,7 +437,7 @@ describe("archive blocking conditions", () => {
     const shared = archiveBlockingCondition(
       [
         {
-          domain: "simon",
+          domain: "mcp",
           statements: () => [],
           blockingCondition: ({ taskIdsQuery }) => ({
             sql: `EXISTS (${taskIdsQuery.sql})`,
@@ -460,7 +460,7 @@ describe("archive blocking conditions", () => {
       archiveBlockingCondition(
         [
           {
-            domain: "simon",
+            domain: "mcp",
             statements: () => [],
             blockingCondition: () => ({ sql: "1", params: { block_ids_root: "other" } }),
           },
@@ -472,7 +472,7 @@ describe("archive blocking conditions", () => {
       archiveBlockingCondition(
         [
           {
-            domain: "simon",
+            domain: "mcp",
             statements: () => [],
             blockingCondition: () => ({ sql: "1 = :task_ids", params: { task_ids: "x" } }),
           },
@@ -484,7 +484,7 @@ describe("archive blocking conditions", () => {
       archiveBlockingCondition(
         [
           {
-            domain: "simon",
+            domain: "mcp",
             statements: () => [],
             blockingCondition: () => ({
               sql: "(DELETE FROM runs) IS NULL",

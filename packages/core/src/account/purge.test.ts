@@ -34,7 +34,7 @@ let dir: string;
 
 /** Probe rows owned by the user, standing in for a feature domain's children. */
 const probeContributor: PurgeContributor = {
-  domain: "simon",
+  domain: "mcp",
   statements: ({ userId, batchLimit }) => [
     sql(
       `DELETE FROM probe_rows WHERE rowid IN (
@@ -231,7 +231,6 @@ describe("account purge (§5.6)", () => {
         "runs",
         "composio",
         "r2",
-        "d1:simon",
         "d1:tasks",
         "d1:idempotency",
         "d1:account",

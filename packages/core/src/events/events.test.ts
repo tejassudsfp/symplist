@@ -101,21 +101,6 @@ describe("execution contributors (§8.1)", () => {
     expect(purge?.sessionTaskId).toBeUndefined();
   });
 
-  it("runs a Simon turn in the conversation's session, never in the run's (§8.1)", () => {
-    const simon = collectExecutionKinds().get("simon_run");
-    expect(simon?.sessionTaskId).toBe("simon-chat");
-    const job = {
-      intentId: id,
-      kind: "simon_run",
-      subjectId: owner,
-      ownerId: owner,
-      generation: 3,
-      sessionExternalId: "0199f2b4-0000-7000-8000-0000000000c1",
-    };
-    expect(simon?.sessionExternalId?.(job)).toBe("0199f2b4-0000-7000-8000-0000000000c1");
-    expect(simon?.sessionExternalId?.({ ...job, sessionExternalId: null })).toBeNull();
-  });
-
   it("maps modes to executor kinds", () => {
     expect(executorKindFor("local")).toBe("local");
     expect(executorKindFor("durable")).toBe("trigger");
@@ -124,7 +109,7 @@ describe("execution contributors (§8.1)", () => {
   it("rejects duplicate kinds, duplicate Trigger tasks and malformed kinds", () => {
     const definition = { kind: "simon_run", triggerTaskId: "simon-run", payload: () => ({}) };
     const contributor = (kinds: EventsContributor["executionKinds"]): EventsContributor => ({
-      domain: "simon",
+      domain: "mcp",
       executionKinds: kinds,
     });
     expect(() => collectExecutionKinds([contributor([definition, definition])])).toThrow(/twice/);
@@ -139,10 +124,9 @@ describe("execution contributors (§8.1)", () => {
   it("builds at most one run relay source", () => {
     const db = {} as never;
     expect(createRunRelaySource({ db }, [])).toBeNull();
-    expect(createRunRelaySource({ db })?.constructor.name).toBe("SimonRunRelaySource");
     const source = { ownership: async () => null, state: async () => null };
     const withSource: EventsContributor = {
-      domain: "simon",
+      domain: "mcp",
       executionKinds: [],
       runRelaySource: () => source,
     };

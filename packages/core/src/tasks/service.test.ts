@@ -571,7 +571,7 @@ describe("completing (§2.1, P1)", () => {
     );
     const inputs: unknown[] = [];
     const simon: ArchiveContributor = {
-      domain: "simon",
+      domain: "mcp",
       blockingCondition: ({ taskIds }) => ({
         sql: "EXISTS (SELECT 1 FROM probe_runs WHERE task_id IN (:simon_task_ids) AND status IN ('queued', 'running', 'awaiting_approval', 'awaiting_user'))",
         params: { simon_task_ids: taskIds },

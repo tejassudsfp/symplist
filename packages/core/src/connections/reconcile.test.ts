@@ -9,7 +9,7 @@ import {
   createDocumentsTestEnvironment,
   type DocumentsTestEnvironment,
 } from "../documents/test-support.ts";
-import { SimonRepository } from "../simon/repository.ts";
+import { ConnectionContext } from "./context.ts";
 import { ConnectionReconciler } from "./reconcile.ts";
 
 let env: DocumentsTestEnvironment;
@@ -28,12 +28,11 @@ beforeEach(async () => {
     revoke: vi.fn(async () => undefined),
   };
   reconciler = new ConnectionReconciler({
-    repository: new SimonRepository({
+    repository: new ConnectionContext({
       db: env.db,
       keys: env.keys,
       now: () => env.clock,
       policy: { betaAccessRequired: true },
-      quickChatTtlHours: 24,
     }),
     provider,
     sessions: {
