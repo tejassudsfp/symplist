@@ -14,14 +14,15 @@ A calm, open-source task workspace. Every task has one editable Markdown page wi
 - **Documents with real history** — Markdown backed by an actual Git engine, encrypted artifacts in object storage, and indexed publication in D1.
 - **Useful handoffs** — editable specialist prompts, reviewed read-only artifact snapshots, expiring links, password protection, or explicit public publication.
 - **Time-aware tasks** — optional deadlines, calendar views, quiet hours, snooze, persistent notifications, and reminder emails.
+- **Labels** — your own words for slices of your list, with a colour each, shown on the task and filtered from a bar above it.
 - **Fast navigation** — contextual keyboard shortcuts, a command palette, and scoped task/document search.
 - **Personal appearance** — Studio, Paper, Pebble, Postcard, Meadow, and Tide styles, independent preset/custom accent colors, and Light/Dark/System modes.
 - **Private storage** — encrypted task content at rest and a separately unlocked Vault for sensitive notes and keys.
-- **Your assistant, connected** — 13 scoped tools over MCP with OAuth consent, per-grant task scoping, and revocation you control.
+- **Your assistant, connected** — 20 scoped tools over MCP with OAuth consent, per-grant task scoping, and revocation you control.
 
 ## Project status
 
-**Released and self-hostable.** The monorepo contains the workspace application: the Next.js web app, the NestJS API, an optional Trigger.dev worker, the shared packages, 46 expand-only database migrations, deployment configuration, and an automated test suite (unit, integration, browser, accessibility, visual, image, and smoke checks).
+**Released and self-hostable.** The monorepo contains the workspace application: the Next.js web app, the NestJS API, an optional Trigger.dev worker, the shared packages, 51 expand-only database migrations, deployment configuration, and an automated test suite (unit, integration, browser, accessibility, visual, image, and smoke checks).
 
 There is also a desktop application (`apps/desktop`): the same frontend in an Electron window with the cloud session held out of the renderer. It hosts no assistant either — a fully offline local mode is what it is for.
 
@@ -53,8 +54,9 @@ See the [document versioning](docs/notes/files/11_document_versioning.md) and [a
 | `apps/web` | Next.js application (workspace, documents, Vault, settings) |
 | `apps/api` | NestJS API (auth, sessions, WebSocket, executor boundary) |
 | `apps/worker` | Trigger.dev worker (durable mode) |
+| `apps/desktop` | Electron shell around the same frontend, with the session held out of the renderer |
 | `apps/e2e` | Playwright browser, accessibility, and visual suites |
-| `packages/` | `contracts` `config` `crypto` `db` `core` `storage` `email` `analytics` `search` `docs` `integrations` `testing` |
+| `packages/` | `contracts` `config` `crypto` `db` `core` `storage` `email` `analytics` `search` `docs` `testing` |
 | [`docs/notes/files/`](docs/notes/files/00_index.md) | Numbered product decisions and technical specifications |
 | [SELF_HOSTING.md](SELF_HOSTING.md) | Tested local setup, production deployment, operations, backup, and recovery |
 | [ROADMAP.md](ROADMAP.md) | What shipped and what is planned |

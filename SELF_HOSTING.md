@@ -5,9 +5,11 @@ setup runs the Next.js web app and the NestJS API with `DURABLE=false`; schedule
 inside the always-on API process and no Trigger.dev account is required. A durable Trigger.dev
 deployment is an optional second topology.
 
-This deployment stores a workspace; it does not run an assistant. Simon runs in the desktop
-application, on a model key you give that application, so nothing here needs a provider credential —
-see [the local-first desktop note](docs/notes/files/18_local_first_desktop.md).
+This deployment stores a workspace; it does not run an assistant, and it cannot. The assistant is
+whichever MCP client you already use — Claude Desktop, Claude Code, anything that speaks MCP — pointed
+at this deployment's `/mcp` endpoint through an OAuth consent flow. That client holds the model key and
+calls the provider itself, so nothing here needs a provider credential and nothing here can spend one.
+See [the local-first desktop note](docs/notes/files/18_local_first_desktop.md).
 
 Symplist is MIT licensed, but a deployment still incurs the costs of the infrastructure and external
 providers you choose. Billing and paywalls are not part of this release.
@@ -217,9 +219,13 @@ Trigger.dev and must not be set by hand. Neither runtime may hold a model creden
 `ANTHROPIC_API_KEY`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `GOOGLE_VERTEX_CREDENTIALS_JSON`
 and `TOGETHER_API_KEY` are refused at startup on both.
 
-They are refused rather than ignored on purpose. An instance upgrading from the version that ran
-Simon on the server still has one of them set, and a startup failure naming the variable is how its
-operator learns that the assistant — and the key it spends — moved to the desktop application.
+`COMPOSIO_API_KEY` and `COMPOSIO_WEBHOOK_SECRET` are refused on both runtimes too: the connector layer
+they configured was removed with the assistant that used it.
+
+They are refused rather than ignored on purpose. An instance upgrading from a version that ran the
+assistant on the server, or that had connectors, still has one of them set — and a startup failure
+naming the variable is how its operator learns that the assistant, and the key it spends, moved to
+their own MCP client.
 
 Trigger hosts execution metadata containing IDs, enums, and counts only. Symplist does not use
 Trigger Sessions or Trigger chat streams; encrypted worker-to-API output is the durable path.
@@ -619,7 +625,7 @@ the version's contracts match the API commit before promotion.
 | Artifact URL returns generic unavailable | Request it on the configured artifact hostname, not the API hostname; verify DNS/TLS and `ARTIFACT_ORIGIN`, then check expiry/revocation. Generic 404-style output intentionally hides whether private content exists. |
 | OTP email is missing | In development, read the API console with `EMAIL_DRIVER=log`. In production, verify Resend domain/sender/API key. The webhook is delivery tracking, not the sender. |
 | Reminder did not fire | Confirm an IANA timezone, top-of-hour semantics, quiet hours/snooze, max lateness, email preference, and that exactly one scheduler owner is running. Local mode requires an always-on API; durable mode requires deployed schedules. |
-| The web app shows no assistant | It has none. Simon is the desktop application; the web app is a viewer over the same workspace. |
+| The web app shows no assistant | It has none, by design. Connect an MCP client under Settings → Agent connections; it reads and edits the same workspace. |
 | Worker output cannot decrypt/verify | Stop retries and compare the names, versions, and offline fingerprints of the three shared families. Do not print values. Restore the missing historical version instead of generating a replacement under the same number. |
 | D1 returns 429 | Honor `Retry-After`; the client opens a circuit intentionally. Check that API/worker use separate scoped tokens and that no extra workers or inline Trigger queues bypass the fixed concurrency. |
 | Document saves/history fail | Run `git --version`; check private temp-directory permissions/free space and R2 access. `GIT_TMP_DIR` is disposable and must not be restored as durable state. |

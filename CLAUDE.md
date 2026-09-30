@@ -12,7 +12,7 @@ Founding idea, and the tie-breaker for design arguments: **the most productive t
 
 **Symplist is a list, and the assistant is not ours.** A web agent that cannot run a command is a
 chat window with opinions — but the answer was never to ship our own agent. Claude Code *is* the CLI.
-So the api publishes 13 tools over `/mcp` with the full OAuth flow, and the person points the client
+So the api publishes 20 tools over `/mcp` with the full OAuth flow, and the person points the client
 they already use at Symplist: it gets the task document, the section editor and search, plus their
 real shell in their real repository. We never hold a model key.
 
@@ -25,14 +25,18 @@ OAuth); local mode is the list fully offline (local SQLite, no account, MCP over
 
 Phases: **(1)** strip chat from the cloud — done. **(2)** desktop shell — done. **(3)** local mode —
 next, and the reason `apps/desktop` exists. **(4)** local→cloud promotion. Note 18 is binding and
-supersedes the parts of notes 07 and 12 that put Simon on the server, plus note 14's connectors.
+supersedes the parts of notes 01, 07 and 12 that put Simon on the server, plus note 14's connectors.
+Note 19 specifies labels.
 
 ## Status
 
 **Released; phases 1 and 2 done.** Everything the cloud owns shipped and was verified: workspace,
-documents over a real Git engine, scheduling/notifications, Vault, sharing, search, the MCP endpoint
-with OAuth, analytics/consent, access, and self-hosting. All 46 expand-only migrations were verified
-live. `apps/desktop` installs as a DMG, signs in and shows the workspace.
+labels, documents over a real Git engine, scheduling/notifications, Vault, sharing, search, the MCP
+endpoint with OAuth, analytics/consent, access, and self-hosting. All 51 expand-only migrations were
+verified live. `apps/desktop` installs as a DMG, signs in and shows the workspace.
+
+**Admission stays closed.** `BETA_ACCESS_REQUIRED` defaults to true and the hosted launch is invite
+only; opening it is a deliberate decision, not a default to drift into.
 
 Three removals, all of them deliberate, all of them leaving their tables behind because migrations
 are expand-only:
@@ -68,8 +72,9 @@ docs/notes/files/  18 numbered product notes (binding product decisions)
 session held in main so the renderer holds no token. It hosts no agent. Local mode (phase 3) is what
 it is for.
 
-The MCP endpoint is in `apps/api/src/modules/mcp/` — 13 tools, grants, and the OAuth flow (dynamic
-client registration, authorize, consent). It is how an assistant reaches Symplist and the only way.
+The MCP endpoint is in `apps/api/src/modules/mcp/` — 20 tools (16 in `mcp-tools.ts`, 4 contributed by
+features through `mcp-extensions.ts`), grants, and the OAuth flow (dynamic client registration,
+authorize, consent). It is how an assistant reaches Symplist and the only way.
 
 ## Commands
 

@@ -2,9 +2,13 @@
 
 Updated September 14, 2026. Design brief; application implementation has not started.
 
-Each task is a chattable, executable unit with one persistent conversation and an editable Markdown page.
+> **Superseded in part by [note 18](18_local_first_desktop.md) and [note 19](19_labels.md).** Symplist runs
+> no agent: there is no Simon, no per-task conversation, no chat panel and no connector layer. The
+> assistant is whichever MCP client the person already uses. Everything below about the list, the page,
+> the themes and the Vault still holds; read the agent and Composio parts as history. Labels, which this
+> brief did not anticipate, are specified in note 19.
 
-The agent is named **Simon**. Simon discovers capabilities and connections through a small meta-tool layer and follows domain-specific rules. See [Simon meta tools and rules](12_simon_meta_tools.md) for the proposed initial contract.
+Each task is a unit of work with an editable Markdown page and real Git history.
 
 ## Current layout
 
@@ -17,7 +21,7 @@ Adapt that interaction to four desktop regions:
 | Icon rail | Now, Later, Unclassified; always available with accessible names and tooltips. |
 | Task inbox | Selected list, quick add, search, task rows, expandable sublists. |
 | Main page | Selected task title, completion control, editable Markdown document. |
-| Right chat | For AI-enabled users: the selected task's conversation, agent activity, tool results, and composer. Available to all unlocked beta accounts. |
+| Right chat | *Superseded.* This panel was built and removed with the agent; the page now uses the space. |
 
 This replaces the earlier two-section homepage and sliding task sheet. The page and conversation are visible together on wide screens.
 
@@ -30,6 +34,17 @@ This replaces the earlier two-section homepage and sliding task sheet. The page 
 - Support expandable sublists/subtasks. Proposed default: moving a parent carries its descendants; independent child moves and parent completion behavior need definition before implementation.
 - Both the user and the agent can write the Markdown page. Preserve actual Git commit history in encrypted R2 bundles indexed and published through D1, and handle concurrent edits without silently overwriting either writer. Agents query mechanically generated section changes and bounded diffs since their last read; no background summarization runs. See [document versioning](11_document_versioning.md).
 - Completion sends the task to Archive, preserving its page and conversation. Archive is a separate view with restore support.
+
+## Labels
+
+A label is the person's own word for a slice of their list: a short name and one of the eight accent
+colours. Labels are shown as a coloured dot beside the name on a task row and on the task's own page,
+and a bar above each list filters by them — a second label narrows rather than widens. Labels are made
+and renamed in Settings, never from a task row, because a label is vocabulary reused across the list.
+
+This is the one exception to "avoid mandatory tags" below, and it earns it by being optional in both
+directions: an account with no labels sees no filter bar and no chip, and the list looks exactly as it
+did before labels existed. See [the complete specification](19_labels.md).
 
 ## Keeping the workspace simple
 
