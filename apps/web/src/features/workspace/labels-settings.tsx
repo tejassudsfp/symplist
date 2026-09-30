@@ -60,9 +60,13 @@ function ColourChoice({
           className="sym-label-swatch"
           style={{ background: labelColorVariable(colour) }}
         >
+          {/*
+           * The input covers the swatch rather than being taken off screen: it is the thing a pointer
+           * lands on, so the target is the colour a person sees, and focus is on a real radio. The
+           * name comes from the text beside it, which only a screen reader reads.
+           */}
           <input
             type="radio"
-            className="sr-only"
             name={name}
             value={colour}
             checked={value === colour}

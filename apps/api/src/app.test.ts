@@ -187,9 +187,11 @@ describe("api bootstrap (§6, §16.1)", () => {
     expect(app.app.getHttpAdapter().getInstance().get("trust proxy")).toBe(2);
     const migrations = await app.db.all(dbSql(`SELECT name FROM "d1_migrations"`));
     expect(migrations.length).toBeGreaterThanOrEqual(17);
-    expect(runsMigrationsOnStartup({ NODE_ENV: "development" })).toBe(true);
-    expect(runsMigrationsOnStartup({ NODE_ENV: "test" })).toBe(true);
-    expect(runsMigrationsOnStartup({ NODE_ENV: "production" })).toBe(false);
+    expect(runsMigrationsOnStartup({ NODE_ENV: "development", DEPLOYMENT: "cloud" })).toBe(true);
+    expect(runsMigrationsOnStartup({ NODE_ENV: "test", DEPLOYMENT: "cloud" })).toBe(true);
+    expect(runsMigrationsOnStartup({ NODE_ENV: "production", DEPLOYMENT: "cloud" })).toBe(false);
+    // A local install has one process, one file and no operator, so its first boot has to migrate.
+    expect(runsMigrationsOnStartup({ NODE_ENV: "production", DEPLOYMENT: "local" })).toBe(true);
     expect(isProduction({ NODE_ENV: "production" })).toBe(true);
   });
 

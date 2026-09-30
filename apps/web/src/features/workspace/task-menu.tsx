@@ -63,8 +63,17 @@ export function TaskMenu({ task, surface, className, extra, tabIndex }: TaskMenu
     <DropdownMenu
       open={open}
       onOpenChange={(next) => {
-        if (next) ui.openMenu(task.id, "task", surface);
-        else close();
+        if (!next) {
+          close();
+          return;
+        }
+        /*
+         * Only a menu that was closed opens on its first page. Base UI can report "open" again while
+         * one is already showing — a refocus, a pointer landing back on the trigger — and taking that
+         * as a fresh open would throw the person from Move to… or Labels… back to the first page,
+         * which is what a slow machine made visible.
+         */
+        if (!open) ui.openMenu(task.id, "task", surface);
       }}
     >
       <DropdownMenuTrigger
