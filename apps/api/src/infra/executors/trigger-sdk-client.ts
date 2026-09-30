@@ -1,16 +1,23 @@
-import { auth, sessions, TriggerClient } from "@trigger.dev/sdk";
 import type { TriggerRunsClient } from "./executor.ts";
 
 /**
  * The real Trigger.dev client for the api (§8.1), configured per instance with the api's
- * `TRIGGER_SECRET_KEY` rather than the global `configure()`. Only created when durable work may
- * exist, so a local-mode api never needs Trigger credentials.
+ * `TRIGGER_SECRET_KEY` rather than the global `configure()`.
+ *
+ * **The SDK is loaded on demand, and that is the point of this function being async.** It was already
+ * only *called* when durable work may exist — the comment said so — but a static import put
+ * `@trigger.dev/sdk` in the module graph regardless: about 35MB, plus the 82MB of `@opentelemetry` it
+ * drags behind it. A `DURABLE=false` api never calls a line of it, and an offline install (note 18,
+ * `DEPLOYMENT=local`) cannot: there is no Trigger.dev on one person's machine. Now that api does not
+ * load it and need not have it installed at all, which is also what makes `DURABLE=false` the genuinely
+ * dependency-free self-hosted topology the docs already claim it is.
  *
  * `sessions` has no per-instance counterpart on `TriggerClient` — it reads the ambient API client —
  * so each call runs inside `auth.withAuth`, which scopes the same secret key to that call alone.
  * That applies to `open(...).in.send` and `retrieve` exactly as it does to `start`.
  */
-export function createTriggerRunsClient(secretKey: string): TriggerRunsClient {
+export async function createTriggerRunsClient(secretKey: string): Promise<TriggerRunsClient> {
+  const { auth, sessions, TriggerClient } = await import("@trigger.dev/sdk");
   const client = new TriggerClient({ secretKey });
   return {
     tasks: {

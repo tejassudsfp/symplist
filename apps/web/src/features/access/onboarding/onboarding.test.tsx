@@ -3,14 +3,12 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiNetworkError } from "@/lib/api";
 import {
-  accessApiError,
   admittedAccess,
   createFakeAccessApi,
   mayaMe,
   renderAccess,
   stubNavigation,
 } from "../test-support.tsx";
-import { OnboardingConnections } from "./connections-step.tsx";
 import { OnboardingName } from "./name-step.tsx";
 
 const navigation = vi.hoisted(() => ({ pathname: "/welcome", push: vi.fn(), replace: vi.fn() }));
@@ -45,14 +43,16 @@ const connectionsStep = mayaMe({
   access: { ...admittedAccess, onboardingStep: "connections" },
 });
 
-describe("onboarding, the name step (onboarding_name.md)", () => {
-  it("asks one question with a two-step progression and no questionnaire", async () => {
+describe("onboarding (onboarding_name.md)", () => {
+  it("asks one question, with no progression to show and no questionnaire", async () => {
     renderAccess(<OnboardingName />, { me: nameStep });
     expect(
       await screen.findByRole("heading", { name: "What should we call you?" }),
     ).toBeInTheDocument();
     expect(screen.getByLabelText("Name")).toHaveValue("");
-    expect(screen.getByRole("list", { name: "Step 1 of 2" })).toBeInTheDocument();
+    // There is one page, so there is no step counter: the connector invitation that made it a
+    // two-step flow left with the server-side agent (note 18).
+    expect(screen.queryByRole("list", { name: /Step \d of \d/ })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Continue" })).toBeInTheDocument();
     expect(screen.queryByText(/company size|job role|productivity style/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/payment|plan/i)).not.toBeInTheDocument();
@@ -81,14 +81,42 @@ describe("onboarding, the name step (onboarding_name.md)", () => {
     expect(api.updateDisplayName).not.toHaveBeenCalled();
   });
 
-  it("saves the name and continues to connections", async () => {
+  it("saves the name, completes onboarding and opens the workspace", async () => {
+    // Two calls behind one submit: the stored `onboarding_step` still passes through `connections` on
+    // its way to `done`, because a value in a column cannot be dropped and this repository's migrations
+    // are expand-only. The person sees one question, which is the point.
     const user = userEvent.setup();
-    const api = createFakeAccessApi({ updateDisplayName: vi.fn(async () => connectionsStep) });
+    const api = createFakeAccessApi({
+      updateDisplayName: vi.fn(async () => connectionsStep),
+      completeOnboarding: vi.fn(async () => mayaMe()),
+    });
     renderAccess(<OnboardingName />, { api, me: nameStep });
     await user.type(await screen.findByLabelText("Name"), "Maya");
     await user.click(screen.getByRole("button", { name: "Continue" }));
     await waitFor(() => expect(api.updateDisplayName).toHaveBeenCalledWith("Maya"));
-    expect(navigation.push).toHaveBeenCalledWith("/welcome/connections");
+    await waitFor(() => expect(api.completeOnboarding).toHaveBeenCalledOnce());
+    expect(navigation.replace).toHaveBeenCalledWith("/now");
+  });
+
+  it("stays put and explains itself when completing onboarding fails", async () => {
+    // The name was saved and the account is mid-transition; telling them it worked would be a lie, and
+    // sending them to a workspace the gate will bounce them out of is worse.
+    const user = userEvent.setup();
+    const api = createFakeAccessApi({
+      updateDisplayName: vi.fn(async () => connectionsStep),
+      completeOnboarding: vi.fn(async () => {
+        throw new ApiNetworkError();
+      }),
+    });
+    renderAccess(<OnboardingName />, { api, me: nameStep });
+    await user.type(await screen.findByLabelText("Name"), "Maya");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    expect(
+      await screen.findByText(
+        "Symplist couldn't be reached, so your name wasn't saved. Try again.",
+      ),
+    ).toBeInTheDocument();
+    expect(navigation.replace).not.toHaveBeenCalledWith("/now");
   });
 
   it("keeps the typed name when saving fails and allows a retry", async () => {
@@ -110,7 +138,9 @@ describe("onboarding, the name step (onboarding_name.md)", () => {
     expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
   });
 
-  it("prefills a saved name on a resumed flow, without a second welcome", async () => {
+  it("prefills a saved name for an account stranded at the old second step", async () => {
+    // `connections` is still a stored value, so an account that gave its name before this change lands
+    // back here rather than nowhere, and one submit finishes it.
     renderAccess(<OnboardingName />, { me: connectionsStep });
     expect(await screen.findByLabelText("Name")).toHaveValue("Maya Rao");
     expect(screen.queryByText(/Welcome to Symplist/)).not.toBeInTheDocument();
@@ -129,80 +159,5 @@ describe("onboarding, the name step (onboarding_name.md)", () => {
   it("sends an account that finished onboarding back to the app", async () => {
     renderAccess(<OnboardingName />, { me: mayaMe() });
     await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/now"));
-  });
-});
-
-describe("onboarding, the connections step (onboarding_connections.md)", () => {
-  it("offers Continue and Skip equally, with the neutral state when no connectors exist", async () => {
-    renderAccess(<OnboardingConnections />, { me: connectionsStep });
-    expect(
-      await screen.findByRole("heading", { name: "Connect what you use" }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText("You can do this later. Nothing in Symplist needs a connected service."),
-    ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Skip for now" })).toBeEnabled();
-    expect(await screen.findByText("No connectors are set up here yet")).toBeInTheDocument();
-    expect(
-      screen.getByText(/A connection is a link to a service you already use/),
-    ).toBeInTheDocument();
-  });
-
-  it("shows the connector tiles the connections feature supplies", async () => {
-    renderAccess(<OnboardingConnections catalogue={<p>Gmail, Calendar and GitHub</p>} />, {
-      me: connectionsStep,
-    });
-    expect(await screen.findByText("Gmail, Calendar and GitHub")).toBeInTheDocument();
-    expect(screen.queryByText("No connectors are set up here yet")).not.toBeInTheDocument();
-  });
-
-  it("finishes onboarding from Continue and from Skip for now", async () => {
-    const user = userEvent.setup();
-    const api = createFakeAccessApi({ completeOnboarding: vi.fn(async () => mayaMe()) });
-    const { unmount } = renderAccess(<OnboardingConnections />, { api, me: connectionsStep });
-    await user.click(await screen.findByRole("button", { name: "Skip for now" }));
-    await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/now"));
-    unmount();
-
-    navigation.replace.mockReset();
-    renderAccess(<OnboardingConnections />, { api, me: connectionsStep });
-    await user.click(await screen.findByRole("button", { name: "Continue" }));
-    await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/now"));
-    expect(api.completeOnboarding).toHaveBeenCalledTimes(2);
-  });
-
-  it("returns to the name step, where the saved name is still there", async () => {
-    const user = userEvent.setup();
-    renderAccess(<OnboardingConnections />, { me: connectionsStep });
-    await user.click(await screen.findByRole("button", { name: "Back" }));
-    expect(navigation.push).toHaveBeenCalledWith("/welcome");
-  });
-
-  it("goes back to the name step when the api says the name is still missing", async () => {
-    const user = userEvent.setup();
-    const api = createFakeAccessApi({
-      completeOnboarding: vi.fn(async () => {
-        throw accessApiError("onboarding.name_required", 409);
-      }),
-    });
-    renderAccess(<OnboardingConnections />, { api, me: connectionsStep });
-    await user.click(await screen.findByRole("button", { name: "Continue" }));
-    await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/welcome"));
-  });
-
-  it("explains a failure to finish and stays on the step", async () => {
-    const user = userEvent.setup();
-    const api = createFakeAccessApi({
-      completeOnboarding: vi.fn(async () => {
-        throw new ApiNetworkError();
-      }),
-    });
-    renderAccess(<OnboardingConnections />, { api, me: connectionsStep });
-    await user.click(await screen.findByRole("button", { name: "Continue" }));
-    expect(
-      await screen.findByText("Symplist couldn't be reached. Check your connection and try again."),
-    ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
   });
 });

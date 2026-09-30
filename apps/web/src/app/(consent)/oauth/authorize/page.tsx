@@ -1,4 +1,4 @@
-import { OAuthAuthorizeBridge } from "@/features/connections/oauth-consent";
+import { OAuthAuthorizeBridge } from "@/features/mcp/oauth-consent";
 
 export default function AuthorizeBridgePage() {
   return <OAuthAuthorizeBridge />;

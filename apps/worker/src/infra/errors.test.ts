@@ -40,28 +40,10 @@ describe("worker error mapping (§8.3)", () => {
       false,
     ],
     [
-      "a Composio rate limit",
-      withDetail(
-        Object.assign(new Error(MARKER), {
-          name: "ComposioError",
-          status: 429,
-          requestId: "req_1",
-        }),
-      ),
-      "integration.rate_limited",
-      true,
-    ],
-    [
-      "a Composio client rejection",
-      withDetail(
-        Object.assign(new Error(MARKER), { name: "APIError", status: 400, requestId: "req_2" }),
-      ),
-      "integration.rejected",
-      false,
-    ],
-    [
+      // Wrapped in `withDetail` so the leak check still has a provider error to prove itself against:
+      // the response body carries the marker, and the mapped error must keep none of it.
       "a Trigger API error",
-      Object.assign(new Error(MARKER), { name: "ApiError", status: 503 }),
+      withDetail(Object.assign(new Error(MARKER), { name: "ApiError", status: 503 })),
       "trigger.unavailable",
       true,
     ],

@@ -23,7 +23,6 @@ import type { SecretStore } from "../secrets/secret-store.ts";
 import { CookieJar } from "./cookie-jar.ts";
 import { createCloudHttp } from "./http.ts";
 import { createCloudHandlers } from "./ipc.ts";
-import { McpGrantStore } from "./mcp-grant.ts";
 import { CloudSession } from "./session-state.ts";
 
 const WEB_ORIGIN = "https://app.symplist.test";
@@ -189,14 +188,12 @@ function launch(apiOrigin: string, entries: Map<string, string>) {
   const store = persistentStore(entries);
   const http = createCloudHttp({ apiOrigin, webOrigin: WEB_ORIGIN, jar, log: silentMainLog });
   let ended = 0;
-  const grants = new McpGrantStore({ apiOrigin, http, store, log: silentMainLog });
   const session = new CloudSession({
     apiOrigin,
     jar,
     store,
     http,
     log: silentMainLog,
-    credentials: grants,
     onSessionEnded: () => {
       ended += 1;
     },
@@ -232,7 +229,7 @@ function launch(apiOrigin: string, entries: Map<string, string>) {
     return (JSON.parse(answer.body) as { token: string }).token;
   };
 
-  return { jar, session, handlers, call, csrfToken, grants, ended: () => ended };
+  return { jar, session, handlers, call, csrfToken, ended: () => ended };
 }
 
 describe("signing in to the cloud from the desktop", () => {
@@ -266,18 +263,12 @@ describe("signing in to the cloud from the desktop", () => {
     expect(verified.headers.map(([name]) => name.toLowerCase())).not.toContain("set-cookie");
     expect(first.jar.session()?.name).toBe(SESSION_COOKIE);
     expect(secrets.has("cloud-session")).toBe(true);
-    // An admitted account gets its MCP key at sign-in, since the api hands it over only once.
-    expect(api.grants.size).toBe(1);
-    expect(first.grants.current()?.key).toMatch(/^mcpkey_/);
 
     // A restart: nothing in memory, only what was stored.
     const second = launch(api.origin, secrets);
     await expect(second.session.restore()).resolves.toBe("restored");
     expect((await second.call("GET", "/v1/me")).status).toBe(200);
     expect(second.session.currentIdentity()?.destination).toBe("app");
-    // The grant is still the one minted at sign-in: it has 30 days and is nowhere near expiry.
-    expect(second.grants.current()?.grantId).toBe("g_1");
-    expect(api.grants.size).toBe(1);
   });
 
   it("refuses the code flow if the CSRF header is dropped, which is how it would silently break", async () => {
@@ -287,20 +278,17 @@ describe("signing in to the cloud from the desktop", () => {
     expect(JSON.parse(answer.body)).toMatchObject({ error: { code: "auth.csrf_invalid" } });
   });
 
-  it("carries the session-bound token on an app mutation and revokes the grant before signing out", async () => {
+  it("carries the session-bound token on an app mutation and clears everything on sign-out", async () => {
     const secrets = new Map<string, string>();
     const app = launch(api.origin, secrets);
     await app.call("POST", "/v1/auth/otp/verify", {
       csrf: "1",
       body: { challengeId: "ch_1", code: OTP_CODE },
     });
-    expect(api.grants.size).toBe(1);
 
     const token = await app.csrfToken();
     const answer = await app.call("POST", "/v1/auth/logout", { csrf: token });
     expect(answer.status).toBe(200);
-    // Grants outlive session revocation, so the revoke has to go first — and it did.
-    expect(api.grants.size).toBe(0);
     expect(api.sessions.size).toBe(0);
     expect(secrets.size).toBe(0);
     expect(app.jar.header()).toBeNull();

@@ -15,7 +15,7 @@ export interface RenameState {
 
 export interface MenuState {
   readonly taskId: string;
-  readonly kind: "task" | "move";
+  readonly kind: "task" | "move" | "labels";
   readonly surface: TaskSurface;
 }
 
@@ -41,6 +41,12 @@ export interface WorkspaceUiState {
   readonly searchOpen: Readonly<Record<TaskCollection, boolean>>;
   readonly queries: Readonly<Record<TaskCollection, string>>;
   readonly expanded: ReadonlySet<string>;
+  /**
+   * The labels each list is filtered to, as an ordered list of ids. A task shows when it carries every
+   * one of them: narrowing is what a second chip is for, and a filter that widened as you added to it
+   * would be the opposite of what the click looks like.
+   */
+  readonly labelFilter: Readonly<Record<TaskCollection, readonly string[]>>;
   /** The row that holds keyboard focus in each list (roving tabindex). */
   readonly activeRow: Readonly<Record<TaskCollection, string | null>>;
   readonly renaming: RenameState | null;
@@ -65,6 +71,7 @@ export const initialWorkspaceUiState: WorkspaceUiState = {
   searchOpen: byCollection(false),
   queries: byCollection(""),
   expanded: new Set<string>(),
+  labelFilter: byCollection<readonly string[]>([]),
   activeRow: byCollection(null),
   renaming: null,
   menu: null,
@@ -120,6 +127,34 @@ export class WorkspaceUiStore {
   setQuery(collection: TaskCollection, query: string): void {
     if (this.state.queries[collection] === query) return;
     this.set({ queries: { ...this.state.queries, [collection]: query } });
+  }
+
+  /** Adds or removes a label from a list's filter. */
+  toggleLabelFilter(collection: TaskCollection, labelId: string): void {
+    const current = this.state.labelFilter[collection];
+    const next = current.includes(labelId)
+      ? current.filter((id) => id !== labelId)
+      : [...current, labelId];
+    this.set({ labelFilter: { ...this.state.labelFilter, [collection]: next } });
+  }
+
+  clearLabelFilter(collection: TaskCollection): void {
+    if (this.state.labelFilter[collection].length === 0) return;
+    this.set({ labelFilter: { ...this.state.labelFilter, [collection]: [] } });
+  }
+
+  /** Drops labels that no longer exist from every list's filter, after a delete. */
+  retainLabelFilters(existing: ReadonlySet<string>): void {
+    let changed = false;
+    const next: Record<string, readonly string[]> = { ...this.state.labelFilter };
+    for (const [collection, ids] of Object.entries(this.state.labelFilter)) {
+      const kept = ids.filter((id) => existing.has(id));
+      if (kept.length !== ids.length) {
+        next[collection] = kept;
+        changed = true;
+      }
+    }
+    if (changed) this.set({ labelFilter: next as WorkspaceUiState["labelFilter"] });
   }
 
   setExpanded(taskId: string, expanded: boolean): void {

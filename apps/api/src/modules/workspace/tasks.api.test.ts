@@ -618,7 +618,7 @@ describe("completion with an active run (injected run-state check)", () => {
     // The probe uses the id queries, so a completion archiving more tasks than D1's 100 statement
     // parameters still decides in one statement.
     const probe: ArchiveContributor = {
-      domain: "connections",
+      domain: "mcp",
       blockingCondition: ({ taskIdsQuery }) => ({
         sql: `EXISTS (SELECT 1 FROM probe_runs WHERE task_id IN (${taskIdsQuery.sql}) AND status IN ('queued', 'running', 'awaiting_approval', 'awaiting_user'))`,
         params: taskIdsQuery.params,

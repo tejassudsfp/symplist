@@ -248,6 +248,20 @@ export const workspaceActions: readonly AppAction[] = [
     },
   },
   {
+    id: "workspace.edit_labels",
+    label: "Label task…",
+    context: "app",
+    group: "tasks",
+    keywords: ["label", "tag", "filter", "category"],
+    defaultBinding: "l",
+    availability: taskAvailability,
+    run: (environment) => {
+      withTask(environment, (bridge, taskId) => {
+        bridge.ui.openMenu(taskId, "labels", surfaceFor(environment.pane));
+      });
+    },
+  },
+  {
     id: "workspace.complete_task",
     label: "Complete task",
     context: "app",

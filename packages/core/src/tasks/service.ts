@@ -37,6 +37,7 @@ import {
   validateTaskAuthorization,
 } from "./authorization.ts";
 import { TaskOperationError } from "./errors.ts";
+import { labelViewsOf } from "./labels.ts";
 import { sourceKind, type TaskRecord, type TaskSource } from "./model.ts";
 import {
   type PlanContext,
@@ -219,7 +220,12 @@ export class TaskService {
     return {
       collection,
       taskTreeVersion: state.version,
-      tasks: window.map(({ task, depth }) => toTaskNode(state.tree, task, depth)),
+      tasks: window.map(({ task, depth }) =>
+        toTaskNode(state.tree, task, depth, state.taskLabels.get(task.id) ?? []),
+      ),
+      // Every label, not only the ones this page uses: the filter bar offers labels that match nothing
+      // here too, which is how a person finds where the rest of their list went.
+      labels: labelViewsOf(state.labels, state.taskLabels),
       nextCursor:
         end < flat.length ? encodeTaskTreeCursor({ version: state.version, offset: end }) : null,
     };

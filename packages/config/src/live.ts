@@ -7,8 +7,6 @@ export const liveTestFlagNames = Object.freeze([
   "LIVE_D1",
   "LIVE_R2",
   "LIVE_TRIGGER",
-  "LIVE_COMPOSIO",
-  "LIVE_OPENAI",
   "LIVE_POSTHOG",
 ] as const satisfies readonly (keyof LiveTestFlags)[]);
 
@@ -22,8 +20,6 @@ export function loadLiveTestFlags(env: EnvRecord): LiveTestFlags {
     LIVE_D1: false,
     LIVE_R2: false,
     LIVE_TRIGGER: false,
-    LIVE_COMPOSIO: false,
-    LIVE_OPENAI: false,
     LIVE_POSTHOG: false,
   };
   for (const name of liveTestFlagNames) {

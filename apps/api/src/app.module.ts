@@ -5,8 +5,8 @@ import type { TriggerClientBinding } from "./common/seams.ts";
 import { type RuntimeOptions, runtimeModules } from "./infra/runtime/runtime.modules.ts";
 import { AccessModule } from "./modules/access/access.module.ts";
 import { AnalyticsModule } from "./modules/analytics/analytics.module.ts";
-import { ConnectionsModule } from "./modules/connections/connections.module.ts";
 import { DocumentsModule } from "./modules/documents/documents.module.ts";
+import { McpModule } from "./modules/mcp/mcp.module.ts";
 import { SchedulingModule } from "./modules/scheduling/scheduling.module.ts";
 import { SearchModule } from "./modules/search/search.module.ts";
 import { SharingModule } from "./modules/sharing/sharing.module.ts";
@@ -24,7 +24,7 @@ export const featureModules = [
   SchedulingModule,
   VaultModule,
   SharingModule,
-  ConnectionsModule,
+  McpModule,
   AnalyticsModule,
 ] as const;
 

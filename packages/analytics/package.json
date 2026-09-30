@@ -26,7 +26,6 @@
   },
   "dependencies": {
     "@symplist/contracts": "workspace:*",
-    "posthog-js": "1.433.4",
     "posthog-node": "5.52.3",
     "zod": "4.6.5"
   },
@@ -34,6 +33,7 @@
     "@symplist/testing": "workspace:*",
     "@types/node": "24.13.4",
     "jsdom": "30.0.1",
+    "posthog-js": "1.433.4",
     "typescript": "7.0.2",
     "vitest": "5.0.1"
   }

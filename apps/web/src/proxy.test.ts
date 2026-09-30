@@ -47,7 +47,8 @@ describe("Content Security Policy (§10.4)", () => {
       "wss://api.symplist.test",
       "https://us.i.posthog.com",
     ]);
-    expect(csp.get("img-src")).toEqual(["'self'", "data:", "blob:", "https://logos.composio.dev"]);
+    // No third-party image host: the connector tiles that needed one left with the agent (note 18).
+    expect(csp.get("img-src")).toEqual(["'self'", "data:", "blob:"]);
     expect(csp.get("font-src")).toEqual(["'self'"]);
     expect(csp.get("object-src")).toEqual(["'none'"]);
     expect(csp.get("base-uri")).toEqual(["'none'"]);

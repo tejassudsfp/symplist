@@ -1,11 +1,11 @@
 import { accessPurgeContributor } from "./access.ts";
 import { accountPurgeContributor } from "./account.ts";
-import { connectionsPurgeContributor } from "./connections.ts";
 import { documentsPurgeContributor } from "./documents.ts";
 import { idempotencyPurgeContributor } from "./idempotency.ts";
 import { mcpPurgeContributor } from "./mcp.ts";
 import { preferencesPurgeContributor } from "./preferences.ts";
 import { retiredChatPurgeContributor } from "./retired-chat.ts";
+import { retiredConnectionsPurgeContributor } from "./retired-connections.ts";
 import { schedulingPurgeContributor } from "./scheduling.ts";
 import { searchPurgeContributor } from "./search.ts";
 import { sharingPurgeContributor } from "./sharing.ts";
@@ -27,7 +27,7 @@ export const purgeContributors: readonly PurgeContributor[] = [
   vaultPurgeContributor,
   sharingPurgeContributor,
   mcpPurgeContributor,
-  connectionsPurgeContributor,
+  retiredConnectionsPurgeContributor,
   documentsPurgeContributor,
   searchPurgeContributor,
   preferencesPurgeContributor,

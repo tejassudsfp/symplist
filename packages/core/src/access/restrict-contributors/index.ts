@@ -1,5 +1,4 @@
 import { accessRestrictContributor } from "./access.ts";
-import { connectionsRestrictContributor } from "./connections.ts";
 import { mcpRestrictContributor } from "./mcp.ts";
 import { schedulingRestrictContributor } from "./scheduling.ts";
 import { sharingRestrictContributor } from "./sharing.ts";
@@ -15,5 +14,4 @@ export const restrictContributors: readonly RestrictContributor[] = [
   schedulingRestrictContributor,
   sharingRestrictContributor,
   mcpRestrictContributor,
-  connectionsRestrictContributor,
 ];

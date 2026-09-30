@@ -17,7 +17,6 @@ import {
   createResendEmailTransport,
 } from "@symplist/email";
 import { tasks } from "@trigger.dev/sdk";
-import { connectionReconcilerFor } from "./connections-runtime.ts";
 import type { WorkerRuntime } from "./runtime.ts";
 
 export async function runScheduledWork(
@@ -51,11 +50,6 @@ export async function runScheduledWork(
         ...options,
         cleanupFeatureExpiries: async (_input, context) => {
           await cleanupSharedFeatures(context, runtime.objects);
-          if (!(await context.fence.current())) return;
-          await connectionReconcilerFor(runtime)?.drain({
-            mode: "durable",
-            generation: context.fence.execution.generation,
-          });
         },
         requeueSearch: async (db, now, context) => {
           for (const owner of await staleSearchOwners(db, {

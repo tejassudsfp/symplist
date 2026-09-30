@@ -24,7 +24,7 @@ describe("contracts seams", () => {
       "scheduling",
       "vault",
       "sharing",
-      "connections",
+      "mcp",
       "analytics",
     ]);
     expect(Object.keys(wsEventsByFeature)).toEqual([...featureIds]);

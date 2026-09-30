@@ -17,30 +17,21 @@ files:
   - dist/**/*
   - package.json
 asar: true
-asarUnpack:
-  # Native addons cannot be loaded from inside an archive. Nothing ships one yet; the dsh runtime will.
-  - '**/*.node'
-# Everything under Resources sits on real disk, outside the asar: Next's standalone server resolves its
-# own files at runtime, and the dsh harness will need the same.
+# Everything under Resources sits on real disk, outside the asar, because Next's standalone server
+# resolves its own files at runtime.
 #
-# The whole of `build/` is copied as one mapping — rather than `build/web -> web` and
-# `build/harness -> harness`, which is what it says and what it did not do. app-builder-lib's
-# `createFilter` opens with `if (relative === "node_modules") return false`, unconditionally and before
-# any pattern is consulted, so a `node_modules` directory sitting at the root of a `from` can never be
-# copied and no `filter` can re-include it. Both trees keep everything they need in exactly that place:
-# `build/web/node_modules/.pnpm` is what `apps/web/node_modules/next` points at, and
-# `build/harness/node_modules` is the 230-package dsh installation. Copying them one level up makes
-# their relative paths `web/node_modules` and `harness/node_modules`, which the same function lets
-# through. It was not a silent loss either way — it shipped an app that died on `Cannot find module
-# 'next'` before the window had anything to show.
+# The whole of `build/` is copied as one mapping — rather than `build/web -> web`, which is what it says
+# and what it did not do. app-builder-lib's `createFilter` opens with
+# `if (relative === "node_modules") return false`, unconditionally and before any pattern is consulted,
+# so a `node_modules` directory sitting at the root of a `from` can never be copied and no `filter` can
+# re-include it. The staged tree keeps everything it needs in exactly that place:
+# `build/web/node_modules/.pnpm` is what `apps/web/node_modules/next` points at. Copying it one level up
+# makes its relative path `web/node_modules`, which the same function lets through. It was not a silent
+# loss either way — it shipped an app that died on `Cannot find module 'next'` before the window had
+# anything to show.
 #
-# `build/` holds nothing but these two staged trees, and anything staged there later wants shipping too,
-# so the broader mapping is also the more honest one.
-#
-# The harness stays outside `app.asar` because four of its packages load Node-API addons from disk and a
-# `.node` file cannot be read out of an archive; it is installed with npm rather than pnpm because
-# electron-builder cannot pack a symlink farm. `launch-acp.mjs` sits at its root, beside
-# `node_modules`, which is how it resolves dsh.
+# `build/` holds nothing but that staged tree, and anything staged there later wants shipping too, so the
+# broader mapping is also the more honest one.
 extraResources:
   - from: build
     to: .

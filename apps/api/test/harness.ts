@@ -60,7 +60,6 @@ export function testApiEnv(
     DATA_DRIVER: "local",
     EMAIL_DRIVER: "log",
     DURABLE: "false",
-    AI_PROVIDER_MODE: "scripted",
     EMAIL_FROM_SECURITY: "Symplist <security@example.test>",
     EMAIL_FROM_REMINDERS: "Symplist <reminders@example.test>",
     ...families,

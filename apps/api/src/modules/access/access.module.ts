@@ -7,6 +7,7 @@ import { AdminActivityController } from "./admin-activity.controller.ts";
 import { AdminCampaignsController } from "./admin-campaigns.controller.ts";
 import { AdminInvitesController } from "./admin-invites.controller.ts";
 import { AuthController } from "./auth.controller.ts";
+import { LocalOwnerController } from "./local-owner.controller.ts";
 import { MeController } from "./me.controller.ts";
 import { RedeemAccountLimitGuard, RedeemController } from "./redeem.controller.ts";
 import { TestOtpController } from "./test-otp.controller.ts";
@@ -19,6 +20,7 @@ import { TestOtpController } from "./test-otp.controller.ts";
 @Module({
   controllers: [
     AuthController,
+    LocalOwnerController,
     TestOtpController,
     MeController,
     RedeemController,

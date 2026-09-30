@@ -74,7 +74,6 @@ export const providerCredentialInventory = {
   CLOUDFLARE_D1_MIGRATE_API_TOKEN: { api: "rejected", worker: "rejected", ci: true },
   R2_ACCESS_KEY_ID: { api: "yes", worker: "yes", ci: false },
   R2_SECRET_ACCESS_KEY: { api: "yes", worker: "yes", ci: false },
-  COMPOSIO_API_KEY: { api: "yes", worker: "yes", ci: false },
   RESEND_API_KEY: { api: "yes", worker: "yes", ci: false },
   POSTHOG_PROJECT_KEY: { api: "yes", worker: "yes", ci: false },
   /**
@@ -86,6 +85,17 @@ export const providerCredentialInventory = {
    * its keys — moved to the desktop app. Silently ignoring a set `OPENAI_API_KEY` would leave them
    * believing it was still being used.
    */
+  /**
+   * And the connector layer, for the same reason.
+   *
+   * Composio existed so a server-side agent could act on the owner's behalf in Gmail, Slack and the
+   * rest, gated by an approval. With no agent there was nothing to gate and nothing calling a
+   * connector, so the layer is gone (note 18) — and an operator upgrading from a version that had it
+   * is still paying for a key this deployment will never use. Refusing to boot with the variable named
+   * is how they find that out.
+   */
+  COMPOSIO_API_KEY: { api: "rejected", worker: "rejected", ci: false },
+  COMPOSIO_WEBHOOK_SECRET: { api: "rejected", worker: "rejected", ci: false },
   OPENAI_API_KEY: { api: "rejected", worker: "rejected", ci: false },
   ANTHROPIC_API_KEY: { api: "rejected", worker: "rejected", ci: false },
   AWS_ACCESS_KEY_ID: { api: "rejected", worker: "rejected", ci: false },
@@ -93,7 +103,6 @@ export const providerCredentialInventory = {
   GOOGLE_VERTEX_CREDENTIALS_JSON: { api: "rejected", worker: "rejected", ci: false },
   TOGETHER_API_KEY: { api: "rejected", worker: "rejected", ci: false },
   RESEND_WEBHOOK_SECRET: { api: "yes", worker: "rejected", ci: false },
-  COMPOSIO_WEBHOOK_SECRET: { api: "yes", worker: "rejected", ci: false },
   POSTHOG_PERSONAL_API_KEY: { api: "yes", worker: "rejected", ci: false },
   TRIGGER_SECRET_KEY: { api: "yes", worker: "platform_injected", ci: false },
   TRIGGER_ACCESS_TOKEN: { api: "no", worker: "no", ci: true },

@@ -21,9 +21,6 @@ function harness(answer?: (request: CloudRequest) => CloudResponse | Promise<Clo
     );
   };
   const session = {
-    beforeRequest: vi.fn(async (method: string, path: string) => {
-      observed.push(`before ${method} ${path}`);
-    }),
     afterResponse: vi.fn(async (method: string, path: string) => {
       observed.push(`after ${method} ${path}`);
     }),
@@ -115,13 +112,15 @@ describe("pinning a request from the renderer", () => {
 });
 
 describe("the cloud request handler", () => {
-  it("makes the request and lets the session observe both ends of it", async () => {
+  it("makes the request and lets the session see the answer", async () => {
+    // The session reads every answer, because that is how it learns a sign-out succeeded, an account
+    // moved past the beta gate, or the api revoked the session out from under the app.
     const h = harness();
     const response = await h.handlers.request(
       payload({ method: "POST", url: `${API}/v1/auth/logout`, body: null }),
     );
     expect(response.status).toBe(200);
-    expect(h.observed).toEqual(["before POST /v1/auth/logout", "after POST /v1/auth/logout"]);
+    expect(h.observed).toEqual(["after POST /v1/auth/logout"]);
   });
 
   it("refuses an off-origin url before the request is made at all", async () => {

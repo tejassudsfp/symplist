@@ -7,12 +7,12 @@ import { SetMetadata } from "@nestjs/common";
  *   `X-Symplist-CSRF` must carry the session-bound token.
  * - `pre_session`: lookup, signup and OTP routes; `Origin` must equal `WEB_ORIGIN` and
  *   `X-Symplist-CSRF: 1` forces a preflight.
- * - `connection_callback`: `GET /v1/connections/callback`; needs the single-use attempt nonce, the
- *   same user and the same auth session, and redirects only to a fixed web path.
  * - `share_form`: share-host password posts; `Origin` equals `ARTIFACT_ORIGIN` and a per-render
  *   form nonce is required; the app session cookie is never read.
  * - `share_read`: share-host GET routes; reads only the share session cookie.
  * - `oauth_public`: `/oauth/token`, `/oauth/register`, `/oauth/revoke`; no cookies, no credentialed CORS.
+ * - `local_owner`: `POST /v1/auth/local`; mounted only when `DEPLOYMENT=local`, reads no cookie, and is
+ *   authorized by a per-launch shared secret rather than by a session — see `local-owner.controller.ts`.
  * - `oauth_authorize`: `GET /oauth/authorize`; reads the session cookie only to create a pending request.
  * - `mcp`: `/mcp`; bearer credentials only, and a present `Origin` must be allowlisted.
  * - `signed`: `/webhooks/*` and `/internal/v1/*`; no cookies, a valid signature is required.
@@ -23,10 +23,10 @@ import { SetMetadata } from "@nestjs/common";
 export const routeClasses = [
   "app",
   "pre_session",
-  "connection_callback",
   "share_form",
   "share_read",
   "oauth_public",
+  "local_owner",
   "oauth_authorize",
   "mcp",
   "signed",
@@ -102,16 +102,6 @@ export const routeClassRules: Readonly<Record<RouteClass, RouteClassRule>> = Obj
     methods: unsafe,
     pathPrefixes: ["/v1/auth/"],
   },
-  connection_callback: {
-    surface: "api",
-    cookies: "session",
-    origin: "none",
-    csrfHeader: "none",
-    bearer: false,
-    sessionAccess: "required",
-    methods: ["GET"],
-    pathPrefixes: ["/v1/connections/callback"],
-  },
   share_form: {
     surface: "share",
     cookies: "share_session",
@@ -141,6 +131,27 @@ export const routeClassRules: Readonly<Record<RouteClass, RouteClassRule>> = Obj
     sessionAccess: "forbidden",
     methods: ["POST"],
     pathPrefixes: ["/oauth/"],
+  },
+  /*
+   * The local owner's sign-in, and the only route class with no session and no `Origin` requirement.
+   *
+   * Both absences are forced by the caller: it is the Electron main process, not a browser, so there is
+   * no cookie to read and no origin to compare. What takes their place is a per-launch secret the app
+   * generates and hands the api it started — because a loopback port is reachable by every other
+   * process on the machine, and this route hands out the owner's session.
+   *
+   * It is only registered when `DEPLOYMENT=local`. In a cloud deployment the controller is not mounted
+   * at all, so the class governs nothing there.
+   */
+  local_owner: {
+    surface: "api",
+    cookies: "none",
+    origin: "none",
+    csrfHeader: "none",
+    bearer: false,
+    sessionAccess: "forbidden",
+    methods: ["POST"],
+    pathPrefixes: ["/v1/auth/local"],
   },
   oauth_authorize: {
     surface: "api",

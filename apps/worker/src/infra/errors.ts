@@ -1,5 +1,5 @@
 /**
- * Error mapping for worker code (§8.3). Errors from providers, Composio, D1, R2, Git and the AI SDK are
+ * Error mapping for worker code (§8.3). Errors from providers, D1, R2 and Git are
  * mapped to a stable code before they are thrown, so Trigger's run error records hold nothing but the
  * code: the message is the code, and no cause, response body, SQL, path or argument is kept.
  */
@@ -33,8 +33,6 @@ const retryableCodes = new Set([
   "storage.unavailable",
   "storage.rate_limited",
   "network.unavailable",
-  "integration.unavailable",
-  "integration.rate_limited",
   "trigger.unavailable",
   "account_purge.incomplete",
 ]);
@@ -43,7 +41,7 @@ function mapped(code: string): WorkerError {
   return new WorkerError(code, retryableCodes.has(code));
 }
 
-function httpFamily(prefix: "integration" | "trigger", status: unknown): WorkerError {
+function httpFamily(prefix: "trigger", status: unknown): WorkerError {
   if (status === 429) return mapped(`${prefix}.rate_limited`);
   if (typeof status === "number" && status >= 400 && status < 500)
     return mapped(`${prefix}.rejected`);
@@ -63,10 +61,6 @@ export function toWorkerError(error: unknown): WorkerError {
 
   if (name === "AbortError" || name === "LocalExecutionAborted" || name === "TimeoutError") {
     return mapped("run.aborted");
-  }
-  // Composio core errors and raw client API errors, detected by shape (§14.1).
-  if (name.startsWith("Composio") || (value && "requestId" in value && "status" in value)) {
-    return httpFamily("integration", value?.status);
   }
   // Trigger.dev SDK ApiError subclasses.
   if (

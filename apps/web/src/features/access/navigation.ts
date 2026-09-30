@@ -10,21 +10,8 @@ export const PAUSED_PATH = "/access/paused";
 /** Identity-level account management for accounts outside the app (locked, paused, onboarding). */
 export const RESTRICTED_ACCOUNT_PATH = "/access/account";
 export const ONBOARDING_NAME_PATH = "/welcome";
-export const ONBOARDING_CONNECTIONS_PATH = "/welcome/connections";
 /** The application opens in the task workspace (overall.md). */
 export const APP_HOME_PATH = "/now";
-
-/** Keep the fixed provider callback's result when the app gate resumes optional onboarding. */
-export function preserveConnectionCallback(destination: string, current: string): string {
-  if (destination !== ONBOARDING_CONNECTIONS_PATH) return destination;
-  const url = new URL(current, "https://symplist.invalid");
-  if (url.origin !== "https://symplist.invalid" || url.pathname !== "/settings/connections")
-    return destination;
-  const result = url.searchParams.get("result");
-  return result && ["connected", "failed", "cancelled"].includes(result)
-    ? `${destination}?result=${result}`
-    : destination;
-}
 
 /** The query parameter carrying a same-origin return path through sign-in (§14.5). */
 export const NEXT_PARAM = "next";
@@ -35,9 +22,9 @@ export function destinationPath(me: Pick<MeResponse, "destination" | "access">):
     case "app":
       return APP_HOME_PATH;
     case "onboarding":
-      return me.access.onboardingStep === "connections"
-        ? ONBOARDING_CONNECTIONS_PATH
-        : ONBOARDING_NAME_PATH;
+      // One page now, whichever step the account is stored at: an account left at `connections` has
+      // already given its name, so `/welcome` prefills it and the submit completes onboarding.
+      return ONBOARDING_NAME_PATH;
     case "beta_gate":
       return BETA_GATE_PATH;
     case "paused":

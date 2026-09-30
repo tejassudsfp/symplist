@@ -993,3 +993,201 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* ----------------------------------------------------------------------------------------------- *
+ * Labels
+ *
+ * A label is a dot in its own colour beside its name in the theme's text colour — never coloured text
+ * on a coloured pill. Eight of them on screen then read as a list instead of as eight highlights
+ * competing for the same glance, and the name stays as legible in every theme as any other row.
+ * ----------------------------------------------------------------------------------------------- */
+
+.sym-label-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sym-label-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+}
+
+.sym-label-filter {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+  padding: 0 0 8px;
+  border: 0;
+}
+
+.sym-label-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  max-width: 200px;
+  padding: 0 8px;
+  overflow: hidden;
+  border: 1px solid var(--sym-line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--sym-muted);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.sym-label-filter-chip:hover {
+  background: var(--sym-hover);
+  color: var(--sym-text);
+}
+
+.sym-label-filter-chip[data-on] {
+  border-color: var(--sym-accent);
+  background: var(--sym-accent-soft);
+  color: var(--sym-text);
+}
+
+.sym-label-count {
+  color: var(--sym-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.sym-label-filter-chip[data-on] .sym-label-count {
+  color: var(--sym-muted);
+}
+
+.sym-label-filter-clear {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--sym-muted);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.sym-label-filter-clear:hover {
+  background: var(--sym-hover);
+  color: var(--sym-text);
+}
+
+/* Settings -> Labels: one row per label, with its colour, its count and its controls. */
+.sym-label-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sym-label-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 6px;
+  border-radius: var(--sym-r);
+}
+
+.sym-label-row:hover {
+  background: var(--sym-hover);
+}
+
+.sym-label-row-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13.5px;
+}
+
+.sym-label-row-count {
+  flex: none;
+  color: var(--sym-muted);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.sym-label-row-tools {
+  display: flex;
+  flex: none;
+  gap: 4px;
+}
+
+.sym-label-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.sym-label-name-field {
+  flex: 1;
+  min-width: 160px;
+}
+
+.sym-label-form .sym-field-label {
+  display: block;
+  padding-bottom: 5px;
+}
+
+/* The eight colours as radio buttons: a swatch each, the chosen one ringed. */
+.sym-label-swatches {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.sym-label-swatch {
+  position: relative;
+  display: block;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.sym-label-swatch input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  appearance: none;
+  opacity: 0;
+  cursor: pointer;
+}
+
+/* The ring follows the real radio's checked state, not a duplicate attribute. */
+.sym-label-swatch:has(input:checked) {
+  box-shadow:
+    0 0 0 2px var(--sym-panel),
+    0 0 0 4px var(--sym-accent);
+}
+
+.sym-label-swatch:has(input:focus-visible) {
+  outline: 2px solid var(--sym-focus);
+  outline-offset: 2px;
+}

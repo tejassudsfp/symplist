@@ -141,7 +141,12 @@ function activeTask(state: OwnerTreeState, taskId: string): TaskRecord {
   return task;
 }
 
-export function toTaskNode(tree: ActiveTree, task: TaskRecord, depth: number): TaskNode {
+export function toTaskNode(
+  tree: ActiveTree,
+  task: TaskRecord,
+  depth: number,
+  labelIds: readonly string[] = [],
+): TaskNode {
   return {
     id: task.id,
     parentId: tree.effectiveParent(task),
@@ -153,6 +158,7 @@ export function toTaskNode(tree: ActiveTree, task: TaskRecord, depth: number): T
     source: sourceKind(task.source),
     version: task.version,
     childCount: tree.childrenOf(task.id).length,
+    labelIds: [...labelIds],
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
   } as TaskNode;
@@ -281,6 +287,11 @@ function nextState(
     keyRow: state.keyRow,
     tree: new ActiveTree(active.values()),
     archived,
+    // Carried through unchanged: this rebuilds the tree after a task write, and a task write never
+    // changes the owner's labels or which ones a task carries. Label writes invalidate the cache
+    // themselves rather than folding a new state here.
+    labels: state.labels,
+    taskLabels: state.taskLabels,
   });
 }
 

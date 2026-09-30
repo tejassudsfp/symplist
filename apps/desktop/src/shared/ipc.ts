@@ -3,16 +3,19 @@
  * process. Main and preload are bundled separately, so this module is the only place the two agree
  * on channel names and payload shapes; nothing here may import `electron` or `node:*`.
  *
- * Channels are namespaced `symplist:<group>/<action>`. A group is one main-process service — `host`,
- * `cloud`, `mcp`, `assistant` and `keychain` — and every group registers its handlers through
- * `registerIpcHandlers` in `src/main/ipc.ts`, which is where the sender check lives.
+ * Channels are namespaced `symplist:<group>/<action>`. A group is one main-process service — `host`
+ * and `cloud` — and each registers its handlers through `registerIpcHandlers` in `src/main/ipc.ts`,
+ * which is where the sender check lives.
  *
- * A group with more than a couple of channels keeps its own names and payload types in a module
- * beside this one and is merged in below; `assistant.ts` is that, because the harness bridge carries
- * a whole timeline vocabulary that has no business in this file.
+ * It is a small surface, and it used to be much larger. The shell carried an assistant, a model-key
+ * keychain and an MCP relay, because Simon ran inside this app. Note 18 replaced all of that with one
+ * sentence: **Symplist publishes tools, it does not run an agent.** The assistant is whatever MCP
+ * client the person already uses, it connects to the api's `/mcp` endpoint over OAuth, and this app
+ * is a list — so there is nothing for those channels to do.
+ *
+ * What is left is the reason the desktop app exists at all: a window, a link out to the operating
+ * system, and a cloud transport that main owns because the renderer must hold no session.
  */
-import { assistantChannels, assistantEventChannel } from "./assistant.ts";
-import { keychainChannels } from "./keychain.ts";
 
 /** Every channel the preload bridge is allowed to invoke. */
 export const ipcChannels = Object.freeze({
@@ -22,14 +25,6 @@ export const ipcChannels = Object.freeze({
   cloudRequest: "symplist:cloud/request",
   /** Cancels a request in flight, since an `AbortSignal` cannot cross the bridge. */
   cloudAbort: "symplist:cloud/abort",
-  /** Whether the assistant's Symplist tools can reach the workspace. */
-  mcpState: "symplist:mcp/state",
-  /** Re-checks the device's grant against the cloud; the renderer calls it on window focus. */
-  mcpReconcile: "symplist:mcp/reconcile",
-  /** Mints a replacement grant and retires the dead one. */
-  mcpReconnect: "symplist:mcp/reconnect",
-  ...assistantChannels,
-  ...keychainChannels,
 } as const);
 
 /**
@@ -38,24 +33,11 @@ export const ipcChannels = Object.freeze({
  */
 export const ipcEvents = Object.freeze({
   /**
-   * The assistant's access to the workspace changed — the grant was revoked, expired, re-minted, or the
-   * cloud is pacing requests. Pushed rather than polled so a revoke performed in the web UI does not wait
-   * for the renderer to ask.
-   */
-  mcpAccessChanged: "symplist:mcp/access-changed",
-  /**
    * The cloud session ended without the renderer asking — revoked elsewhere, expired, or refused on a
    * launch that restored it. The web app turns this into `SessionStore.markSignedOut({ expired: true })`,
    * which is the same path a 401 already takes.
    */
   cloudSessionEnded: "symplist:cloud/session-ended",
-  /**
-   * One thing happened inside a conversation: a committed message, a thought, a tool call moving
-   * through its lifecycle, a changed option set, or an approval the agent is blocked on. Pushed
-   * rather than polled because a turn is one `invoke` that settles only at the end — everything the
-   * user watches happen arrives here.
-   */
-  assistantEvent: assistantEventChannel,
 } as const);
 
 /** A channel name, used by the main-process registry to reject anything unregistered. */
@@ -68,15 +50,6 @@ export interface HostInfo {
   readonly appVersion: string;
   readonly platform: NodeJS.Platform;
   readonly electronVersion: string;
-  /**
-   * Whether this build carries the assistant runtime. The chat slot in apps/web mounts on this
-   * rather than on the bridge existing, so a shell without a harness shows no chat instead of a
-   * chat that cannot reply.
-   *
-   * It is deliberately *not* readiness: a device with a harness and no provider key still shows
-   * chat, because chat is where the "add a key" state belongs. Ask `assistant.status()` for that.
-   */
-  readonly assistant: boolean;
 }
 
 /** The result of asking the shell to hand a link to the operating system. */
@@ -107,26 +80,4 @@ export interface CloudResponsePayload {
   readonly status: number;
   readonly headers: readonly (readonly [string, string])[];
   readonly body: string;
-}
-
-/**
- * Whether the assistant can reach the Symplist workspace, which is a different question from whether the
- * assistant is running: the harness can be alive with its tools dead, and that is exactly the case worth
- * telling the user about rather than letting them watch an agent fail quietly.
- *
- * Three states, kept distinct because collapsing them would lie about what to do next:
- *
- *   - `connected` — the device's MCP grant works.
- *   - `reconnect` — it was revoked or has expired. `notice` says so and the renderer offers the repair.
- *   - `signed_out` — no account, so there is nothing to grant.
- *
- * Nothing here identifies the credential or the relay behind it. `grantId` is the id Settings → Agent
- * connections shows, so a person can match the app's row to the one they are looking at in the web UI.
- */
-export interface McpAccessInfo {
-  readonly state: "connected" | "reconnect" | "signed_out";
-  readonly grantId: string | null;
-  readonly expiresAt: number | null;
-  /** A sentence for the user when there is something to say, or `null` when all is well. */
-  readonly notice: string | null;
 }

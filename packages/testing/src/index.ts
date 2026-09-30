@@ -4,8 +4,6 @@
  * Vitest config is exported separately as `@symplist/testing/vitest`.
  */
 
-export * from "./contracts/ai/index.ts";
-export * from "./contracts/composio/index.ts";
 export * from "./contracts/executor/index.ts";
 export * from "./fakes/index.ts";
 export * from "./fixtures/index.ts";

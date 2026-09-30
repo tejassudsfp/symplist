@@ -6,6 +6,7 @@ import { type KeyboardEvent, type MouseEvent, useEffect, useRef } from "react";
 import { DeadlineChip } from "@/features/scheduling/deadline-chip";
 import { taskRowId } from "./controller.ts";
 import { useTaskDragState, useTaskRowDrag } from "./dnd.tsx";
+import { TaskRowLabels } from "./labels.tsx";
 import { TaskMenu } from "./task-menu.tsx";
 import { useWorkspace, useWorkspaceUi } from "./workspace-provider.tsx";
 
@@ -214,6 +215,7 @@ export function TaskRow({
             <span>{`${subtaskCount} subtask${subtaskCount === 1 ? "" : "s"}`}</span>
           ) : null}
           {task.source === "mcp" ? <span>Added by connected agent</span> : null}
+          <TaskRowLabels collection={collection} labelIds={task.labelIds} />
           <DeadlineChip taskId={task.id} />
         </span>
       </div>

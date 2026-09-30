@@ -11,6 +11,7 @@ import { collectionLabels } from "./commands.ts";
 import { QUICK_ADD_ID } from "./controller.ts";
 import { TaskDragProvider } from "./dnd.tsx";
 import { loadFailureCopy } from "./errors.ts";
+import { LabelFilterBar } from "./labels.tsx";
 import { TaskRow } from "./task-row.tsx";
 import { visibleRows } from "./tree.ts";
 import { useTaskCollection, useWorkspace, useWorkspaceUi } from "./workspace-provider.tsx";
@@ -50,6 +51,7 @@ export function TaskInbox({ collection }: TaskInboxProps) {
   const searchOpen = useWorkspaceUi((state) => state.searchOpen[collection]);
   const query = useWorkspaceUi((state) => state.queries[collection]);
   const expanded = useWorkspaceUi((state) => state.expanded);
+  const labelFilter = useWorkspaceUi((state) => state.labelFilter[collection]);
   const subDraft = useWorkspaceUi((state) => state.subDraft);
   const adding = useWorkspaceUi((state) =>
     [...state.pending].some((scope) => scope.startsWith(`create:${collection}:`)),
@@ -59,8 +61,8 @@ export function TaskInbox({ collection }: TaskInboxProps) {
   const scrollTops = useRef(new Map<TaskCollection, number>());
 
   const rows = useMemo(
-    () => visibleRows(snapshot.tasks, expanded, searchOpen ? query : ""),
-    [snapshot.tasks, expanded, searchOpen, query],
+    () => visibleRows(snapshot.tasks, expanded, searchOpen ? query : "", labelFilter),
+    [snapshot.tasks, expanded, searchOpen, query, labelFilter],
   );
 
   /**
@@ -92,7 +94,12 @@ export function TaskInbox({ collection }: TaskInboxProps) {
   const label = collectionLabels[collection];
   const listStatus = snapshot.status;
   const isEmpty = listStatus === "ready" && snapshot.tasks.length === 0;
-  const noMatches = searchOpen && query.trim().length > 0 && rows.length === 0 && !isEmpty;
+  const searching = searchOpen && query.trim().length > 0;
+  const filtering = labelFilter.length > 0;
+  const noMatches = (searching || filtering) && rows.length === 0 && !isEmpty;
+  const filterNames = snapshot.labels
+    .filter((label) => labelFilter.includes(label.id))
+    .map((label) => label.name);
 
   /**
    * Enter saves and hands focus to the task just created, so the next keystroke acts on it. Shift +
@@ -196,6 +203,8 @@ export function TaskInbox({ collection }: TaskInboxProps) {
         </div>
       ) : null}
 
+      <LabelFilterBar collection={collection} />
+
       {listStatus === "loading" && snapshot.tasks.length === 0 ? (
         <SkeletonLines label={`Loading ${label}`} />
       ) : null}
@@ -232,10 +241,27 @@ export function TaskInbox({ collection }: TaskInboxProps) {
       ) : null}
 
       {noMatches ? (
-        <p className="sym-inbox-note">{`No tasks in ${label} match “${query.trim()}”.`}</p>
+        <p className="sym-inbox-note">
+          {noMatchesCopy(label, searching ? query : "", filterNames)}
+        </p>
       ) : null}
     </div>
   );
+}
+
+/**
+ * Why a filtered list is showing nothing, naming whichever of the two controls is narrowing it. Both
+ * at once are named together, because a person who forgot one of them would otherwise be told the
+ * wrong reason.
+ */
+function noMatchesCopy(label: string, query: string, labelNames: readonly string[]): string {
+  const words = query.trim();
+  const named = labelNames.map((name) => `“${name}”`).join(" and ");
+  if (words.length > 0 && named.length > 0) {
+    return `No tasks in ${label} labelled ${named} match “${words}”.`;
+  }
+  if (named.length > 0) return `No tasks in ${label} are labelled ${named}.`;
+  return `No tasks in ${label} match “${words}”.`;
 }
 
 function TaskRowWithDraft({

@@ -262,6 +262,22 @@ export function useTaskCollection(collection: TaskCollection): CollectionSnapsho
   return snapshot;
 }
 
+/**
+ * One collection's tree as it is already loaded, without asking for it.
+ *
+ * For a surface that only *displays* what a loaded list holds — a task's label chips — so opening a task
+ * page directly does not spend a `GET /v1/tasks` on decoration (§3 D1 budget). A surface that needs the
+ * tree to act on it, such as the label picker, uses {@link useTaskCollection} instead.
+ */
+export function useLoadedTaskCollection(collection: TaskCollection): CollectionSnapshot {
+  const { tasks } = useWorkspace();
+  return useSyncExternalStore(
+    tasks.subscribe,
+    () => tasks.collection(collection),
+    () => tasks.collection(collection),
+  );
+}
+
 /** One task's detail (title, place, ancestors), loaded on first use. */
 export function useTaskDetail(taskId: string | null): DetailSnapshot {
   const { tasks } = useWorkspace();

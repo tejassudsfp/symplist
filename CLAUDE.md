@@ -4,33 +4,50 @@ Guidance for Claude Code (and any coding agent) working in this repository.
 
 # Symplist
 
-A calm, personal task workspace. Every task has one editable Markdown document with real Git history. The assistant (**Simon**) is a desktop application over this workspace, not part of it. Hosted as a free closed beta; fully self-hostable. MIT, by Tejas Parthasarathi Sudarshan.
+A calm, personal task workspace. Every task has one editable Markdown document with real Git history. **Symplist publishes its tools over MCP and runs no agent** — the assistant is whichever MCP client you already use. Hosted as a free closed beta; fully self-hostable. MIT, by Tejas Parthasarathi Sudarshan.
 
 Founding idea, and the tie-breaker for design arguments: **the most productive thing is often the most simple.**
 
 ## Direction — read `docs/notes/files/18_local_first_desktop.md` first
 
-**The assistant is leaving the browser.** A web agent that cannot run a command is a chat window with
-opinions: to do work it needs a CLI, a filesystem and a process, and a tab has none of those. So
-Simon moves to a desktop app on the DeepSeek Harness, and the cloud becomes what Obsidian's sync is
-— a place your data lives, not a place work happens.
+**Symplist is a list, and the assistant is not ours.** A web agent that cannot run a command is a
+chat window with opinions — but the answer was never to ship our own agent. Claude Code *is* the CLI.
+So the api publishes 20 tools over `/mcp` with the full OAuth flow, and the person points the client
+they already use at Symplist: it gets the task document, the section editor and search, plus their
+real shell in their real repository. We never hold a model key.
 
-Four phases: **(1)** strip chat from the cloud, **(2)** Electron shell with `dsh` over ACP, **(3)**
-local SQLite mode, **(4)** local→cloud promotion. Note 18 is binding and supersedes the parts of
-notes 07 and 12 that put Simon on the server.
+An embedded agent (`dsh` over ACP, in Electron) was built and deleted. It cost a 258MB vendored tree,
+an RC dependency, and a screen asking people to paste an OpenAI key into our app — for something
+strictly less capable than the client they already had open.
+
+**Two modes, no third:** cloud mode is the list everywhere (web + desktop, one account, MCP over
+OAuth); local mode is the list fully offline (local SQLite, no account, MCP over stdio).
+
+Phases: **(1)** strip chat from the cloud — done. **(2)** desktop shell — done. **(3)** local mode —
+next, and the reason `apps/desktop` exists. **(4)** local→cloud promotion. Note 18 is binding and
+supersedes the parts of notes 01, 07 and 12 that put Simon on the server, plus note 14's connectors.
+Note 19 specifies labels.
 
 ## Status
 
-**Released, and mid-phase-1.** Everything the cloud still owns shipped and was verified: workspace,
-documents over a real Git engine, scheduling/notifications, Vault, sharing/handoffs, connection
-links and incoming MCP, search, analytics/consent, access, and self-hosting. All 46 expand-only
-migrations were verified live.
+**Released; phases 1 and 2 done.** Everything the cloud owns shipped and was verified: workspace,
+labels, documents over a real Git engine, scheduling/notifications, Vault, sharing, search, the MCP
+endpoint with OAuth, analytics/consent, access, and self-hosting. All 51 expand-only migrations were
+verified live. `apps/desktop` installs as a DMG, signs in and shows the workspace.
 
-Phase 1 removed the agent from the server: `packages/agent`, `core/src/simon`, `core/src/ai`, the
-Simon and AI contracts, the web chat feature, the api's Simon module and the `simon-run` /
-`simon-chat` Trigger tasks are gone, and with them approvals, transcripts, run authority and
-deployment model keys. Their tables stay — migrations are expand-only — and simply stop being
-written.
+**Admission stays closed.** `BETA_ACCESS_REQUIRED` defaults to true and the hosted launch is invite
+only; opening it is a deliberate decision, not a default to drift into.
+
+Three removals, all of them deliberate, all of them leaving their tables behind because migrations
+are expand-only:
+
+- **The cloud agent** — `packages/agent`, `core/src/simon`, `core/src/ai`, the web chat feature, the
+  api's Simon module, `simon-run` / `simon-chat`, approvals, transcripts, run authority, BYOK.
+- **The desktop agent** — `desktop/main/harness` (`dsh` over ACP), the loopback MCP relay, the local
+  transcript store, the device keychain for model keys, `vendor-harness.mjs`.
+- **The connector layer** — `packages/integrations`, `core/src/connections`, the connector screens,
+  `connections-reconcile`, the `integration.*` errors. Its executor had been dead code since the
+  cloud agent left. The feature that survives under that name is MCP, and is called `mcp` now.
 
 New work is features, fixes, and docs — not catch-up. Verify claims with the commands below before reporting anything as passing.
 
@@ -46,11 +63,18 @@ pnpm 12.4.2 workspaces · Node 24 LTS (`>=24.15.0 <25`) · TypeScript 7.0.2 (`sk
 ## Layout
 
 ```
-apps/      api (NestJS) · web (Next.js) · worker (Trigger.dev) · e2e (Playwright)
-packages/  contracts config crypto db core storage email analytics search docs
-           integrations testing
+apps/      api (NestJS) · web (Next.js) · worker (Trigger.dev) · desktop (Electron) · e2e (Playwright)
+packages/  contracts config crypto db core storage email analytics search docs testing
 docs/notes/files/  18 numbered product notes (binding product decisions)
 ```
+
+`apps/desktop` is an Electron shell and nothing more: a window, the staged Next server, and the cloud
+session held in main so the renderer holds no token. It hosts no agent. Local mode (phase 3) is what
+it is for.
+
+The MCP endpoint is in `apps/api/src/modules/mcp/` — 20 tools (16 in `mcp-tools.ts`, 4 contributed by
+features through `mcp-extensions.ts`), grants, and the OAuth flow (dynamic client registration,
+authorize, consent). It is how an assistant reaches Symplist and the only way.
 
 ## Commands
 
@@ -88,10 +112,10 @@ implementation. It is not chat machinery and did not leave with the agent.
 stay ids/enums/counts only; encrypted content returns through the signed worker-to-API relay.
 
 Trigger tasks (`apps/worker/src/trigger/`): `symplist-healthcheck`, `account-purge`, `document-git`,
-`documents-maintenance`, `search-index`, `reminder-scan` (concurrency 1), `cleanup-hourly`,
-`connections-reconcile`. There is no chat task: `simon-run` and `simon-chat` are gone, and with them
-the `chat.agent` transcript-storage argument, the `sessions.start` / `.in` wake protocol and the
-prompts-in-code rule. Anything that needs a model belongs in the desktop app.
+`documents-maintenance`, `search-index`, `reminder-scan` (concurrency 1), `cleanup-hourly`. There is no
+chat task and no connector task: `simon-run`, `simon-chat` and `connections-reconcile` are gone, and
+with them the `chat.agent` transcript-storage argument, the `sessions.start` / `.in` wake protocol and
+the prompts-in-code rule. **Nothing here runs a model, and nothing here can.**
 
 ## Secret placement (enforced by config; wrong file = refuses to boot)
 
@@ -101,21 +125,27 @@ With `DURABLE=true`:
 | --- | --- | --- |
 | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `AWS_*`, `GOOGLE_VERTEX_*`, `TOGETHER_API_KEY` | **rejected** | **rejected** |
 | `TRIGGER_SECRET_KEY` | yes | **platform-injected, do not set** |
-| `RESEND_WEBHOOK_SECRET`, `COMPOSIO_WEBHOOK_SECRET`, `POSTHOG_PERSONAL_API_KEY` | yes | **rejected** |
-| `COMPOSIO_API_KEY`, `RESEND_API_KEY`, `POSTHOG_PROJECT_KEY` | yes | yes |
+| `COMPOSIO_API_KEY`, `COMPOSIO_WEBHOOK_SECRET` | **rejected** | **rejected** |
+| `RESEND_WEBHOOK_SECRET`, `POSTHOG_PERSONAL_API_KEY` | yes | **rejected** |
+| `RESEND_API_KEY`, `POSTHOG_PROJECT_KEY` | yes | yes |
 
-## The cloud runs no models
+## Nothing here runs a model, and nothing here calls a connector
 
 There is no `AI_*` configuration left. `AI_ENABLED`, `AI_DEFAULT_TIER`, the `AI_FAST_*` /
 `AI_SMART_*` pairs, `AI_PROVIDER_MODE`, `AI_TELEMETRY_ENABLED`, `AI_USAGE_LIMITS_ENABLED`,
-`QUICK_CHAT_TTL_HOURS` and `SIMON_CHAT_SESSIONS` configured an executor that no longer exists and
-were removed from `packages/config`, the env templates and `render.yaml`.
+`QUICK_CHAT_TTL_HOURS` and `SIMON_CHAT_SESSIONS` configured an executor that no longer exists.
+`LIVE_COMPOSIO` and `LIVE_OPENAI` named live suites that no longer exist. All of them were removed
+from `packages/config`, the env templates and `render.yaml`.
 
-The six model credentials in the table above stay **rejected on both runtimes** rather than being
-dropped from the inventory. An instance upgrading from the version that ran Simon still has them
-set, and failing to boot with the variable named is how its operator learns that the assistant — and
-the key it spends — moved to the desktop app. Silently ignoring a set `OPENAI_API_KEY` would leave
-them believing the server was still using it.
+The eight credentials marked rejected in the table above stay **in the inventory** rather than being
+dropped from it. An instance upgrading from a version that ran the assistant, or that had connectors,
+still has them set — and failing to boot with the variable named is how its operator learns the
+assistant moved to their own MCP client and the connectors went with it. Silently ignoring a set
+`OPENAI_API_KEY` or `COMPOSIO_API_KEY` would leave them believing the server was still spending it.
+
+The model key is now the sharpest version of this: it is not in D1, and it is not in a device keychain
+either. The client that calls the provider holds it. That stops being a property we enforce and becomes
+one we cannot violate.
 
 ## Hard rules
 

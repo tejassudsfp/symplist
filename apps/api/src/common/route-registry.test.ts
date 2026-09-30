@@ -119,8 +119,8 @@ describe("route-class coverage (§5.3)", () => {
       Pick<RegisteredRoute, "method" | "path"> & { access: boolean }
     > = {
       app: { method: "POST", path: "/v1/tasks", access: true },
+      local_owner: { method: "POST", path: "/v1/auth/local", access: false },
       pre_session: { method: "POST", path: "/v1/auth/otp", access: false },
-      connection_callback: { method: "GET", path: "/v1/connections/callback", access: true },
       share_form: { method: "POST", path: "/artifact/:id/password", access: false },
       share_read: { method: "GET", path: "/artifact/:id", access: false },
       oauth_public: { method: "POST", path: "/oauth/token", access: false },

@@ -1,4 +1,4 @@
-import { accentSeed, type ResolvedAccent, resolveAccent } from "./accent.ts";
+import { accentSeed, labelColors, type ResolvedAccent, resolveAccent } from "./accent.ts";
 import type { Appearance } from "./appearance.ts";
 import { renderedChrome, renderedPalette } from "./palette.ts";
 import {
@@ -95,6 +95,11 @@ export function themeColorVariables(
   const { adjusted: _adjusted, ...tokens } = accent;
   for (const [token, value] of Object.entries(tokens)) {
     variables[`--sym-${kebab(token)}`] = value;
+  }
+  // Label dots: eight fixed colours, independent of the account's chosen accent, so a label keeps its
+  // colour when the accent changes.
+  for (const [id, value] of Object.entries(labelColors(theme, mode))) {
+    variables[`--sym-label-${id}`] = value;
   }
   return variables;
 }

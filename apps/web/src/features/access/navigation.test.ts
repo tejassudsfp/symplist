@@ -16,9 +16,12 @@ describe("where an account belongs (§5.4)", () => {
     expect(destinationPath(mayaMe({ access: { ...admittedAccess, onboardingStep: "name" } }))).toBe(
       "/welcome",
     );
+    // Both onboarding steps lead to the one page there is. `connections` is still a stored value —
+    // columns are expand-only — and an account left at it has already given its name, so `/welcome`
+    // prefills it and one submit finishes.
     expect(
       destinationPath(mayaMe({ access: { ...admittedAccess, onboardingStep: "connections" } })),
-    ).toBe("/welcome/connections");
+    ).toBe("/welcome");
   });
 });
 
@@ -58,7 +61,7 @@ describe("the return path through sign-in (§14.5)", () => {
     expect(afterSignInPath(mayaMe({ access: lockedAccess }), "/settings/account")).toBe("/access");
     // An admitted account never returns into the gate or onboarding it left.
     expect(afterSignInPath(mayaMe(), "/access")).toBe("/now");
-    expect(afterSignInPath(mayaMe(), "/welcome/connections")).toBe("/now");
+    expect(afterSignInPath(mayaMe(), "/welcome")).toBe("/now");
     expect(afterSignInPath(mayaMe(), "https://evil.test")).toBe("/now");
   });
 });

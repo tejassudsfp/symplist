@@ -9,6 +9,11 @@
       "source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./r2": {
+      "source": "./src/r2-object-store.ts",
+      "types": "./dist/r2-object-store.d.ts",
+      "default": "./dist/r2-object-store.js"
     }
   },
   "files": [

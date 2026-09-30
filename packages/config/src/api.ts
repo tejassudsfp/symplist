@@ -5,6 +5,7 @@ import {
   type EnvRecord,
   enumVariable,
   integerWithDefaultVariable,
+  isLoopbackHostname,
   isSecureOrigin,
   mailboxVariable,
   optionalEmailVariable,
@@ -36,6 +37,15 @@ export interface ApiConfig extends SharedRuntimeConfig {
   /** Share host origin (§13.2). */
   ARTIFACT_ORIGIN: string;
   ADMIN_BOOTSTRAP_EMAIL?: string;
+  /**
+   * The per-launch secret that authorizes `POST /v1/auth/local`, required when `DEPLOYMENT=local`.
+   *
+   * A local api listens on loopback, where every other process on the machine can reach it, and that
+   * one route hands out the owner's session. The app that starts the api generates this, passes it in
+   * the child's environment, and is the only thing that knows it. It is never persisted and never the
+   * same twice.
+   */
+  LOCAL_OWNER_TOKEN?: string;
   /** Measured at first deploy (§5.8). */
   TRUST_PROXY_HOPS: number;
 
@@ -56,7 +66,6 @@ export interface ApiConfig extends SharedRuntimeConfig {
   CLOUDFLARE_D1_API_TOKEN?: string;
 
   RESEND_WEBHOOK_SECRET?: string;
-  COMPOSIO_WEBHOOK_SECRET?: string;
 
   /** Account deletion requests PostHog person deletion (§5.6). */
   POSTHOG_PERSONAL_API_KEY?: string;
@@ -82,6 +91,7 @@ export const apiVariableShape = {
 
   ARTIFACT_ORIGIN: originVariable("http"),
   ADMIN_BOOTSTRAP_EMAIL: optionalEmailVariable(),
+  LOCAL_OWNER_TOKEN: credentialVariable(),
   TRUST_PROXY_HOPS: optionalIntegerVariable({ min: 0, max: 10 }),
 
   OTP_LENGTH: integerWithDefaultVariable({ min: 6, max: 8, default: 6 }),
@@ -100,7 +110,6 @@ export const apiVariableShape = {
   CLOUDFLARE_D1_API_TOKEN: credentialVariable(),
 
   RESEND_WEBHOOK_SECRET: credentialVariable(),
-  COMPOSIO_WEBHOOK_SECRET: credentialVariable(),
 
   POSTHOG_PERSONAL_API_KEY: credentialVariable(),
   POSTHOG_PROJECT_ID: optionalPatternVariable(
@@ -126,13 +135,20 @@ function apiRuleIssues(fields: ApiFields): ConfigIssue[] {
     fields.CLOUDFLARE_D1_API_TOKEN,
   );
   const production = fields.NODE_ENV === "production";
+  const local = fields.DEPLOYMENT === "local";
 
   const artifact = parseOrigin(fields.ARTIFACT_ORIGIN, "http");
   if (artifact) {
-    if (production && !isSecureOrigin(artifact)) {
+    if (production && !local && !isSecureOrigin(artifact)) {
       issues.push({
         variable: "ARTIFACT_ORIGIN",
         message: "must use https when NODE_ENV=production",
+      });
+    }
+    if (local && !isLoopbackHostname(artifact.hostname)) {
+      issues.push({
+        variable: "ARTIFACT_ORIGIN",
+        message: "must be a loopback origin when DEPLOYMENT=local (127.0.0.1 or localhost)",
       });
     }
     for (const other of ["API_ORIGIN", "WEB_ORIGIN"] as const) {
@@ -144,6 +160,15 @@ function apiRuleIssues(fields: ApiFields): ConfigIssue[] {
         });
       }
     }
+  }
+
+  if (local && fields.LOCAL_OWNER_TOKEN === undefined) {
+    issues.push({
+      variable: "LOCAL_OWNER_TOKEN",
+      message:
+        "is required when DEPLOYMENT=local: POST /v1/auth/local hands out the owner's session and a " +
+        "loopback port is reachable by every process on the machine",
+    });
   }
 
   if (production && fields.TRUST_PROXY_HOPS === undefined) {

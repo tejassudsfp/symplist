@@ -147,6 +147,16 @@ export function renameInList(list: TaskList, id: string, title: string): TaskLis
   return next;
 }
 
+/** Replaces the labels a task carries. */
+export function setLabelsInList(list: TaskList, id: string, labelIds: readonly string[]): TaskList {
+  const index = indexOfTask(list, id);
+  const task = list[index];
+  if (!task) return list;
+  const next = [...list];
+  next[index] = { ...task, labelIds: [...labelIds] as TaskNode["labelIds"] };
+  return next;
+}
+
 /**
  * Completing only the parent (decision WS6): the task leaves the list and its direct subtasks, with
  * their own subtasks, become top-level tasks in the slot of its top-level ancestor (its own slot
@@ -218,23 +228,32 @@ function withSetPositions(rows: readonly Omit<VisibleRow, "posInSet" | "setSize"
 }
 
 /**
- * The rows the list shows: tasks whose ancestors are all expanded, or, while searching, every task
- * whose title matches together with its ancestors. The ancestors are kept because a tree whose levels
- * skip one (`aria-level` 1 straight to 3) is not navigable, and because a match reads better in its
- * place in the hierarchy; they are marked `matched: false` so the list can show them as context.
+ * The rows the list shows: tasks whose ancestors are all expanded, or, while searching or filtering by
+ * label, every task that matches together with its ancestors. The ancestors are kept because a tree
+ * whose levels skip one (`aria-level` 1 straight to 3) is not navigable, and because a match reads
+ * better in its place in the hierarchy; they are marked `matched: false` so the list can show them as
+ * context.
+ *
+ * A label filter narrows: a task has to carry every label in it. Combined with a query, both must hold
+ * — the two controls are read as one question, not as alternatives.
  */
 export function visibleRows(
   list: TaskList,
   expanded: ReadonlySet<string>,
   query = "",
+  labelIds: readonly string[] = [],
 ): VisibleRow[] {
   const needle = normalizeForSearch(query.trim());
-  if (needle) {
+  const filtering = needle.length > 0 || labelIds.length > 0;
+  if (filtering) {
+    const matches = (task: TaskNode) =>
+      (needle.length === 0 || normalizeForSearch(task.title).includes(needle)) &&
+      labelIds.every((id) => task.labelIds.includes(id));
     const byId = new Map(list.map((task) => [task.id as string, task]));
     const matched = new Set<string>();
     const shown = new Set<string>();
     for (const task of list) {
-      if (!normalizeForSearch(task.title).includes(needle)) continue;
+      if (!matches(task)) continue;
       matched.add(task.id);
       shown.add(task.id);
       let parentId: string | null = task.parentId;

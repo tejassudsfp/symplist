@@ -4,6 +4,7 @@ import { type KeyboardEvent, useEffect, useRef } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DeadlineChip } from "@/features/scheduling/deadline-chip";
 import { collectionLabels } from "./commands.ts";
+import { TaskHeaderLabels } from "./labels.tsx";
 import { TaskHistoryMenuItem, TaskMenu } from "./task-menu.tsx";
 import { useTaskDetail, useWorkspace, useWorkspaceUi } from "./workspace-provider.tsx";
 
@@ -130,6 +131,9 @@ export function TaskHeader({ taskId }: { readonly taskId: string }) {
           </span>
         ) : null}
         {parent ? <span className="sym-task-parent">{`in “${parent.title}”`}</span> : null}
+        {taskCollection && !archived ? (
+          <TaskHeaderLabels collection={taskCollection} taskId={taskId} />
+        ) : null}
         <DeadlineChip taskId={taskId} />
       </span>
       {archived || !taskCollection ? null : (

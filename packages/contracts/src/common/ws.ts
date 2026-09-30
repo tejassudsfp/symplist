@@ -234,7 +234,6 @@ export const userTopicEventOwners = Object.freeze({
   "document.head_changed": "documents",
   "schedule.changed": "scheduling",
   "vault.locked": "vault",
-  "connection.status_changed": "connections",
   "share_grant.changed": "sharing",
   "search.freshness": "search",
 } as const satisfies Readonly<Record<string, FeatureId>>);

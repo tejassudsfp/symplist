@@ -322,3 +322,31 @@ export function resolveAccent(
     adjusted: accent !== seedHex,
   };
 }
+
+/**
+ * The label dot colours for one theme and mode: every preset resolved to its own 3:1 fill.
+ *
+ * A label is drawn as a small dot in its colour beside the name in the theme's own text colour, never
+ * as coloured text on a coloured pill. Eight readable fills is all that needs, `accent` is already the
+ * token that means "3:1 against every surface", and the name stays as legible as any other row — which
+ * is the point: a list of labels should read at a glance, not shout in eight directions.
+ *
+ * Memoised per theme and mode: resolving eight presets walks lightness for each, and the appearance
+ * stylesheet is rebuilt on every preference change.
+ */
+const labelColorCache = new Map<string, Readonly<Record<AccentPresetId, string>>>();
+
+export function labelColors(
+  theme: ThemeDefinition,
+  mode: ColorMode,
+): Readonly<Record<AccentPresetId, string>> {
+  const key = `${theme.id}:${mode}`;
+  const cached = labelColorCache.get(key);
+  if (cached) return cached;
+  const resolved = Object.fromEntries(
+    accentPresetIds.map((id) => [id, resolveAccent(accentPresets[id].seed, theme, mode).accent]),
+  ) as Record<AccentPresetId, string>;
+  const frozen = Object.freeze(resolved);
+  labelColorCache.set(key, frozen);
+  return frozen;
+}

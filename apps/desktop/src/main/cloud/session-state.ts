@@ -62,31 +62,6 @@ export interface IdentitySnapshot {
   readonly accessGeneration: number;
 }
 
-/**
- * Device credentials whose lifetime follows the session. The MCP grant key dsh authenticates with is
- * the one that exists today, and the model provider key may join it.
- *
- * It is a hook rather than a direct call because the ordering is the part that matters and belongs here:
- * a grant survives session revocation (the mcp session-revoke contributor only expires pending
- * `oauth_requests`), so it must be revoked *before* the logout that would take away the authority to
- * revoke it.
- */
-export interface SessionCredentialHooks {
-  /** A live session, at a known access level. Provision what needs one; must not throw. */
-  established(identity: IdentitySnapshot): Promise<void>;
-  /** A sign-out is about to be sent. Release server-side credentials now; must not throw. */
-  beforeSignOut(): Promise<void>;
-  /** The session is gone. Drop local copies whatever happened on the server; must not throw. */
-  cleared(): Promise<void>;
-}
-
-/** Hooks that do nothing, for a shell with no device credentials yet. */
-export const noCredentialHooks: SessionCredentialHooks = Object.freeze({
-  established: async () => undefined,
-  beforeSignOut: async () => undefined,
-  cleared: async () => undefined,
-});
-
 /** How a restore attempt ended. */
 export type RestoreOutcome =
   /** A stored session answered `GET /v1/me`: the app opens signed in. */
@@ -104,7 +79,12 @@ export interface CloudSessionOptions {
   readonly log: MainLog;
   /** Told when the session ended without the renderer asking, so it can route to sign-in. */
   readonly onSessionEnded: () => void;
-  readonly credentials?: SessionCredentialHooks;
+  /**
+   * The session became established. Symmetric with `onSessionEnded`, and added for the renderer's
+   * `sym_hint`: the proxy redirects on that cookie's absence, so something has to say when a user
+   * is signed in, not only when they stop being.
+   */
+  readonly onSessionStarted?: () => void;
   readonly now?: () => number;
   /**
    * How long the launch confirmation may take. The window is created after `restore()` resolves, so an
@@ -184,11 +164,6 @@ export function identityOf(body: string): IdentitySnapshot | null {
   return snapshotOf(record) ?? snapshotOf(record?.me);
 }
 
-/** Whether an account at this destination may hold device credentials: it is past the beta gate. */
-export function isAdmitted(identity: IdentitySnapshot): boolean {
-  return identity.destination === "app" || identity.destination === "onboarding";
-}
-
 function isSignOutRequest(method: string, path: string): boolean {
   return method === "POST" && pathnameOf(path) === "/v1/auth/logout";
 }
@@ -208,14 +183,12 @@ function pathnameOf(path: string): string {
  */
 export class CloudSession {
   private readonly options: CloudSessionOptions;
-  private readonly credentials: SessionCredentialHooks;
   private readonly now: () => number;
   private identity: IdentitySnapshot | null = null;
   private signedIn = false;
 
   constructor(options: CloudSessionOptions) {
     this.options = options;
-    this.credentials = options.credentials ?? noCredentialHooks;
     this.now = options.now ?? Date.now;
   }
 
@@ -283,17 +256,8 @@ export class CloudSession {
   }
 
   /**
-   * Runs before a request leaves. Its one job is the sign-out ordering: a device credential the session
-   * authorizes revoking has to be revoked while the session is still alive.
-   */
-  async beforeRequest(method: string, path: string): Promise<void> {
-    if (!isSignOutRequest(method.toUpperCase(), path)) return;
-    await this.safely("credentials.before_sign_out", () => this.credentials.beforeSignOut());
-  }
-
-  /**
    * Runs after every answer. Persists a new session, clears a dead one, and keeps the last known
-   * destination so device credentials are provisioned as soon as the account is admitted.
+   * destination so the window can open on the screen the account belongs on.
    */
   async afterResponse(method: string, path: string, response: CloudResponse): Promise<void> {
     const upper = method.toUpperCase();
@@ -314,7 +278,7 @@ export class CloudSession {
     const identity = identityOf(response.body);
     if (!identity) return;
     if (isVerifyRequest(upper, path)) this.persist();
-    await this.markSignedIn(identity);
+    this.markSignedIn(identity);
   }
 
   /**
@@ -351,33 +315,13 @@ export class CloudSession {
     this.identity = null;
     this.options.jar.clear();
     this.options.store.clear(SESSION_SECRET_NAME);
-    await this.safely("credentials.cleared", () => this.credentials.cleared());
     if (options.notifyRenderer) this.options.onSessionEnded();
   }
 
-  private async markSignedIn(identity: IdentitySnapshot): Promise<void> {
-    const moved =
-      !this.signedIn ||
-      this.identity?.destination !== identity.destination ||
-      this.identity?.accessGeneration !== identity.accessGeneration;
+  private markSignedIn(identity: IdentitySnapshot): void {
+    const wasSignedOut = !this.signedIn;
     this.signedIn = true;
     this.identity = identity;
-    if (!moved) return;
-    if (!isAdmitted(identity)) return;
-    await this.safely("credentials.established", () => this.credentials.established(identity));
-  }
-
-  /**
-   * A credential hook must never take the session down with it. A grant that could not be minted is a
-   * feature that does not work yet; a sign-in that fails because of it is a broken app.
-   */
-  private async safely(event: string, run: () => Promise<void>): Promise<void> {
-    try {
-      await run();
-    } catch (error) {
-      this.options.log.error(event, {
-        reason: error instanceof Error ? error.name : "unknown",
-      });
-    }
+    if (wasSignedOut) this.options.onSessionStarted?.();
   }
 }

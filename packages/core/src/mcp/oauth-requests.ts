@@ -9,7 +9,7 @@ import {
 } from "@symplist/contracts";
 import { computeDigest, decryptFieldText, encryptFieldText, zeroize } from "@symplist/crypto";
 import { int, sql, uuidv7 } from "@symplist/db";
-import { connectionFoldCompletion } from "../connections/fold.ts";
+import { connectionFoldCompletion } from "./fold.ts";
 import {
   MCP_GRANT_LIFETIME_MS,
   type McpGrants,

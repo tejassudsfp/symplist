@@ -1,8 +1,8 @@
 import { accessEvents } from "./access/events.ts";
 import { analyticsEvents } from "./analytics/events.ts";
 import { type EventUnion, type ServerFrame, serverFrameSchemaFor } from "./common/ws.ts";
-import { connectionsEvents } from "./connections/events.ts";
 import { documentsEvents } from "./documents/events.ts";
+import { mcpEvents } from "./mcp/events.ts";
 import { schedulingEvents } from "./scheduling/events.ts";
 import { searchEvents } from "./search/events.ts";
 import { sharingEvents } from "./sharing/events.ts";
@@ -18,7 +18,7 @@ export const wsEventsByFeature = {
   scheduling: schedulingEvents,
   vault: vaultEvents,
   sharing: sharingEvents,
-  connections: connectionsEvents,
+  mcp: mcpEvents,
   analytics: analyticsEvents,
 } as const;
 
@@ -31,7 +31,7 @@ export const wsEvents = Object.freeze({
   ...schedulingEvents,
   ...vaultEvents,
   ...sharingEvents,
-  ...connectionsEvents,
+  ...mcpEvents,
   ...analyticsEvents,
 });
 

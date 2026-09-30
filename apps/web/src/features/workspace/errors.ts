@@ -55,7 +55,9 @@ export function classifyFailure(error: unknown): Failure {
           : {}),
       };
     }
-    if (code === "not_found") return { kind: "not_found", retryable: false };
+    if (code === "not_found" || code === "label.unknown") {
+      return { kind: "not_found", retryable: false };
+    }
     if (code === "task.archived") return { kind: "archived", retryable: false };
     if (
       code === "task.conflict" ||
@@ -67,7 +69,14 @@ export function classifyFailure(error: unknown): Failure {
     if (code === "task.placement_invalid" || code === "task.depth_limit") {
       return { kind: "invalid_place", retryable: false };
     }
-    if (code === "validation") return { kind: "invalid_input", retryable: false };
+    // A duplicate name and a reached cap are both fixable by typing something else, not by retrying.
+    if (
+      code === "validation" ||
+      code === "label.duplicate_name" ||
+      code === "label.limit_reached"
+    ) {
+      return { kind: "invalid_input", retryable: false };
+    }
     if (code === "auth.csrf_invalid" || code === "auth.origin_forbidden") {
       // The CSRF token is dropped after a 403, so the next attempt fetches a fresh one (W6).
       return { kind: "unexpected", retryable: true };

@@ -37,7 +37,7 @@ class ProbeRuns {
 
   contributor(): EventsContributor {
     return {
-      domain: "connections",
+      domain: "mcp",
       executionKinds: [
         {
           kind: PROBE_KIND,

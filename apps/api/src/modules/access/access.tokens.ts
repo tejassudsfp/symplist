@@ -7,5 +7,7 @@ export const ACCOUNT_ADMIN_SERVICE = "symplist:access:ACCOUNT_ADMIN_SERVICE";
 export const CAMPAIGN_REVOCATION_SERVICE = "symplist:access:CAMPAIGN_REVOCATION_SERVICE";
 export const ACTIVITY_SERVICE = "symplist:access:ACTIVITY_SERVICE";
 export const ADMIN_BOOTSTRAP_SERVICE = "symplist:access:ADMIN_BOOTSTRAP_SERVICE";
+/** The single owner of a local install; bound to null unless `DEPLOYMENT=local`. */
+export const LOCAL_OWNER_SERVICE = "symplist:access:LOCAL_OWNER_SERVICE";
 export const ACCOUNT_DELETION_REQUESTS = "symplist:access:ACCOUNT_DELETION_REQUESTS";
 /** The test-only OTP outbox; bound to null unless `NODE_ENV=test`. */

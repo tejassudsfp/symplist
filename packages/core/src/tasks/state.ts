@@ -3,6 +3,7 @@ import { zeroize } from "@symplist/crypto";
 import type { DbClient, DbRow, Statement } from "@symplist/db";
 import { sql } from "@symplist/db";
 import { AccountKeyStore, AccountKeyUnavailableError } from "../account/keys.ts";
+import { LABEL_COLUMNS, type LabelRecord, labelRecordFromRow } from "./labels.ts";
 import { ActiveTree, type TaskRecord } from "./model.ts";
 import {
   TASK_COLUMNS,
@@ -25,6 +26,17 @@ export interface OwnerTreeState {
   readonly tree: ActiveTree;
   /** Archived tasks read for this state (not every archived task of the owner). */
   readonly archived: ReadonlyMap<string, TaskRecord>;
+  /**
+   * Every label the owner has, oldest first, and which labels each task carries.
+   *
+   * Part of the tree state rather than a separate read, because they are read together on every page:
+   * folding both into the loader's one batch costs no extra D1 round trip, and on the worker lane a
+   * round trip is about seven seconds. It also means a label rename invalidates the same cache entry a
+   * task rename does, so the two can never disagree on screen.
+   */
+  readonly labels: readonly LabelRecord[];
+  /** Task id to the label ids it carries, in the owner's label order. */
+  readonly taskLabels: ReadonlyMap<string, readonly string[]>;
 }
 
 /**
@@ -167,6 +179,17 @@ export class TaskTreeLoader {
       sql(`SELECT ${TASK_COLUMNS} FROM tasks WHERE owner_id = :owner AND status = 'active'`, {
         owner: ownerId,
       }),
+      sql(`SELECT ${LABEL_COLUMNS} FROM labels WHERE owner_id = :owner ORDER BY created_at, id`, {
+        owner: ownerId,
+      }),
+      // Only the pairs of active tasks: an archived task's chips are read with the task itself, and
+      // carrying every historical pair here would grow this read with the size of the archive.
+      sql(
+        `SELECT tl.task_id, tl.label_id FROM task_labels tl
+         JOIN tasks t ON t.id = tl.task_id AND t.owner_id = tl.owner_id
+         WHERE tl.owner_id = :owner AND t.status = 'active'`,
+        { owner: ownerId },
+      ),
     ];
     const probe = [...new Set(options.probeTaskIds ?? [])];
     if (probe.length > 0) {
@@ -202,8 +225,27 @@ export class TaskTreeLoader {
     const key = this.accountKeys.unwrapRow(keyRow);
     try {
       const active = (rows[2] ?? []).map((row) => taskRecordFromRow(row, key));
+      const labels = (rows[3] ?? []).map((row) => labelRecordFromRow(row, key));
+      const order = new Map(labels.map((label, index) => [label.id, index]));
+      const taskLabels = new Map<string, string[]>();
+      for (const row of rows[4] ?? []) {
+        const taskId = row.task_id;
+        const labelId = row.label_id;
+        // A pair naming a label that is not in the list above cannot happen — the foreign key forbids
+        // it — but reading defensively keeps one odd row from throwing a whole page away.
+        if (typeof taskId !== "string" || typeof labelId !== "string") continue;
+        if (!order.has(labelId)) continue;
+        const existing = taskLabels.get(taskId);
+        if (existing) existing.push(labelId);
+        else taskLabels.set(taskId, [labelId]);
+      }
+      // Sorted into the owner's label order, so chips appear in the same order on every task rather
+      // than in whatever order the join happened to return.
+      for (const ids of taskLabels.values()) {
+        ids.sort((left, right) => (order.get(left) ?? 0) - (order.get(right) ?? 0));
+      }
       const archived = new Map<string, TaskRecord>();
-      for (const row of rows[3] ?? []) {
+      for (const row of rows[5] ?? []) {
         const record = taskRecordFromRow(row, key);
         archived.set(record.id, record);
       }
@@ -213,6 +255,8 @@ export class TaskTreeLoader {
         keyRow,
         tree: new ActiveTree(active),
         archived,
+        labels: Object.freeze(labels),
+        taskLabels,
       });
     } finally {
       zeroize(key.key);

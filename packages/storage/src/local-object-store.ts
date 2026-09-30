@@ -28,6 +28,18 @@ export interface LocalObjectStoreOptions {
   readonly root: string;
   /** Environment checked for `NODE_ENV=production`; defaults to `process.env`. */
   readonly env?: Readonly<Record<string, string | undefined>>;
+  /**
+   * Declares that this process is a single-user local install, for which the filesystem is the real
+   * object store rather than a stand-in — the Symplist desktop app offline (note 18,
+   * `DEPLOYMENT=local`).
+   *
+   * The `NODE_ENV=production` refusal below exists to stop a *hosted* deployment serving encrypted
+   * artifacts off one machine's disk: no durability, no replication, and nothing backing it up. None of
+   * that is an objection on one person's own machine, where the local disk is the point. It has to be
+   * said explicitly, so the guard keeps catching the deployment it was written for. Mirrors
+   * `LocalSqliteClient`.
+   */
+  readonly singleUserInstall?: boolean;
   /** Cap on bodies written and read; defaults to 100 MiB. */
   readonly maxBodyBytes?: number;
 }
@@ -97,10 +109,11 @@ export class LocalObjectStore implements ObjectStore {
 
   constructor(options: LocalObjectStoreOptions) {
     const env = options.env ?? process.env;
-    if (env.NODE_ENV === "production") {
+    if (env.NODE_ENV === "production" && options.singleUserInstall !== true) {
       throw new StorageError(
         "storage.production_refused",
-        "The local object store is a development adapter and refuses NODE_ENV=production",
+        "The local object store is a development adapter and refuses NODE_ENV=production; " +
+          "a single-user local install must say so with singleUserInstall",
       );
     }
     this.root = resolve(options.root);

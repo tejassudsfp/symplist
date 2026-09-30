@@ -1,7 +1,7 @@
 import { accessTools } from "./access/tools.ts";
 import { analyticsTools } from "./analytics/tools.ts";
-import { connectionsTools } from "./connections/tools.ts";
 import { documentsTools } from "./documents/tools.ts";
+import { mcpToolContracts } from "./mcp/tools.ts";
 import { schedulingTools } from "./scheduling/tools.ts";
 import { searchTools } from "./search/tools.ts";
 import { sharingTools } from "./sharing/tools.ts";
@@ -17,7 +17,7 @@ export const toolContractsByFeature = {
   scheduling: schedulingTools,
   vault: vaultTools,
   sharing: sharingTools,
-  connections: connectionsTools,
+  mcp: mcpToolContracts,
   analytics: analyticsTools,
 } as const;
 
@@ -30,7 +30,7 @@ export const toolContracts = Object.freeze({
   ...schedulingTools,
   ...vaultTools,
   ...sharingTools,
-  ...connectionsTools,
+  ...mcpToolContracts,
   ...analyticsTools,
 });
 

@@ -1,9 +1,13 @@
 # Symplist notes — reading order
 
-Product decisions and implementation specifications. The application is not implemented yet.
+Product decisions and implementation specifications.
 
-**Note 18 supersedes** the parts of notes 07 and 12 that place Simon in the cloud: the assistant now
-runs on the desktop and the cloud holds data. Current launch scope is a free closed beta with manually shared invites; earlier paid-plan ideas are deferred.
+**Note 18 supersedes** the parts of notes 01, 07 and 12 that place Simon in the cloud, and every part of
+notes 12 and 16 that describes an agent Symplist runs: **Symplist publishes its tools over MCP and does
+not run an agent.** The assistant is whichever MCP client the person already uses. Note 14's connector
+layer is gone with it. Read those notes for the document, search and sharing decisions they also carry,
+and read note 18 for who drives them. Current launch scope is a free closed beta with manually shared
+invites; earlier paid-plan ideas are deferred.
 
 | Order | Document | Purpose |
 | --- | --- | --- |
@@ -24,7 +28,8 @@ runs on the desktop and the cloud holds data. Current launch scope is a free clo
 | 15 | [Deadlines, reminders, and calendar](15_deadlines_reminders_calendar.md) | Time semantics, notifications, deterministic scheduling, and delivery |
 | 16 | [Simon handoffs and artifact sharing](16_simon_handoffs_and_artifact_sharing.md) | Facilitator scope, specialist prompts, encrypted snapshots, and read-only grants |
 | 17 | [Product analytics](17_analytics.md) | PostHog event allowlist, privacy, consent, and configuration |
-| 18 | [Local-first desktop](18_local_first_desktop.md) | Why the assistant leaves the browser, the DeepSeek Harness, and the four-phase port |
+| 18 | [The assistant is not ours](18_local_first_desktop.md) | Why Symplist publishes tools instead of running an agent, and the two modes |
+| 19 | [Labels](19_labels.md) | What a label is, why it is a dot and not a pill, the caps, and what an agent may do with one |
 
 
 The notes preserve current decisions; the design briefs expand them into visual states and explicitly mark new assumptions. No payment or automatic-invite flows belong in beta. Direct Trigger-to-browser output remains an evaluated alternative, not a confirmed replacement for backend delivery.

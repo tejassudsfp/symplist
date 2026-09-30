@@ -13,7 +13,7 @@ export interface ExecutorSwitchCliIo {
   readonly stderr: (line: string) => void;
   readonly now?: () => number;
   /** Builds the Trigger client from `TRIGGER_SECRET_KEY`; the entry point passes the SDK client. */
-  readonly createTrigger?: (secretKey: string) => TriggerRunsClient;
+  readonly createTrigger?: (secretKey: string) => Promise<TriggerRunsClient>;
   /** Test seam; production builds the D1 or local client from the config. */
   readonly createDb?: (config: ApiConfig) => DbClient;
   readonly registry?: (db: DbClient) => ExecutionRegistry;
@@ -94,7 +94,7 @@ export async function runExecutorSwitchCli(
   try {
     const db = (io.createDb ?? defaultDb)(config);
     const secretKey = config.TRIGGER_SECRET_KEY;
-    const trigger = secretKey && io.createTrigger ? io.createTrigger(secretKey) : null;
+    const trigger = secretKey && io.createTrigger ? await io.createTrigger(secretKey) : null;
     const registry =
       io.registry?.(db) ??
       new ExecutionRegistry(collectExecutionKinds(), db, config.BETA_ACCESS_REQUIRED);

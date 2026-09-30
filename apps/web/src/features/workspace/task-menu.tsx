@@ -18,6 +18,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { collectionLabels } from "./commands.ts";
+import { TaskLabelsMenu } from "./labels.tsx";
 import { taskMenuExtensions } from "./task-menu-extensions.ts";
 import type { TaskSurface } from "./ui-store.ts";
 import { useWorkspace, useWorkspaceUi } from "./workspace-provider.tsx";
@@ -62,8 +63,17 @@ export function TaskMenu({ task, surface, className, extra, tabIndex }: TaskMenu
     <DropdownMenu
       open={open}
       onOpenChange={(next) => {
-        if (next) ui.openMenu(task.id, "task", surface);
-        else close();
+        if (!next) {
+          close();
+          return;
+        }
+        /*
+         * Only a menu that was closed opens on its first page. Base UI can report "open" again while
+         * one is already showing — a refocus, a pointer landing back on the trigger — and taking that
+         * as a fresh open would throw the person from Move to… or Labels… back to the first page,
+         * which is what a slow machine made visible.
+         */
+        if (!open) ui.openMenu(task.id, "task", surface);
       }}
     >
       <DropdownMenuTrigger
@@ -76,9 +86,11 @@ export function TaskMenu({ task, surface, className, extra, tabIndex }: TaskMenu
       <DropdownMenuContent
         align="end"
         className="w-[212px]"
-        aria-label={kind === "move" ? "Move to" : "Task actions"}
+        aria-label={kind === "move" ? "Move to" : kind === "labels" ? "Labels" : "Task actions"}
       >
-        {kind === "move" ? (
+        {kind === "labels" ? (
+          <TaskLabelsMenu taskId={task.id} collection={task.collection} />
+        ) : kind === "move" ? (
           <DropdownMenuGroup>
             <DropdownMenuLabel>Move to</DropdownMenuLabel>
             {taskCollections
@@ -121,6 +133,13 @@ export function TaskMenu({ task, surface, className, extra, tabIndex }: TaskMenu
             >
               <span>Move to…</span>
               <Shortcut actionId="workspace.move_task" />
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              closeOnClick={false}
+              onClick={() => ui.openMenu(task.id, "labels", surface)}
+            >
+              <span>Labels…</span>
+              <Shortcut actionId="workspace.edit_labels" />
             </DropdownMenuItem>
             {taskMenuExtensions
               .filter((entry) => entry.available?.(task.id) ?? true)

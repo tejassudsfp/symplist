@@ -238,9 +238,6 @@ importers:
       '@symplist/email':
         specifier: workspace:*
         version: link:../../packages/email
-      '@symplist/integrations':
-        specifier: workspace:*
-        version: link:../../packages/integrations
       '@symplist/search':
         specifier: workspace:*
         version: link:../../packages/search
@@ -308,12 +305,6 @@ importers:
 
   apps/desktop:
     devDependencies:
-      '@agentclientprotocol/sdk':
-        specifier: 1.4.0
-        version: 1.4.0(zod@4.6.5)
-      '@symplist/db':
-        specifier: workspace:*
-        version: link:../../packages/db
       '@types/node':
         specifier: 24.13.4
         version: 24.13.4
@@ -503,9 +494,6 @@ importers:
       unified:
         specifier: 11.0.5
         version: 11.0.5
-      use-stick-to-bottom:
-        specifier: 1.1.6
-        version: 1.1.6(react@19.3.0)
       zod:
         specifier: 4.6.5
         version: 4.6.5
@@ -582,9 +570,6 @@ importers:
       '@symplist/email':
         specifier: workspace:*
         version: link:../../packages/email
-      '@symplist/integrations':
-        specifier: workspace:*
-        version: link:../../packages/integrations
       '@symplist/search':
         specifier: workspace:*
         version: link:../../packages/search
@@ -625,9 +610,6 @@ importers:
       '@symplist/contracts':
         specifier: workspace:*
         version: link:../contracts
-      posthog-js:
-        specifier: 1.433.4
-        version: 1.433.4(@types/react@19.3.0)(react@19.3.0)
       posthog-node:
         specifier: 5.52.3
         version: 5.52.3(rxjs@7.8.2)
@@ -644,6 +626,9 @@ importers:
       jsdom:
         specifier: 30.0.1
         version: 30.0.1(@noble/hashes@2.4.0)
+      posthog-js:
+        specifier: 1.433.4
+        version: 1.433.4(@types/react@19.3.0)(react@19.3.0)
       typescript:
         specifier: 7.0.2
         version: 7.0.2
@@ -706,9 +691,6 @@ importers:
       '@symplist/email':
         specifier: workspace:*
         version: link:../email
-      '@symplist/integrations':
-        specifier: workspace:*
-        version: link:../integrations
       '@symplist/search':
         specifier: workspace:*
         version: link:../search
@@ -851,31 +833,6 @@ importers:
         specifier: 5.0.1
         version: 5.0.1(@opentelemetry/api@1.9.1)(@types/node@24.13.4)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.3.0(@types/node@24.13.4)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))
 
-  packages/integrations:
-    dependencies:
-      '@composio/core':
-        specifier: 0.18.1
-        version: 0.18.1(@aws-sdk/credential-provider-node@3.972.83)(@smithy/signature-v4@5.7.3)(ws@8.21.3)(zod@4.6.5)
-      '@symplist/contracts':
-        specifier: workspace:*
-        version: link:../contracts
-      zod:
-        specifier: 4.6.5
-        version: 4.6.5
-    devDependencies:
-      '@symplist/testing':
-        specifier: workspace:*
-        version: link:../testing
-      '@types/node':
-        specifier: 24.13.4
-        version: 24.13.4
-      typescript:
-        specifier: 7.0.2
-        version: 7.0.2
-      vitest:
-        specifier: 5.0.1
-        version: 5.0.1(@opentelemetry/api@1.9.1)(@types/node@24.13.4)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.3.0(@types/node@24.13.4)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))
-
   packages/search:
     dependencies:
       '@symplist/contracts':
@@ -940,9 +897,6 @@ importers:
       '@symplist/storage':
         specifier: workspace:*
         version: link:../storage
-      ai:
-        specifier: 7.0.101
-        version: 7.0.101(zod@4.6.5)
       vite:
         specifier: 8.3.0
         version: 8.3.0(@types/node@24.13.4)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1)
@@ -964,11 +918,6 @@ packages:
 
   '@adobe/css-tools@4.5.0':
     resolution: {integrity: sha512-6OzddxPio9UiWTCemp4N8cYLV2ZN1ncRnV1cVGtve7dhPOtRkleRyx32GQCYSwDYgaHU3USMm84tNsvKzRCa1Q==}
-
-  '@agentclientprotocol/sdk@1.4.0':
-    resolution: {integrity: sha512-/eufudw+aFY1LKLolT6yFE6UMmYRl7fMJ/DEONSIyR6wI3slHWITBsANRGqXEY8FRzqUxwh7QEaGiZHcJPVThg==}
-    peerDependencies:
-      zod: ^3.25.0 || ^4.0.0
 
   '@ai-sdk/gateway@4.0.81':
     resolution: {integrity: sha512-9TdKEg2l/qfaK7L4gC1FkrHNBrEXQjZSV3DvkRLCXkOSJTzojmarCn19ROWBbrlHqFVbW7OSOwQqz1n7ku9HQA==}
@@ -1353,21 +1302,6 @@ packages:
   '@colors/colors@1.5.0':
     resolution: {integrity: sha512-ooWCrlZP11i8GImSjTHYHLkvFDP48nS4+204nGb1RiX/WXYHmJA2III9/e2DWVabCESdW7hBAEzHRqUn9OUVvQ==}
     engines: {node: '>=0.1.90'}
-
-  '@composio/client@0.1.0-alpha.76':
-    resolution: {integrity: sha512-MXC5JGRVdiQ4EgLricy9o/mqBa1+1T7wHFZ6Q4ZJkrjzZqOMvxTgy21Zlb5J/1oGkB2bg9UDzpH8PkXCp/D4zA==}
-
-  '@composio/core@0.18.1':
-    resolution: {integrity: sha512-VEg6F92cMG/4uhRfX6O4SRd+0Pnd4L67tF+Az/EXQ/+aPfDasW5GMTzkiSUSArGDyiMfEsLUYaTYizfnEw2usw==}
-    engines: {node: '>=22.22.3'}
-    peerDependencies:
-      zod: '>=3.25.76 <5'
-
-  '@composio/json-schema-to-zod@0.3.2':
-    resolution: {integrity: sha512-TUUzu4uQH6esokVd6LD0SK4oIz8WaYRtU0cnuj0rmxbiHS0VbhN1qdvj2gIvrIWDdNyvQUIalO63YT/lNx46Gw==}
-    engines: {node: '>=22.22.3'}
-    peerDependencies:
-      zod: '>=3.25.76 <5'
 
   '@csstools/color-helpers@6.1.1':
     resolution: {integrity: sha512-gLNsunvwf3mCi5u5o46/Z/JcJMnhbHSaZ69rkgPzNM3J4s8hWwpPUQB6/tt0EDFyCiWzxANlx+2LJwpYj4zS1w==}
@@ -2980,9 +2914,6 @@ packages:
   '@types/http-errors@2.0.5':
     resolution: {integrity: sha512-r8Tayk8HJnX0FztbZN7oVqGccWgw98T/0neJphO91KkmOzug1KkofZURD4UaD5uH8AqcFLfdPErnBod0u71/qg==}
 
-  '@types/json-schema@7.0.15':
-    resolution: {integrity: sha512-5+fP8P8MFNC+AyZCDxrB2pkZFPGzqQWUzpSeuuVLvm8VMcorNYavBqoFcxK8bQz4Qsbn4oUEEem4wDLfcysGHA==}
-
   '@types/keyv@3.1.4':
     resolution: {integrity: sha512-BQ5aZNSCpj7D6K2ksrRCTmKRLEpnPvWDiLPfoGyhZ++8YtiK9d/3DBKPJgry359X/P1PfruyYwvnvwFjuEiEIg==}
 
@@ -4494,9 +4425,6 @@ packages:
     resolution: {integrity: sha512-SbKbANkN603Vi4jEZv49LeVJMn4yGwsbzZworEoyEiutsN3nJYdbO36zfhGJ6QEDpOZIFkDtnq5JRxmvl3jsoQ==}
     engines: {node: '>=0.10.0'}
 
-  is-fs-case-sensitive@2.0.0:
-    resolution: {integrity: sha512-JoCsyGITdYPM+pUbeMQ4IiEuQ4wjPdeWORlG7n644isewbcxiQIr+9gmF5k7UabTP/jLBRkbgydEamR7JZBKHA==}
-
   is-fullwidth-code-point@3.0.0:
     resolution: {integrity: sha512-zymm5+u+sCsSWyD9qNaejV3DFvhCKclKdizYaJUuHA83RLjb7nSuGnddCHGv0hk+KY7BMAlsWeK4Ueg6EV6XQg==}
     engines: {node: '>=8'}
@@ -5348,30 +5276,6 @@ packages:
     resolution: {integrity: sha512-7x81NCL719oNbsq/3mh+hVrAWmFuEYUqrq/Iw3kUzH8ReypT9QQ0BLoJS7/G9k6N81XjW4qHWtjWwe/9eLy1EQ==}
     engines: {node: '>=12'}
 
-  openai@7.15.0:
-    resolution: {integrity: sha512-2DIwesnPSduw68MFx7nAdgvshrgvS8WOan5W8+tgUMlAy/tY+Q41g80Pa+w/v64rHA6rtn+dketa8QvMVxU96w==}
-    engines: {node: '>=22.0.0'}
-    peerDependencies:
-      '@aws-sdk/credential-provider-node': '>=3.972.0 <4'
-      '@smithy/hash-node': '>=4.3.0 <5'
-      '@smithy/signature-v4': '>=5.4.0 <6'
-      undici: '>=5 <9'
-      ws: ^8.21.0
-      zod: ^3.25 || ^4.0
-    peerDependenciesMeta:
-      '@aws-sdk/credential-provider-node':
-        optional: true
-      '@smithy/hash-node':
-        optional: true
-      '@smithy/signature-v4':
-        optional: true
-      undici:
-        optional: true
-      ws:
-        optional: true
-      zod:
-        optional: true
-
   ora@8.2.0:
     resolution: {integrity: sha512-weP+BZ8MVNnlCm8c0Qdc1WSWq4Qn7I+9CJGm7Qali6g44e/PUzbjNqJX5NJ9ljlNMosfJvg1fKEGILklK9cwnw==}
     engines: {node: '>=18'}
@@ -5686,9 +5590,6 @@ packages:
 
   pure-rand@6.1.0:
     resolution: {integrity: sha512-bVWawvoZoBYpp6yIoQtQXHZjmz35RSVHnUOTefl8Vcjr8snTPY1wnpSPMWekcFwbxI6gtmT7rSYPFvz71ldiOA==}
-
-  pusher-js@8.6.0:
-    resolution: {integrity: sha512-wShJPfCS/kYkCBVzVW67wa9cnQIgHTszEK2XHNrFkOgGruuGw081aERAxfRjfdFU+WcIt8x6dvbwkTW4iZuQ8Q==}
 
   pvtsutils@1.3.6:
     resolution: {integrity: sha512-PLgQXQ6H2FWCaeRak8vvk1GW462lMxB5s3Jm673N82zI4vqtVUPuZdffdZbPDFRoU8kAhItWFtPCWiPpp4/EDg==}
@@ -6310,9 +6211,6 @@ packages:
   tw-animate-css@1.4.0:
     resolution: {integrity: sha512-7bziOlRqH0hJx80h/3mbicLW7o8qLsH5+RaLR2t+OHM3D0JlWGODQKQ4cxbK7WlvmUxpcj6Kgu6EKqjrGFe3QQ==}
 
-  tweetnacl@1.0.3:
-    resolution: {integrity: sha512-6rt+RN7aOi1nGMyC4Xa5DdYiukl2UWCbcJft7YhxReBGQD7OAM8Pbxw6YMo4r2diNEA8FEmu32YOn9rhaiE5yw==}
-
   type-fest@0.13.1:
     resolution: {integrity: sha512-34R7HTnG0XIJcBSn5XhDd7nNFPRcXYRZrBB2O2jdKqYODldSzBAqzsWoZYYvduky73toYS/ESqxPvkDf/F0XMg==}
     engines: {node: '>=10'}
@@ -6405,11 +6303,6 @@ packages:
     hasBin: true
     peerDependencies:
       browserslist: '>= 4.21.0'
-
-  use-stick-to-bottom@1.1.6:
-    resolution: {integrity: sha512-z3Up8jYQGTkUCsGBnwg6/wj70KgXoW5Kz1AAc1j8MtQuYMBo6ZsdhrIXoegxa7gaMMilgQYyTohTrt3p94jHog==}
-    peerDependencies:
-      react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
   use-sync-external-store@1.7.0:
     resolution: {integrity: sha512-6L+EeigHMQhdaIPNIFUKwfWJSwWFQ8gJbJ2DLOs5sDIegTwR9fRxvnM3uciHKjIZhFz+KAv2emhWMRvDmMcY8A==}
@@ -6721,16 +6614,13 @@ snapshots:
 
   '@adobe/css-tools@4.5.0': {}
 
-  '@agentclientprotocol/sdk@1.4.0(zod@4.6.5)':
-    dependencies:
-      zod: 4.6.5
-
   '@ai-sdk/gateway@4.0.81(zod@4.6.5)':
     dependencies:
       '@ai-sdk/provider': 4.0.14
       '@ai-sdk/provider-utils': 5.0.40(zod@4.6.5)
       '@vercel/oidc': 3.2.0
       zod: 4.6.5
+    optional: true
 
   '@ai-sdk/provider-utils@5.0.40(zod@4.6.5)':
     dependencies:
@@ -6740,6 +6630,7 @@ snapshots:
       eventsource-parser: 3.1.1
       undici: 7.29.1
       zod: 4.6.5
+    optional: true
 
   '@ai-sdk/provider@4.0.14':
     dependencies:
@@ -7202,7 +7093,8 @@ snapshots:
 
   '@bugsnag/cuid@3.2.2': {}
 
-  '@cfworker/json-schema@4.1.1': {}
+  '@cfworker/json-schema@4.1.1':
+    optional: true
 
   '@clack/core@0.5.0':
     dependencies:
@@ -7297,33 +7189,6 @@ snapshots:
 
   '@colors/colors@1.5.0':
     optional: true
-
-  '@composio/client@0.1.0-alpha.76': {}
-
-  '@composio/core@0.18.1(@aws-sdk/credential-provider-node@3.972.83)(@smithy/signature-v4@5.7.3)(ws@8.21.3)(zod@4.6.5)':
-    dependencies:
-      '@composio/client': 0.1.0-alpha.76
-      '@composio/json-schema-to-zod': 0.3.2(zod@4.6.5)
-      '@types/json-schema': 7.0.15
-      is-fs-case-sensitive: 2.0.0
-      openai: 7.15.0(@aws-sdk/credential-provider-node@3.972.83)(@smithy/signature-v4@5.7.3)(undici@7.29.1)(ws@8.21.3)(zod@4.6.5)
-      picocolors: 1.1.1
-      pusher-js: 8.6.0
-      semver: 7.8.5
-      undici: 7.29.1
-      zod: 4.6.5
-      zod-to-json-schema: 3.25.2(zod@4.6.5)
-    transitivePeerDependencies:
-      - '@aws-sdk/credential-provider-node'
-      - '@smithy/hash-node'
-      - '@smithy/signature-v4'
-      - ws
-
-  '@composio/json-schema-to-zod@0.3.2(zod@4.6.5)':
-    dependencies:
-      '@cfworker/json-schema': 4.1.1
-      dequal: 2.0.3
-      zod: 4.6.5
 
   '@csstools/color-helpers@6.1.1': {}
 
@@ -9037,8 +8902,6 @@ snapshots:
 
   '@types/http-errors@2.0.5': {}
 
-  '@types/json-schema@7.0.15': {}
-
   '@types/keyv@3.1.4':
     dependencies:
       '@types/node': 24.13.4
@@ -9159,7 +9022,8 @@ snapshots:
 
   '@ungap/structured-clone@1.4.0': {}
 
-  '@vercel/oidc@3.2.0': {}
+  '@vercel/oidc@3.2.0':
+    optional: true
 
   '@vitejs/plugin-react@6.1.1(vite@8.3.0(@types/node@24.13.4)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))':
     dependencies:
@@ -9231,7 +9095,8 @@ snapshots:
 
   '@vue/shared@3.5.42': {}
 
-  '@workflow/serde@4.1.0': {}
+  '@workflow/serde@4.1.0':
+    optional: true
 
   '@xmldom/xmldom@0.8.15': {}
 
@@ -9261,6 +9126,7 @@ snapshots:
       '@ai-sdk/provider': 4.0.14
       '@ai-sdk/provider-utils': 5.0.40(zod@4.6.5)
       zod: 4.6.5
+    optional: true
 
   ajv-formats@2.1.1(ajv@8.20.0):
     optionalDependencies:
@@ -10668,8 +10534,6 @@ snapshots:
 
   is-extglob@2.1.1: {}
 
-  is-fs-case-sensitive@2.0.0: {}
-
   is-fullwidth-code-point@3.0.0: {}
 
   is-glob@4.0.3:
@@ -11573,14 +11437,6 @@ snapshots:
       is-docker: 2.2.1
       is-wsl: 2.2.0
 
-  openai@7.15.0(@aws-sdk/credential-provider-node@3.972.83)(@smithy/signature-v4@5.7.3)(undici@7.29.1)(ws@8.21.3)(zod@4.6.5):
-    optionalDependencies:
-      '@aws-sdk/credential-provider-node': 3.972.83
-      '@smithy/signature-v4': 5.7.3
-      undici: 7.29.1
-      ws: 8.21.3
-      zod: 4.6.5
-
   ora@8.2.0:
     dependencies:
       chalk: 5.6.2
@@ -11921,10 +11777,6 @@ snapshots:
   punycode@2.3.1: {}
 
   pure-rand@6.1.0: {}
-
-  pusher-js@8.6.0:
-    dependencies:
-      tweetnacl: 1.0.3
 
   pvtsutils@1.3.6:
     dependencies:
@@ -12760,8 +12612,6 @@ snapshots:
 
   tw-animate-css@1.4.0: {}
 
-  tweetnacl@1.0.3: {}
-
   type-fest@0.13.1:
     optional: true
 
@@ -12875,10 +12725,6 @@ snapshots:
       browserslist: 4.28.9
       escalade: 3.2.0
       picocolors: 1.1.1
-
-  use-stick-to-bottom@1.1.6(react@19.3.0):
-    dependencies:
-      react: 19.3.0
 
   use-sync-external-store@1.7.0(react@19.3.0):
     dependencies:
@@ -13090,10 +12936,6 @@ snapshots:
   zod-to-json-schema@3.25.2(zod@4.5.4):
     dependencies:
       zod: 4.5.4
-
-  zod-to-json-schema@3.25.2(zod@4.6.5):
-    dependencies:
-      zod: 4.6.5
 
   zod-validation-error@5.0.0(zod@4.5.4):
     dependencies:

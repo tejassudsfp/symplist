@@ -8,6 +8,7 @@ export * from "./evaluate.ts";
 export * from "./feature-error.ts";
 export * from "./fields.ts";
 export * from "./invites.ts";
+export * from "./local-owner.ts";
 export * from "./otp.ts";
 export * from "./profile.ts";
 export * from "./redemption.ts";

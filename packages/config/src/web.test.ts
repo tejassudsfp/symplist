@@ -131,15 +131,14 @@ describe("live suite flags (§17)", () => {
       LIVE_D1: true,
       LIVE_R2: false,
       LIVE_TRIGGER: false,
-      LIVE_COMPOSIO: false,
-      LIVE_OPENAI: false,
       LIVE_POSTHOG: false,
     });
   });
 
-  it.each(["true", "yes", "2", " 1"])("rejects LIVE_OPENAI=%j", (value) => {
-    expect(() => loadLiveTestFlags({ LIVE_OPENAI: value })).toThrow(
-      /LIVE_OPENAI: must be "1" to enable the live suite or "0" to skip it/,
+  it.each(["true", "yes", "2", " 1"])("rejects LIVE_POSTHOG=%j", (value) => {
+    // Anything but "1" or "0" is a typo that would silently skip a live suite someone meant to run.
+    expect(() => loadLiveTestFlags({ LIVE_POSTHOG: value })).toThrow(
+      /LIVE_POSTHOG: must be "1" to enable the live suite or "0" to skip it/,
     );
   });
 });

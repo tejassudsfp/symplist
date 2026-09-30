@@ -2,6 +2,11 @@ import type {
   ArchivedTaskNode,
   ArchiveQuery,
   ArchiveResponse,
+  LabelColour,
+  LabelCreate,
+  LabelList,
+  LabelUpdate,
+  LabelView,
   PreferenceDataByGroup,
   PreferenceEntry,
   PreferenceGroup,
@@ -14,13 +19,19 @@ import type {
   TaskCreateResponse,
   TaskDetailResponse,
   TaskId,
+  TaskLabels,
   TaskMoveRequest,
   TaskMoveResponse,
   TaskNode,
   TaskRenameResponse,
   TaskRestoreResponse,
 } from "@symplist/contracts";
-import { preferenceDefaults, preferenceGroups } from "@symplist/contracts";
+import {
+  LABEL_MAX_PER_TASK,
+  normalizeLabelName,
+  preferenceDefaults,
+  preferenceGroups,
+} from "@symplist/contracts";
 import { type RenderResult, render, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -57,6 +68,16 @@ export interface SeedTask {
   readonly parentId?: string;
   readonly preview?: string;
   readonly source?: TaskNode["source"];
+  /** Label ids this task carries; seed them with {@link FakeWorkspaceApi.seedLabel}. */
+  readonly labelIds?: readonly string[];
+}
+
+interface StoredLabel {
+  id: string;
+  name: string;
+  colour: LabelColour;
+  createdAt: number;
+  updatedAt: number;
 }
 
 interface StoredTask {
@@ -73,6 +94,7 @@ interface StoredTask {
   archivedWithRootId: string | null;
   createdAt: number;
   updatedAt: number;
+  labelIds: string[];
 }
 
 export type FailureKey =
@@ -84,7 +106,11 @@ export type FailureKey =
   | "restoreTask"
   | "listArchive"
   | "getPreferences"
-  | "putPreference";
+  | "putPreference"
+  | "createLabel"
+  | "updateLabel"
+  | "deleteLabel"
+  | "setTaskLabels";
 
 const now = Date.UTC(2026, 8, 16, 9, 0, 0);
 
@@ -95,6 +121,7 @@ function positionKey(index: number): string {
 /** An in-memory workspace api with the same observable behavior as the routes it stands in for. */
 export class FakeWorkspaceApi implements WorkspaceApi {
   private tasks: StoredTask[] = [];
+  private labels: StoredLabel[] = [];
   private sequence = 0;
   private preferences = new Map<PreferenceGroup, { version: number; data: unknown }>();
   /** One scripted failure per call, consumed on use; `persist` keeps failing. */
@@ -125,6 +152,52 @@ export class FakeWorkspaceApi implements WorkspaceApi {
       archivedWithRootId: null,
       createdAt: now + this.sequence,
       updatedAt: now + this.sequence,
+      labelIds: [...(task.labelIds ?? [])],
+    });
+  }
+
+  /** Adds a label the same way `POST /v1/labels` would, without going through a request. */
+  seedLabel(id: string, name: string, colour: LabelColour = "blue"): string {
+    this.sequence += 1;
+    this.labels.push({
+      id,
+      name: normalizeLabelName(name),
+      colour,
+      createdAt: now + this.sequence,
+      updatedAt: now + this.sequence,
+    });
+    return id;
+  }
+
+  /** The label ids a task carries, in the owner's label order. */
+  labelsOf(taskId: string): string[] {
+    return this.orderedLabelIds(this.byId(taskId)?.labelIds ?? []);
+  }
+
+  private orderedLabelIds(ids: readonly string[]): string[] {
+    return this.labels.filter((label) => ids.includes(label.id)).map((label) => label.id);
+  }
+
+  private labelViews(): LabelView[] {
+    return this.labels.map((label) => ({
+      id: label.id,
+      name: label.name,
+      colour: label.colour,
+      taskCount: this.tasks.filter(
+        (task) => task.status === "active" && task.labelIds.includes(label.id),
+      ).length,
+      createdAt: label.createdAt,
+      updatedAt: label.updatedAt,
+    }));
+  }
+
+  private labelError(status: number, code: string, details?: Record<string, unknown>): ApiError {
+    return new ApiError({
+      status,
+      code,
+      message: "Refused",
+      requestId: "req-test",
+      ...(details ? { details } : {}),
     });
   }
 
@@ -204,6 +277,7 @@ export class FakeWorkspaceApi implements WorkspaceApi {
       source: task.source,
       version: task.version,
       childCount: this.childrenOf(task.id, task.collection).length,
+      labelIds: this.orderedLabelIds(task.labelIds),
       createdAt: task.createdAt,
       updatedAt: task.updatedAt,
     };
@@ -253,8 +327,81 @@ export class FakeWorkspaceApi implements WorkspaceApi {
       collection,
       taskTreeVersion: this.sequence,
       tasks,
+      labels: this.labelViews(),
       nextCursor: offset + tasks.length < all.length ? `p:${offset + tasks.length}` : null,
     };
+  }
+
+  async listLabels(): Promise<LabelList> {
+    this.calls.push({ method: "listLabels", detail: null });
+    return { labels: this.labelViews() };
+  }
+
+  async createLabel(body: LabelCreate): Promise<LabelView> {
+    this.calls.push({ method: "createLabel", detail: body });
+    this.check("createLabel");
+    const name = normalizeLabelName(body.name);
+    const clash = this.labels.find(
+      (label) => label.name.localeCompare(name, undefined, { sensitivity: "accent" }) === 0,
+    );
+    if (clash) {
+      throw this.labelError(409, "label.duplicate_name", { labelId: clash.id });
+    }
+    this.sequence += 1;
+    const id = `label-${this.sequence}`;
+    this.seedLabel(id, name, body.colour);
+    return this.labelViews().find((label) => label.id === id) as LabelView;
+  }
+
+  async updateLabel(labelId: string, patch: LabelUpdate): Promise<LabelView> {
+    this.calls.push({ method: "updateLabel", detail: { labelId, patch } });
+    this.check("updateLabel");
+    const label = this.labels.find((candidate) => candidate.id === labelId);
+    if (!label) throw this.labelError(404, "label.unknown");
+    const name = patch.name === undefined ? label.name : normalizeLabelName(patch.name);
+    const clash = this.labels.find(
+      (candidate) =>
+        candidate.id !== labelId &&
+        candidate.name.localeCompare(name, undefined, { sensitivity: "accent" }) === 0,
+    );
+    if (clash) throw this.labelError(409, "label.duplicate_name", { labelId: clash.id });
+    label.name = name;
+    if (patch.colour !== undefined) label.colour = patch.colour;
+    this.sequence += 1;
+    label.updatedAt = now + this.sequence;
+    return this.labelViews().find((candidate) => candidate.id === labelId) as LabelView;
+  }
+
+  async deleteLabel(labelId: string): Promise<void> {
+    this.calls.push({ method: "deleteLabel", detail: labelId });
+    this.check("deleteLabel");
+    if (!this.labels.some((label) => label.id === labelId)) {
+      throw this.labelError(404, "label.unknown");
+    }
+    this.labels = this.labels.filter((label) => label.id !== labelId);
+    for (const task of this.tasks) {
+      task.labelIds = task.labelIds.filter((id) => id !== labelId);
+    }
+    this.sequence += 1;
+  }
+
+  async setTaskLabels(taskId: string, labelIds: readonly string[]): Promise<TaskLabels> {
+    this.calls.push({ method: "setTaskLabels", detail: { taskId, labelIds: [...labelIds] } });
+    this.check("setTaskLabels");
+    const unique = [...new Set(labelIds)];
+    if (unique.length > LABEL_MAX_PER_TASK) {
+      throw this.labelError(422, "label.limit_reached", { limit: LABEL_MAX_PER_TASK });
+    }
+    for (const id of unique) {
+      if (!this.labels.some((label) => label.id === id))
+        throw this.labelError(404, "label.unknown");
+    }
+    // An unknown task and an archived one are both "not there", as the route has it.
+    const task = this.byId(taskId);
+    if (task?.status !== "active") throw this.labelError(404, "not_found");
+    task.labelIds = unique;
+    this.sequence += 1;
+    return { taskId: taskId as TaskId, labelIds: this.orderedLabelIds(unique) };
   }
 
   async getTask(taskId: string): Promise<TaskDetailResponse> {
@@ -315,6 +462,7 @@ export class FakeWorkspaceApi implements WorkspaceApi {
       archivedWithRootId: null,
       createdAt: now,
       updatedAt: now,
+      labelIds: [],
     };
     this.tasks.push(task);
     return { task: this.node(task, this.depthOf(task)) };

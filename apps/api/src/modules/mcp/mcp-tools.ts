@@ -2,11 +2,14 @@ import { type CallToolResult, McpServer } from "@modelcontextprotocol/server";
 import {
   idSchema,
   isErrorCode,
+  mcpLabelCreateSchema,
+  mcpLabelListSchema,
   mcpTaskContextSchema,
   mcpTaskCreateSchema,
   mcpTaskListSchema,
   mcpTaskMoveSchema,
   mcpTaskSearchSchema,
+  mcpTaskSetLabelsSchema,
   taskDocumentChangesInputSchema,
   taskDocumentDiffInputSchema,
   taskDocumentHistoryInputSchema,
@@ -25,12 +28,13 @@ import {
 import {
   type McpGrants,
   type McpIdentity,
+  McpLabelTools,
   McpSearchTools,
   McpTaskTools,
   mcpAuthorization,
 } from "@symplist/core/mcp";
 import type { SearchQueryService } from "@symplist/core/search";
-import type { TaskService } from "@symplist/core/tasks";
+import { LabelService, type TaskService } from "@symplist/core/tasks";
 import { uuidv7 } from "@symplist/db";
 import { type McpToolExtension, registerMcpExtensions } from "./mcp-extensions.ts";
 
@@ -57,6 +61,7 @@ async function safe(work: () => Promise<unknown>): Promise<CallToolResult> {
 /** Core services instantiated from infrastructure, never another feature's Nest module. */
 export class McpTools {
   readonly tasks: McpTaskTools;
+  readonly labels: McpLabelTools;
   readonly documents: DocumentTools;
   readonly budgets: GrantRetrievalBudgets;
   readonly search: McpSearchTools;
@@ -69,6 +74,7 @@ export class McpTools {
     onTaskConfirmed?: McpTaskTools["onConfirmed"],
   ) {
     this.tasks = new McpTaskTools(grants, tasks, onTaskConfirmed);
+    this.labels = new McpLabelTools(grants, new LabelService(grants.options));
     this.search = new McpSearchTools(grants, queries);
     this.documents = new DocumentTools(repository);
     this.budgets = new GrantRetrievalBudgets({ now: grants.options.now });
@@ -161,6 +167,35 @@ export class McpTools {
         inputSchema: mcpTaskMoveSchema,
       },
       (args) => safe(() => this.tasks.move(identity, args)),
+    );
+    server.registerTool(
+      "label_list",
+      {
+        description:
+          "The labels usable here. A grant over particular tasks sees only the labels already on them.",
+        inputSchema: mcpLabelListSchema,
+        annotations: { readOnlyHint: true },
+      },
+      (args) => safe(() => this.labels.list(identity, args)),
+    );
+    server.registerTool(
+      "label_create",
+      {
+        description:
+          "Add a label to this list's vocabulary, or get back the one that already has the name. Requires all-task scope. There is no rename or delete: both would change tasks outside this grant.",
+        inputSchema: mcpLabelCreateSchema,
+      },
+      (args) => safe(() => this.labels.create(identity, args)),
+    );
+    server.registerTool(
+      "task_set_labels",
+      {
+        description:
+          "Replace the labels one task carries. Send the whole set; an empty list clears them.",
+        inputSchema: mcpTaskSetLabelsSchema,
+        annotations: { idempotentHint: true },
+      },
+      (args) => safe(() => this.labels.setTaskLabels(identity, args)),
     );
     server.registerTool(
       "task_document_outline",

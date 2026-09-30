@@ -301,12 +301,9 @@ test.describe("beta access, end to end", () => {
     await expectNoAxeViolations(page, testInfo, { label: "onboarding-name" });
     await evidence(page, testInfo, "onboarding-name");
     await page.getByLabel("Name").fill("Maya Rao");
+    // One page, one submit. The second step invited the person to connect services, and connectors
+    // left with the server-side agent (note 18) — so naming yourself completes onboarding.
     await page.getByRole("button", { name: "Continue" }).click();
-
-    await expect(page.getByRole("heading", { name: "Connect what you use" })).toBeVisible();
-    await expectNoAxeViolations(page, testInfo, { label: "onboarding-connections" });
-    await evidence(page, testInfo, "onboarding-connections");
-    await page.getByRole("button", { name: "Skip for now" }).click();
 
     await expect(page).toHaveURL(/\/now$/);
     await expect(page.getByRole("banner")).toBeVisible();

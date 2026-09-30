@@ -4,7 +4,7 @@
 
 A calm, open-source task workspace. Every task has one editable Markdown page with real Git history. Keep the surface simple; open deeper features only when you need them.
 
-**Simon, the assistant, is moving to a desktop application.** An assistant that cannot run a command is a chat window with opinions, so it needs a shell and a filesystem, which a browser tab will never have. The cloud is becoming what Obsidian's sync is: a place your data lives rather than a place work happens. See [the local-first desktop note](docs/notes/files/18_local_first_desktop.md); chat has been removed from this repository's web app and server.
+**Symplist publishes its tools and runs no assistant.** An assistant that cannot run a command is a chat window with opinions — and the tool that *can* is already on your machine. So the API exposes your tasks, your document's sections, its history and search over **MCP**, with an OAuth consent flow: point Claude Desktop, Claude Code or any MCP client at Symplist and it can read and edit your workspace alongside your real shell and your real repository. Your model key stays with your client; Symplist never holds one. See [the note](docs/notes/files/18_local_first_desktop.md) for why an embedded agent was built and then deleted.
 
 [Quickstart](#run-locally) · [Self-hosting guide](SELF_HOSTING.md) · [Product specification](docs/notes/files/01_product.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [MIT license](LICENSE)
 
@@ -14,16 +14,19 @@ A calm, open-source task workspace. Every task has one editable Markdown page wi
 - **Documents with real history** — Markdown backed by an actual Git engine, encrypted artifacts in object storage, and indexed publication in D1.
 - **Useful handoffs** — editable specialist prompts, reviewed read-only artifact snapshots, expiring links, password protection, or explicit public publication.
 - **Time-aware tasks** — optional deadlines, calendar views, quiet hours, snooze, persistent notifications, and reminder emails.
+- **Labels** — your own words for slices of your list, with a colour each, shown on the task and filtered from a bar above it.
 - **Fast navigation** — contextual keyboard shortcuts, a command palette, and scoped task/document search.
 - **Personal appearance** — Studio, Paper, Pebble, Postcard, Meadow, and Tide styles, independent preset/custom accent colors, and Light/Dark/System modes.
 - **Private storage** — encrypted task content at rest and a separately unlocked Vault for sensitive notes and keys.
-- **Connections and interoperability** — scoped integration tools behind Symplist contracts and an authenticated incoming MCP interface.
+- **Your assistant, connected** — 20 scoped tools over MCP with OAuth consent, per-grant task scoping, and revocation you control.
 
 ## Project status
 
-**Released and self-hostable.** The monorepo contains the workspace application: the Next.js web app, the NestJS API, an optional Trigger.dev worker, the shared packages, 46 expand-only database migrations, deployment configuration, and an automated test suite (unit, integration, browser, accessibility, visual, image, and smoke checks).
+**Released and self-hostable.** The monorepo contains the workspace application: the Next.js web app, the NestJS API, an optional Trigger.dev worker, the shared packages, 51 expand-only database migrations, deployment configuration, and an automated test suite (unit, integration, browser, accessibility, visual, image, and smoke checks).
 
-The assistant is not in it. Phase 1 of the desktop move removed the agent loop, chat, approvals and model credentials from the server; the tables they used remain, because migrations here are expand-only, and are no longer written.
+There is also a desktop application (`apps/desktop`): the same frontend in an Electron window with the cloud session held out of the renderer. It hosts no assistant either — a fully offline local mode is what it is for.
+
+No agent is in this repository. The server-side agent loop, chat, approvals and model credentials went first; an embedded desktop agent was built and removed after it proved strictly less capable than the client people already use; the Composio connector layer went with it, its executor having been dead code since the agent left. Every table those features used remains, because migrations here are expand-only, and is no longer written.
 
 The hosted launch is operated as a **free closed beta**: email verification creates an identity; a manually shared invite or administrator unlock grants access. Billing, paywalls, and AI-usage quotas are not part of the project.
 
@@ -35,7 +38,7 @@ The hosted launch is operated as a **free closed beta**: email verification crea
 | Public backend | NestJS; owns authentication, APIs, and WebSockets |
 | Structured storage | Cloudflare D1 through direct REST |
 | Encrypted object storage | Cloudflare R2 |
-| Connections | Composio account links, recorded for the desktop app to use |
+| Assistant interface | MCP over HTTP, with OAuth dynamic client registration and a consent screen |
 | Durable execution | Trigger.dev when `DURABLE=true`; Nest-local execution otherwise |
 | Transactional email | Resend |
 | Product analytics | PostHog (optional, default-off, explicit event allowlist) |
@@ -51,8 +54,9 @@ See the [document versioning](docs/notes/files/11_document_versioning.md) and [a
 | `apps/web` | Next.js application (workspace, documents, Vault, settings) |
 | `apps/api` | NestJS API (auth, sessions, WebSocket, executor boundary) |
 | `apps/worker` | Trigger.dev worker (durable mode) |
+| `apps/desktop` | Electron shell around the same frontend, with the session held out of the renderer |
 | `apps/e2e` | Playwright browser, accessibility, and visual suites |
-| `packages/` | `contracts` `config` `crypto` `db` `core` `storage` `email` `analytics` `search` `docs` `integrations` `testing` |
+| `packages/` | `contracts` `config` `crypto` `db` `core` `storage` `email` `analytics` `search` `docs` `testing` |
 | [`docs/notes/files/`](docs/notes/files/00_index.md) | Numbered product decisions and technical specifications |
 | [SELF_HOSTING.md](SELF_HOSTING.md) | Tested local setup, production deployment, operations, backup, and recovery |
 | [ROADMAP.md](ROADMAP.md) | What shipped and what is planned |
@@ -78,7 +82,7 @@ pnpm dev
 
 The template defaults to local SQLite/filesystem storage, console-delivered OTPs, and `DURABLE=false`, so no Cloudflare, Resend, or Trigger account is needed to boot. There is no model credential to add: the server runs no models.
 
-Read [SELF_HOSTING.md](SELF_HOSTING.md) before accepting real data or deploying to Vercel, Render, Cloudflare, Resend, Trigger.dev, Composio, or PostHog.
+Read [SELF_HOSTING.md](SELF_HOSTING.md) before accepting real data or deploying to Vercel, Render, Cloudflare, Resend, Trigger.dev, or PostHog.
 
 ## Development
 

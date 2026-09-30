@@ -40,13 +40,6 @@ export class RouteClassProbeController {
     return seen(req);
   }
 
-  @Get("connections/callback/guard-probe")
-  @RouteClass("connection_callback")
-  @Access("identity")
-  callback(@Req() req: Request) {
-    return seen(req);
-  }
-
   @Post("artifact/_probe/:id/password")
   @RouteClass("share_form")
   shareForm(@Req() req: Request) {

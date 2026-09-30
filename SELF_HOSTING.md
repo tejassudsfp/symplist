@@ -5,9 +5,11 @@ setup runs the Next.js web app and the NestJS API with `DURABLE=false`; schedule
 inside the always-on API process and no Trigger.dev account is required. A durable Trigger.dev
 deployment is an optional second topology.
 
-This deployment stores a workspace; it does not run an assistant. Simon runs in the desktop
-application, on a model key you give that application, so nothing here needs a provider credential —
-see [the local-first desktop note](docs/notes/files/18_local_first_desktop.md).
+This deployment stores a workspace; it does not run an assistant, and it cannot. The assistant is
+whichever MCP client you already use — Claude Desktop, Claude Code, anything that speaks MCP — pointed
+at this deployment's `/mcp` endpoint through an OAuth consent flow. That client holds the model key and
+calls the provider itself, so nothing here needs a provider credential and nothing here can spend one.
+See [the local-first desktop note](docs/notes/files/18_local_first_desktop.md).
 
 Symplist is MIT licensed, but a deployment still incurs the costs of the infrastructure and external
 providers you choose. Billing and paywalls are not part of this release.
@@ -217,9 +219,13 @@ Trigger.dev and must not be set by hand. Neither runtime may hold a model creden
 `ANTHROPIC_API_KEY`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `GOOGLE_VERTEX_CREDENTIALS_JSON`
 and `TOGETHER_API_KEY` are refused at startup on both.
 
-They are refused rather than ignored on purpose. An instance upgrading from the version that ran
-Simon on the server still has one of them set, and a startup failure naming the variable is how its
-operator learns that the assistant — and the key it spends — moved to the desktop application.
+`COMPOSIO_API_KEY` and `COMPOSIO_WEBHOOK_SECRET` are refused on both runtimes too: the connector layer
+they configured was removed with the assistant that used it.
+
+They are refused rather than ignored on purpose. An instance upgrading from a version that ran the
+assistant on the server, or that had connectors, still has one of them set — and a startup failure
+naming the variable is how its operator learns that the assistant, and the key it spends, moved to
+their own MCP client.
 
 Trigger hosts execution metadata containing IDs, enums, and counts only. Symplist does not use
 Trigger Sessions or Trigger chat streams; encrypted worker-to-API output is the durable path.
@@ -300,9 +306,9 @@ Skip this entire section when `DURABLE=false`.
 2. Put the production worker configuration in ignored `apps/worker/.env` by running
    `pnpm env:distribute`. Confirm `NODE_ENV=production`, `DATA_DRIVER=d1`, `EMAIL_DRIVER=resend`, and
    `DURABLE=true` before deploying.
-3. Confirm the worker contains its own D1 token, the R2/Resend/Composio credentials it uses, and
-   exactly the three shared secret families. It must not contain API-only digest/recovery/webhook
-   secrets or `TRIGGER_SECRET_KEY`.
+3. Confirm the worker contains its own D1 token, the R2 and Resend credentials it uses, and exactly
+   the three shared secret families. It must not contain API-only digest/recovery/webhook secrets,
+   `TRIGGER_SECRET_KEY`, or any model or Composio credential — those are refused at boot.
 4. Authenticate the pinned CLI with `pnpm --filter @symplist/worker exec trigger login`.
 5. Export your own project ref in the private shell environment, then deploy from the repository:
 
@@ -323,7 +329,6 @@ After deploy, confirm these schedules and queue families appear:
 - `reminder-scan`: `:00`, `:15`, and `:30` UTC, queue `reminder-scan`, concurrency 1;
 - `cleanup-hourly`: minute `:05` UTC;
 - document maintenance: minute `:35` UTC;
-- `connections-reconcile`: daily at `03:20` UTC;
 - D1 work uses only the checked-in `d1`, `d1-git`, and `reminder-scan` queues.
 
 The API's `TRIGGER_PROJECT_REF` must name the same project, and its Trigger secret must come from the
@@ -336,28 +341,24 @@ Substitute the exact production origins. Paths in this table are literal:
 
 | Provider/surface | URL | Notes |
 | --- | --- | --- |
-| Composio OAuth completion | `<API_ORIGIN>/v1/connections/callback` | Symplist appends a single-use attempt and nonce; enable callback identity verification in Composio |
-| Composio webhook | `<API_ORIGIN>/webhooks/composio` | No `/v1`; signed with `COMPOSIO_WEBHOOK_SECRET` |
 | Resend webhook | `<API_ORIGIN>/webhooks/resend` | No `/v1`; signed with `RESEND_WEBHOOK_SECRET` |
 | Incoming MCP | `<API_ORIGIN>/mcp` | Bearer `sym_` key or Symplist OAuth access token; cookies are ignored |
 | MCP protected-resource metadata | `<API_ORIGIN>/.well-known/oauth-protected-resource/mcp` | Resource/audience is exactly `<API_ORIGIN>/mcp` |
 | OAuth authorization-server metadata | `<API_ORIGIN>/.well-known/oauth-authorization-server` | Issuer is exactly `API_ORIGIN` |
 | OAuth consent UI | `<WEB_ORIGIN>/oauth/consent` | Opened from the API authorization flow |
 
-The actual Composio callback adds `?attempt=<generated-id>&n=<generated-nonce>` to the base URL. Never
-configure a fixed nonce or accept an arbitrary redirect destination.
-
 Subscribe the Resend endpoint to exactly `email.delivered`, `email.bounced`, `email.complained`,
 `email.failed`, `email.suppressed`, and `email.delivery_delayed`. Only a permanent bounce or complaint
 causes Symplist suppression. Both webhook handlers verify the raw body, reject a bad signature with
 400, and deduplicate provider receipt IDs.
 
-Composio is optional. Without its API key and webhook secret, connections remain unavailable; do not
-invent connector records in D1. The catalogue is fetched live and is not persisted.
+**MCP is how an assistant reaches this deployment, and it is the only way.** Nothing here runs a model
+or calls a connector; `OPENAI_API_KEY`, `COMPOSIO_API_KEY` and their siblings are refused at boot
+precisely so an operator upgrading from a version that had them finds out rather than keeps paying.
 
-The incoming MCP server is usable without Composio. OAuth access tokens last 15 minutes. MCP clients
-can also use an owner-created `sym_` bearer key and grant from Settings → Agents. This is the
-interface the desktop assistant uses to reach a workspace it does not host.
+OAuth access tokens last 15 minutes. A client may instead use an owner-created `sym_` bearer key and
+grant from Settings → Agent connections. Either way the grant is the owner's, scoped to the tools and
+optionally the tasks they chose, and revocable from that screen.
 
 ## 11. Bootstrap the administrator and admission
 
@@ -403,8 +404,9 @@ without logging private content or tokens:
 4. Edit a task's Markdown, save two revisions, inspect Changes, compare them, and restore the first.
    Run `git --version` in the Render shell and, in durable mode, confirm the Trigger build installed
    Git. No external Git host is involved.
-5. Connect a service from Settings → Connections, confirm it appears as linked, and disconnect it.
-   The deployment records the link only; it performs no connector action of its own.
+5. Create a grant in Settings → Agent connections, connect an MCP client to `<API_ORIGIN>/mcp` with
+   it, list tasks and edit a document section through the client, then revoke the grant and confirm
+   the next tool call is refused.
 6. Set up the Vault, allow it to idle-lock, unlock it, create an item, and perform the fresh-OTP reset
    flow. Ordinary login must not unlock the Vault.
 7. Create an artifact snapshot and expiring share. Open HTML and Raw Markdown in a signed-out private
@@ -623,7 +625,7 @@ the version's contracts match the API commit before promotion.
 | Artifact URL returns generic unavailable | Request it on the configured artifact hostname, not the API hostname; verify DNS/TLS and `ARTIFACT_ORIGIN`, then check expiry/revocation. Generic 404-style output intentionally hides whether private content exists. |
 | OTP email is missing | In development, read the API console with `EMAIL_DRIVER=log`. In production, verify Resend domain/sender/API key. The webhook is delivery tracking, not the sender. |
 | Reminder did not fire | Confirm an IANA timezone, top-of-hour semantics, quiet hours/snooze, max lateness, email preference, and that exactly one scheduler owner is running. Local mode requires an always-on API; durable mode requires deployed schedules. |
-| The web app shows no assistant | It has none. Simon is the desktop application; the web app is a viewer over the same workspace. |
+| The web app shows no assistant | It has none, by design. Connect an MCP client under Settings → Agent connections; it reads and edits the same workspace. |
 | Worker output cannot decrypt/verify | Stop retries and compare the names, versions, and offline fingerprints of the three shared families. Do not print values. Restore the missing historical version instead of generating a replacement under the same number. |
 | D1 returns 429 | Honor `Retry-After`; the client opens a circuit intentionally. Check that API/worker use separate scoped tokens and that no extra workers or inline Trigger queues bypass the fixed concurrency. |
 | Document saves/history fail | Run `git --version`; check private temp-directory permissions/free space and R2 access. `GIT_TMP_DIR` is disposable and must not be restored as durable state. |

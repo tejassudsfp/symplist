@@ -507,4 +507,82 @@ describe("incoming stateless MCP over both SDK protocol eras", () => {
       reader.callTool({ name: "task_search", arguments: { query: "needle" } }),
     ).rejects.toThrow();
   });
+
+  it("lists, adds and applies labels, and shows a scoped grant only the labels on its tasks", async () => {
+    const owner = await grant(["tasks:write"]);
+    const client = await connect(owner.key ?? "");
+    const names = (await client.listTools()).tools.map((tool) => tool.name);
+    expect(names).toEqual(
+      expect.arrayContaining(["label_list", "label_create", "task_set_labels"]),
+    );
+    // A person's own words are not an agent's to withdraw.
+    expect(names).not.toContain("label_rename");
+    expect(names).not.toContain("label_delete");
+
+    const work = textOutput(
+      await client.callTool({ name: "label_create", arguments: { name: "Work", colour: "blue" } }),
+    );
+    expect(work).toMatchObject({ name: "Work", colour: "blue", created: true });
+    // A retry whose first response was lost is told the id its first attempt made, which is why the
+    // tool needs no requestId.
+    const retried = textOutput(
+      await client.callTool({
+        name: "label_create",
+        arguments: { name: " work ", colour: "rose" },
+      }),
+    );
+    expect(retried).toMatchObject({ labelId: work.labelId, name: "Work", created: false });
+
+    const task = textOutput(
+      await client.callTool({
+        name: "task_create",
+        arguments: { title: "Labelled over MCP", requestId: uuidv7() },
+      }),
+    );
+    const set = await client.callTool({
+      name: "task_set_labels",
+      arguments: { taskId: task.taskId, labelIds: [work.labelId] },
+    });
+    expect(set.isError).not.toBe(true);
+    expect(textOutput(set)).toEqual({ taskId: task.taskId, labelIds: [work.labelId] });
+    expect(textOutput(await client.callTool({ name: "label_list", arguments: {} }))).toMatchObject({
+      labels: [expect.objectContaining({ id: work.labelId, taskCount: 1 })],
+    });
+
+    // A second label, on no task of the scoped grant below.
+    const other = textOutput(
+      await client.callTool({ name: "label_create", arguments: { name: "Home", colour: "green" } }),
+    );
+    const scoped = await app.post("/v1/mcp/grants", {
+      session: owner.session,
+      idempotencyKey: uuidv7(),
+      body: { name: "scoped agent", scopes: ["tasks:write"], taskIds: [task.taskId] },
+    });
+    expect(scoped.status, scoped.text).toBe(201);
+    const limited = await connect(mcpKeyResultSchema.parse(scoped.json()).key ?? "");
+    const visible = textOutput(await limited.callTool({ name: "label_list", arguments: {} }));
+    // Only the label already on its one task: a grant over one task is not a reason to learn the
+    // whole of someone's vocabulary.
+    expect(visible).toEqual({
+      labels: [expect.objectContaining({ id: work.labelId, name: "Work", taskCount: 1 })],
+    });
+    expect(JSON.stringify(visible)).not.toContain("Home");
+    expect(
+      (
+        await limited.callTool({
+          name: "task_set_labels",
+          arguments: { taskId: task.taskId, labelIds: [other.labelId] },
+        })
+      ).isError,
+    ).toBe(true);
+    // A label belongs to the whole list, so adding one needs all-task scope.
+    expect(
+      (
+        await limited.callTool({
+          name: "label_create",
+          arguments: { name: "Sneaked in", colour: "amber" },
+        })
+      ).isError,
+    ).toBe(true);
+  });
 });

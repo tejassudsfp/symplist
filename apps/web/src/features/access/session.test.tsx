@@ -225,7 +225,7 @@ describe("SessionGate", () => {
       </SessionGate>,
       { me: mayaMe({ access: { ...admittedAccess, onboardingStep: "connections" } }) },
     );
-    await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/welcome/connections"));
+    await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/welcome"));
   });
 
   it("keeps a locked account inside an identity-level group", async () => {

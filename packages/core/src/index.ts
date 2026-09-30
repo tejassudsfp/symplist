@@ -1,7 +1,6 @@
 export * as access from "./access/index.ts";
 export * as account from "./account/index.ts";
 export * as analytics from "./analytics/index.ts";
-export * as connections from "./connections/index.ts";
 export * as documents from "./documents/index.ts";
 export * from "./domains.ts";
 export * as events from "./events/index.ts";

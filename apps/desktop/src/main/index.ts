@@ -1,10 +1,15 @@
 /**
  * Symplist desktop: application lifecycle.
  *
- * Three processes live in this app. **main** (this file) owns everything privileged: the renderer's
- * Next server, the cloud session and the keychain it is stored in, and the assistant child.
- * **renderer** is the unchanged apps/web frontend with no privileges and no network reach of its own.
- * **dsh** is the assistant, a child process driven over ACP.
+ * Two processes live in this app. **main** (this file) owns everything privileged: the renderer's Next
+ * server, and the cloud session and the keychain it is stored in. **renderer** is the unchanged
+ * apps/web frontend with no privileges and no network reach of its own.
+ *
+ * There used to be a third. `dsh` ran here as a child driven over ACP, because Simon lived inside this
+ * app. Note 18 replaced that: Symplist publishes its tools over the api's `/mcp` endpoint and the
+ * assistant is whichever MCP client the person already uses — which is strictly more capable, since
+ * that client has their real shell in their real repository rather than a sandbox we chose. What this
+ * app is now is the list, on the desktop.
  *
  * Cloud traffic belongs in main, and that is not a preference. The api pins its first-party origin:
  * `route-classes.ts` requires `Origin === WEB_ORIGIN` for sign-in on every method, CORS allows exactly
@@ -21,19 +26,14 @@ import { ipcEvents } from "../shared/ipc.ts";
 import { CookieJar } from "./cloud/cookie-jar.ts";
 import { createCloudHttp } from "./cloud/http.ts";
 import { type CloudHandlers, createCloudHandlers } from "./cloud/ipc.ts";
-import { McpGrantStore } from "./cloud/mcp-grant.ts";
+import { clearSessionHint, setSessionHint } from "./cloud/session-hint.ts";
 import { CloudSession } from "./cloud/session-state.ts";
 import { type CloudConfig, resolveCloudConfig } from "./config.ts";
-import { readProviderKeys } from "./harness/provider-keys.ts";
-import { transcriptSessionBook } from "./harness/session-book.ts";
-import { HarnessSupervisor } from "./harness/supervisor.ts";
 import { registerIpcHandlers } from "./ipc.ts";
 import { createMainLog } from "./log.ts";
-import { deviceGrantSource, McpAccess } from "./mcp/index.ts";
 import { type RendererServer, startRendererServer } from "./next-server.ts";
 import { SecretStore } from "./secrets/secret-store.ts";
 import { captureWindow, smokeCapturePath } from "./smoke.ts";
-import { TranscriptStore } from "./transcripts.ts";
 import { createMainWindow } from "./window.ts";
 
 /**
@@ -47,9 +47,6 @@ const log = createMainLog();
 let rendererServer: RendererServer | null = null;
 let mainWindow: BrowserWindow | null = null;
 let cloudHandlers: CloudHandlers | null = null;
-let mcpAccess: McpAccess | null = null;
-let assistant: HarnessSupervisor | null = null;
-let transcripts: TranscriptStore | null = null;
 /** Resolved by `whenReady`; the secret store refuses to answer before that, and would answer wrongly. */
 let electronReady = false;
 
@@ -62,7 +59,12 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 // The product name, not the package name: `@symplist/desktop` would put a slash in the userData path.
-// Set before `whenReady`, because Electron resolves userData on first use.
+//
+// This call alone did not do it. Electron resolves the app name — and therefore userData — before
+// this module's top level runs in a packaged app, so userData landed in
+// `Application Support/@symplist/desktop`, the exact shape this line was written to avoid.
+// `productName` in package.json is what Electron actually reads, and it is set there now. This stays
+// for the development run and as the statement of intent.
 app.setName("Symplist");
 
 app.on("second-instance", () => {
@@ -82,20 +84,6 @@ app.on("before-quit", () => {
   if (server) void server.stop();
   // A request still in flight would resolve into a window that no longer exists.
   cloudHandlers?.abortAll();
-  // The relay outlives the window otherwise, and a listener holding a live bearer must not.
-  const mcp = mcpAccess;
-  mcpAccess = null;
-  if (mcp) void mcp.stop();
-  // Each harness child is a resident Node process holding the account's provider key in its
-  // environment. Nothing may outlive the app, so quit ends stdin — `dsh-acp-app` binds EOF to a
-  // bounded shutdown — then escalates to SIGTERM and SIGKILL on a timer.
-  const harness = assistant;
-  assistant = null;
-  if (harness) void harness.dispose();
-  // Closed after the harness, because disposing a child can still land a final update to append.
-  const store = transcripts;
-  transcripts = null;
-  store?.close();
 });
 
 /** The staged web build: under `Resources` when packaged, under `build/` when run from the workspace. */
@@ -103,19 +91,6 @@ function stagedWebRoot(): string {
   return app.isPackaged
     ? join(process.resourcesPath, "web")
     : join(import.meta.dirname, "..", "build", "web");
-}
-
-/**
- * The directory the assistant's shell and filesystem are scoped to.
- *
- * `dsh-base` pins `sandbox-policy.workspaceRoot` and `fs-sandbox` to the child's `process.cwd()`, so
- * this is the whole of what the agent can touch. It is the user's home by default rather than the
- * app bundle or `/`: an agent that can run `ls` is only useful over the files the user actually works
- * on, and a root of `/` would hand a model the entire disk on its first turn. The override exists for
- * development and for the day the product lets a workspace name its own directory.
- */
-function resolveWorkspaceRoot(): string {
-  return process.env.SYMPLIST_DESKTOP_WORKSPACE_ROOT ?? app.getPath("home");
 }
 
 function hardenSession(): void {
@@ -140,10 +115,10 @@ function hardenSession(): void {
 async function startCloud(
   config: CloudConfig,
   rendererWindow: () => BrowserWindow | null,
+  rendererOrigin: string,
 ): Promise<{
   readonly handlers: CloudHandlers;
-  readonly mcp: McpAccess;
-  /** Shared with the assistant, which reads the device's provider keys out of the same store. */
+  /** Where the session is persisted, and where an offline mode will keep its content key. */
   readonly store: SecretStore;
 }> {
   const jar = new CookieJar();
@@ -160,18 +135,27 @@ async function startCloud(
     jar,
     log,
   });
-  const grants = new McpGrantStore({ apiOrigin: config.apiOrigin, http, store, log });
+  const hintTarget = { session: session.defaultSession, origin: rendererOrigin };
   const cloudSession = new CloudSession({
     apiOrigin: config.apiOrigin,
     jar,
     store,
     http,
     log,
-    credentials: grants,
     onSessionEnded: () => {
       // The web app turns this into `markSignedOut({ expired: true })`, which routes to sign-in with the
       // notice it already has for a session that ended on its own.
       rendererWindow()?.webContents.send(ipcEvents.cloudSessionEnded);
+      void clearSessionHint(hintTarget).catch((error: unknown) => {
+        log.warn("cloud.hint_clear_failed", { message: String(error) });
+      });
+    },
+    onSessionStarted: () => {
+      // Without this the proxy sends a signed-in user to `/signin`, which asks `GET /v1/me`, learns
+      // they are signed in, and navigates back — forever. See `session-hint.ts`.
+      void setSessionHint(hintTarget).catch((error: unknown) => {
+        log.warn("cloud.hint_set_failed", { message: String(error) });
+      });
     },
   });
   if (!store.isAvailable()) {
@@ -181,22 +165,19 @@ async function startCloud(
   }
   const outcome = await cloudSession.restore();
   log.info("cloud.restore", { outcome, apiOrigin: config.apiOrigin });
+  // `restore` adopts a session without transitioning through signed-out, so the start signal does not
+  // fire for it. The renderer still needs the hint, or the first navigation loops.
+  if (cloudSession.currentIdentity() !== null) await setSessionHint(hintTarget);
+  else await clearSessionHint(hintTarget);
 
   /*
-   * The assistant's path to the workspace. It shares this transport and this grant store rather than
-   * holding a second copy of either: one credential, one cookie jar, one place a reviewer looks. The relay
-   * it starts is what the harness points at — the grant key itself never leaves this process.
+   * No MCP relay, and no device grant to mint for one.
+   *
+   * This app used to start a loopback relay and hold a `sym_` grant so the harness child could reach
+   * Symplist's tools. With the agent gone (note 18) the person's own MCP client connects to
+   * `<api>/mcp` directly over OAuth, which is a better arrangement than proxying: the grant is theirs,
+   * the consent screen is the api's, and no bearer token ever passes through this process.
    */
-  const mcp = new McpAccess({
-    grants: deviceGrantSource(grants, () => cloudSession.currentIdentity()),
-    http,
-    target: `${config.apiOrigin}/mcp`,
-    log,
-    onChange: (state) => {
-      rendererWindow()?.webContents.send(ipcEvents.mcpAccessChanged, state);
-    },
-  });
-  await mcp.start();
   return {
     handlers: createCloudHandlers({
       apiOrigin: config.apiOrigin,
@@ -204,7 +185,6 @@ async function startCloud(
       session: cloudSession,
       log,
     }),
-    mcp,
     store,
   };
 }
@@ -226,72 +206,10 @@ async function start(): Promise<void> {
   const cloudConfig = resolveCloudConfig();
   // Before the window exists, so a restored session is already known when the frontend first renders and
   // the sign-in screens are not shown to someone who is signed in.
-  const cloud = await startCloud(cloudConfig, () => mainWindow);
+  const cloud = await startCloud(cloudConfig, () => mainWindow, rendererOrigin);
   cloudHandlers = cloud.handlers;
-  mcpAccess = cloud.mcp;
 
-  /*
-   * The assistant. Constructed unconditionally and cheaply: nothing is spawned until a conversation is
-   * opened, and a build with no harness tree answers `available()` false, which is what the chat slot
-   * in apps/web mounts on. The workspace root is the directory the agent's shell and filesystem are
-   * scoped to — one child per root, and for now there is one root.
-   */
-  /*
-   * The local transcript store, and the only durable record a conversation has: ACP does not replay
-   * history and note 18 forbids the cloud holding one again. It also keeps each conversation's ACP
-   * session id, which is what lets `tryResume` rejoin a session after a relaunch instead of silently
-   * starting a fresh one — see `harness/session-book.ts` for why that distinction is worth the wiring.
-   */
-  const workspaceRoot = resolveWorkspaceRoot();
-  const transcriptStore = new TranscriptStore({
-    path: join(app.getPath("userData"), "transcripts.sqlite"),
-    log,
-  });
-  await transcriptStore.open();
-  transcripts = transcriptStore;
-
-  const supervisor = new HarnessSupervisor({
-    workspaceRoot,
-    userData: app.getPath("userData"),
-    keyring: { providerKeys: async () => readProviderKeys(cloud.store, log) },
-    sessionBook: transcriptSessionBook(transcriptStore, workspaceRoot),
-    tools: mcpAccess,
-    log,
-    emit: (event) => {
-      mainWindow?.webContents.send(ipcEvents.assistantEvent, event);
-    },
-  });
-  assistant = supervisor;
-
-  registerIpcHandlers({
-    rendererOrigin,
-    log,
-    assistant: supervisor.available(),
-    assistantService: supervisor,
-    cloud: cloudHandlers,
-    mcp: mcpAccess,
-    // The same store the cloud session persists into and `readProviderKeys` reads from: one keychain in
-    // this app, and one place to audit what is in it.
-    keychain: cloud.store,
-    onKeychainChanged: () => {
-      /*
-       * A harness child receives the provider key in its environment when it is spawned, so a child that
-       * started before the key existed can never see it. Restarting makes the next prompt spawn a fresh
-       * one that reads the key just added. Without this, adding a key in Settings appears to do nothing
-       * until the app is restarted — and nothing tells the user that.
-       */
-      void supervisor.restart().then(
-        () => {
-          log.info("assistant.restarted_for_key");
-        },
-        (error: unknown) => {
-          log.warn("assistant.restart_failed", {
-            message: error instanceof Error ? error.message : "unknown",
-          });
-        },
-      );
-    },
-  });
+  registerIpcHandlers({ rendererOrigin, log, cloud: cloudHandlers });
 
   const window = createMainWindow({
     rendererOrigin,

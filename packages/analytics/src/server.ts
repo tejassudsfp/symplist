@@ -1,5 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { PostHog, type PostHogOptions } from "posthog-node";
+// Type-only: erased at compile time, so it puts nothing in the module graph. The client itself is
+// loaded on demand in `createServerAnalytics` — see the note there.
+import type { PostHogOptions } from "posthog-node";
 import { checkOutgoingEvent, posthogUsAppHost, posthogUsIngestHost } from "./config.ts";
 import {
   type AnalyticsEventName,
@@ -140,7 +142,19 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
-export function createServerAnalytics(options: ServerAnalyticsOptions): ServerAnalyticsEmitter {
+/**
+ * The server analytics emitter, with `posthog-node` loaded on demand.
+ *
+ * Async and dynamically imported for one reason: `posthog-node` and its tree are about 27MB that only a
+ * deployment with `ANALYTICS_ENABLED=true` and a project key ever calls. A static import would put them
+ * in the module graph of every consumer — including the api running on one person's machine with no
+ * network at all, which the Symplist desktop app ships (note 18, `DEPLOYMENT=local`). The disabled path
+ * already returned a no-op emitter without touching the client; now it does so without loading it
+ * either, and a deployment that cannot reach PostHog need not install it.
+ */
+export async function createServerAnalytics(
+  options: ServerAnalyticsOptions,
+): Promise<ServerAnalyticsEmitter> {
   const projectKey = options.projectKey?.trim();
   const enabled = options.enabled && projectKey !== undefined && projectKey !== "";
   const warn = (entry: ServerAnalyticsLogEntry) => {
@@ -162,8 +176,11 @@ export function createServerAnalytics(options: ServerAnalyticsOptions): ServerAn
   }
 
   const maxQueueSize = Math.max(1, options.maxQueueSize ?? 1000);
+  // Checked before the import, so a misconfigured host fails without loading 27MB to find out.
+  const host = checkHttpsOrigin(options.host ?? posthogUsIngestHost, "POSTHOG_HOST");
+  const { PostHog } = await import("posthog-node");
   const client = new PostHog(projectKey, {
-    host: checkHttpsOrigin(options.host ?? posthogUsIngestHost, "POSTHOG_HOST"),
+    host,
     disableGeoip: true,
     enableExceptionAutocapture: false,
     disableRemoteConfig: true,

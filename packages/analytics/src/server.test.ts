@@ -66,9 +66,9 @@ function fakeIngest(behaviour: { status?: number; hang?: boolean } = {}) {
   return { fetch, requests };
 }
 
-function emitter(overrides: Partial<ServerAnalyticsOptions> & { fetch: PostHogNodeFetch }) {
+async function emitter(overrides: Partial<ServerAnalyticsOptions> & { fetch: PostHogNodeFetch }) {
   const logs: ServerAnalyticsLogEntry[] = [];
-  const instance = createServerAnalytics({
+  const instance = await createServerAnalytics({
     enabled: true,
     projectKey: "phc_fictional_server_key",
     delivery: "batched",
@@ -92,7 +92,7 @@ afterEach(() => {
 describe("server analytics emitter (§15)", () => {
   it("relays client-owned allowlisted events without SDK URL/referrer/profile defaults", async () => {
     const { fetch, requests } = fakeIngest();
-    const { instance } = emitter({ fetch });
+    const { instance } = await emitter({ fetch });
     expect(
       await instance.captureClient?.({
         subject: granted,
@@ -132,7 +132,7 @@ describe("server analytics emitter (§15)", () => {
   it("is a no-op that makes zero requests when disabled or unconfigured", async () => {
     for (const overrides of [{ enabled: false }, { projectKey: undefined }, { projectKey: " " }]) {
       const { fetch, requests } = fakeIngest();
-      const { instance } = emitter({ fetch, ...overrides });
+      const { instance } = await emitter({ fetch, ...overrides });
       expect(instance.enabled).toBe(false);
       expect(
         await instance.capture({
@@ -150,7 +150,7 @@ describe("server analytics emitter (§15)", () => {
 
   it("checks stored consent and identity before capturing", async () => {
     const { fetch, requests } = fakeIngest();
-    const { instance } = emitter({ fetch });
+    const { instance } = await emitter({ fetch });
     for (const consent of ["unset", "denied"] as const) {
       expect(
         await instance.capture({
@@ -175,7 +175,7 @@ describe("server analytics emitter (§15)", () => {
 
   it("rejects unknown events, client-owned events, free text and bad event ids", async () => {
     const { fetch, requests } = fakeIngest();
-    const { instance } = emitter({ fetch });
+    const { instance } = await emitter({ fetch });
     const untyped = instance.capture as (input: unknown) => Promise<unknown>;
     expect(
       await untyped({ subject: granted, event: "page_viewed", properties: {}, eventId }),
@@ -208,7 +208,7 @@ describe("server analytics emitter (§15)", () => {
 
   it("queues batched events and sends only allowlisted properties when flushed", async () => {
     const { fetch, requests } = fakeIngest();
-    const { instance } = emitter({ fetch, flushAt: 50, flushIntervalMs: 60_000 });
+    const { instance } = await emitter({ fetch, flushAt: 50, flushIntervalMs: 60_000 });
 
     expect(
       await instance.capture({
@@ -239,7 +239,7 @@ describe("server analytics emitter (§15)", () => {
 
   it("flushes queued events on shutdown and refuses captures afterwards", async () => {
     const { fetch, requests } = fakeIngest();
-    const { instance } = emitter({ fetch, flushAt: 50, flushIntervalMs: 60_000 });
+    const { instance } = await emitter({ fetch, flushAt: 50, flushIntervalMs: 60_000 });
     await instance.capture({
       subject: granted,
       event: "quick_chat_saved",
@@ -263,7 +263,7 @@ describe("server analytics emitter (§15)", () => {
 
   it("sends immediately in worker mode", async () => {
     const { fetch, requests } = fakeIngest();
-    const { instance } = emitter({ fetch, delivery: "immediate" });
+    const { instance } = await emitter({ fetch, delivery: "immediate" });
     expect(
       await instance.capture({
         subject: granted,
@@ -283,7 +283,7 @@ describe("server analytics emitter (§15)", () => {
 
   it("never throws or blocks on provider failures, and logs codes only", async () => {
     const failing = fakeIngest({ status: 500 });
-    const failed = emitter({ fetch: failing.fetch, delivery: "immediate" });
+    const failed = await emitter({ fetch: failing.fetch, delivery: "immediate" });
     expect(
       await failed.instance.capture({
         subject: granted,
@@ -297,7 +297,11 @@ describe("server analytics emitter (§15)", () => {
     await failed.instance.shutdown();
 
     const hanging = fakeIngest({ hang: true });
-    const slow = emitter({ fetch: hanging.fetch, delivery: "immediate", immediateTimeoutMs: 20 });
+    const slow = await emitter({
+      fetch: hanging.fetch,
+      delivery: "immediate",
+      immediateTimeoutMs: 20,
+    });
     const started = Date.now();
     expect(
       await slow.instance.capture({
@@ -314,7 +318,7 @@ describe("server analytics emitter (§15)", () => {
     });
 
     const batchedFailing = fakeIngest({ status: 503 });
-    const batched = emitter({ fetch: batchedFailing.fetch, shutdownTimeoutMs: 200 });
+    const batched = await emitter({ fetch: batchedFailing.fetch, shutdownTimeoutMs: 200 });
     await batched.instance.capture({
       subject: granted,
       event: "task_created",
@@ -342,7 +346,7 @@ describe("server analytics emitter (§15)", () => {
       await slowInFlight.promise;
       return ingestResponse(500);
     };
-    const { instance, logs } = emitter({ fetch, delivery: "immediate" });
+    const { instance, logs } = await emitter({ fetch, delivery: "immediate" });
 
     const slow = instance.capture({
       subject: granted,
@@ -385,7 +389,7 @@ describe("server analytics emitter (§15)", () => {
       await new Promise((resolve) => setTimeout(resolve, (count - position) * 2));
       return ingestResponse(failingIds.has(event?.uuid ?? "") ? 503 : 200);
     };
-    const { instance, logs } = emitter({ fetch, delivery: "immediate" });
+    const { instance, logs } = await emitter({ fetch, delivery: "immediate" });
 
     const outcomes = await Promise.all(
       ids.map((id) =>
@@ -416,7 +420,7 @@ describe("server analytics emitter (§15)", () => {
 
   it("still logs provider errors from batched background flushes", async () => {
     const { fetch } = fakeIngest({ status: 503 });
-    const { instance, logs } = emitter({ fetch, flushAt: 1, flushIntervalMs: 60_000 });
+    const { instance, logs } = await emitter({ fetch, flushAt: 1, flushIntervalMs: 60_000 });
     expect(
       await instance.capture({
         subject: granted,
@@ -449,7 +453,12 @@ describe("server analytics emitter (§15)", () => {
         headers: { get: () => null },
       } as unknown as Awaited<ReturnType<PostHogNodeFetch>>;
     };
-    const { instance } = emitter({ fetch, flushAt: 50, flushIntervalMs: 60_000, maxQueueSize: 3 });
+    const { instance } = await emitter({
+      fetch,
+      flushAt: 50,
+      flushIntervalMs: 60_000,
+      maxQueueSize: 3,
+    });
     const ids = Array.from(
       { length: 10 },
       (_, index) => `0192f0a0-0000-7000-8000-0000000e00${String(index).padStart(2, "0")}`,
@@ -473,9 +482,9 @@ describe("server analytics emitter (§15)", () => {
     await instance.shutdown();
   });
 
-  it("requires an https PostHog host", () => {
+  it("requires an https PostHog host, and refuses before loading the client", async () => {
     const { fetch } = fakeIngest();
-    expect(() => emitter({ fetch, host: "http://us.i.posthog.com" })).toThrow();
+    await expect(emitter({ fetch, host: "http://us.i.posthog.com" })).rejects.toThrow();
   });
 });
 

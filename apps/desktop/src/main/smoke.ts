@@ -111,15 +111,4 @@ export async function captureWindow(
     headers_survived: post.status !== undefined && post.status !== 403,
     error: post.error ?? null,
   });
-
-  // Why the assistant is or is not usable, which is the question asked of every build. It is read-only:
-  // the three answers that matter — `harness_missing`, `key_required`, ready — are the difference
-  // between a broken vendoring step, a device with no model key, and a build that can take a turn.
-  const assistant = (await window.webContents.executeJavaScript(
-    `window.symplist ? window.symplist.assistant.status() : null`,
-  )) as { ready?: boolean; reason?: string | null } | null;
-  log.info("smoke.assistant", {
-    ready: assistant?.ready ?? null,
-    reason: assistant?.reason ?? null,
-  });
 }

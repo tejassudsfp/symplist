@@ -209,7 +209,7 @@ describe("account purge (§5.6)", () => {
     expect(await runner({ runs: { run: runs }, composio: { run: composio } }).run(userId)).toEqual({
       status: "done",
     });
-    expect(runs).toHaveBeenCalledWith({ userId, composioUserId: userId });
+    expect(runs).toHaveBeenCalledWith({ userId });
     expect(composio).toHaveBeenCalledTimes(1);
 
     expect(await db.first(sql(`SELECT id FROM users WHERE id = :id`, { id: userId }))).toBeNull();
