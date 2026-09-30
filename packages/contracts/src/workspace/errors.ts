@@ -11,6 +11,12 @@ export const workspaceErrorCodes = defineErrorCodes({
    * connected agent). Nothing was applied; `details.taskTreeVersion` is the current tree version.
    */
   "task.conflict": 409,
+  /** A label with that name already exists for this owner; `details.labelId` is the one that does. */
+  "label.duplicate_name": 409,
+  /** The owner already has `LABEL_MAX_PER_OWNER` labels, or the task already carries the maximum. */
+  "label.limit_reached": 422,
+  /** One of the label ids does not belong to this owner. Unknown and foreign ids read the same. */
+  "label.unknown": 404,
   /**
    * The target place is impossible: a task under itself or its own subtask, neighbours that are not
    * siblings in the target list, or a parent in another collection. `details.reason` names it.

@@ -8,6 +8,9 @@ export type TaskErrorCode =
   | "task.conflict"
   | "task.placement_invalid"
   | "task.depth_limit"
+  | "label.duplicate_name"
+  | "label.limit_reached"
+  | "label.unknown"
   | AccessDenialCode;
 
 /**

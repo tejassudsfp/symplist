@@ -5,6 +5,8 @@ export * from "./archive-runner.ts";
 export type { TaskAuthorization } from "./authorization.ts";
 export * from "./errors.ts";
 export * from "./fractional-index.ts";
+export * from "./label-service.ts";
+export * from "./labels.ts";
 export * from "./model.ts";
 export {
   missingTaskError,

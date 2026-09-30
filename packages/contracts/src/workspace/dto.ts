@@ -3,10 +3,12 @@
  * Export Zod schemas with a `workspace`-specific name so the contracts index stays collision free.
  */
 
-import { taskIdSchema } from "../common/ids.ts";
+import { idSchema, taskIdSchema } from "../common/ids.ts";
 import { cursorSchema, pageLimitSchema } from "../common/pagination.ts";
 import { counterSchema, epochMillisSchema, stableCodePattern } from "../common/primitives.ts";
 import { z } from "../common/zod.ts";
+import { appearanceAccentPresets } from "./accents.ts";
+import { labelViewSchema } from "./labels.ts";
 
 /* ------------------------------------------------------------------------------------------------
  * Collections, sources and limits (§2.1)
@@ -90,6 +92,14 @@ export const taskNodeSchema = z.strictObject({
   version: counterSchema.min(1),
   /** Active direct subtasks. */
   childCount: counterSchema,
+  /**
+   * The labels on this task, as ids in the owner's label order.
+   *
+   * Ids rather than names or colours: every label the tree references is in the same response's
+   * `labels`, so repeating a name once per task would be the same string many times over — and a
+   * rename would then have to invalidate every cached node instead of one label row.
+   */
+  labelIds: z.array(idSchema),
   createdAt: epochMillisSchema,
   updatedAt: epochMillisSchema,
 });
@@ -133,6 +143,13 @@ export const taskTreeResponseSchema = z.strictObject({
   taskTreeVersion: counterSchema,
   /** Top-level tasks by position, each followed by its subtasks (pre-order). */
   tasks: z.array(taskNodeSchema),
+  /**
+   * Every label the owner has, so a page renders its chips and its filter bar without a second call.
+   *
+   * The whole set rather than only the ones in use: the filter bar offers labels that match nothing in
+   * this collection too — that is how a person discovers where the rest of their list went.
+   */
+  labels: z.array(labelViewSchema),
   /**
    * The next page of the same pre-order walk, or null on the last page. A cursor is only meaningful
    * against the `taskTreeVersion` it came with: a client whose next page reports a different version
@@ -412,18 +429,6 @@ export const preferenceGroups = [
 ] as const;
 export const preferenceGroupSchema = z.enum(preferenceGroups);
 export type PreferenceGroup = z.infer<typeof preferenceGroupSchema>;
-
-/** Named accent presets (note 02); a custom accent is an upper-case `#RRGGBB` seed. */
-export const appearanceAccentPresets = [
-  "blue",
-  "violet",
-  "rose",
-  "coral",
-  "amber",
-  "green",
-  "teal",
-  "graphite",
-] as const;
 
 /**
  * Theme, brightness and accent (note 02). The theme id is a slug rather than a closed list, so a
