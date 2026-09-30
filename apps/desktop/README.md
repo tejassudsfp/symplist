@@ -1,18 +1,23 @@
 # @symplist/desktop
 
-The Symplist desktop shell: the existing Next.js frontend in an Electron window, with the assistant
-running on this machine. Phase 2 of `docs/notes/files/18_local_first_desktop.md`.
+Symplist on the desktop: the existing Next.js frontend in an Electron window, with the cloud session
+held in the main process. Phase 2 of `docs/notes/files/18_local_first_desktop.md`.
 
-This package is the shell and the assistant bridge. The chat UI lands on top of it in `apps/web`; the
-seams it attaches to are listed at the bottom.
+**It hosts no assistant, and that is the decision rather than the gap.** An earlier version of this
+package ran the DeepSeek Harness as a child over ACP, with a model keychain, a loopback MCP relay and a
+local transcript store. All of it is deleted. Symplist publishes its tools over the api's `/mcp`
+endpoint and the assistant is whichever MCP client the person already uses — which has their real shell
+in their real repository, and holds their own model key. See note 18 for the full argument.
 
-## The three processes
+So this package is a shell. What earns it is local mode (phase 3): somewhere for a local database to
+live, and the OS keychain for the content key.
+
+## The two processes
 
 | Process | Runs | Owns |
 | --- | --- | --- |
-| **main** | Electron's Node 24 | the renderer's Next server, the cloud session and its cookie jar, the OS keychain, and the harness child |
+| **main** | Electron's Node 24 | the renderer's Next server, the cloud session and its cookie jar, the OS keychain |
 | **renderer** | Chromium, sandboxed | the unchanged `apps/web` frontend. No Node, no session, no network of its own |
-| **dsh** | a child process per workspace root | the assistant: the agent loop, the shell, the filesystem sandbox. Driven over ACP on stdio |
 
 **Cloud traffic runs in main, and moving it back would break sign-in.** The api pins its first-party
 origin: `apps/api/src/common/route-classes.ts` requires `Origin === WEB_ORIGIN` for the pre-session
@@ -56,7 +61,7 @@ the keyboard.
 pnpm --filter @symplist/desktop package:mac    # unsigned arm64 .dmg into release/
 ```
 
-Unsigned is deliberate for phase 2: there is no Developer ID yet, so `mac.identity` is `null` and
+Unsigned is deliberate for now: there is no Developer ID yet, so `mac.identity` is `null` and
 `CSC_IDENTITY_AUTO_DISCOVERY=false`, which keeps the build identical on every machine.
 
 **A downloaded unsigned app is quarantined by macOS** and reports that it "is damaged and can't be
@@ -88,16 +93,8 @@ src/main/       everything privileged
     cookie-jar.ts   two tiers: the session cookie is persisted, the Vault cookie is not
     session-state.ts restore on launch, persist on verify, clear on revocation or sign-out
     ipc.ts          the renderer's cloud capability, pinned to the api origin under /v1/
-    mcp-grant.ts    the key dsh authenticates to Symplist's own MCP server with
-  harness/        the assistant: one dsh child per workspace root, driven over ACP
-    supervisor.ts   spawn, session map, approvals, idle reap, dispose-on-quit
-    acp-client.ts   the ClientSideConnection and the Client half of the protocol
-    locate.ts       pure: which candidate directory holds a usable harness tree
-    profile.ts      pure: the generated dsh profile, including the disabled rows
-    profile-writer.ts   puts those three files in userData before each spawn
-    updates.ts      pure: ACP session updates projected onto the chat timeline
-    provider-keys.ts    the device's model keys, read out of the keychain
-  assistant-ipc.ts  the renderer's assistant capability, and its argument validation
+    session-hint.ts the non-secret cookie the proxy reads, mirrored onto the renderer's origin
+  node-runner.ts  which binary a Node child is spawned from, so it takes no second Dock icon
   secrets/
     secret-store.ts named values under safeStorage; the app's one secret mechanism
 src/preload/    the contextBridge surface: thin wrappers over named channels, nothing else
@@ -150,134 +147,60 @@ keychain. A grant **outlives** the session that created it, which fixes an order
 sent — an offline sign-out — the key is still live at the api and `McpGrantStore.lastRevoke()` says so, so
 the app can be honest about it instead of claiming a clean sign-out.
 
-## The assistant
+## Where the assistant is
 
-`harness/launch-acp.mjs` boots the DeepSeek Harness as an ACP server on stdio, and
-`src/main/harness/supervisor.ts` is its only client. Six decisions carry the design, and every one of
-them is something dsh already settled:
+Not here. `apps/api/src/modules/mcp/` publishes 13 tools over `/mcp` with the full MCP authorization
+flow — dynamic client registration, an authorize endpoint, a consent screen — so a person connects
+Claude Desktop, Claude Code or anything else with a URL and an Approve button. Settings → Agent
+connections in `apps/web` is where they manage that.
 
-**It is a child process, not an import.** `dsh-acp`'s `stream` config is labelled "runtime-only
-transport override; production uses stdio", `dsh-acp-app` claims stdout for protocol frames and binds
-process lifetime to stdin EOF, and `installFailLoud` exits the process on an unhandled rejection. All
-three own the process they run in, and an Electron main process cannot hand any of them over. It is
-spawned as `process.execPath` with `ELECTRON_RUN_AS_NODE=1`, so no second Node ships — Electron 44
-embeds Node 24.21.0, inside the repo's own `>=24.15.0 <25` range, and every native addon in the tree
-is Node-API. `utilityProcess.fork` would be the tidier primitive and cannot be used: it exposes no
-writable stdin, and ACP is a stdin/stdout protocol.
+This app does not proxy it, and that is worth stating because the earlier version did: it ran a
+loopback relay holding a `sym_` grant so a `dsh` child could reach Symplist's tools. Now the grant is
+the person's own, minted by the api's consent screen, and no bearer token passes through this process
+at all.
 
-**It is booted as an application-owned profile, not through the CLI.** `dsh/lib/bin.js` refuses the
-name outright — *profile "desktop" is managed exclusively by the Electron application* — and
-`dsh-app-boot` documents the path instead: "Application-owned npm projects, such as Electron's reserved
-Desktop profile, use `loadProfileDirectory`". The launcher does by hand what `runProfile` does, minus
-live patch watching, `--patch` overlays, the home-level patch layer and proxy installation.
+What that deletion took with it, so nobody goes looking: `main/harness/` (the supervisor, the ACP
+client, the profile writer, the session book), `main/mcp/` (the relay, its policy, its reconciler),
+`main/transcripts.ts` (the local SQLite conversation store), `assistant-ipc.ts`, `keychain-ipc.ts`,
+`cloud/mcp-grant.ts`, `shared/assistant.ts`, `shared/keychain.ts`, `scripts/vendor-harness.mjs` and a
+258MB vendored `@deepseek-ai/dsh` tree. `git log` has it if phase 3 ever wants a piece back — it will
+not want the agent.
 
-Two things in it were found by running it rather than by reading:
-
-- `provideCmdline` **must** include `ready`. `dsh-acp-app` refuses to mount without it — *the launcher
-  must provide ctx.appExit and ctx.appReady before the tree mounts* — because it binds process lifetime
-  to stdin EOF and must not arm that before startup succeeded.
-- `boot`'s `bareModuleBaseUrl` is the wrong tool here, despite being documented for exactly this case.
-  It resolves every bare specifier against one directory, and npm's hoisting of a 230-package
-  release-candidate tree is not flat: a peer conflict pushes the whole `@deepseek-ai` set under
-  `node_modules/@deepseek-ai/dsh/node_modules`. The launcher instead anchors on the dsh installation's
-  own `package.json` and lets `healProfilesModuleFallback` mirror the dependency closure into
-  `$DSH_HOME/profiles/node_modules`, which is what dsh itself does. That also keeps one Cordis instance
-  in play, since `resolveBundleDir` resolves every profile bundle from the same anchor.
-
-**The profile is generated into `userData` on every launch.** dsh rewrites `cordis.yml` at each boot
-deliberately, because the Loader's tree write-back can bake composed rows into it and a stale copy
-would duplicate every bundle insert next time. A profile inside a read-only `Resources` directory
-therefore fails with `EROFS` or silently corrupts itself. The generated `cordis.patch.yml` is where
-Symplist's policy over ~230 plugins lives: the provider routes, the `acp` row's default, and
-`disabled: true` for `session-telemetry-otel` (OTLP export to a DeepSeek endpoint, and a row can only
-be switched off by a patch), `web-search-deepseek`, `tool-web` and `llm-deepseek` — that last one
-because, left mounted, its whole model catalog appears in the picker for an account that has no
-DeepSeek key and never will.
-
-**BYOK stays BYOK, on the device.** The key is read from the keychain and injected as the child's
-launch environment, which `dsh-credentials-local` resolves `apiKeyEnv` references against per request
-with the precedence *launch environment > stored file > project `.env` > home `.env`*. The launch layer
-is read-only, so nothing in dsh can persist a key to `$DSH_HOME/.credentials.yaml`, and no file the
-harness reads ever contains one — only the variable's name. Only routes whose key is actually present
-are emitted, so the model catalog advertises exactly what can work; with no key at all no child is
-spawned and the renderer shows the "add a key" state, the desktop heir of the cloud's
-`ai.key_required`.
-
-The limit belongs in the product too, not only here: **the key in the child's environment is not
-behind a boundary.** The agent has a shell and runs as the user. The keychain protects the key at rest
-across restarts; it does not protect it from the agent. dsh says the same of its own file permissions —
-they "cannot keep provider keys away from its own agent".
-
-**Approvals stay ours.** `session/request_permission` is a request main must answer, so it crosses to
-the renderer as an event carrying a `requestId` and comes back through `assistant/decide`. dsh's own
-human-in-the-loop mechanism is never delegated to. A cancellation releases every approval its turn was
-blocked on with `cancelled`, which ACP requires — left unanswered, the agent waits for a decision that
-will never come.
-
-**There is no token stream.** `dsh-acp` emits `agent_message_chunk` from a *committed*
-`assistant/message` event and states the commitment plainly: "standard semantic updates only… raw
-provider deltas stay off the wire". `prompt` is therefore one IPC call that settles at the stop reason,
-and the chat UI gets whole messages, thoughts and a tool-call lifecycle. A UI built around a typewriter
-will sit still between tool calls; render the tool timeline, which is where a turn's time actually goes.
-
-### Vendoring it
-
-```bash
-pnpm --filter @symplist/desktop vendor:harness   # ~290MB installed, ~200MB after pruning
-```
-
-`scripts/vendor-harness.mjs` installs one pinned dependency — `@deepseek-ai/dsh@0.1.5-rc.2` — into
-`build/harness` with **npm**, not pnpm: electron-builder cannot pack a symlink farm, and dsh's own
-profile scaffolding asks for `nodeLinker: hoisted` and `autoInstallPeers: false` for the same reason.
-Two flags that look like improvements make it worse, and both were measured: `--install-strategy=hoisted`
-and `--omit=dev` each *nest* the tree instead of flattening it, leaving the launcher unable to resolve
-dsh from the root. `electron-builder.yml` ships the result as `extraResources` → `Resources/harness`,
-outside `app.asar`, because four of its packages load Node-API addons from disk.
-
-`SYMPLIST_DSH_HARNESS=/path/to/tree` overrides the lookup, which is how the harness is driven against a
-tree that is not the one this build vendored.
-
-**Test the dmg, not the dev run.** A missing `.node` file, a dereferenced symlink and a
-write into `Resources` all work perfectly under `electron .` and fail only in the packaged app.
-
-The trap that caught this once: `extraResources` cannot carry a `node_modules` directory sitting at the
-root of a mapping's `from`. app-builder-lib's `createFilter` rejects the relative path `node_modules`
-outright, before any `filter` pattern is consulted, so `from: build/web` shipped the standalone server
-without the `.pnpm` store its `node_modules/next` symlink points at, and `from: build/harness` shipped
-the launcher without dsh — a dmg that built, mounted, installed and then died on `Cannot find module
-'next'` with nothing on screen. Both trees are therefore copied by the single `from: build` mapping,
-which puts them at `web/node_modules` and `harness/node_modules`, one level below the root the filter
-objects to. `src/packaging/electron-builder.test.ts` holds that shape in place.
-
-### Seams for the lanes still to come
+### Seams for local mode (phase 3)
 
 - **A new main-process capability** is a group in `src/main/ipc.ts`. Register it through the local
   `handle()` so it inherits the sender check — top frame, renderer origin — for free. Never expose a raw
   `fetch`, a raw `spawn`, or a secret's value: the renderer asks for an effect, not a credential.
-- **A new service** (the keychain's write side for Settings → Models) is a directory under `src/main/`,
-  constructed in `start()` in `index.ts` and passed to `registerIpcHandlers`. Keep the policy decisions in
-  pure functions beside it, the way `navigation.ts` sits beside `window.ts`, so they are testable without
-  Electron: a test that imports `electron` gets a path string, not the API.
+- **A new service** is a directory under `src/main/`, constructed in `start()` in `index.ts` and passed
+  to `registerIpcHandlers`. Keep the policy decisions in pure functions beside it, the way
+  `navigation.ts` sits beside `window.ts`, so they are testable without Electron: a test that imports
+  `electron` gets a path string, not the API.
 - **A new renderer capability** is a namespace on the bridge in `src/preload/index.ts` and a method on
   `SymplistBridge` in `src/shared/bridge.ts`. `apps/web` matches that type structurally rather than
   importing it — the web app must not depend on this package — so a change here is a change to a
   published contract.
+
+  **Nothing that keeps its state on a prototype survives that boundary.** `contextBridge` copies own
+  enumerable properties, so a `URL`, a `Headers`, an `AbortSignal` and a `Response` each arrive as `{}`.
+  All four shipped as bugs: a URL that resolved to `/[object Object]`, requests with no `Content-Type`
+  and no CSRF header answering 403, and a truthy `{}` signal whose missing `addEventListener` surfaced in
+  the page as "You appear to be offline". `BridgedRequestInit` in `shared/bridge.ts` names the two
+  members that cannot cross, so the next one is a compile error instead. Pass plain records, arrays,
+  strings, numbers — and functions, which do survive.
 - **Renderer-side code does not live here.** It lives in `apps/web`, behind a `window.symplist` feature
   detection, which is what keeps one frontend for the browser and the desktop. The two seams that make
   that possible are `ApiClientOptions.fetch` in `apps/web/src/lib/api/client.ts` and the injectable
   `createSocket` in `apps/web/src/lib/realtime/client.ts`. If either grows a desktop-only branch inside a
   feature component instead of staying at the seam, the divergence this design exists to prevent starts
   anyway.
-- **The assistant is announced through `HostInfo.assistant`**, which is whether this build carries a
-  harness tree at all. The chat slot in `apps/web` mounts on that flag, so a shell with no harness shows
-  no chat rather than a chat that cannot reply. It is deliberately *not* readiness: a device with a
-  harness and no provider key still shows chat, because chat is where the "add a key" state belongs.
-  `window.symplist.assistant.status()` answers that question, with a distinct reason for each thing the
-  user can do about it — `harness_missing`, `key_required`, `boot_failed`, `provider_failed`.
-- **The model key's write side is not built.** `src/main/harness/provider-keys.ts` reads
-  `model-key-openai` and `model-key-anthropic` out of the existing `SecretStore`; Settings → Models has
-  to write them under those names, and the names are exported from that module so both ends agree.
-- **The ACP session id is not persisted.** `HarnessSupervisor` takes an optional `sessionBook`
-  (`get` / `set` / `forget`) and uses it to `session/list` and `session/resume` on relaunch. Without
-  one, every conversation starts a fresh session after a restart — the user's transcript survives, the
-  agent's context does not. The local transcript store is where that interface should be implemented.
+- **A Node child must be spawned from `nodeRunnerPath()`**, not `process.execPath`. On macOS the latter
+  is the bundle's own `MacOS/Symplist`, whose `Info.plist` has no `LSUIElement`, so launching it gives
+  the child a second Dock icon that bounces and then sits there for the life of the app. The Electron
+  helper bundle exists for exactly this. Nothing fails; it just looks like two apps opened.
+- **Local mode needs a database, a scheduler and no session.** `DATA_DRIVER=local` already exists in
+  `packages/db`, the twelve generated secret families get generated on first run, `CONTENT_KEK` goes into
+  `SecretStore` (and wants a Keychain backup prompt), and the api's dispatch work becomes in-process.
+  None of it is built.
+- **Local mode also needs a local MCP server over stdio**, so the assistant story offline is the same
+  one it is online with a different transport. That is the only assistant code this package should ever
+  carry: a server publishing tools, never a client running a model.

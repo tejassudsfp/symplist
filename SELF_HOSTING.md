@@ -300,9 +300,9 @@ Skip this entire section when `DURABLE=false`.
 2. Put the production worker configuration in ignored `apps/worker/.env` by running
    `pnpm env:distribute`. Confirm `NODE_ENV=production`, `DATA_DRIVER=d1`, `EMAIL_DRIVER=resend`, and
    `DURABLE=true` before deploying.
-3. Confirm the worker contains its own D1 token, the R2/Resend/Composio credentials it uses, and
-   exactly the three shared secret families. It must not contain API-only digest/recovery/webhook
-   secrets or `TRIGGER_SECRET_KEY`.
+3. Confirm the worker contains its own D1 token, the R2 and Resend credentials it uses, and exactly
+   the three shared secret families. It must not contain API-only digest/recovery/webhook secrets,
+   `TRIGGER_SECRET_KEY`, or any model or Composio credential — those are refused at boot.
 4. Authenticate the pinned CLI with `pnpm --filter @symplist/worker exec trigger login`.
 5. Export your own project ref in the private shell environment, then deploy from the repository:
 
@@ -323,7 +323,6 @@ After deploy, confirm these schedules and queue families appear:
 - `reminder-scan`: `:00`, `:15`, and `:30` UTC, queue `reminder-scan`, concurrency 1;
 - `cleanup-hourly`: minute `:05` UTC;
 - document maintenance: minute `:35` UTC;
-- `connections-reconcile`: daily at `03:20` UTC;
 - D1 work uses only the checked-in `d1`, `d1-git`, and `reminder-scan` queues.
 
 The API's `TRIGGER_PROJECT_REF` must name the same project, and its Trigger secret must come from the
@@ -336,28 +335,24 @@ Substitute the exact production origins. Paths in this table are literal:
 
 | Provider/surface | URL | Notes |
 | --- | --- | --- |
-| Composio OAuth completion | `<API_ORIGIN>/v1/connections/callback` | Symplist appends a single-use attempt and nonce; enable callback identity verification in Composio |
-| Composio webhook | `<API_ORIGIN>/webhooks/composio` | No `/v1`; signed with `COMPOSIO_WEBHOOK_SECRET` |
 | Resend webhook | `<API_ORIGIN>/webhooks/resend` | No `/v1`; signed with `RESEND_WEBHOOK_SECRET` |
 | Incoming MCP | `<API_ORIGIN>/mcp` | Bearer `sym_` key or Symplist OAuth access token; cookies are ignored |
 | MCP protected-resource metadata | `<API_ORIGIN>/.well-known/oauth-protected-resource/mcp` | Resource/audience is exactly `<API_ORIGIN>/mcp` |
 | OAuth authorization-server metadata | `<API_ORIGIN>/.well-known/oauth-authorization-server` | Issuer is exactly `API_ORIGIN` |
 | OAuth consent UI | `<WEB_ORIGIN>/oauth/consent` | Opened from the API authorization flow |
 
-The actual Composio callback adds `?attempt=<generated-id>&n=<generated-nonce>` to the base URL. Never
-configure a fixed nonce or accept an arbitrary redirect destination.
-
 Subscribe the Resend endpoint to exactly `email.delivered`, `email.bounced`, `email.complained`,
 `email.failed`, `email.suppressed`, and `email.delivery_delayed`. Only a permanent bounce or complaint
 causes Symplist suppression. Both webhook handlers verify the raw body, reject a bad signature with
 400, and deduplicate provider receipt IDs.
 
-Composio is optional. Without its API key and webhook secret, connections remain unavailable; do not
-invent connector records in D1. The catalogue is fetched live and is not persisted.
+**MCP is how an assistant reaches this deployment, and it is the only way.** Nothing here runs a model
+or calls a connector; `OPENAI_API_KEY`, `COMPOSIO_API_KEY` and their siblings are refused at boot
+precisely so an operator upgrading from a version that had them finds out rather than keeps paying.
 
-The incoming MCP server is usable without Composio. OAuth access tokens last 15 minutes. MCP clients
-can also use an owner-created `sym_` bearer key and grant from Settings → Agents. This is the
-interface the desktop assistant uses to reach a workspace it does not host.
+OAuth access tokens last 15 minutes. A client may instead use an owner-created `sym_` bearer key and
+grant from Settings → Agent connections. Either way the grant is the owner's, scoped to the tools and
+optionally the tasks they chose, and revocable from that screen.
 
 ## 11. Bootstrap the administrator and admission
 
@@ -403,8 +398,9 @@ without logging private content or tokens:
 4. Edit a task's Markdown, save two revisions, inspect Changes, compare them, and restore the first.
    Run `git --version` in the Render shell and, in durable mode, confirm the Trigger build installed
    Git. No external Git host is involved.
-5. Connect a service from Settings → Connections, confirm it appears as linked, and disconnect it.
-   The deployment records the link only; it performs no connector action of its own.
+5. Create a grant in Settings → Agent connections, connect an MCP client to `<API_ORIGIN>/mcp` with
+   it, list tasks and edit a document section through the client, then revoke the grant and confirm
+   the next tool call is refused.
 6. Set up the Vault, allow it to idle-lock, unlock it, create an item, and perform the fresh-OTP reset
    flow. Ordinary login must not unlock the Vault.
 7. Create an artifact snapshot and expiring share. Open HTML and Raw Markdown in a signed-out private

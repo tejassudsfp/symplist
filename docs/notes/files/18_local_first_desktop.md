@@ -1,9 +1,11 @@
-# symplist — local-first desktop
+# symplist — the assistant is not ours
 
-Written September 29, 2026. This note supersedes the parts of note 07 and note 12 that place Simon
-in the cloud. It is the binding decision for where the assistant runs and what the cloud is for.
+Written September 29, 2026; revised September 30 after building phase 2 and reading what it cost.
+This note supersedes the parts of note 07 and note 12 that place Simon in the cloud, and it replaces
+its own first version, which put an agent in the desktop app. It is the binding decision for where
+the assistant runs and what the cloud is for.
 
-## The thesis
+## The thesis, which did not change
 
 A web assistant that cannot do work is a demo.
 
@@ -18,112 +20,106 @@ asking the user for information the user was hoping it would go and find. It was
 idle. The verdict from using it is short: **an agent that cannot execute is a chat window with
 opinions.**
 
-To execute, it needs a CLI. To have a CLI, it has to run on the machine. Once it runs on the
-machine, almost everything else in the architecture is in the wrong place — the agent loop was on
-Trigger, the model credential was in D1, the transcript was an encrypted envelope on another
-continent, and each turn paid about seven seconds per database round trip for the privilege
-(`CLAUDE.md`, worker lane). None of that buys anything once the agent is local. It was all overhead
-in service of a constraint we no longer accept.
+## The correction
 
-## What follows from it
+The first version of this note drew the obvious conclusion: to execute, the agent needs a CLI, so
+ship the agent on the desktop. That was half right, and the wrong half is the half we built.
 
-The assistant moves to the desktop. The cloud stops being a place where work happens and becomes a
-place where data lives.
+Claude Code **is** the CLI. So is Claude Desktop, so is Cursor, so is whatever comes next. Each one
+already has a mature chat surface, a permission model, context management, model selection — and a
+shell in the user's *actual* repository. What they do not have is Symplist's tools.
 
-This is the Obsidian arrangement, and the comparison is the design, not a slogan. Obsidian is a
-local application over local files; its sync is a convenience you may switch on so the same vault
-appears on another machine. Nothing about the product depends on the server existing. Symplist
-takes the same shape: a local application over a local database, with a cloud you may connect to so
-your workspace follows you.
+So Symplist publishes its tools and does not run an agent. The api already speaks MCP: thirteen
+tools over `/mcp`, with the full authorization flow — dynamic client registration, an authorize
+endpoint, a consent screen — so connecting is a browser round trip the owner approves rather than a
+token to paste. Point the client you already use at Symplist and it can read your task document,
+rewrite a section, create tasks and search *and* run your tests, in your repository, with your key.
 
-**The cloud keeps:** the task list, Markdown documents and their Git history, Vault, connection
-links, search, reminders, account and access. It is a workspace you can read and a place your data
-is colocated.
+That is strictly more capable than what we built, and it is less of ours to maintain. What we shipped
+in phase 2 was a sandboxed `dsh` child pinned to one directory we chose, with no plans, no todos, no
+terminals and no elicitation, because `dsh-acp` omits all of them. It cost a 258MB vendored tree, a
+release-candidate dependency, a resident Node process, and a screen asking people to paste an OpenAI
+key into our app — under a comment admitting the keychain does not protect that key from the agent.
 
-**The cloud loses:** chat, the agent loop, model credentials, and every Trigger task that existed to
-run a turn. Approvals go with them — a connector approval only ever existed to gate an action
-mid-turn, and there is no turn here to gate.
+Every line of it is deleted. The thesis is intact; the mechanism was wrong.
 
-**The desktop gets:** the assistant, powered by the DeepSeek Harness, with a shell and a filesystem
-and the ability to finish a job.
+## What Symplist is
+
+A list. Tasks, one Markdown document each with real Git history, scheduling, search, Vault, sharing —
+and an MCP endpoint your assistant connects to.
+
+Two modes, and no third:
+
+- **Cloud mode.** The list, everywhere. Web and desktop both read the same account. Your assistant
+  connects to `<api>/mcp` over OAuth.
+- **Local mode.** The list, fully offline. No account, no api, no network. Your assistant connects to
+  a local MCP server over stdio.
+
+This is the Obsidian arrangement, and the comparison is the design rather than a slogan. Obsidian is
+a local application over local files, with sync you may switch on; nothing about the product depends
+on the server existing. And Obsidian's answer to AI was never an embedded agent — it was files and an
+API. Ours is tools and an endpoint.
 
 ### Consequences accepted deliberately
 
-- **There are no cloud-only users.** The web becomes a viewer. Anyone who wants an assistant
-  installs the app. With one beta user this costs nothing today; it is still a real decision.
-- **Transcripts are local, permanently.** No conversation is ever stored in the cloud again. This
-  removes the sharpest edge in the old design — turn content crossing a third-party platform in
-  plaintext during its realtime window.
-- **Model keys live on the device that makes the call.** The cloud never holds one and never returns
-  one. The write-only property the API had is now a property of the architecture.
-- **Connections are links, not capabilities.** The cloud records which accounts you connected. The
-  desktop routes to Composio itself. No connector traffic passes through the server.
+- **No assistant without a client.** Someone with no MCP client gets a very good list and no
+  assistant. With one beta user who lives in Claude Code this costs nothing today; it is still a real
+  decision, and the honest answer to "where is the chat?" is "in the tool you already have open".
+- **Simon is no longer a character.** The approval cards, the working strip, the model picker and the
+  persona are gone. The assistant is *yours*, holding our tools. That is the honest version.
+- **Transcripts are not ours at all.** Not in the cloud, not on the device. Your client keeps its own
+  history, which removes the sharpest edge in the original design — turn content crossing a
+  third-party platform in plaintext — by removing the content.
+- **We never touch a model credential.** Not in D1, not in a keychain. The client that calls the
+  provider is the one that holds the key. This stops being a property we enforce and becomes one we
+  cannot violate.
+- **No connector layer.** Composio is gone. Your client brings Gmail, Slack, Linear and Drive if it
+  wants them, and better than we did.
 
-## The DeepSeek Harness
+## Why the desktop app still exists
 
-`dsh`, MIT, `github.com/deepseek-ai/deepseek-harness` — a plugin-based agent harness of roughly 230
-packages on a Cordis core. It is not a model; the LLM layer is pluggable, which is why
-bring-your-own-key survives the move intact and why every provider stays available.
+Not for the agent. For local mode.
 
-It is integrated **over ACP** (`dsh-acp`, JSON-RPC on stdio), not embedded. The distinction matters:
-ACP hands the client ownership of sessions, tools, model selection and permissions. So Symplist
-keeps its own storage, its own approvals and its own tools — exposed to the harness as MCP servers,
-which the incoming MCP work already built — while dsh supplies the loop, compaction and the shell.
-Embedding it instead would import its session store and its approval model, and both collide with
-guarantees we intend to keep.
+What earns it: a window over the same frontend, a cloud session held in the main process so the
+renderer holds no token, the OS keychain for `CONTENT_KEK`, native notifications, and — the point —
+somewhere for a local database to live. Until local mode ships it is a cloud-mode wrapper, which is a
+thin thing to ship and an honest one.
 
-The cost of ACP is its deliberate omissions: no plans, todos, terminal views or elicitation, and no
-transcript replay or forks. Symplist renders what it needs from the semantic updates.
+## The phases
 
-## The four phases
+### Phase 1 — Strip chat from the cloud — **done**
 
-Each phase ends somewhere shippable. Nothing here requires the next phase to have started.
+`packages/agent`, `core/src/simon`, `core/src/ai`, `web/features/simon`, `api/modules/simon`,
+`worker/trigger/simon` and the BYOK contracts are gone, and with them approvals, transcripts and run
+authority. Tables stay — migrations are expand-only — and stop being written.
 
-### Phase 1 — Strip chat from the cloud
+### Phase 2 — The desktop shell — **done, then corrected**
 
-Remove the agent from the server and leave a workspace that builds, deploys and works: task list,
-connection manager, Vault, Markdown reading.
+An Electron app carrying the frontend, signing in to the cloud, with the session in main. It was also
+built to host `dsh` over ACP; that half is deleted. Electron rather than Tauri still holds for local
+mode: a Node runtime is already embedded.
 
-Deletes `packages/agent`, `core/src/simon`, `web/features/simon`, `api/modules/simon`,
-`worker/trigger/simon`, `core/src/ai` and the BYOK contracts. Reshapes connections around a
-`ConnectionContext` so the domain stops reaching into `SimonRepository` for an access predicate.
-Keeps every other Trigger task: document Git, documents maintenance, search index, account purge,
-reminders, connections reconcile, cleanup.
+macOS first, Windows after. Unsigned until a Developer ID exists.
 
-Tables are not dropped. Migrations are expand-only, so `conversations`, `runs`, `approvals`,
-`chat_transcript_*` and `ai_provider_keys` stay and stop being written.
-
-**Done when:** lint, typecheck, tests, both builds and e2e are green, and the deployed web app has
-no chat.
-
-### Phase 2 — The desktop shell
-
-An Electron application carrying the existing frontend, with `dsh` as a child process over ACP and
-Symplist's documents, tasks and Vault exposed to it as MCP tools.
-
-Electron rather than Tauri for one specific reason: dsh is a Node application, and Electron already
-embeds Node. Tauri would be a far smaller binary and then require shipping and versioning a Node
-runtime anyway, purely to host the harness.
-
-macOS first, Windows after. Unsigned builds for testing before any notarization work.
-
-**Done when:** the app installs, connects to the cloud account, and Simon completes a turn that runs
-a command and edits a document.
+**Done when:** the app installs, connects to the cloud account, and shows the workspace. It does.
 
 ### Phase 3 — Local mode
 
-The same application with no cloud at all: local SQLite through the existing `DATA_DRIVER=local`
-path, an in-process scheduler in place of Trigger, and every key supplied by the user.
+The same application with no cloud: local SQLite through the existing `DATA_DRIVER=local` path, an
+in-process scheduler in place of Trigger, no account and no session.
 
-The twelve generated secret families are generated on first run — `CONTENT_KEK`,
-`VAULT_RECOVERY_KEY`, the digest secrets, the signing keys. Only a model provider key and,
-optionally, a Composio key are ever typed. `CONTENT_KEK` goes to the macOS Keychain or the Windows
-Credential Manager, with a one-time instruction to back the recovery key up, because offline there
-is no operator to recover anything.
+The twelve generated secret families are generated on first run — `CONTENT_KEK`, `VAULT_RECOVERY_KEY`,
+the digest secrets, the signing keys. Nothing is ever typed, because there is no model key to type.
+`CONTENT_KEK` goes to the macOS Keychain or the Windows Credential Manager, with a one-time
+instruction to back the recovery key up: offline there is no operator to recover anything.
 
-Local mode has no D1 budget lane, so it has none of the per-request cost that made cloud turns slow.
+It also ships a **local MCP server** over stdio, so the assistant story is the same one, with a
+different transport and a JSON block in a client config instead of an OAuth round trip.
 
-**Done when:** a fresh install with no account can create tasks, write documents and run Simon.
+Local mode has no D1 budget lane, so it has none of the per-request cost the cloud pays.
+
+**Done when:** a fresh install with no account can create tasks, write documents, and be driven from
+Claude Desktop over stdio.
 
 ### Phase 4 — Promotion
 
@@ -134,19 +130,25 @@ ingestion, indexing and verification. It cannot be the other way around — a Tr
 the user's disk. Data is decrypted locally and **re-encrypted under the cloud account data key before
 it leaves the machine**; plaintext exists only in memory on the user's own computer.
 
-The user sees progress and is told not to close the window, which is honest, because the app is
-driving.
-
-Transcripts do not migrate. They are local and they stay local. After promotion, Markdown is fetched
-from the cloud only.
-
 **Done when:** a local install with real data connects, redeems a beta code, and arrives in the cloud
 complete and readable.
 
+## The work that replaces the agent
+
+Making the endpoint excellent, which is a tenth of the harness lane and worth more:
+
+- **Resources.** We serve tools and no resources. Resources would let a client browse and attach task
+  documents as context. This is the largest single win available.
+- **Prompts.** "Triage my inbox", "write up this week" as first-class entry points.
+- **Tools shaped for someone else's agent.** The thirteen were designed for ours: a richer
+  `task_context`, more forgiving section addressing, errors that explain themselves.
+- **The local stdio server**, which is phase 3's whole assistant story.
+
 ## Open questions
 
-- Whether the existing cloud chat data is exported to the desktop on first connect, or dropped. One
-  beta user, so the cost of dropping is known and small.
-- Whether approval mode stays a stored per-connection field once approvals are a desktop concern.
-- Whether reminders remain the only reason the cloud runs scheduled work, and whether that is worth
-  a Trigger dependency on its own.
+- Whether reminders remain the only reason the cloud runs scheduled work, and whether that is worth a
+  Trigger dependency on its own.
+- Whether the beta needs a first-run page that explains connecting a client, or whether the Agent
+  connections screen is enough.
+- Whether local mode's MCP server should also be offered in cloud mode, so a client can reach the
+  workspace without a round trip to the api.
