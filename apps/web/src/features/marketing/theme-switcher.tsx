@@ -52,7 +52,10 @@ export function ThemeSwitcher({
               <span
                 aria-hidden="true"
                 className="sym-theme-chip-dot"
-                style={{ background: palette.bg, boxShadow: `inset -6px 0 0 ${accent.accent}` }}
+                style={{
+                  background: palette.bg,
+                  boxShadow: `inset -6px 0 0 ${accent.accent}, 0 0 0 1px rgb(0 0 0 / 0.12)`,
+                }}
               />
               {chip.name}
             </button>

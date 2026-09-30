@@ -1,9 +1,8 @@
 import Link from "next/link";
-import { accentPresets, resolveAccent } from "@/theme/accent";
-import { renderedPalette } from "@/theme/palette";
-import { themeIds, themes } from "@/theme/registry";
+import { SymplistMark } from "@/components/brand/logo";
 import { AskYourAi } from "./ask-your-ai";
 import { SITE, SiteFooter, SiteHeader } from "./site-chrome";
+import { ThemeCards } from "./theme-cards";
 import { ThemeSwitcher } from "./theme-switcher";
 import { WorkspaceDemo } from "./workspace-demo";
 
@@ -108,76 +107,52 @@ export function HomeScreen() {
         <WorkspaceDemo />
 
         <section className="sym-section" aria-labelledby="sym-model-heading">
-          <p className="sym-eyebrow">The model</p>
-          <h2 id="sym-model-heading">Three lists. That&rsquo;s all of it.</h2>
-          <p className="sym-section-lede">
-            Tasks move only when you move them. Finishing one archives it with its page and history
-            intact.
-          </p>
-          <ul className="sym-lists">
-            {lists.map((list) => (
-              <li key={list.name}>
-                <span className="sym-list-name">{list.name}</span>
-                <p>{list.body}</p>
-              </li>
-            ))}
-          </ul>
-        </section>
-
-        <section className="sym-section" aria-labelledby="sym-features-heading">
-          <h2 id="sym-features-heading">
-            Deeper when you need it. Out of sight when you don&rsquo;t.
-          </h2>
-          <ol className="sym-features">
-            {features.map((feature, index) => (
-              <li key={feature.title}>
-                <span className="sym-feature-n">{String(index + 1).padStart(2, "0")}</span>
-                <h3>{feature.title}</h3>
-                <p>{feature.body}</p>
-              </li>
-            ))}
-          </ol>
+          <div className="sym-model-panel">
+            <div>
+              <p className="sym-eyebrow">The model</p>
+              <h2 id="sym-model-heading" className="sym-display">
+                Three lists. That&rsquo;s all of it.
+              </h2>
+              <p className="sym-section-lede">
+                Tasks move only when you move them. Finishing one archives it with its page and
+                history intact.
+              </p>
+              <dl className="sym-lists">
+                {lists.map((list) => (
+                  <div key={list.name}>
+                    <dt>{list.name}</dt>
+                    <dd>{list.body}</dd>
+                  </div>
+                ))}
+              </dl>
+              <p className="sym-fine">
+                Deeper when you need it. Out of sight when you don&rsquo;t.
+              </p>
+            </div>
+            <ol className="sym-features">
+              {features.map((feature, index) => (
+                <li key={feature.title}>
+                  <span className="sym-feature-n">{String(index + 1).padStart(2, "0")}</span>
+                  <div>
+                    <h3>{feature.title}</h3>
+                    <p>{feature.body}</p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </div>
         </section>
 
         <section id="themes" className="sym-section" aria-labelledby="sym-themes-heading">
           <p className="sym-eyebrow">Appearance</p>
-          <h2 id="sym-themes-heading">Six ways for it to feel like yours.</h2>
+          <h2 id="sym-themes-heading" className="sym-display">
+            Six ways for it to feel like yours.
+          </h2>
           <p className="sym-section-lede">
             Each style changes type, spacing and shape, not just colour, and comes in light and
             dark. Pick one; this page follows.
           </p>
-          <ul className="sym-themes">
-            {themeIds.map((id) => {
-              /*
-               * Real palette values, read from the registry at render time. `data-theme` cannot work
-               * here: the appearance stylesheet is scoped to `:root` and only ever carries the theme
-               * the visitor is actually using, so six swatches carrying the attribute all painted the
-               * same colour.
-               */
-              const palette = renderedPalette(themes[id], "light");
-              const accent = resolveAccent(accentPresets.blue.seed, themes[id], "light");
-              return (
-                <li key={id}>
-                  <span className="sym-theme-swatches" aria-hidden="true">
-                    <span
-                      className="sym-theme-swatch"
-                      style={{ background: palette.bg, borderColor: palette.line }}
-                    />
-                    <span
-                      className="sym-theme-swatch"
-                      style={{ background: palette.panel, borderColor: palette.line }}
-                    />
-                    <span
-                      className="sym-theme-swatch sym-theme-swatch--alt"
-                      style={{ background: accent.accent }}
-                    />
-                  </span>
-                  <span className="sym-theme-name">{themes[id].name}</span>
-                  <span className="sym-theme-tag">{themes[id].tag}</span>
-                </li>
-              );
-            })}
-          </ul>
+          <ThemeCards mode="light" />
         </section>
 
         <AskYourAi />
@@ -186,10 +161,9 @@ export function HomeScreen() {
           <div className="sym-split">
             <div>
               <p className="sym-eyebrow">In plain words</p>
-              <h2 id="sym-plain-heading">What we store, and what we don&rsquo;t claim.</h2>
-              <p className="sym-section-lede">
-                The uncomfortable parts are here rather than buried in a policy nobody opens.
-              </p>
+              <h2 id="sym-plain-heading" className="sym-display">
+                What we store, and what we don&rsquo;t claim.
+              </h2>
             </div>
             <dl className="sym-plainly">
               {plainly.map((item) => (
@@ -203,6 +177,7 @@ export function HomeScreen() {
         </section>
 
         <section className="sym-closing" aria-labelledby="sym-closing-heading">
+          <SymplistMark className="sym-closing-mark" />
           <h2 id="sym-closing-heading">Start with one task.</h2>
           <p>
             Sign in with your email and write down the one thing you keep meaning to do. No invite,
