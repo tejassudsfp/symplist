@@ -23,8 +23,12 @@ export interface EvidenceOptions {
   /** Regions that change between runs (clocks, relative times) to cover in the image. */
   readonly mask?: readonly Locator[];
   /**
-   * A directory to keep the frame in as well as the run's own output, for evidence that belongs with
-   * the repository (`apps/e2e/evidence/<screen group>/`) rather than only with the CI run.
+   * A directory to collect the frame in as well as the run's own output, grouped by screen
+   * (`apps/e2e/evidence/<screen group>/`).
+   *
+   * Build output, not a repository asset: the directory is git-ignored, and CI publishes it as the
+   * `e2e-evidence` artifact. It was committed once, which meant 13MB of binaries rewritten by every
+   * run and a diff nobody could read.
    */
   readonly keepIn?: string;
 }

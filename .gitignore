@@ -28,6 +28,9 @@ Thumbs.db
 # Test output
 playwright-report/
 test-results/
+# Screenshot frames the e2e run writes. CI keeps them as the `e2e-evidence` artifact; committing
+# them meant 13MB of binaries churning on every run.
+apps/e2e/evidence/
 # Private local deployment decisions and env checklist
 symplist_env_and_decisions.csv
 # Trigger.dev local build output
