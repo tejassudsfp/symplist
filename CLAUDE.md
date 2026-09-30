@@ -4,7 +4,7 @@ Guidance for Claude Code (and any coding agent) working in this repository.
 
 # Symplist
 
-A calm, personal task workspace. Every task has one editable Markdown document with real Git history. **Symplist publishes its tools over MCP and runs no agent** — the assistant is whichever MCP client you already use. Hosted as a free closed beta; fully self-hostable. MIT, by Tejas Parthasarathi Sudarshan.
+A calm, personal task workspace. Every task has one editable Markdown document with real Git history. **Symplist publishes its tools over MCP and runs no agent** — the assistant is whichever MCP client you already use. Hosted free and open at symplist.app; fully self-hostable. MIT, by Tejas Parthasarathi Sudarshan.
 
 Founding idea, and the tie-breaker for design arguments: **the most productive thing is often the most simple.**
 
@@ -20,13 +20,13 @@ An embedded agent (`dsh` over ACP, in Electron) was built and deleted. It cost a
 an RC dependency, and a screen asking people to paste an OpenAI key into our app — for something
 strictly less capable than the client they already had open.
 
-**Two modes, no third:** cloud mode is the list everywhere (web + desktop, one account, MCP over
-OAuth); local mode is the list fully offline (local SQLite, no account, MCP over stdio).
+**One mode.** The list everywhere — web and desktop, one account, MCP over OAuth. The offline local
+mode was specified and its server half built; it was deleted before it shipped, because a second
+topology to keep correct is a permanent cost and nobody had asked for it.
 
-Phases: **(1)** strip chat from the cloud — done. **(2)** desktop shell — done. **(3)** local mode —
-next, and the reason `apps/desktop` exists. **(4)** local→cloud promotion. Note 18 is binding and
-supersedes the parts of notes 01, 07 and 12 that put Simon on the server, plus note 14's connectors.
-Note 19 specifies labels.
+Phases: **(1)** strip chat from the cloud — done. **(2)** desktop shell — done. Local mode and
+local→cloud promotion are **dropped**. Note 18 is binding and supersedes the parts of notes 01, 07 and
+12 that put Simon on the server, plus note 14's connectors. Note 19 specifies labels.
 
 ## Status
 
@@ -35,8 +35,9 @@ labels, documents over a real Git engine, scheduling/notifications, Vault, shari
 endpoint with OAuth, analytics/consent, access, and self-hosting. All 51 expand-only migrations were
 verified live. `apps/desktop` installs as a DMG, signs in and shows the workspace.
 
-**Admission stays closed.** `BETA_ACCESS_REQUIRED` defaults to true and the hosted launch is invite
-only; opening it is a deliberate decision, not a default to drift into.
+**Admission is open.** The hosted service runs with `BETA_ACCESS_REQUIRED=false`. The invite and
+redemption machinery stays — it is what a self-hosted or re-gated instance turns back on with one
+variable — but nothing in the hosted product asks for an invite.
 
 Three removals, all of them deliberate, all of them leaving their tables behind because migrations
 are expand-only:
@@ -69,8 +70,7 @@ docs/notes/files/  18 numbered product notes (binding product decisions)
 ```
 
 `apps/desktop` is an Electron shell and nothing more: a window, the staged Next server, and the cloud
-session held in main so the renderer holds no token. It hosts no agent. Local mode (phase 3) is what
-it is for.
+session held in main so the renderer holds no token. It hosts no agent.
 
 The MCP endpoint is in `apps/api/src/modules/mcp/` — 20 tools (16 in `mcp-tools.ts`, 4 contributed by
 features through `mcp-extensions.ts`), grants, and the OAuth flow (dynamic client registration,

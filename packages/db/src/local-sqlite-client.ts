@@ -27,7 +27,7 @@ export interface LocalSqliteClientOptions {
   readonly env?: Readonly<Record<string, string | undefined>>;
   /**
    * Declares that this process is a single-user local install, for which SQLite is the real store
-   * rather than a stand-in — the Symplist desktop app offline (note 18, `DEPLOYMENT=local`).
+   * rather than a stand-in, such as a single-user install on one person's own machine.
    *
    * The `NODE_ENV=production` refusal below exists to stop a *hosted* deployment running on one file:
    * no replication, no failover, one writer, and a disk nobody is backing up. None of that is an

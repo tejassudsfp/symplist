@@ -6,8 +6,9 @@ Product decisions and implementation specifications.
 notes 12 and 16 that describes an agent Symplist runs: **Symplist publishes its tools over MCP and does
 not run an agent.** The assistant is whichever MCP client the person already uses. Note 14's connector
 layer is gone with it. Read those notes for the document, search and sharing decisions they also carry,
-and read note 18 for who drives them. Current launch scope is a free closed beta with manually shared
-invites; earlier paid-plan ideas are deferred.
+and read note 18 for who drives them. The hosted service is **open and free** — the invite machinery in
+note 04 remains for self-hosted or re-gated instances, but nothing hosted asks for one. Note 18's local
+mode was **dropped** before it shipped; there is one topology, the cloud.
 
 | Order | Document | Purpose |
 | --- | --- | --- |
@@ -32,4 +33,4 @@ invites; earlier paid-plan ideas are deferred.
 | 19 | [Labels](19_labels.md) | What a label is, why it is a dot and not a pill, the caps, and what an agent may do with one |
 
 
-The notes preserve current decisions; the design briefs expand them into visual states and explicitly mark new assumptions. No payment or automatic-invite flows belong in beta. Direct Trigger-to-browser output remains an evaluated alternative, not a confirmed replacement for backend delivery.
+The notes preserve current decisions; the design briefs expand them into visual states and explicitly mark new assumptions. No payment flows belong in the product. Direct Trigger-to-browser output remains an evaluated alternative, not a confirmed replacement for backend delivery.

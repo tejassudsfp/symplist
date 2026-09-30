@@ -122,6 +122,9 @@ describe("Content Security Policy (§10.4)", () => {
       "/icon.svg",
       "/apple-icon.png",
       "/manifest.webmanifest",
+      "/robots.txt",
+      "/sitemap.xml",
+      "/llms.txt",
       "/brand/icon.svg",
       "/brand/icon-512.png",
       "/brand/icon-maskable-512.png",
@@ -168,9 +171,18 @@ describe("the session hint redirect (§5.1)", () => {
   });
 
   it("redirects every protected route group when the hint is missing", () => {
-    for (const path of ["/", "/access", "/welcome", "/admin/invites", "/vault", "/oauth/consent"]) {
+    for (const path of ["/access", "/welcome", "/admin/invites", "/vault", "/oauth/consent"]) {
       const response = proxy(new NextRequest(`https://app.symplist.test${path}`));
       expect(new URL(response.headers.get("location") ?? "").pathname).toBe("/signin");
+    }
+  });
+
+  it("serves the public site to a visitor with no session at all", () => {
+    // The homepage and the published terms are what a stranger and a search engine come for; sending
+    // either to a sign-in form would make the product unreadable from outside.
+    for (const path of ["/", "/privacy", "/terms", "/cookies"]) {
+      const response = proxy(new NextRequest(`https://app.symplist.test${path}`));
+      expect(response.headers.get("location")).toBeNull();
     }
   });
 });

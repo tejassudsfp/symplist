@@ -87,47 +87,6 @@ function hostedProviders(d1TokenVariable: string) {
 }
 
 /** A valid production api environment in durable mode. */
-/**
- * A `DEPLOYMENT=local` api environment: one person's machine, as the Symplist desktop app configures it
- * in offline mode (note 18). It is production — the app is installed — and it is the one production
- * topology that runs on the local drivers, sends no email, needs no hosted credential and has no
- * account to invite.
- */
-export function localDeploymentApiEnv(
-  overrides: Record<string, string | undefined> = {},
-): Record<string, string | undefined> {
-  return {
-    NODE_ENV: "production",
-    DEPLOYMENT: "local",
-    PORT: "4317",
-    WEB_ORIGIN: "http://127.0.0.1:4318",
-    API_ORIGIN: "http://127.0.0.1:4317",
-    WS_ORIGIN: "ws://127.0.0.1:4317",
-    /*
-     * `localhost`, where the app and api are on `127.0.0.1`.
-     *
-     * The share host must be a different *cookie* host from both, so a session cookie can never reach
-     * an artifact page — and cookies are scoped by host, not by port, so different ports would not do
-     * it. These two names are both loopback, both resolvable with no DNS trick, and different to a
-     * browser's cookie jar, which is the property the rule is actually about.
-     */
-    ARTIFACT_ORIGIN: "http://localhost:4317",
-    TRUST_PROXY_HOPS: "0",
-    DATA_DRIVER: "local",
-    EMAIL_DRIVER: "log",
-    DURABLE: "false",
-    BETA_ACCESS_REQUIRED: "false",
-    // Addresses nothing ever sends to: the log driver prints mail to the app's own log. They still have
-    // to parse, because the api asks for a sender whatever the driver is.
-    EMAIL_FROM_SECURITY: "Symplist <security@symplist.invalid>",
-    EMAIL_FROM_REMINDERS: "Symplist <reminders@symplist.invalid>",
-    LOCAL_DATA_DIR: "/tmp/symplist-local-test",
-    LOCAL_OWNER_TOKEN: credential("symlocal_"),
-    ...familyVariables(apiFamilies),
-    ...overrides,
-  };
-}
-
 export function productionApiEnv(
   overrides: Record<string, string | undefined> = {},
 ): Record<string, string | undefined> {

@@ -10,13 +10,7 @@ import {
 } from "./api.ts";
 import { ConfigError, type ConfigIssue } from "./errors.ts";
 import { defaultLocalDataDir } from "./local-data.ts";
-import {
-  credential,
-  generatedSecret,
-  localApiEnv,
-  localDeploymentApiEnv,
-  productionApiEnv,
-} from "./testing/fixtures.ts";
+import { credential, generatedSecret, localApiEnv, productionApiEnv } from "./testing/fixtures.ts";
 
 function issuesOf(env: Record<string, string | undefined>): readonly ConfigIssue[] {
   const result = parseApiConfig(env);
@@ -201,52 +195,6 @@ describe("api configuration: field validation", () => {
   });
 });
 
-describe("api configuration: a local deployment (note 18)", () => {
-  it("loads one person's machine: local drivers, no email, no Trigger, no invite", () => {
-    const config = loadApiConfig(localDeploymentApiEnv());
-    expect(config).toMatchObject({
-      NODE_ENV: "production",
-      DEPLOYMENT: "local",
-      DATA_DRIVER: "local",
-      EMAIL_DRIVER: "log",
-      DURABLE: false,
-      BETA_ACCESS_REQUIRED: false,
-    });
-  });
-
-  it("needs no hosted credential at all", () => {
-    // The point of the mode: nothing to sign up for, nothing to pay for, nothing to leak. The fixture
-    // supplies no Cloudflare, R2, Resend, Trigger or PostHog value and the config still loads.
-    expect(() => loadApiConfig(localDeploymentApiEnv())).not.toThrow();
-  });
-
-  it.each([
-    ["DATA_DRIVER", "d1", "must be local when DEPLOYMENT=local"],
-    ["EMAIL_DRIVER", "resend", "must be log when DEPLOYMENT=local"],
-    ["DURABLE", "true", "must be false when DEPLOYMENT=local"],
-    ["BETA_ACCESS_REQUIRED", "true", "must be false when DEPLOYMENT=local"],
-  ])("refuses %s=%j", (name, value, message) => {
-    expect(issuesOf(localDeploymentApiEnv({ [name]: value }))).toContainEqual(issue(name, message));
-  });
-
-  it.each(["WEB_ORIGIN", "API_ORIGIN", "WS_ORIGIN"])(
-    "refuses a %s that is not loopback, because nothing outside the machine may reach it",
-    (name) => {
-      // There is no account and no OTP in this mode. Being unaddressable is the security model, so an
-      // origin that is not loopback is not a preference — it is the mode not holding.
-      const value =
-        name === "WS_ORIGIN" ? "ws://symplist.example.com" : "http://symplist.example.com";
-      expect(issuesOf(localDeploymentApiEnv({ [name]: value }))).toContainEqual(
-        issue(name, "must be a loopback origin when DEPLOYMENT=local (127.0.0.1 or localhost)"),
-      );
-    },
-  );
-
-  it("defaults to the cloud, so an existing deployment is unaffected by the mode existing", () => {
-    expect(loadApiConfig(productionApiEnv()).DEPLOYMENT).toBe("cloud");
-  });
-});
-
 describe("api configuration: cross-field rules (§16.1)", () => {
   it.each([
     ["DATA_DRIVER", "local", "must be d1 when NODE_ENV=production"],
@@ -270,11 +218,9 @@ describe("api configuration: cross-field rules (§16.1)", () => {
     expect(issues.map((entry) => entry.variable)).toEqual(["DATA_DRIVER", "EMAIL_DRIVER"]);
   });
 
-  it("says which deployment the refusal is about, so the desktop's own topology is findable", () => {
-    // The message has to point somewhere. An operator on SQLite in production is making a mistake; the
-    // desktop app on SQLite is not, and the difference is one declared variable.
+  it("says plainly that the local driver is a development adapter", () => {
     const issues = issuesOf(productionApiEnv({ DATA_DRIVER: "local" }));
-    expect(issues[0]?.message).toContain("DEPLOYMENT=local");
+    expect(issues[0]?.message).toContain("for development only");
   });
 
   it.each([

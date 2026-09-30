@@ -23,14 +23,13 @@ Three features were built, shipped and then deleted. Each is recorded rather tha
 - **The server-side assistant** — the agent loop, chat, approvals, run authority and model credentials. See [note 18](docs/notes/files/18_local_first_desktop.md).
 - **The embedded desktop assistant** — a vendored harness over ACP, removed after it proved strictly less capable than the MCP client people already had open, and after it required pasting a provider key into our window.
 - **The connector layer** — the Composio wrappers and their approval model, whose executor had been dead code since the server-side assistant left.
+- **Offline local mode** — specified in note 18 and half built (declared deployment, single owner, local drivers). Deleted before it shipped: a second production topology is a permanent correctness cost, and nobody had asked for it.
 
 Their tables remain, because migrations here are expand-only, and are no longer written.
 
 ## Next
 
-- **Local mode** — the list fully offline: local SQLite, no account, MCP over stdio. The server half is built; the desktop half is what `apps/desktop` exists for. See [note 18](docs/notes/files/18_local_first_desktop.md).
 - **Signed and notarized desktop builds** — the DMG is currently unsigned, so macOS reports it as damaged. This is what stands between the desktop app and a stranger installing it.
-- **Local → cloud promotion** — taking a list that started offline and giving it an account.
 
 ## Possible next steps
 

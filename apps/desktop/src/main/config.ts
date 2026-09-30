@@ -17,8 +17,8 @@
  */
 
 /** The closed beta's cloud. Public hostnames; nothing here is a secret. */
-const DEFAULT_API_ORIGIN = "https://api.symplist.tejassuds.com";
-const DEFAULT_WEB_ORIGIN = "https://app.symplist.tejassuds.com";
+const DEFAULT_API_ORIGIN = "https://api.symplist.app";
+const DEFAULT_WEB_ORIGIN = "https://symplist.app";
 
 /** Overrides, for running the desktop app against a local api during development. */
 export const API_ORIGIN_ENV = "SYMPLIST_DESKTOP_API_ORIGIN";

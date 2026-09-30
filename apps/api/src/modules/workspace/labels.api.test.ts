@@ -71,6 +71,9 @@ describe("label routes (§2.1)", () => {
     const deep = labelViewSchema.parse(created.json());
     expect(deep).toMatchObject({ name: "Deep work", colour: "violet", taskCount: 0 });
 
+    // The list is ordered by `created_at, id`. The harness clock is frozen, so without advancing it
+    // both labels share a millisecond and the random uuid tail decides — which made this flake.
+    await app.clock.advance(1);
     const errand = await maya.label("Errands", "amber");
     const list = await app.get("/v1/labels", { session: maya.session });
     expect(list.status).toBe(200);

@@ -14,9 +14,18 @@ import {
 export const SESSION_HINT_COOKIE = "sym_hint";
 
 /** Route prefixes a signed-out visitor may open. Everything else starts at the email entry. */
-const publicPrefixes = ["/signin"] as const;
+/**
+ * Paths a signed-out visitor may read: sign-in, and the public site.
+ *
+ * The homepage and the three legal pages are the product's shop window and its published terms — a
+ * stranger has to be able to read every one of them without an account, and a search engine has to be
+ * able to index them.
+ */
+const publicPrefixes = ["/signin", "/terms", "/cookies", "/privacy"] as const;
 
 function isPublicPath(pathname: string): boolean {
+  // The root is the marketing homepage, not a redirect into the workspace.
+  if (pathname === "/") return true;
   return publicPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }
 
@@ -67,6 +76,6 @@ export function proxy(request: NextRequest): NextResponse {
 export const config = {
   // Brand assets and metadata must load before sign-in so browsers can show the favicon and PWA icon.
   matcher: [
-    "/((?!_next/static|_next/image|favicon\\.ico$|icon\\.svg$|apple-icon\\.png$|manifest\\.webmanifest$|brand/|licenses/).*)",
+    "/((?!_next/static|_next/image|favicon\\.ico$|icon\\.svg$|apple-icon\\.png$|manifest\\.webmanifest$|robots\\.txt$|sitemap\\.xml$|llms\\.txt$|brand/|licenses/).*)",
   ],
 };

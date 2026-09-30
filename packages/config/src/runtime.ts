@@ -84,22 +84,6 @@ export const sharedVariableShape = {
   API_ORIGIN: originVariable("http"),
   WS_ORIGIN: originVariable("ws"),
 
-  /**
-   * Which deployment this is, and it changes what the rest of the rules mean.
-   *
-   * `cloud` is the hosted service and every self-hosted instance of it: D1, R2, Resend, real origins,
-   * accounts behind OTP and an invite. `local` is one person's own machine — the Symplist desktop app
-   * in offline mode (note 18): SQLite, a filesystem object store, no email, no account, and a loopback
-   * api nothing outside the machine can reach.
-   *
-   * It exists because `DATA_DRIVER=local` used to mean exactly one thing — a development stand-in for
-   * the cloud topology — and is refused under `NODE_ENV=production` for that reason. A desktop install
-   * *is* production and legitimately runs on SQLite, so the distinction has to be declared rather than
-   * inferred from the driver: otherwise relaxing the guard for the app would also relax it for someone
-   * about to deploy a hosted service on a single file.
-   */
-  DEPLOYMENT: enumWithDefaultVariable(["cloud", "local"], "cloud"),
-
   DATA_DRIVER: enumVariable(["d1", "local"]),
   EMAIL_DRIVER: enumVariable(["resend", "log"]),
   DURABLE: booleanVariable(false),
@@ -149,7 +133,6 @@ export interface SharedRuleValues {
   readonly WEB_ORIGIN: string;
   readonly API_ORIGIN: string;
   readonly WS_ORIGIN: string;
-  readonly DEPLOYMENT: "cloud" | "local";
   readonly DATA_DRIVER: "d1" | "local";
   readonly EMAIL_DRIVER: "resend" | "log";
   readonly DURABLE: boolean;
@@ -191,60 +174,12 @@ export function sharedRuleIssues(
 ): ConfigIssue[] {
   const issues: ConfigIssue[] = [];
   const production = values.NODE_ENV === "production";
-  const local = values.DEPLOYMENT === "local";
 
-  /*
-   * A local deployment is the one production topology that runs on the local drivers, so its rules are
-   * the inverse of the cloud's: the drivers it must use are the ones the cloud refuses, and the
-   * credentials the cloud needs are ones it must not have. Declaring the deployment rather than
-   * inferring it from `DATA_DRIVER` is what keeps "SQLite is fine here" from becoming "SQLite is fine
-   * anywhere in production".
-   */
-  if (local) {
-    if (values.DATA_DRIVER !== "local") {
-      issues.push({
-        variable: "DATA_DRIVER",
-        message: "must be local when DEPLOYMENT=local: there is no D1 on one person's machine",
-      });
-    }
-    if (values.EMAIL_DRIVER !== "log") {
-      issues.push({
-        variable: "EMAIL_DRIVER",
-        message: "must be log when DEPLOYMENT=local: a local install sends no email",
-      });
-    }
-    // Nothing reaches this api but the app that started it, and that is the whole security model: no
-    // account, no OTP, no invite, and no listener anyone else can address.
-    for (const name of ["WEB_ORIGIN", "API_ORIGIN", "WS_ORIGIN"] as const) {
-      const url = parseOrigin(values[name], name === "WS_ORIGIN" ? "ws" : "http");
-      if (url && !isLoopbackHostname(url.hostname)) {
-        issues.push({
-          variable: name,
-          message: "must be a loopback origin when DEPLOYMENT=local (127.0.0.1 or localhost)",
-        });
-      }
-    }
-    if (values.DURABLE) {
-      issues.push({
-        variable: "DURABLE",
-        message:
-          "must be false when DEPLOYMENT=local: there is no Trigger.dev on one person's machine",
-      });
-    }
-    if (values.BETA_ACCESS_REQUIRED) {
-      issues.push({
-        variable: "BETA_ACCESS_REQUIRED",
-        message: "must be false when DEPLOYMENT=local: there is nobody to invite the owner",
-      });
-    }
-  }
-
-  if (production && !local) {
+  if (production) {
     if (values.DATA_DRIVER !== "d1") {
       issues.push({
         variable: "DATA_DRIVER",
-        message:
-          "must be d1 when NODE_ENV=production: the local driver is for development, or for DEPLOYMENT=local",
+        message: "must be d1 when NODE_ENV=production: the local driver is for development only",
       });
     }
     if (values.EMAIL_DRIVER !== "resend") {
@@ -274,7 +209,7 @@ export function sharedRuleIssues(
     });
   }
 
-  if (values.DATA_DRIVER === "d1" && !local) {
+  if (values.DATA_DRIVER === "d1") {
     requireWhen(
       issues,
       { ...values, [d1TokenVariable]: d1TokenValue },
@@ -289,7 +224,7 @@ export function sharedRuleIssues(
       "DATA_DRIVER=d1",
     );
   }
-  if (values.EMAIL_DRIVER === "resend" && !local) {
+  if (values.EMAIL_DRIVER === "resend") {
     requireWhen(issues, values, ["RESEND_API_KEY"], "EMAIL_DRIVER=resend");
   }
 

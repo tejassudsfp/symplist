@@ -148,7 +148,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
  * Async and dynamically imported for one reason: `posthog-node` and its tree are about 27MB that only a
  * deployment with `ANALYTICS_ENABLED=true` and a project key ever calls. A static import would put them
  * in the module graph of every consumer — including the api running on one person's machine with no
- * network at all, which the Symplist desktop app ships (note 18, `DEPLOYMENT=local`). The disabled path
+ * network at all, such as an air-gapped self-host. The disabled path
  * already returned a no-op emitter without touching the client; now it does so without loading it
  * either, and a deployment that cannot reach PostHog need not install it.
  */

@@ -8,7 +8,6 @@ import type { TriggerRunsClient } from "./executor.ts";
  * only *called* when durable work may exist — the comment said so — but a static import put
  * `@trigger.dev/sdk` in the module graph regardless: about 35MB, plus the 82MB of `@opentelemetry` it
  * drags behind it. A `DURABLE=false` api never calls a line of it, and an offline install (note 18,
- * `DEPLOYMENT=local`) cannot: there is no Trigger.dev on one person's machine. Now that api does not
  * load it and need not have it installed at all, which is also what makes `DURABLE=false` the genuinely
  * dependency-free self-hosted topology the docs already claim it is.
  *
