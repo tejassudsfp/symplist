@@ -16,6 +16,57 @@ const document = {
   token_endpoint_auth_method: "none",
 };
 
+/**
+ * ChatGPT's connector document, verbatim from https://chatgpt.com/oauth/client.json.
+ *
+ * It prefers `private_key_jwt` and also advertises `none`. Rejecting it on the preference alone answered
+ * `invalid_client` to every connection attempt, which is what this fixture exists to stop happening
+ * again — the shape is a real one, not one we invented.
+ */
+const chatgptDocument = {
+  client_id: "https://chatgpt.com/oauth/client.json",
+  client_uri: "https://chatgpt.com/",
+  redirect_uris: ["https://chatgpt.com/connector_platform_oauth_redirect"],
+  token_endpoint_auth_method: "private_key_jwt",
+  token_endpoint_auth_methods_supported: ["none", "private_key_jwt"],
+  grant_types: ["authorization_code", "refresh_token"],
+  response_types: ["code"],
+  client_name: "ChatGPT",
+  logo_uri: "https://persistent.oaistatic.com/sonic/misc/openai-logo.png",
+  token_endpoint_auth_signing_alg: "RS256",
+  jwks_uri: "https://chatgpt.com/oauth/jwks.json",
+};
+
+describe("a client that prefers an auth method this server does not offer", () => {
+  it("accepts ChatGPT's document, because it also advertises the one method we support", () => {
+    const parsed = parseClientMetadata(chatgptDocument, chatgptDocument.client_id);
+    expect(parsed).toMatchObject({
+      clientId: "https://chatgpt.com/oauth/client.json",
+      name: "ChatGPT",
+      redirectUris: ["https://chatgpt.com/connector_platform_oauth_redirect"],
+      metadataHost: "chatgpt.com",
+      applicationType: "web",
+      loopbackOnly: false,
+    });
+  });
+
+  it("still refuses one that can only do a method we cannot verify", () => {
+    // Accepting it would mean claiming an authentication that never happened.
+    expect(() =>
+      parseClientMetadata(
+        { ...chatgptDocument, token_endpoint_auth_methods_supported: ["private_key_jwt"] },
+        chatgptDocument.client_id,
+      ),
+    ).toThrow("oauth.invalid_client_metadata");
+    expect(() =>
+      parseClientMetadata(
+        { ...chatgptDocument, token_endpoint_auth_methods_supported: undefined },
+        chatgptDocument.client_id,
+      ),
+    ).toThrow("oauth.invalid_client_metadata");
+  });
+});
+
 describe("client metadata SSRF boundary", () => {
   it.each([
     "127.0.0.1",
@@ -105,6 +156,12 @@ describe("client metadata SSRF boundary", () => {
       { ...document, redirect_uris: [] },
       { ...document, redirect_uris: ["http://external.example.test/callback"] },
       { ...document, token_endpoint_auth_method: "client_secret_basic" },
+      // Prefers a method this server cannot verify and offers no alternative it can.
+      {
+        ...document,
+        token_endpoint_auth_method: "private_key_jwt",
+        token_endpoint_auth_methods_supported: ["private_key_jwt"],
+      },
       { ...document, client_name: "" },
     ]) {
       expect(() => parseClientMetadata(invalid, clientId)).toThrow("oauth.invalid_client_metadata");
