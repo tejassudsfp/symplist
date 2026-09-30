@@ -47,8 +47,6 @@ async function productionSource(overrides = {}) {
     R2_SECRET_ACCESS_KEY: "r2-secret-key-unique",
     RESEND_API_KEY: "re_resend-key-unique",
     RESEND_WEBHOOK_SECRET: "whsec_resend-hook-unique",
-    COMPOSIO_API_KEY: "composio-api-key-unique",
-    COMPOSIO_WEBHOOK_SECRET: "composio-hook-unique",
     ANALYTICS_ENABLED: "true",
     POSTHOG_PROJECT_KEY: "phc_0123456789abcdefghijklmnop",
     POSTHOG_HOST: "https://us.i.posthog.com",
@@ -233,6 +231,21 @@ test("rejects unowned variables instead of silently carrying them", async () => 
       error instanceof Error &&
       error.message.includes("UNRECOGNIZED_PRIVATE_VALUE") &&
       !error.message.includes("canary-private-value"),
+  );
+});
+
+test("refuses a Composio credential left over from before the connector layer went", async () => {
+  // The connector layer was removed, so these belong to no runtime any more. An operator upgrading
+  // still has them in `.env.local`, and distribution naming them is how they learn to take them out —
+  // before the api refuses to boot on the same variables. The value is never echoed.
+  const canary = "composio-api-key-canary-value";
+  const source = await productionSource({ COMPOSIO_API_KEY: canary });
+  await assert.rejects(
+    async () => planEnvironmentDistribution(envText(source), await examples()),
+    (error) =>
+      error instanceof Error &&
+      error.message.includes("COMPOSIO_API_KEY") &&
+      !error.message.includes(canary),
   );
 });
 

@@ -56,8 +56,6 @@ test("Render prompts for every API secret and never carries worker, CI or model 
     "R2_SECRET_ACCESS_KEY",
     "RESEND_API_KEY",
     "RESEND_WEBHOOK_SECRET",
-    "COMPOSIO_API_KEY",
-    "COMPOSIO_WEBHOOK_SECRET",
     "POSTHOG_PROJECT_KEY",
     "POSTHOG_PERSONAL_API_KEY",
     "POSTHOG_PROJECT_ID",
@@ -76,7 +74,10 @@ test("Render prompts for every API secret and never carries worker, CI or model 
   ];
   for (const name of prompted) assert.match(envEntry(name), /sync: false/);
 
+  // Refused at boot on both runtimes, so the deployment must not offer to set them either.
   for (const forbidden of [
+    "COMPOSIO_API_KEY",
+    "COMPOSIO_WEBHOOK_SECRET",
     "OPENAI_API_KEY",
     "ANTHROPIC_API_KEY",
     "AWS_ACCESS_KEY_ID",
