@@ -6,14 +6,14 @@ import { parse } from "yaml";
 
 /**
  * The packaging decisions that are easy to undo by accident, asserted so they are not. Signing is off on
- * purpose in phase 2, the staged web server has to land outside the asar for Next to resolve its own
- * files, and Windows must stay merely unbuilt rather than impossible.
+ * purpose until a Developer ID exists, the staged web server has to land outside the asar for Next to
+ * resolve its own files, and Windows must stay merely unbuilt rather than impossible.
  */
 interface BuilderConfig {
   appId: string;
   productName: string;
   asar: boolean;
-  asarUnpack: string[];
+  asarUnpack?: string[];
   files: string[];
   extraResources: { from: string; to: string }[];
   directories: { output: string; buildResources: string };
@@ -27,13 +27,11 @@ const config = parse(
 ) as BuilderConfig;
 
 /**
- * Where the staging scripts put a tree that carries its own root `node_modules`: `stage-web.mjs` writes
- * `build/web` and `vendor-harness.mjs` writes `build/harness`. Neither may be a mapping's `from` — see
- * the extraResources test for what happens when one is. `locateHarness` resolves
- * `<Resources>/harness/launch-acp.mjs`, and the launcher resolves dsh by walking up to
- * `<Resources>/harness/node_modules`, so these names are the contract at both ends.
+ * Where a staging script puts a tree that carries its own root `node_modules`: `stage-web.mjs` writes
+ * `build/web`. It may never be a mapping's `from` — see the extraResources test for what happens when it
+ * is.
  */
-const stagedTreesWithOwnNodeModules = ["build/web", "build/harness"];
+const stagedTreesWithOwnNodeModules = ["build/web"];
 
 describe("electron-builder.yml", () => {
   it("builds an unsigned, un-notarized macOS dmg", () => {
@@ -45,19 +43,21 @@ describe("electron-builder.yml", () => {
 
   it("ships the staged web server on disk, outside the archive", () => {
     expect(config.asar).toBe(true);
-    // Native addons — the harness brings four Node-API ones — cannot be loaded from inside an asar.
-    expect(config.asarUnpack).toContain("**/*.node");
+    // Nothing ships a native addon any more. `asarUnpack` existed for the four Node-API packages the dsh
+    // harness brought, and dsh left with the embedded agent (note 18) — so an empty list here is the
+    // correct state rather than a forgotten one.
+    expect(config.asarUnpack).toBeUndefined();
+    expect(config.extraResources).toEqual([{ from: "build", to: "." }]);
   });
 
-  it("copies the staged trees from above them, never each one as its own mapping", () => {
-    // Both staged trees keep what they need in a `node_modules` at their own root: the standalone
-    // server's `node_modules/next` is a relative symlink into `build/web/node_modules/.pnpm`, and the
-    // harness is a 230-package npm installation under `build/harness/node_modules`. app-builder-lib's
+  it("copies the staged tree from above it, never as its own mapping", () => {
+    // The staged tree keeps what it needs in a `node_modules` at its own root: the standalone server's
+    // `node_modules/next` is a relative symlink into `build/web/node_modules/.pnpm`. app-builder-lib's
     // `createFilter` opens with `if (relative === "node_modules") return false`, unconditionally and
-    // before any pattern is consulted, so `from: build/web` and `from: build/harness` each silently
-    // shipped their tree with its `node_modules` removed — an app that died on `Cannot find module
-    // 'next'` before it had a window. One mapping from `build/` puts those directories at
-    // `web/node_modules` and `harness/node_modules`, which the same function lets through.
+    // before any pattern is consulted, so `from: build/web` silently shipped the tree with its
+    // `node_modules` removed — an app that died on `Cannot find module 'next'` before it had a window.
+    // One mapping from `build/` puts the directory at `web/node_modules`, which the same function lets
+    // through.
     expect(config.extraResources).toEqual([{ from: "build", to: "." }]);
     for (const mapping of config.extraResources)
       expect(stagedTreesWithOwnNodeModules).not.toContain(mapping.from);

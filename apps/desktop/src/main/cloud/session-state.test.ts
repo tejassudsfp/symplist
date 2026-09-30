@@ -7,11 +7,9 @@ import {
   CloudSession,
   errorCodeOf,
   identityOf,
-  isAdmitted,
   parsePersistedSession,
   SESSION_BLOB_VERSION,
   SESSION_SECRET_NAME,
-  type SessionCredentialHooks,
 } from "./session-state.ts";
 
 const API = "https://api.symplist.test";
@@ -61,23 +59,16 @@ interface Harness {
   readonly store: SecretStore & { entries: Map<string, string> };
   readonly requests: CloudRequest[];
   readonly ended: () => number;
-  readonly hooks: {
-    established: number;
-    beforeSignOut: number;
-    cleared: number;
-  };
 }
 
 function harness(options: {
   stored?: string;
   answer?: (request: CloudRequest) => CloudResponse | Promise<CloudResponse>;
-  credentials?: Partial<SessionCredentialHooks>;
 }): Harness {
   const jar = new CookieJar(() => NOW);
   const store = fakeStore(options.stored);
   const requests: CloudRequest[] = [];
   let ended = 0;
-  const hooks = { established: 0, beforeSignOut: 0, cleared: 0 };
   const http: CloudHttp = async (request) => {
     requests.push(request);
     const answer = options.answer?.(request);
@@ -95,22 +86,8 @@ function harness(options: {
     onSessionEnded: () => {
       ended += 1;
     },
-    credentials: {
-      established: async (identity) => {
-        hooks.established += 1;
-        await options.credentials?.established?.(identity);
-      },
-      beforeSignOut: async () => {
-        hooks.beforeSignOut += 1;
-        await options.credentials?.beforeSignOut?.();
-      },
-      cleared: async () => {
-        hooks.cleared += 1;
-        await options.credentials?.cleared?.();
-      },
-    },
   });
-  return { session, jar, store, requests, ended: () => ended, hooks };
+  return { session, jar, store, requests, ended: () => ended };
 }
 
 describe("parsing a persisted session", () => {
@@ -160,13 +137,6 @@ describe("reading an api answer", () => {
     expect(
       identityOf(JSON.stringify({ outcome: "unlocked", me: JSON.parse(me("app", 3)) })),
     ).toEqual({ destination: "app", accessGeneration: 3 });
-  });
-
-  it("counts an account as admitted once it is past the beta gate", () => {
-    expect(isAdmitted({ destination: "app", accessGeneration: 1 })).toBe(true);
-    expect(isAdmitted({ destination: "onboarding", accessGeneration: 1 })).toBe(true);
-    expect(isAdmitted({ destination: "beta_gate", accessGeneration: 1 })).toBe(false);
-    expect(isAdmitted({ destination: "paused", accessGeneration: 1 })).toBe(false);
   });
 });
 
@@ -273,48 +243,6 @@ describe("observing the sign-in traffic the renderer produces", () => {
     expect(h.store.entries.get(SESSION_SECRET_NAME)).not.toContain("unlocked");
   });
 
-  it("provisions device credentials once the account is admitted, and not before", async () => {
-    const h = harness({});
-    h.jar.acceptSetCookies(["sym_session=fresh; Max-Age=600"]);
-    await h.session.afterResponse("POST", "/v1/auth/otp/verify", {
-      status: 200,
-      headers: [],
-      body: me("beta_gate"),
-    });
-    // POST /v1/mcp/grants needs an admitted session; an account at the beta gate cannot have one.
-    expect(h.hooks.established).toBe(0);
-    await h.session.afterResponse("GET", "/v1/me", {
-      status: 200,
-      headers: [],
-      body: me("onboarding", 2),
-    });
-    expect(h.hooks.established).toBe(1);
-    // A repeat answer at the same generation does not mint again.
-    await h.session.afterResponse("GET", "/v1/me", {
-      status: 200,
-      headers: [],
-      body: me("onboarding", 2),
-    });
-    expect(h.hooks.established).toBe(1);
-  });
-
-  it("provisions device credentials the moment a beta code unlocks the account", async () => {
-    const h = harness({});
-    h.jar.acceptSetCookies(["sym_session=fresh; Max-Age=600"]);
-    await h.session.afterResponse("POST", "/v1/auth/otp/verify", {
-      status: 200,
-      headers: [],
-      body: me("beta_gate"),
-    });
-    expect(h.hooks.established).toBe(0);
-    await h.session.afterResponse("POST", "/v1/access/redeem", {
-      status: 200,
-      headers: [],
-      body: JSON.stringify({ outcome: "unlocked", me: JSON.parse(me("onboarding", 2)) }),
-    });
-    expect(h.hooks.established).toBe(1);
-  });
-
   it("clears everything when the api answers auth.session_required, and tells the renderer", async () => {
     const h = harness({ stored: blob() });
     await h.session.restore();
@@ -326,7 +254,6 @@ describe("observing the sign-in traffic the renderer produces", () => {
     expect(h.store.entries.has(SESSION_SECRET_NAME)).toBe(false);
     expect(h.jar.header()).toBeNull();
     expect(h.ended()).toBe(1);
-    expect(h.hooks.cleared).toBe(1);
   });
 
   it("leaves a signed-out app alone on a 401 it was expecting", async () => {
@@ -352,31 +279,6 @@ describe("observing the sign-in traffic the renderer produces", () => {
     expect(h.ended()).toBe(0);
   });
 
-  it("releases device credentials before the sign-out that would take away the authority to", async () => {
-    const order: string[] = [];
-    const h = harness({
-      stored: blob(),
-      credentials: {
-        beforeSignOut: async () => {
-          order.push("revoke");
-        },
-      },
-    });
-    await h.session.restore();
-    await h.session.beforeRequest("POST", "/v1/auth/logout");
-    order.push("logout");
-    await h.session.afterResponse("POST", "/v1/auth/logout", {
-      status: 200,
-      headers: [],
-      body: JSON.stringify({ signedOut: true }),
-    });
-    expect(order).toEqual(["revoke", "logout"]);
-    expect(h.store.entries.has(SESSION_SECRET_NAME)).toBe(false);
-    expect(h.jar.header()).toBeNull();
-    // The renderer asked for this one and is already navigating to sign-in.
-    expect(h.ended()).toBe(0);
-  });
-
   it("keeps the session when a sign-out did not succeed", async () => {
     const h = harness({ stored: blob() });
     await h.session.restore();
@@ -397,25 +299,6 @@ describe("observing the sign-in traffic the renderer produces", () => {
       headers: [],
       body: me("app"),
     });
-    expect(h.store.entries.has(SESSION_SECRET_NAME)).toBe(true);
-  });
-
-  it("survives a credential hook that throws, because a broken grant is not a broken sign-in", async () => {
-    const h = harness({
-      credentials: {
-        established: async () => {
-          throw new Error("mint failed");
-        },
-      },
-    });
-    h.jar.acceptSetCookies(["sym_session=fresh; Max-Age=600"]);
-    await expect(
-      h.session.afterResponse("POST", "/v1/auth/otp/verify", {
-        status: 200,
-        headers: [],
-        body: me("app"),
-      }),
-    ).resolves.toBeUndefined();
     expect(h.store.entries.has(SESSION_SECRET_NAME)).toBe(true);
   });
 

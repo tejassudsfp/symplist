@@ -7,6 +7,10 @@
  * Each namespace is one wrapper per channel registered in `src/main/ipc.ts`. Keep them thin — logic in
  * preload is logic that runs next to untrusted page script.
  *
+ * There are two of them, and there used to be five. The assistant, the model-key keychain and the MCP
+ * relay left with the embedded agent (note 18): Symplist publishes its tools over the api's `/mcp`
+ * endpoint, the agent is whichever client the person already uses, and this app is a list.
+ *
  * `cloud` is the largest wrapper and stays as small as it can be for a reason: the only thing it does is
  * turn a `Request` into plain data and hand plain data back. It makes no decisions. Every rule about
  * where a request may go, what header it carries and which cookie is attached lives in main, on the
@@ -18,23 +22,9 @@
  * arrays, strings and numbers are the whole vocabulary of this file.
  */
 import { contextBridge, ipcRenderer } from "electron";
-import type {
-  AssistantEvent,
-  AssistantOption,
-  AssistantSession,
-  AssistantStatus,
-  AssistantTimelineEntry,
-  AssistantTurnResult,
-} from "../shared/assistant.ts";
 import type { BridgedRequestInit, SymplistBridge } from "../shared/bridge.ts";
-import type {
-  CloudRequestPayload,
-  CloudResponsePayload,
-  HostInfo,
-  McpAccessInfo,
-} from "../shared/ipc.ts";
+import type { CloudRequestPayload, CloudResponsePayload, HostInfo } from "../shared/ipc.ts";
 import { ipcChannels, ipcEvents } from "../shared/ipc.ts";
-import type { KeychainProvider, KeychainStatus } from "../shared/keychain.ts";
 
 /** A value passed as `additionalArguments` by the window, since `app` is a main-process API. */
 function argument(name: string, fallback: string): string {
@@ -110,52 +100,6 @@ async function cloudFetch(
 }
 
 const bridge: SymplistBridge = {
-  assistant: {
-    status: async (): Promise<AssistantStatus> =>
-      (await ipcRenderer.invoke(ipcChannels.assistantStatus)) as AssistantStatus,
-    open: async (conversationId: string): Promise<AssistantSession | null> =>
-      (await ipcRenderer.invoke(
-        ipcChannels.assistantOpen,
-        conversationId,
-      )) as AssistantSession | null,
-    timeline: async (conversationId: string): Promise<readonly AssistantTimelineEntry[]> =>
-      (await ipcRenderer.invoke(
-        ipcChannels.assistantTimeline,
-        conversationId,
-      )) as readonly AssistantTimelineEntry[],
-    prompt: async (conversationId: string, text: string): Promise<AssistantTurnResult> =>
-      (await ipcRenderer.invoke(
-        ipcChannels.assistantPrompt,
-        conversationId,
-        text,
-      )) as AssistantTurnResult,
-    cancel: async (conversationId: string): Promise<boolean> =>
-      (await ipcRenderer.invoke(ipcChannels.assistantCancel, conversationId)) as boolean,
-    close: async (conversationId: string): Promise<boolean> =>
-      (await ipcRenderer.invoke(ipcChannels.assistantClose, conversationId)) as boolean,
-    setOption: async (
-      conversationId: string,
-      configId: string,
-      value: string,
-    ): Promise<readonly AssistantOption[]> =>
-      (await ipcRenderer.invoke(
-        ipcChannels.assistantSetOption,
-        conversationId,
-        configId,
-        value,
-      )) as readonly AssistantOption[],
-    decide: async (requestId: string, optionId: string | null): Promise<boolean> =>
-      (await ipcRenderer.invoke(ipcChannels.assistantDecide, requestId, optionId)) as boolean,
-    onEvent: (listener: (event: AssistantEvent) => void): (() => void) => {
-      // The payload is main's own tagged union, built in `src/main/harness/`, and carries no
-      // credential: a provider key never leaves the keyring except into the child's environment.
-      const handler = (_event: unknown, event: AssistantEvent): void => listener(event);
-      ipcRenderer.on(ipcEvents.assistantEvent, handler);
-      return () => {
-        ipcRenderer.removeListener(ipcEvents.assistantEvent, handler);
-      };
-    },
-  },
   cloud: {
     apiOrigin,
     fetch: cloudFetch,
@@ -168,16 +112,6 @@ const bridge: SymplistBridge = {
       };
     },
   },
-  keychain: {
-    // Three thin wrappers, and no fourth: there is no channel that reads a key back, so there is
-    // nothing here that could return one.
-    status: async (): Promise<KeychainStatus> =>
-      (await ipcRenderer.invoke(ipcChannels.keychainStatus)) as KeychainStatus,
-    set: async (provider: KeychainProvider, key: string): Promise<KeychainStatus> =>
-      (await ipcRenderer.invoke(ipcChannels.keychainSet, provider, key)) as KeychainStatus,
-    clear: async (provider: KeychainProvider): Promise<KeychainStatus> =>
-      (await ipcRenderer.invoke(ipcChannels.keychainClear, provider)) as KeychainStatus,
-  },
   host: {
     info: async (): Promise<HostInfo> => {
       const info = (await ipcRenderer.invoke(ipcChannels.hostInfo)) as HostInfo;
@@ -186,22 +120,6 @@ const bridge: SymplistBridge = {
     },
     openExternal: async (url: string): Promise<boolean> =>
       (await ipcRenderer.invoke(ipcChannels.hostOpenExternal, url)) as boolean,
-  },
-  mcp: {
-    state: async (): Promise<McpAccessInfo> =>
-      (await ipcRenderer.invoke(ipcChannels.mcpState)) as McpAccessInfo,
-    reconcile: async (): Promise<McpAccessInfo> =>
-      (await ipcRenderer.invoke(ipcChannels.mcpReconcile)) as McpAccessInfo,
-    reconnect: async (): Promise<McpAccessInfo> =>
-      (await ipcRenderer.invoke(ipcChannels.mcpReconnect)) as McpAccessInfo,
-    onChanged: (listener: (state: McpAccessInfo) => void): (() => void) => {
-      // The payload is main's own `McpAccessState`, which holds no credential — see `src/main/mcp/index.ts`.
-      const handler = (_event: unknown, state: McpAccessInfo): void => listener(state);
-      ipcRenderer.on(ipcEvents.mcpAccessChanged, handler);
-      return () => {
-        ipcRenderer.removeListener(ipcEvents.mcpAccessChanged, handler);
-      };
-    },
   },
 };
 

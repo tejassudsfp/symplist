@@ -132,7 +132,6 @@ export function createCloudHandlers(options: CloudHandlerOptions): CloudHandlers
     const controller = new AbortController();
     inFlight.set(parsed.requestId, controller);
     try {
-      await session.beforeRequest(decision.method, decision.path);
       const response = await options.http({
         method: decision.method,
         path: decision.path,
