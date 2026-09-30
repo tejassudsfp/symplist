@@ -60,11 +60,15 @@ function shellResponse(
 /** A stand-in for `window.symplist.cloud.fetch`, which takes a URL string and answers plain data. */
 function fakeBridge(handler: (url: string, init: RequestInit) => ShellResponse) {
   const urls: unknown[] = [];
+  // The raw `init`, unconverted. Reading `init.headers` through `new Headers(...)` would hide the
+  // very thing these tests exist to catch, because a `Headers` copies fine inside one realm.
+  const inits: RequestInit[] = [];
   const fetchImpl = vi.fn((input: unknown, init: RequestInit = {}) => {
     urls.push(input);
+    inits.push(init);
     return Promise.resolve(handler(String(input), init));
   });
-  return { fetchImpl, urls };
+  return { fetchImpl, urls, inits };
 }
 
 function fakeFetch(handler: (url: URL, init: RequestInit) => Response | Promise<Response>) {
@@ -355,6 +359,31 @@ describe("the shared client's transport", () => {
     await getApiClient().get("/v1/tasks", { query: { collection: "now" } });
     expect(typeof bridge.urls[0]).toBe("string");
     expect(bridge.urls[0]).toBe(`${API}/v1/tasks?collection=now`);
+  });
+
+  it("hands the desktop transport plain headers, never a Headers object", async () => {
+    // The same trap as the URL, and it was missed. `ApiClient` builds a `Headers`, which has no own
+    // enumerable properties, so it crossed `contextBridge` as `{}`: main received no `Content-Type`
+    // and no `X-Symplist-CSRF`, every `pre_session` route answered 403, and because the renderer
+    // never made an HTTP request the Network tab stayed empty and the page could only say
+    // "Something went wrong". Asserting the argument's own type is the only way to see it.
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "");
+    const bridge = fakeBridge(() => shellResponse(200, { ok: true }));
+    (globalThis as { symplist?: unknown }).symplist = {
+      cloud: { apiOrigin: API, fetch: bridge.fetchImpl },
+    };
+    await getApiClient().post("/v1/auth/lookup", {
+      body: { email: "maya@example.com" },
+      csrf: "pre_session",
+    });
+    const headers = bridge.inits[0]?.headers;
+    expect(headers).not.toBeInstanceOf(Headers);
+    expect(Object.entries(headers as Record<string, string>).length).toBeGreaterThan(0);
+    const lower = Object.fromEntries(
+      Object.entries(headers as Record<string, string>).map(([k, v]) => [k.toLowerCase(), v]),
+    );
+    expect(lower["x-symplist-csrf"]).toBe("1");
+    expect(lower["content-type"]).toBe("application/json");
   });
 
   it("rebuilds a real Response from the shell's plain answer", async () => {
