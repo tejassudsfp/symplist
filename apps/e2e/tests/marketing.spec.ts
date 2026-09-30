@@ -58,10 +58,20 @@ test.describe("the public site", () => {
 
   test("offers to let a visitor's own assistant answer for us", async ({ page }) => {
     await page.goto("/");
-    const ask = page.getByRole("link", { name: /^ChatGPT/ });
-    await expect(ask).toHaveAttribute("href", /chatgpt\.com\/\?q=.*llms\.txt/);
-    for (const name of ["Claude", "Perplexity"]) {
-      await expect(page.getByRole("link", { name: new RegExp(`^${name}`) })).toBeVisible();
+    const ask = page.getByRole("link", { name: /^Ask ChatGPT/ });
+    await expect(ask).toHaveAttribute("href", /chatgpt\.com\/.*llms\.txt/);
+    // All six, each with a real brand mark rather than a shape drawn from memory.
+    for (const name of ["Claude", "Gemini", "Perplexity", "Grok", "Copilot"]) {
+      await expect(page.getByRole("link", { name: new RegExp(`^Ask ${name}`) })).toBeVisible();
+    }
+    await expect(page.locator(".sym-ask-row a")).toHaveCount(6);
+
+    // The marks have to actually load. They were silently 302'd to /signin once, because the proxy
+    // matcher excluded `brand/` and `licenses/` but not `ai/`, and a broken <img> renders as nothing.
+    for (const file of ["openai.svg", "claude-color.svg", "gemini-color.svg", "grok.svg"]) {
+      const response = await page.request.get(`/ai/${file}`);
+      expect(response.status(), file).toBe(200);
+      expect(response.headers()["content-type"]).toContain("svg");
     }
   });
 
