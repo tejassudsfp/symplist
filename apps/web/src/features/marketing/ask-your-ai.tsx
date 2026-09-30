@@ -1,4 +1,4 @@
-import { SITE, SITE_URL } from "./site-chrome";
+import { SITE_URL } from "./site-chrome";
 
 /**
  * "Ask your assistant about Symplist" — the one piece of marketing this product can make honestly.
@@ -44,16 +44,16 @@ const assistants = [
 
 const steps = [
   {
-    title: "Connect it once",
-    body: "Point your client at symplist.app and approve a consent screen that names it and the access it asked for.",
+    title: "Add Symplist to your client",
+    body: "Register it as an MCP server in Claude Desktop, Claude Code or any client that speaks MCP.",
   },
   {
-    title: "Scope what it sees",
-    body: "Give a grant every task or only particular ones. A grant over three tasks learns nothing about the rest.",
+    title: "Approve what it can see",
+    body: "A consent screen shows the tools requested. Scope the grant to specific tasks if you like.",
   },
   {
     title: "Revoke whenever",
-    body: "One control in Settings ends a connection. Nothing needs uninstalling and no key changes hands.",
+    body: "Every grant is listed in Settings, and removing one takes effect immediately.",
   },
 ];
 
@@ -71,21 +71,23 @@ function Mark({ icon, mono }: { readonly icon: string; readonly mono?: boolean }
       />
     );
   }
-  // biome-ignore lint/performance/noImgElement: a 16px brand mark needs no optimisation pipeline.
+  // biome-ignore lint/performance/noImgElement: a 15px brand mark needs no optimisation pipeline.
   return <img src={src} alt="" aria-hidden="true" className="sym-ask-icon" />;
 }
 
 export function AskYourAi() {
   return (
     <section id="assistant" className="sym-section" aria-labelledby="sym-assistant-heading">
-      <div className="sym-card sym-split">
+      <div className="sym-split sym-assistant-panel">
         <div>
           <p className="sym-eyebrow">Assistants</p>
-          <h2 id="sym-assistant-heading">Bring your own. We don&rsquo;t run one.</h2>
+          <h2 id="sym-assistant-heading" className="sym-display">
+            Bring your own. We don&rsquo;t run one.
+          </h2>
           <p className="sym-section-lede">
             Symplist publishes 20 scoped tools over MCP. Claude Desktop, Claude Code or any MCP
             client can read and edit your tasks next to your real shell and repository. Your model
-            key stays with your client — we never hold one.
+            key stays with your client.
           </p>
           <div className="sym-ask-row">
             {assistants.map((assistant) => (
@@ -105,15 +107,18 @@ export function AskYourAi() {
             ))}
           </div>
           <p className="sym-fine">
-            Each link asks that assistant to read our <a href="/llms.txt">llms.txt</a> and explain
-            Symplist to you. Nothing is sent to us.
+            Each link asks that assistant to read our{" "}
+            <a href="/llms.txt" className="sym-fine-link">
+              llms.txt
+            </a>{" "}
+            and explain Symplist to you. Nothing is sent to us.
           </p>
         </div>
         <ol className="sym-steps">
           {steps.map((step, index) => (
             <li key={step.title}>
               <span className="sym-step-n">{index + 1}</span>
-              <div>
+              <div className="sym-step-text">
                 <span className="sym-step-title">{step.title}</span>
                 <span className="sym-step-body">{step.body}</span>
               </div>
@@ -121,13 +126,6 @@ export function AskYourAi() {
           ))}
         </ol>
       </div>
-      <p className="sym-section-foot">
-        Prefer to read it yourself? The whole thing is on{" "}
-        <a href={SITE.github} rel="noreferrer noopener" target="_blank">
-          GitHub
-        </a>
-        .
-      </p>
     </section>
   );
 }

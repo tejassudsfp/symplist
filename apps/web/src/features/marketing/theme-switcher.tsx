@@ -1,34 +1,20 @@
 "use client";
 
 import { Moon, Sun } from "lucide-react";
-import { useEffect, useState } from "react";
 import { accentPresets, resolveAccent } from "@/theme/accent";
-import { DEFAULT_APPEARANCE } from "@/theme/appearance";
-import { applyAppearance } from "@/theme/appearance-client";
 import { renderedPalette } from "@/theme/palette";
-import { type ColorMode, type ThemeId, themes } from "@/theme/registry";
-import { themeChips } from "./demo-data";
+import { themes } from "@/theme/registry";
+import { usePageAppearance } from "./appearance";
+import { themeChips, themeFontLabels } from "./demo-data";
 
 /**
  * The theme switcher under the hero. Choosing one repaints the whole page, not a preview pane.
  *
- * It drives the product's own appearance engine — `applyAppearance` rewrites the appearance stylesheet
- * and the `data-theme` / `data-mode` attributes — so what a visitor sees here is literally what the
- * workspace renders, rather than a marketing approximation that drifts the first time a theme is
- * retuned. `persist: false`, because nobody signed in and a visitor's cookie is not ours to set.
+ * Each chip carries the theme it names: the swatch is that theme's page colour with its resolved
+ * accent cut into the right half, both read from the live registry at render time.
  */
-export function ThemeSwitcher({
-  onChange,
-}: {
-  readonly onChange?: (theme: ThemeId, mode: ColorMode) => void;
-}) {
-  const [themeId, setThemeId] = useState<ThemeId>(DEFAULT_APPEARANCE.themeId);
-  const [mode, setMode] = useState<ColorMode>("light");
-
-  useEffect(() => {
-    applyAppearance({ themeId, mode, accent: DEFAULT_APPEARANCE.accent }, { persist: false });
-    onChange?.(themeId, mode);
-  }, [themeId, mode, onChange]);
+export function ThemeSwitcher() {
+  const { themeId, mode, setThemeId, setMode } = usePageAppearance();
 
   // The document keeps whatever the visitor last chose while they are on the page; a reload restores
   // the server-rendered default, which is the honest thing for a preference nobody saved.
@@ -76,7 +62,7 @@ export function ThemeSwitcher({
         </button>
       </fieldset>
       <p className="sym-theme-caption">
-        {`${themes[themeId].name} · ${themes[themeId].tag}. The whole page follows — this is the real theme, not a picture of one.`}
+        {`${themes[themeId].name}, ${mode} · ${themeFontLabels[themeId]}`}
       </p>
     </>
   );

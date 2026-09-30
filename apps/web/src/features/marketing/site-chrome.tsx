@@ -40,10 +40,10 @@ export function SiteHeader({ sections = false }: { readonly sections?: boolean }
           <a href={SITE.github} rel="noreferrer noopener" target="_blank">
             GitHub
           </a>
-          <Link href={SITE.app} className="sym-site-cta">
-            Open Symplist
-          </Link>
         </nav>
+        <Link href={SITE.app} className="sym-site-cta">
+          Open Symplist
+        </Link>
       </div>
     </header>
   );
