@@ -37,13 +37,14 @@ describe("the public homepage", () => {
   it("does not overclaim the encryption", () => {
     render(<HomePage />);
     // The service holds the keys. Saying otherwise on a public page would be a lie with legal weight.
-    expect(screen.getByText(/It is not end-to-end encryption\./)).toBeInTheDocument();
-    expect(screen.getByText(/Your email address is not/)).toBeInTheDocument();
+    expect(screen.getByText(/Not end-to-end/)).toBeInTheDocument();
+    expect(screen.getByText(/The service holds the keys/)).toBeInTheDocument();
+    expect(screen.getByText(/Your email is not; it is how you sign in\./)).toBeInTheDocument();
   });
 
   it("says it is free and open, with no beta and no gate to get past", () => {
     render(<HomePage />);
-    expect(screen.getByText(/nothing sits above it/i)).toBeInTheDocument();
+    expect(screen.getByText(/Free, with nothing above it/i)).toBeInTheDocument();
     // The page may say "no invite" — what it must never do is ask for one.
     expect(screen.getByText(/No invite, no waitlist, no card/i)).toBeInTheDocument();
     expect(screen.queryByText(/beta/i)).not.toBeInTheDocument();
