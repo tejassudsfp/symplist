@@ -286,6 +286,25 @@ function responseFrom(payload: DesktopCloudResponse): Response {
  * The origin comes from the shell rather than from `NEXT_PUBLIC_API_URL`, because the shell is the process
  * that will actually make the request and pins it to its own configured origin anyway.
  */
+/**
+ * `init` with everything the structured clone would drop rendered as plain data.
+ *
+ * Only `headers` needs it today, but the rule is the shape: anything reaching the bridge must survive
+ * a copy of own enumerable properties, and the web-standard request types deliberately do not.
+ */
+function plainInit(init: RequestInit | undefined): RequestInit | undefined {
+  if (!init) return init;
+  const { headers, ...rest } = init;
+  if (headers === undefined) return init;
+  const entries =
+    headers instanceof Headers
+      ? [...headers.entries()]
+      : Array.isArray(headers)
+        ? headers.map(([name, value]) => [String(name), String(value)] as const)
+        : Object.entries(headers).map(([name, value]) => [name, String(value)] as const);
+  return { ...rest, headers: Object.fromEntries(entries) };
+}
+
 function desktopCloudTransport(): DesktopCloudTransport | null {
   const cloud = (globalThis as { symplist?: { cloud?: unknown } }).symplist?.cloud;
   if (typeof cloud !== "object" || cloud === null) return null;
@@ -308,13 +327,22 @@ function desktopCloudTransport(): DesktopCloudTransport | null {
    * no `json()`. Together those two made every `/v1` call in the desktop app fail, including the first
    * one sign-in makes.
    *
+   * `headers` is the same trap and was missed. `ApiClient` builds a `Headers`, which has no own
+   * enumerable properties either, so it crossed as `{}` and main received no `Content-Type` and no
+   * `X-Symplist-CSRF`. A `pre_session` route requires that header, so every sign-in answered 403 —
+   * and because the renderer never made an HTTP request, the Network tab stayed empty and the page
+   * could only say "Something went wrong".
+   *
    * Fixed at this seam rather than inside `ApiClient`, because the constraint belongs to the bridge:
-   * the browser build passes a `URL` and receives a `Response`, which is correct and worth keeping.
+   * the browser build passes a `URL` and a `Headers` and receives a `Response`, which is correct and
+   * worth keeping.
    */
   return {
     apiOrigin: candidate.apiOrigin,
     fetch: async (input, init) =>
-      responseFrom(await bridged(input instanceof URL ? input.href : String(input), init)),
+      responseFrom(
+        await bridged(input instanceof URL ? input.href : String(input), plainInit(init)),
+      ),
   };
 }
 

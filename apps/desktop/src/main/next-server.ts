@@ -19,6 +19,7 @@ import { existsSync } from "node:fs";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import type { MainLog } from "./log.ts";
+import { nodeRunnerPath } from "./node-runner.ts";
 
 /** A booted renderer origin and the way to shut it down. */
 export interface RendererServer {
@@ -105,8 +106,9 @@ export interface StartRendererServerOptions {
   readonly log: MainLog;
   readonly hostname?: string;
   /**
-   * The executable that runs the server. In Electron this is `process.execPath` with
-   * `ELECTRON_RUN_AS_NODE`, so the app ships one Node runtime rather than two.
+   * The executable that runs the server. In Electron this is the helper binary with
+   * `ELECTRON_RUN_AS_NODE`, so the app ships one Node runtime rather than two — and, on macOS, so
+   * the child does not take a Dock icon of its own. See `nodeRunnerPath`.
    */
   readonly nodePath?: string;
   readonly timeoutMs?: number;
@@ -150,7 +152,7 @@ export async function startRendererServer(
   const port = await reserveLoopbackPort(hostname);
   const origin = `http://${hostname}:${port}`;
   const started = Date.now();
-  const child = spawn(options.nodePath ?? process.execPath, [entry], {
+  const child = spawn(options.nodePath ?? nodeRunnerPath(), [entry], {
     cwd: join(entry, ".."),
     env: childEnv(port, hostname),
     stdio: ["ignore", "pipe", "pipe"],

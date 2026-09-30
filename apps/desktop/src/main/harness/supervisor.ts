@@ -50,6 +50,7 @@ import type {
 } from "../../shared/assistant.ts";
 import type { MainLog } from "../log.ts";
 import { redactSecrets } from "../log.ts";
+import { nodeRunnerPath } from "../node-runner.ts";
 import type { AcpConnection, AcpTransport, HarnessToolSource } from "./acp-client.ts";
 import { connectAcp, toStopReason } from "./acp-client.ts";
 import type { HarnessLocation } from "./locate.ts";
@@ -814,7 +815,7 @@ export class HarnessSupervisor {
  * stdin, so it cannot carry this conversation at all.
  */
 function defaultSpawn(spec: HarnessSpawnSpec): HarnessChild {
-  return spawnProcess(process.execPath, [spec.launcher], {
+  return spawnProcess(nodeRunnerPath(), [spec.launcher], {
     cwd: spec.cwd,
     env: spec.env,
     stdio: ["pipe", "pipe", "pipe"],

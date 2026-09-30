@@ -68,6 +68,50 @@ export async function captureWindow(
     error: reach.error ?? null,
   });
 
+  /*
+   * The same call again, but a POST that carries headers — and this one goes through `ApiClient`
+   * rather than the raw bridge.
+   *
+   * A GET proves the URL crossed. It cannot prove the headers did, and they did not: `ApiClient`
+   * builds a `Headers`, which has no own enumerable properties, so it arrived in main as `{}` with
+   * no `Content-Type` and no `X-Symplist-CSRF`. Every `pre_session` route then answered 403 while
+   * the GET smoke stayed green, which is how sign-in shipped broken.
+   *
+   * `auth/lookup` is the right probe: it is the first call sign-in makes, it needs the CSRF header,
+   * and it sends no email — a 200 for an address that does not exist is the expected answer. A 403
+   * means headers are not reaching the api, whatever the GET above said.
+   *
+   * The headers below are a plain object, which is what the web client's bridge seam now produces.
+   * Passing a `Headers` would exercise the seam's own bug rather than main's handling, and the seam
+   * has a unit test asserting that conversion directly.
+   */
+  const post = (await window.webContents.executeJavaScript(
+    `(async () => {
+       const cloud = window.symplist && window.symplist.cloud;
+       if (!cloud) return { ok: false, error: "no bridge" };
+       try {
+         const response = await cloud.fetch(cloud.apiOrigin + "/v1/auth/lookup", {
+           method: "POST",
+           headers: {
+             "Content-Type": "application/json",
+             "X-Symplist-CSRF": "1",
+           },
+           body: JSON.stringify({ email: "smoke-probe@example.invalid" }),
+         });
+         return { ok: true, status: response.status };
+       } catch (error) {
+         return { ok: false, error: String(error && error.message ? error.message : error) };
+       }
+     })()`,
+  )) as { ok: boolean; status?: number; error?: string };
+  log.info("smoke.cloud_post", {
+    reached: post.ok,
+    status: post.status ?? null,
+    // 403 here means the headers did not survive the bridge. That is the regression to watch.
+    headers_survived: post.status !== undefined && post.status !== 403,
+    error: post.error ?? null,
+  });
+
   // Why the assistant is or is not usable, which is the question asked of every build. It is read-only:
   // the three answers that matter — `harness_missing`, `key_required`, ready — are the difference
   // between a broken vendoring step, a device with no model key, and a build that can take a turn.
