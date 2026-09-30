@@ -92,6 +92,28 @@ export interface OAuthClientMetadata {
   readonly loopbackOnly: boolean;
 }
 
+/**
+ * Whether the client can meet this server at the token endpoint.
+ *
+ * `token_endpoint_auth_method` is the client's *preference*, not a demand: RFC 8414 puts the server in
+ * charge, and this one publishes `token_endpoint_auth_methods_supported: ["none"]` — it is a public
+ * client server, and the authorization code is bound by PKCE S256 rather than by a client credential.
+ * So a document is acceptable when the client can do `none`, whether it says so by naming it outright
+ * or by listing it among the methods it supports.
+ *
+ * ChatGPT's connector is the case that found this: it prefers `private_key_jwt` and also advertises
+ * `none`, and rejecting it on the preference alone meant the negotiation this server publishes never
+ * happened. A client that supports *only* a method we cannot verify is still refused — accepting one
+ * would mean claiming an authentication we never performed.
+ */
+function clientCanAuthenticateAsPublic(data: Record<string, unknown>): boolean {
+  const preferred = data.token_endpoint_auth_method;
+  if (preferred === undefined || preferred === "none") return true;
+  if (typeof preferred !== "string") return false;
+  const supported = data.token_endpoint_auth_methods_supported;
+  return Array.isArray(supported) && supported.includes("none");
+}
+
 export function parseClientMetadata(value: unknown, clientId: string): OAuthClientMetadata {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new ClientMetadataError();
   const data = value as Record<string, unknown>;
@@ -104,7 +126,7 @@ export function parseClientMetadata(value: unknown, clientId: string): OAuthClie
     !data.redirect_uris.length ||
     data.redirect_uris.length > 20 ||
     data.redirect_uris.some((uri) => typeof uri !== "string" || !validRedirectUri(uri)) ||
-    (data.token_endpoint_auth_method !== undefined && data.token_endpoint_auth_method !== "none") ||
+    !clientCanAuthenticateAsPublic(data) ||
     (data.application_type !== undefined &&
       data.application_type !== "native" &&
       data.application_type !== "web")
