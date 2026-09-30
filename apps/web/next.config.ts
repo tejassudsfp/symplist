@@ -28,6 +28,13 @@ const nextConfig: NextConfig = {
   // Stop `next dev` from writing AGENTS.md and CLAUDE.md into apps/web (§1).
   agentRules: false,
   poweredByHeader: false,
+  /**
+   * The desktop shell (apps/desktop) runs this same app as a standalone Node server on 127.0.0.1 and
+   * loads it in an Electron window, so the frontend exists once rather than twice (note 18, phase 2).
+   * The flag is env-gated because the deployed build must keep emitting exactly what it emits today;
+   * only `pnpm --filter @symplist/desktop build:web` sets it.
+   */
+  ...(process.env.SYMPLIST_DESKTOP === "1" ? { output: "standalone" as const } : {}),
   images: {
     remotePatterns: [{ protocol: "https", hostname: "logos.composio.dev", pathname: "/api/**" }],
   },

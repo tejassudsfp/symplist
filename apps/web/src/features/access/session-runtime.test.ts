@@ -1,7 +1,11 @@
 import { eventIdSchema } from "@symplist/contracts";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RealtimeStatus, TopicHandlers } from "@/lib/realtime";
-import { type AccessRealtimeClient, connectAccessRealtime } from "./session-runtime.ts";
+import {
+  type AccessRealtimeClient,
+  connectAccessRealtime,
+  connectDesktopSessionEnd,
+} from "./session-runtime.ts";
 import { admittedAccess } from "./test-support.tsx";
 
 function fakeClient() {
@@ -98,5 +102,48 @@ describe("the access realtime subscription (§7)", () => {
       },
     });
     expect(() => stop()).not.toThrow();
+  });
+});
+
+describe("the desktop shell's session bridge", () => {
+  afterEach(() => {
+    delete (globalThis as { symplist?: unknown }).symplist;
+  });
+
+  it("routes a session the shell says has ended to sign-in with the expired notice", () => {
+    // In the desktop app the realtime socket is off, so this is how a session revoked from another
+    // device is noticed: main sees the 401 on its next request and says so.
+    const listeners: (() => void)[] = [];
+    let unsubscribed = 0;
+    (globalThis as { symplist?: unknown }).symplist = {
+      cloud: {
+        onSessionEnded: (handler: () => void) => {
+          listeners.push(handler);
+          return () => {
+            unsubscribed += 1;
+          };
+        },
+      },
+    };
+    const markSignedOut = vi.fn();
+    const stop = connectDesktopSessionEnd({ markSignedOut });
+    expect(listeners).toHaveLength(1);
+    listeners[0]?.();
+    expect(markSignedOut).toHaveBeenCalledWith({ expired: true });
+    stop();
+    expect(unsubscribed).toBe(1);
+  });
+
+  it("does nothing in a browser, where there is no shell", () => {
+    const markSignedOut = vi.fn();
+    expect(() => connectDesktopSessionEnd({ markSignedOut })()).not.toThrow();
+    expect(markSignedOut).not.toHaveBeenCalled();
+  });
+
+  it("does nothing when the bridge exists without the session channel", () => {
+    (globalThis as { symplist?: unknown }).symplist = { cloud: { apiOrigin: "https://api.test" } };
+    const markSignedOut = vi.fn();
+    expect(() => connectDesktopSessionEnd({ markSignedOut })()).not.toThrow();
+    expect(markSignedOut).not.toHaveBeenCalled();
   });
 });

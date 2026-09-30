@@ -38,11 +38,17 @@ test("deadline reschedule becomes a notification that can be snoozed and complet
   await page.goto("/calendar?date=2030-04-17&view=agenda");
   await expect(page.getByRole("link", { name: title })).toBeVisible();
   await expectNoAxeViolations(page, testInfo);
-  await page.getByRole("button", { name: "Change date" }).click();
+  // The agenda names each day the way the browser's locale writes it, and a "Change date" button says
+  // which task it changes, so both are matched loosely enough to survive a locale that is not en-US.
+  await page.getByRole("button", { name: new RegExp(`^Change date for ${title}$`) }).click();
   await editor.getByLabel("Deadline date", { exact: true }).fill("2030-04-18");
   await editor.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(page.getByRole("heading", { level: 3, name: "2030-04-17" })).toHaveCount(0);
-  await expect(page.getByRole("heading", { level: 3, name: "2030-04-18" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { level: 3, name: /17 April 2030|April 17, 2030/ }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { level: 3, name: /18 April 2030|April 18, 2030/ }),
+  ).toBeVisible();
   await expect(page.getByRole("link", { name: title })).toBeVisible();
   await page.goto("/calendar?date=2030-04-18&view=agenda");
   await expect(page.getByRole("link", { name: title })).toBeVisible();

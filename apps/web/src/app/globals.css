@@ -2342,8 +2342,7 @@
   margin-block: 18px;
 }
 .sym-schedule-fields label,
-.sym-snooze > label,
-.sym-calendar-filters > label {
+.sym-snooze > label {
   display: grid;
   gap: 6px;
   font-size: 13px;
@@ -2351,8 +2350,7 @@
 .sym-schedule-fields input:not([type="checkbox"]),
 .sym-schedule-fields select,
 .sym-snooze input[type],
-.sym-snooze select,
-.sym-calendar-filters select {
+.sym-snooze select {
   min-height: 34px;
   min-width: 0;
   padding: 6px 9px;
@@ -2372,8 +2370,7 @@
   padding-inline: 4px;
   font-weight: 500;
 }
-.sym-schedule-fields .sym-schedule-check,
-.sym-calendar-filters .sym-schedule-check {
+.sym-schedule-fields .sym-schedule-check {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -2502,141 +2499,12 @@
   max-width: 620px;
   padding: 24px;
 }
-.sym-notification-settings h1,
-.sym-calendar h1 {
+.sym-notification-settings h1 {
   font-family: var(--sym-head-font);
   font-size: 22px;
   font-weight: 600;
   letter-spacing: -0.02em;
   margin: 0 0 6px;
-}
-.sym-calendar {
-  padding: 20px 24px;
-  height: 100%;
-  overflow: auto;
-}
-.sym-calendar > header {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  align-items: center;
-}
-.sym-calendar > :where(header) p {
-  font-size: 12px;
-  color: var(--sym-muted);
-}
-.sym-calendar-toolbar,
-.sym-calendar-filters {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-block: 18px;
-}
-.sym-calendar-toolbar h2 {
-  font-size: 14px;
-  font-weight: 500;
-  flex: 1;
-}
-.sym-calendar-views {
-  display: flex;
-  gap: 3px;
-  border: 0;
-  padding: 0;
-  margin: 0;
-}
-.sym-calendar-views [aria-pressed="true"] {
-  background: var(--sym-hover);
-  color: var(--sym-text);
-}
-.sym-calendar-grid {
-  border: 1px solid var(--sym-line);
-  border-radius: var(--sym-rl);
-  overflow: hidden;
-}
-.sym-calendar-weekdays,
-.sym-calendar-week {
-  display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-}
-.sym-calendar-grid > thead,
-.sym-calendar-grid > tbody {
-  display: block;
-}
-.sym-calendar-weekdays {
-  background: var(--sym-panel);
-  font-size: 11px;
-  color: var(--sym-muted);
-  text-align: center;
-  padding-block: 8px;
-}
-.sym-calendar-day {
-  min-height: 108px;
-  padding: 6px;
-  border-top: 1px solid var(--sym-line);
-  border-right: 1px solid var(--sym-line);
-  min-width: 0;
-}
-.sym-calendar-day:last-child {
-  border-right: 0;
-}
-.sym-calendar-day > button {
-  border: 0;
-  background: transparent;
-  padding: 3px 6px;
-  border-radius: var(--sym-r);
-  color: var(--sym-text);
-  font-size: 12px;
-  cursor: pointer;
-}
-.sym-calendar-entry {
-  display: grid;
-  gap: 4px;
-  margin-block: 6px;
-  padding: 8px;
-  background: var(--sym-panel);
-  border: 1px solid var(--sym-line);
-  border-radius: var(--sym-r);
-  min-width: 0;
-}
-.sym-calendar-entry a {
-  font-size: 12px;
-  font-weight: 500;
-  overflow-wrap: anywhere;
-  color: var(--sym-text);
-}
-.sym-calendar-entry > span {
-  font-size: 10px;
-  color: var(--sym-muted);
-  line-height: 1.4;
-}
-.sym-calendar-entry > button {
-  justify-self: start;
-  font-size: 11px;
-  padding-inline: 3px;
-}
-.sym-calendar-day[data-outside="true"] > button {
-  color: var(--sym-muted);
-}
-.sym-calendar-entry:where([data-completed="true"]) a {
-  text-decoration: line-through;
-}
-.sym-calendar-agenda h3 {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--sym-muted);
-  margin-top: 20px;
-}
-.sym-calendar-agenda .sym-calendar-entry {
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-}
-.sym-calendar-agenda .sym-calendar-entry > span {
-  grid-column: 1;
-}
-.sym-calendar-agenda .sym-calendar-entry > button {
-  grid-column: 2;
-  grid-row: 1 / span 2;
 }
 @media (max-width: 767px) {
   .sym-schedule-editor,
@@ -2646,26 +2514,8 @@
     height: 100dvh;
     border-radius: 0;
   }
-  .sym-calendar,
   .sym-notification-settings {
     padding: 18px 14px;
-  }
-  .sym-calendar-toolbar h2 {
-    order: -1;
-    flex-basis: 100%;
-  }
-  .sym-calendar-views {
-    margin-left: auto;
-  }
-  .sym-calendar-grid {
-    display: block;
-    width: 100%;
-    border-spacing: 0;
-    overflow-x: auto;
-  }
-  .sym-calendar-weekdays,
-  .sym-calendar-week {
-    min-width: 700px;
   }
   .sym-notification-summary {
     display: none;

@@ -8,6 +8,10 @@ allowBuilds:
   '@depot/cli': true
   # Transitive through posthog-js; its postinstall only prints a funding banner, so it stays off.
   core-js: false
+  # Transitive through electron-builder. Its postinstall fetches the Squirrel.Windows toolchain, which
+  # the macOS-first dmg target never touches; electron-builder downloads what a target needs at
+  # package time, so leaving it off costs nothing until Windows packaging is real work.
+  electron-winstaller: false
   # Bundler used by the Trigger.dev CLI.
   esbuild: true
 

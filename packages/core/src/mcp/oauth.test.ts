@@ -240,6 +240,9 @@ describe("owner and session bound OAuth consent", () => {
       "offline_access",
       "tasks:read  offline_access",
       "vault:read",
+      // Removed with the cloud assistant it authorized. A stale client can still send the string, so
+      // the scope parser is the surface that has to keep refusing it.
+      "ai:run",
       "",
     ])
       expect(() => oauthScopes(scope)).toThrow("mcp.invalid_request");

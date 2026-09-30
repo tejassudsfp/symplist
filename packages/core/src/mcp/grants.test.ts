@@ -214,7 +214,7 @@ describe("MCP grant authority and one-time API keys", () => {
     expect(Object.keys(predicate.params).every((name) => name.startsWith("task_auth_"))).toBe(true);
   });
 
-  it("allows write permission to include reads but not AI work", async () => {
+  it("allows write permission to include reads", async () => {
     const issued = await grants.createKey(actor, {
       name: "Editor",
       scopes: ["tasks:write"],
@@ -222,7 +222,6 @@ describe("MCP grant authority and one-time API keys", () => {
     });
     const identity = await grants.authenticateKey(issued.key ?? "");
     await expect(grants.require(identity, "tasks:read", [])).resolves.toBeUndefined();
-    await expect(grants.require(identity, "ai:run", [])).rejects.toThrow("mcp.forbidden");
   });
 
   it("refuses authorization at the exact expiry and after generation changes", async () => {

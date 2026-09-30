@@ -241,13 +241,106 @@ export class ApiClient {
 
 let sharedClient: ApiClient | null = null;
 
+/**
+ * A response as the desktop shell hands it over: plain data, never a `Response`.
+ *
+ * `contextBridge` copies own enumerable properties between the preload's world and this one, and every
+ * useful part of a `Response` — `status`, `ok`, `headers`, `json()` — lives on its prototype. One built
+ * on the far side of the bridge arrives here as an empty object, so the shell sends the three pieces
+ * that do clone and this module puts them back together.
+ */
+interface DesktopCloudResponse {
+  readonly status: number;
+  readonly headers: readonly (readonly [string, string])[];
+  readonly body: string;
+}
+
+/**
+ * The transport the desktop shell installs on `window.symplist.cloud`. Matched structurally, never
+ * imported: `apps/web` must not depend on `apps/desktop`.
+ */
+interface DesktopCloudTransport {
+  readonly apiOrigin: string;
+  readonly fetch: typeof fetch;
+}
+
+/** Rebuilds the shell's plain answer into the `Response` the rest of this file already understands. */
+function responseFrom(payload: DesktopCloudResponse): Response {
+  // 204, 205 and 304 must be constructed with a null body, or the `Response` constructor throws.
+  const bodyless = payload.status === 204 || payload.status === 205 || payload.status === 304;
+  return new Response(bodyless ? null : payload.body, {
+    status: payload.status,
+    headers: payload.headers.map(([name, value]) => [name, value]),
+  });
+}
+
+/**
+ * The desktop shell's transport when this page is running inside it, or null in a browser.
+ *
+ * In the desktop app every `/v1` call is made by the Electron main process, which holds the session
+ * cookie and sets the `Origin` header the api demands — the renderer is served from `http://127.0.0.1:
+ * <port>`, which is cross-site to the api, so a browser fetch from here could neither satisfy
+ * `RouteClassGuard.checkOrigin` nor be sent the `SameSite=Lax` session cookie. Main answers with a real
+ * `Response`, so `errorFromResponse`, `Retry-After` and every schema check below are untouched.
+ *
+ * The origin comes from the shell rather than from `NEXT_PUBLIC_API_URL`, because the shell is the process
+ * that will actually make the request and pins it to its own configured origin anyway.
+ */
+function desktopCloudTransport(): DesktopCloudTransport | null {
+  const cloud = (globalThis as { symplist?: { cloud?: unknown } }).symplist?.cloud;
+  if (typeof cloud !== "object" || cloud === null) return null;
+  const candidate = cloud as { apiOrigin?: unknown; fetch?: unknown };
+  if (typeof candidate.apiOrigin !== "string" || candidate.apiOrigin.length === 0) return null;
+  if (typeof candidate.fetch !== "function") return null;
+  const bridged = candidate.fetch as (
+    input: string,
+    init?: RequestInit,
+  ) => Promise<DesktopCloudResponse>;
+  /*
+   * Both conversions happen here, and neither is tidying up.
+   *
+   * `ApiClient.send` passes a `URL`, which every real `fetch` accepts. This one is not a real fetch: it
+   * is a function published through Electron's `contextBridge`, so its arguments are cloned between
+   * worlds by copying own enumerable properties. A `URL` has none, so it arrives in the preload as an
+   * empty object and `new Request({})` resolves `"[object Object]"` against the renderer's own
+   * 127.0.0.1 origin; main then refuses it for a bad origin, correctly and far too late. The answer
+   * comes back through the same copy and a `Response` survives it no better — no `status`, no headers,
+   * no `json()`. Together those two made every `/v1` call in the desktop app fail, including the first
+   * one sign-in makes.
+   *
+   * Fixed at this seam rather than inside `ApiClient`, because the constraint belongs to the bridge:
+   * the browser build passes a `URL` and receives a `Response`, which is correct and worth keeping.
+   */
+  return {
+    apiOrigin: candidate.apiOrigin,
+    fetch: async (input, init) =>
+      responseFrom(await bridged(input instanceof URL ? input.href : String(input), init)),
+  };
+}
+
 /** The app-wide client for the configured API origin. Browser only. */
 export function getApiClient(): ApiClient {
   if (typeof window === "undefined") throw new ServerSideApiCallError();
   if (!sharedClient) {
+    const desktop = desktopCloudTransport();
+    if (desktop) {
+      // `isBrowser` is asserted rather than detected: this is a real document, and the guard exists to
+      // keep server code from calling the api, which the desktop renderer is not.
+      sharedClient = new ApiClient({
+        baseUrl: desktop.apiOrigin,
+        fetch: desktop.fetch,
+        isBrowser: () => true,
+      });
+      return sharedClient;
+    }
     const { apiOrigin } = publicOrigins();
     if (!apiOrigin) throw new ApiConfigurationError("NEXT_PUBLIC_API_URL is not configured");
     sharedClient = new ApiClient({ baseUrl: apiOrigin });
   }
   return sharedClient;
+}
+
+/** Test support: forgets the shared client so the next call re-detects its transport. */
+export function resetApiClientForTests(): void {
+  sharedClient = null;
 }

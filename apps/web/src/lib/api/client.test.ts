@@ -1,7 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { parsePublicOrigins } from "../public-config.ts";
-import { ApiClient, CSRF_HEADER } from "./client.ts";
+import {
+  ApiClient,
+  CSRF_HEADER,
+  CSRF_TOKEN_PATH,
+  getApiClient,
+  resetApiClientForTests,
+} from "./client.ts";
 import {
   ApiAbortedError,
   ApiConfigurationError,
@@ -28,6 +34,39 @@ function json(status: number, body: unknown, headers: Record<string, string> = {
   });
 }
 
+/**
+ * The desktop shell's answer shape: plain data, because nothing else survives Electron's context
+ * bridge. Modelled here rather than reusing `fakeFetch`, whose `Response` would let the client keep
+ * working in a test while failing in the app.
+ */
+interface ShellResponse {
+  readonly status: number;
+  readonly headers: readonly (readonly [string, string])[];
+  readonly body: string;
+}
+
+function shellResponse(
+  status: number,
+  body: unknown,
+  headers: Record<string, string> = {},
+): ShellResponse {
+  return {
+    status,
+    headers: [["Content-Type", "application/json"], ...Object.entries(headers)],
+    body: JSON.stringify(body),
+  };
+}
+
+/** A stand-in for `window.symplist.cloud.fetch`, which takes a URL string and answers plain data. */
+function fakeBridge(handler: (url: string, init: RequestInit) => ShellResponse) {
+  const urls: unknown[] = [];
+  const fetchImpl = vi.fn((input: unknown, init: RequestInit = {}) => {
+    urls.push(input);
+    return Promise.resolve(handler(String(input), init));
+  });
+  return { fetchImpl, urls };
+}
+
 function fakeFetch(handler: (url: URL, init: RequestInit) => Response | Promise<Response>) {
   const calls: Call[] = [];
   const fetchImpl = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
@@ -49,6 +88,7 @@ const envelope = (code: string, extra: Record<string, unknown> = {}) => ({
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe("ApiClient requests", () => {
@@ -263,6 +303,104 @@ describe("safety", () => {
       }),
     ).toEqual({ apiOrigin: null, wsOrigin: null, posthogHost: null });
     expect(parsePublicOrigins({})).toEqual({ apiOrigin: null, wsOrigin: null, posthogHost: null });
+  });
+});
+
+describe("the shared client's transport", () => {
+  afterEach(() => {
+    resetApiClientForTests();
+    delete (globalThis as { symplist?: unknown }).symplist;
+  });
+
+  it("uses the configured public origin and the global fetch in a browser", async () => {
+    vi.stubEnv("NEXT_PUBLIC_API_URL", API);
+    const { fetchImpl, calls } = fakeFetch(() => json(200, { ok: true }));
+    vi.stubGlobal("fetch", fetchImpl);
+    await getApiClient().get("/v1/tasks");
+    expect(calls[0]?.url).toBe(`${API}/v1/tasks`);
+    expect(calls[0]?.init).toMatchObject({ credentials: "include", mode: "cors" });
+  });
+
+  it("refuses to build a client when no API origin is configured", () => {
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "");
+    expect(() => getApiClient()).toThrow(ApiConfigurationError);
+  });
+
+  it("uses the desktop shell's transport and origin when the bridge is present", async () => {
+    // In the desktop app every /v1 call is made by the Electron main process, which holds the session
+    // cookie and sets the Origin header the api demands. The renderer has no network reach of its own.
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "https://wrong.test");
+    const globalFetch = vi.fn();
+    vi.stubGlobal("fetch", globalFetch);
+    const bridge = fakeBridge(() => shellResponse(200, { ok: true }));
+    (globalThis as { symplist?: unknown }).symplist = {
+      cloud: { apiOrigin: API, fetch: bridge.fetchImpl },
+    };
+    await getApiClient().get("/v1/tasks");
+    expect(bridge.urls[0]).toBe(`${API}/v1/tasks`);
+    expect(globalFetch).not.toHaveBeenCalled();
+  });
+
+  it("hands the desktop transport a string, never a URL object", async () => {
+    // The bridge function is published through Electron's `contextBridge`, so its arguments are cloned
+    // between worlds by copying own enumerable properties. A `URL` has none and does not survive: it
+    // arrives as an empty object, `new Request({})` resolves "[object Object]" against the renderer's
+    // 127.0.0.1 origin, and main refuses every call for a bad origin. `String(input)` inside a test
+    // helper hides this completely, so the argument's own type is what gets asserted.
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "");
+    const bridge = fakeBridge(() => shellResponse(200, { ok: true }));
+    (globalThis as { symplist?: unknown }).symplist = {
+      cloud: { apiOrigin: API, fetch: bridge.fetchImpl },
+    };
+    await getApiClient().get("/v1/tasks", { query: { collection: "now" } });
+    expect(typeof bridge.urls[0]).toBe("string");
+    expect(bridge.urls[0]).toBe(`${API}/v1/tasks?collection=now`);
+  });
+
+  it("rebuilds a real Response from the shell's plain answer", async () => {
+    // The mirror of the argument problem, and the more damaging half: a `Response` constructed in the
+    // preload reaches the page with no `status`, no headers and no `json()`, so `response.ok` is
+    // undefined and every call fails while looking like a protocol error. The shell therefore sends
+    // plain data and the client reassembles it — which has to produce something `ApiClient` can read a
+    // status, a header and a parsed body from.
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "");
+    const bridge = fakeBridge(() =>
+      shellResponse(429, envelope("rate.limited"), { "Retry-After": "12" }),
+    );
+    (globalThis as { symplist?: unknown }).symplist = {
+      cloud: { apiOrigin: API, fetch: bridge.fetchImpl },
+    };
+    const failure = await getApiClient()
+      .get("/v1/tasks")
+      .catch((error: unknown) => error);
+    expect(isApiError(failure)).toBe(true);
+    expect((failure as ApiError).status).toBe(429);
+    expect((failure as ApiError).retryAfterSeconds).toBe(12);
+  });
+
+  it("rebuilds a bodyless status without throwing", async () => {
+    // `new Response(body, { status: 204 })` throws unless the body is null, and a 204 is the ordinary
+    // answer to a DELETE, so getting this wrong would break deletes alone and nothing else.
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "");
+    // A DELETE fetches a CSRF token first, over this same transport, so the fake has to answer both.
+    const bridge = fakeBridge((url) =>
+      url.endsWith(CSRF_TOKEN_PATH)
+        ? shellResponse(200, { token: "csrf-token" })
+        : { status: 204, headers: [], body: "" },
+    );
+    (globalThis as { symplist?: unknown }).symplist = {
+      cloud: { apiOrigin: API, fetch: bridge.fetchImpl },
+    };
+    await expect(getApiClient().delete("/v1/tasks/t1")).resolves.toBeUndefined();
+  });
+
+  it("falls back to the public origin when the bridge is not a usable transport", () => {
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "");
+    for (const cloud of [null, {}, { apiOrigin: API }, { apiOrigin: "", fetch: () => undefined }]) {
+      resetApiClientForTests();
+      (globalThis as { symplist?: unknown }).symplist = { cloud };
+      expect(() => getApiClient()).toThrow(ApiConfigurationError);
+    }
   });
 });
 
