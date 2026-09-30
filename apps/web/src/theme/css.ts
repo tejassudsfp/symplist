@@ -14,7 +14,8 @@ export function fontVariable(family: FontFamilyId): `--font-${FontFamilyId}` {
   return `--font-${family}`;
 }
 
-function fontStack(role: FontRole): string {
+/** The CSS `font-family` value for a role: its self-hosted variable, then the theme's fallback. */
+export function fontStack(role: FontRole): string {
   return `var(${fontVariable(role.family)}), ${role.fallback}`;
 }
 

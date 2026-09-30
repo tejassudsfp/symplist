@@ -217,3 +217,16 @@ export const themeChips: readonly { id: ThemeId; name: string }[] = [
   { id: "meadow", name: "Meadow" },
   { id: "tide", name: "Tide" },
 ];
+
+/**
+ * The typeface pairing each theme is built on. The registry stores font keys rather than a label, and
+ * a key is not a thing to show a stranger.
+ */
+export const themeFontLabels: Readonly<Record<ThemeId, string>> = {
+  studio: "Geist · IBM Plex Mono",
+  paper: "Source Serif 4 · Source Sans 3",
+  pebble: "Nunito",
+  postcard: "Public Sans · IBM Plex Mono",
+  meadow: "Fraunces · DM Sans",
+  tide: "Manrope · IBM Plex Mono",
+};

@@ -1,28 +1,78 @@
-/* ------------------------------------------------------------------------------------------------
- * The public pages: homepage, privacy, terms, cookies.
+/*
+ * The public site: header, hero, the sections that explain the product, and the footer.
  *
- * Every colour is a theme token, so the site inherits whatever the visitor's appearance resolves to
- * and stays legible in light and dark without a second palette to maintain. `--sym-faint` is a
- * decoration token and is never used for a run of prose: it is not held to 4.5:1.
- * --------------------------------------------------------------------------------------------- */
+ * This is a port of `Homepage.dc.html` rather than an interpretation of it. Every length, weight and
+ * radius below is the mockup's own, including its two breakpoints — 1040px for the narrow layout and
+ * 760px for the phone. What is *not* the mockup's is colour and geometry: those come from the app's
+ * live theme tokens, so the page repaints with the product instead of drifting from it. The mockup
+ * carried three marketing-only values the theme engine has no opinion about — a pill radius and the
+ * display face's weight and tracking — so they are declared per theme here, which is the only place
+ * that needs them.
+ *
+ * One colour role is deliberately not the mockup's. The mockup sets its smallest print in `faint`,
+ * which against the page reaches about 2.6:1 — the axe pass in `marketing.spec.ts` fails it, and so
+ * would a reader. Every run of text that was `faint` there is `--sym-muted` here; `faint` is kept for
+ * the decorative fills it is safe for.
+ */
 
 .sym-site {
-  display: flex;
-  flex-direction: column;
-  min-height: 100dvh;
+  min-height: 100vh;
   background: var(--sym-bg);
   color: var(--sym-text);
+  font-family: var(--sym-font);
+  transition:
+    background 0.3s,
+    color 0.3s;
 }
 
-/* --- Header ---------------------------------------------------------------------------------- */
+/* --- Marketing-only per-theme values, taken from the mockup's theme table ---------------------- */
+
+.sym-site {
+  --sym-pill: 8px;
+  --sym-display-weight: 600;
+  --sym-display-track: -0.035em;
+  /* The frame and the big panel round off the theme's large radius, not its (often flat) panel. */
+  --sym-frame-radius: calc(var(--sym-rl) + 12px);
+  --sym-big-radius: calc(var(--sym-rl) + 8px);
+}
+
+[data-theme="paper"] .sym-site {
+  --sym-pill: 4px;
+  --sym-display-weight: 500;
+  --sym-display-track: -0.02em;
+}
+
+[data-theme="pebble"] .sym-site {
+  --sym-pill: 999px;
+  --sym-display-weight: 700;
+  --sym-display-track: -0.025em;
+}
+
+[data-theme="postcard"] .sym-site {
+  --sym-pill: 4px;
+  --sym-display-weight: 600;
+  --sym-display-track: -0.03em;
+}
+
+[data-theme="meadow"] .sym-site {
+  --sym-pill: 999px;
+  --sym-display-weight: 500;
+  --sym-display-track: -0.025em;
+}
+
+[data-theme="tide"] .sym-site {
+  --sym-pill: 999px;
+  --sym-display-weight: 700;
+  --sym-display-track: -0.035em;
+}
+
+/* --- Header ----------------------------------------------------------------------------------- */
 
 .sym-site-header {
   position: sticky;
   top: 0;
   z-index: 50;
-  flex: none;
   border-bottom: 1px solid var(--sym-line);
-  /* The blur is what lets a long page scroll under the header without it turning into a slab. */
   background: color-mix(in srgb, var(--sym-bg) 82%, transparent);
   backdrop-filter: saturate(1.4) blur(12px);
   -webkit-backdrop-filter: saturate(1.4) blur(12px);
@@ -39,7 +89,11 @@
 }
 
 .sym-site-brand {
-  color: inherit;
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  color: var(--sym-text);
   text-decoration: none;
 }
 
@@ -51,24 +105,28 @@
   font-size: 14px;
 }
 
-.sym-site-nav a:not(.sym-site-cta) {
+.sym-site-nav a {
   color: var(--sym-muted);
+  white-space: nowrap;
   text-decoration: none;
 }
 
-.sym-site-nav a:not(.sym-site-cta):hover {
+.sym-site-nav a:hover {
   color: var(--sym-text);
 }
 
 .sym-site-cta {
   display: inline-flex;
+  flex: none;
   align-items: center;
   height: 36px;
   padding: 0 16px;
-  border-radius: 999px;
+  border-radius: var(--sym-pill);
   background: var(--sym-text);
   color: var(--sym-bg);
+  font-size: 14px;
   font-weight: 500;
+  white-space: nowrap;
   text-decoration: none;
 }
 
@@ -76,24 +134,67 @@
   opacity: 0.88;
 }
 
-/* --- Buttons --------------------------------------------------------------------------------- */
+/* --- Shared section furniture ----------------------------------------------------------------- */
+
+.sym-section {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 110px 24px;
+}
+
+.sym-display {
+  margin: 0;
+  font-family: var(--sym-head-font);
+  font-size: 46px;
+  font-weight: var(--sym-display-weight);
+  letter-spacing: var(--sym-display-track);
+  line-height: 1.1;
+  text-wrap: balance;
+}
+
+.sym-eyebrow {
+  margin: 0 0 14px;
+  color: var(--sym-accent);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.sym-section-lede {
+  margin: 18px 0 0;
+  max-width: 440px;
+  color: var(--sym-muted);
+  font-size: 15.5px;
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+
+.sym-fine {
+  margin: 12px 0 0;
+  color: var(--sym-muted);
+  font-size: 12.5px;
+}
+
+.sym-split {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: 72px;
+  align-items: start;
+}
 
 .sym-button-primary,
 .sym-button-secondary {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
   gap: 8px;
   height: 46px;
-  padding: 0 22px;
-  border-radius: 999px;
+  border-radius: var(--sym-pill);
   font-size: 15px;
   font-weight: 500;
   text-decoration: none;
 }
 
 .sym-button-primary {
-  border: 1px solid transparent;
+  padding: 0 22px;
   background: var(--sym-accent);
   color: var(--sym-on-accent);
 }
@@ -103,7 +204,9 @@
 }
 
 .sym-button-secondary {
+  padding: 0 20px;
   border: 1px solid var(--sym-line-strong);
+  background: var(--sym-surface);
   color: var(--sym-text);
 }
 
@@ -111,7 +214,7 @@
   background: var(--sym-hover);
 }
 
-/* --- Hero ------------------------------------------------------------------------------------ */
+/* --- Hero ------------------------------------------------------------------------------------- */
 
 .sym-hero {
   display: flex;
@@ -119,7 +222,7 @@
   align-items: center;
   max-width: 1180px;
   margin: 0 auto;
-  padding: 92px 24px 72px;
+  padding: 112px 24px 64px;
   text-align: center;
 }
 
@@ -130,9 +233,12 @@
   margin: 0 0 22px;
   color: var(--sym-muted);
   font-size: 13px;
+  letter-spacing: 0.01em;
+  text-wrap: pretty;
 }
 
 .sym-hero-dot {
+  flex: none;
   width: 6px;
   height: 6px;
   border-radius: 50%;
@@ -143,10 +249,10 @@
   max-width: 880px;
   margin: 0;
   font-family: var(--sym-head-font);
-  font-size: clamp(36px, 6.4vw, 60px);
-  font-weight: 600;
+  font-size: 84px;
+  font-weight: var(--sym-display-weight);
+  letter-spacing: var(--sym-display-track);
   line-height: 1.04;
-  letter-spacing: -0.025em;
   text-wrap: balance;
 }
 
@@ -154,7 +260,7 @@
   max-width: 560px;
   margin: 26px 0 0;
   color: var(--sym-muted);
-  font-size: clamp(16px, 2.2vw, 18px);
+  font-size: 19px;
   line-height: 1.55;
   text-wrap: pretty;
 }
@@ -168,203 +274,391 @@
 }
 
 .sym-hero-fine {
-  margin-top: 22px;
+  margin: 18px 0 0;
+  color: var(--sym-muted);
+  font-size: 13px;
 }
 
-/* --- Sections -------------------------------------------------------------------------------- */
+/* --- The theme switcher under the hero -------------------------------------------------------- */
 
-.sym-section {
-  max-width: 1180px;
-  margin: 0 auto;
-  padding: 72px 24px;
+.sym-theme-switcher {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  margin: 44px 0 0;
+  padding: 5px;
+  border: 1px solid var(--sym-line);
+  border-radius: var(--sym-pill);
+  background: var(--sym-surface);
 }
 
-.sym-eyebrow {
-  margin: 0 0 14px;
-  color: var(--sym-accent);
+.sym-theme-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--sym-pill);
+  background: transparent;
+  color: var(--sym-text);
   font-size: 13px;
   font-weight: 500;
+  cursor: pointer;
 }
 
-.sym-section h2,
-.sym-closing h2 {
-  margin: 0;
-  font-family: var(--sym-head-font);
-  font-size: clamp(24px, 3.6vw, 36px);
-  font-weight: 600;
-  line-height: 1.1;
-  letter-spacing: -0.02em;
-  text-wrap: balance;
+.sym-theme-chip:hover {
+  background: var(--sym-hover);
 }
 
-.sym-section-lede {
-  max-width: 560px;
+.sym-theme-chip[data-active],
+.sym-theme-chip[data-active]:hover {
+  background: var(--sym-text);
+  color: var(--sym-bg);
+}
+
+.sym-theme-chip-dot {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.sym-theme-switcher-rule {
+  flex: none;
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
+  background: var(--sym-line);
+}
+
+.sym-theme-mode {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: var(--sym-pill);
+  background: transparent;
+  color: var(--sym-text);
+  cursor: pointer;
+}
+
+.sym-theme-mode:hover {
+  background: var(--sym-hover);
+}
+
+.sym-theme-caption {
+  margin: 12px 0 0;
+  color: var(--sym-muted);
+  font-size: 12.5px;
+  text-wrap: pretty;
+}
+
+/* --- The model: three lists, stated once ------------------------------------------------------ */
+
+.sym-model-lede {
   margin: 18px 0 0;
+  max-width: 380px;
   color: var(--sym-muted);
   font-size: 15.5px;
   line-height: 1.6;
   text-wrap: pretty;
 }
 
-.sym-fine {
+.sym-lists {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+}
+
+.sym-lists > div {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 14px 28px;
+  padding: 24px 0;
+  border-top: 1px solid var(--sym-line);
+}
+
+.sym-lists dt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--sym-head-font);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.sym-lists dt svg {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  color: var(--sym-accent);
+}
+
+.sym-lists dd {
   margin: 0;
   color: var(--sym-muted);
-  font-size: 13px;
+  font-size: 15.5px;
+  line-height: 1.6;
+  text-wrap: pretty;
 }
 
-.sym-section-foot {
-  margin: 20px 0 0;
-  color: var(--sym-muted);
-  font-size: 13.5px;
+/* --- What opens up: six things, on one hairline grid ------------------------------------------ */
+
+.sym-features-head {
+  margin: 0 0 52px;
+  max-width: 640px;
 }
 
-.sym-section-foot a,
-.sym-fine a {
-  color: var(--sym-link);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-/* The two-column split the mockup uses for the assistant and plain-words sections. */
-.sym-split {
+.sym-features {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 40px;
-  align-items: start;
-}
-
-/*
- * A marketing card. Named `sym-card`, not `sym-panel`: the app's own `.sym-panel` is a full-height
- * flex column in `globals.css`, and the preview below renders the real workspace classes. Two rules
- * under one name meant the preview's panels inherited a 40px marketing padding.
- */
-.sym-card {
-  padding: 40px;
-  border: 1px solid var(--sym-line);
-  border-radius: var(--sym-panel-radius);
-  background: var(--sym-panel);
-}
-
-/* --- The three lists -------------------------------------------------------------------------- */
-
-.sym-lists {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 16px;
-  margin: 32px 0 0;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  gap: 1px;
+  margin: 0;
   padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--sym-line);
+  border-radius: var(--sym-rl);
+  background: var(--sym-line);
   list-style: none;
 }
 
-.sym-lists li {
-  padding: 22px;
-  border: 1px solid var(--sym-line);
-  border-radius: var(--sym-rl);
-  background: var(--sym-panel);
+.sym-features li {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 30px 28px 34px;
+  background: var(--sym-bg);
 }
 
-.sym-list-name {
+.sym-feature-n {
+  color: var(--sym-muted);
+  font-family: var(--sym-mono);
+  font-size: 11.5px;
+}
+
+.sym-features h3 {
+  margin: 0;
   font-family: var(--sym-head-font);
-  font-size: 17px;
+  font-size: 18px;
   font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
-.sym-lists p,
 .sym-features p {
-  margin: 10px 0 0;
+  margin: 0;
   color: var(--sym-muted);
   font-size: 14.5px;
   line-height: 1.6;
   text-wrap: pretty;
 }
 
-/* --- Features -------------------------------------------------------------------------------- */
+/* --- Appearance: each theme shown as the app it produces --------------------------------------- */
 
-.sym-features {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 30px 36px;
-  margin: 36px 0 0;
-  padding: 0;
-  list-style: none;
-  counter-reset: none;
+.sym-themes-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 52px;
 }
 
-.sym-feature-n {
-  display: block;
-  margin-bottom: 10px;
-  color: var(--sym-accent);
-  font-family: var(--sym-mono);
-  font-size: 12px;
-}
-
-.sym-features h3 {
+.sym-themes-head .sym-section-lede {
   margin: 0;
-  font-family: var(--sym-head-font);
-  font-size: 16.5px;
-  font-weight: 600;
+  max-width: 360px;
+  font-size: 15px;
 }
-
-/* --- Themes ---------------------------------------------------------------------------------- */
 
 .sym-themes {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-  gap: 14px;
-  margin: 32px 0 0;
-  padding: 0;
-  list-style: none;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));
+  gap: 16px;
 }
 
-.sym-themes li {
+.sym-look-card {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 16px;
+  padding: 0;
+  overflow: hidden;
   border: 1px solid var(--sym-line);
   border-radius: var(--sym-rl);
-  background: var(--sym-panel);
+  background: var(--sym-surface);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.15s ease-out;
 }
 
-.sym-theme-swatches {
+.sym-look-card:hover {
+  transform: translateY(-2px);
+}
+
+.sym-look-card[aria-pressed="true"] {
+  border-color: var(--sym-accent);
+  box-shadow: inset 0 0 0 1px var(--sym-accent);
+}
+
+.sym-look-art {
   display: flex;
-  gap: 5px;
-  margin-bottom: 8px;
+  gap: 10px;
+  height: 170px;
+  padding: 16px;
 }
 
-/*
- * Each swatch renders in its own theme by carrying `data-theme`, so the row is the real palette
- * rather than six hand-picked hex values that would drift the moment a theme is retuned.
- */
-.sym-theme-swatch {
-  width: 20px;
-  height: 20px;
-  border: 1px solid transparent;
-  border-radius: 6px;
+.sym-look-rail {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 34px;
+  padding-top: 10px;
 }
 
-.sym-theme-swatch--alt {
-  border-color: transparent;
+.sym-look-rail span {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
 }
 
-.sym-theme-name {
-  font-family: var(--sym-head-font);
-  font-size: 15px;
+.sym-look-list {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px;
+}
+
+.sym-look-title {
+  font-size: 14px;
   font-weight: 600;
 }
 
-.sym-theme-tag {
+.sym-look-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+}
+
+.sym-look-box {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.sym-look-bar {
+  height: 6px;
+  border-radius: 3px;
+}
+
+.sym-look-marker {
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  left: 0;
+  width: 3px;
+  border-radius: 2px;
+}
+
+.sym-look-sheet {
+  display: flex;
+  flex: 1.2;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+  padding: 14px;
+}
+
+.sym-look-sheet-title {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.sym-look-line {
+  height: 5px;
+  border-radius: 3px;
+  opacity: 0.45;
+}
+
+.sym-look-cta {
+  align-self: flex-start;
+  width: 46px;
+  height: 18px;
+  margin-top: auto;
+}
+
+.sym-look-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px 16px;
+  border-top: 1px solid var(--sym-line);
+}
+
+.sym-look-foot > span:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.sym-look-name {
+  display: block;
+  color: var(--sym-text);
+  font-family: var(--sym-head-font);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.sym-look-fonts {
+  display: block;
   color: var(--sym-muted);
   font-size: 12.5px;
 }
 
-/* --- Assistants ------------------------------------------------------------------------------ */
+.sym-look-state {
+  flex: none;
+  color: var(--sym-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.sym-look-card[aria-pressed="true"] .sym-look-state {
+  color: var(--sym-accent);
+}
+
+/* --- Assistants ------------------------------------------------------------------------------- */
+
+.sym-assistant-panel {
+  align-items: center;
+  padding: 56px;
+  border: 1px solid var(--sym-line);
+  border-radius: var(--sym-big-radius);
+  background: var(--sym-panel);
+}
+
+.sym-assistant-panel .sym-section-lede {
+  max-width: 440px;
+}
 
 .sym-ask-row {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin: 26px 0 12px;
+  margin-top: 26px;
 }
 
 .sym-ask-button {
@@ -374,36 +668,38 @@
   height: 36px;
   padding: 0 14px;
   border: 1px solid var(--sym-line-strong);
-  border-radius: 999px;
+  border-radius: var(--sym-pill);
   background: var(--sym-surface);
   color: var(--sym-text);
   font-size: 13.5px;
   font-weight: 500;
+  white-space: nowrap;
   text-decoration: none;
-  transition:
-    transform 0.12s ease,
-    border-color 0.12s ease;
 }
 
 .sym-ask-button:hover {
-  transform: translateY(-1px);
   border-color: var(--sym-accent);
 }
 
 .sym-ask-icon {
   flex: none;
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
 }
 
-/* A single-colour mark takes the text colour, so it reads in light and dark alike. */
 .sym-ask-icon--mono {
-  display: inline-block;
-  background: currentColor;
+  background: currentcolor;
 }
 
 .sym-ask-arrow {
   color: var(--sym-muted);
+}
+
+.sym-fine-link {
+  color: var(--sym-muted);
+  text-decoration: underline;
+  text-decoration-color: var(--sym-line-strong);
+  text-underline-offset: 3px;
 }
 
 .sym-steps {
@@ -436,29 +732,43 @@
   color: var(--sym-accent);
   font-family: var(--sym-mono);
   font-size: 12px;
+  font-weight: 500;
+}
+
+.sym-step-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
 }
 
 .sym-step-title {
-  display: block;
   font-size: 15px;
   font-weight: 600;
 }
 
 .sym-step-body {
-  display: block;
-  margin-top: 4px;
   color: var(--sym-muted);
   font-size: 14px;
   line-height: 1.55;
   text-wrap: pretty;
 }
 
-/* --- In plain words -------------------------------------------------------------------------- */
+/* --- In plain words --------------------------------------------------------------------------- */
 
 .sym-plainly {
   display: grid;
-  gap: 24px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
+  gap: 30px 36px;
   margin: 0;
+}
+
+.sym-plainly > div {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 18px;
+  border-top: 1px solid var(--sym-line-strong);
 }
 
 .sym-plainly dt {
@@ -467,176 +777,167 @@
 }
 
 .sym-plainly dd {
-  margin: 8px 0 0;
+  margin: 0;
   color: var(--sym-muted);
   font-size: 14.5px;
   line-height: 1.6;
   text-wrap: pretty;
 }
 
-/* --- Closing --------------------------------------------------------------------------------- */
+/* --- Closing ---------------------------------------------------------------------------------- */
 
 .sym-closing {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   max-width: 1180px;
   margin: 0 auto;
-  padding: 80px 24px 96px;
+  padding: 140px 24px 150px;
   text-align: center;
-  border-top: 1px solid var(--sym-line);
+}
+
+.sym-closing-mark {
+  width: 36px;
+  height: 36px;
+  margin-bottom: 22px;
+  color: var(--sym-accent);
+}
+
+.sym-closing h2 {
+  margin: 0;
+  font-family: var(--sym-head-font);
+  font-size: 46px;
+  font-weight: var(--sym-display-weight);
+  letter-spacing: var(--sym-display-track);
+  line-height: 1.1;
+  text-wrap: balance;
 }
 
 .sym-closing p {
-  max-width: 520px;
-  margin: 18px auto 30px;
+  max-width: 460px;
+  margin: 16px 0 0;
   color: var(--sym-muted);
   font-size: 16px;
   line-height: 1.6;
   text-wrap: pretty;
 }
 
-/* --- Footer ---------------------------------------------------------------------------------- */
+.sym-closing .sym-button-primary {
+  margin-top: 30px;
+}
+
+/* --- Footer ----------------------------------------------------------------------------------- */
 
 .sym-site-footer {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px 24px;
-  max-width: 1180px;
-  width: 100%;
-  margin: 0 auto;
-  padding: 28px 24px 48px;
   border-top: 1px solid var(--sym-line);
 }
 
-.sym-site-footer-row {
+.sym-site-footer-inner {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 12px 16px;
-}
-
-.sym-site-footer-note {
-  margin: 0;
+  gap: 16px 28px;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 28px 24px 36px;
   color: var(--sym-muted);
-  font-size: 13.5px;
+  font-size: 13px;
 }
 
-.sym-site-footer-note a,
-.sym-site-footer-links a {
-  color: var(--sym-muted);
+.sym-site-footer-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--sym-text);
 }
 
-/* Inside a sentence, colour alone is not a distinction (WCAG 1.4.1). */
-.sym-site-footer-note a {
+.sym-site-footer-by {
+  flex: 1;
+  min-width: 220px;
+}
+
+.sym-site-footer-by a {
+  color: var(--sym-text);
   text-decoration: underline;
-  text-underline-offset: 2px;
+  text-decoration-color: var(--sym-line-strong);
+  text-underline-offset: 3px;
 }
 
 .sym-site-footer-links {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 18px;
-  font-size: 13.5px;
+  gap: 8px 20px;
 }
 
 .sym-site-footer-links a {
+  color: var(--sym-muted);
   text-decoration: none;
 }
 
-.sym-site-footer-note a:hover,
 .sym-site-footer-links a:hover {
   color: var(--sym-text);
   text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
-/* --- Legal pages ----------------------------------------------------------------------------- */
+/* --- Legal pages ------------------------------------------------------------------------------ */
 
 .sym-legal {
-  flex: 1;
   max-width: 720px;
-  width: 100%;
   margin: 0 auto;
-  padding: 48px 24px 72px;
+  padding: 72px 24px 110px;
 }
 
 .sym-legal h1 {
-  margin: 0;
+  margin: 0 0 8px;
   font-family: var(--sym-head-font);
-  font-size: clamp(28px, 4vw, 38px);
-  font-weight: 600;
-  letter-spacing: -0.02em;
-}
-
-.sym-legal-updated {
-  margin: 8px 0 28px;
-  color: var(--sym-muted);
-  font-size: 13.5px;
+  font-size: 40px;
+  font-weight: var(--sym-display-weight);
+  letter-spacing: var(--sym-display-track);
+  line-height: 1.1;
 }
 
 .sym-legal h2 {
-  margin: 34px 0 0;
+  margin: 40px 0 10px;
   font-family: var(--sym-head-font);
   font-size: 19px;
   font-weight: 600;
 }
 
+/*
+ * The reset zeroes paragraph margins, and nothing here put them back: every legal page ran its
+ * paragraphs together into one undifferentiated block, which is the one thing a terms page cannot do.
+ */
 .sym-legal p,
-.sym-legal dd {
-  margin: 12px 0 0;
-  font-size: 15px;
+.sym-legal li {
+  margin: 0 0 16px;
+  color: var(--sym-muted);
+  font-size: 15.5px;
   line-height: 1.7;
   text-wrap: pretty;
 }
 
+.sym-legal ul,
+.sym-legal ol {
+  margin: 0 0 16px;
+  padding-left: 22px;
+}
+
+.sym-legal li {
+  margin-bottom: 6px;
+}
+
 .sym-legal a {
-  color: var(--sym-link);
+  color: var(--sym-text);
+  text-decoration: underline;
+  text-decoration-color: var(--sym-line-strong);
+  text-underline-offset: 3px;
 }
 
-.sym-legal code {
-  padding: 1px 5px;
-  border-radius: 4px;
-  background: var(--sym-code-bg);
-  font-family: var(--sym-mono);
+.sym-legal-updated {
+  margin: 0 0 32px;
+  color: var(--sym-muted);
   font-size: 13px;
-}
-
-.sym-legal-list {
-  margin: 16px 0 0;
-}
-
-.sym-legal-list dt {
-  margin-top: 18px;
-  font-size: 15px;
-  font-weight: 600;
-}
-
-@media (max-width: 640px) {
-  .sym-hero {
-    padding-top: 56px;
-  }
-
-  .sym-card {
-    padding: 24px;
-  }
-
-  .sym-site-nav {
-    gap: 16px;
-  }
-
-  /*
-   * The in-page anchors go on a phone. They were pushing the header past the viewport — the whole
-   * document then scrolled sideways, which is its own defect and also put the footer's links out of
-   * reach. On a screen this narrow the sections they point at are a thumb-flick away regardless; what
-   * has to survive is the repository link and the way in.
-   */
-  .sym-site-nav a[href^="#"] {
-    display: none;
-  }
-
-  .sym-site-footer {
-    flex-direction: column;
-    align-items: flex-start;
-  }
 }
 
 /* ------------------------------------------------------------------------------------------------
@@ -648,85 +949,11 @@
  * the few surfaces the real shell composes rather than styles.
  * --------------------------------------------------------------------------------------------- */
 
-.sym-theme-switcher {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  margin-top: 40px;
-  padding: 5px;
-  border: 1px solid var(--sym-line);
-  border-radius: 999px;
-  background: var(--sym-surface);
+.sym-demo-section {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0 24px 40px;
 }
-
-.sym-theme-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  height: 32px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--sym-muted);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.sym-theme-chip:hover {
-  background: var(--sym-hover);
-  color: var(--sym-text);
-}
-
-.sym-theme-chip[data-active] {
-  background: var(--sym-selection);
-  color: var(--sym-text);
-}
-
-.sym-theme-chip-dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  outline: 1px solid var(--sym-line-strong);
-  outline-offset: -1px;
-}
-
-.sym-theme-switcher-rule {
-  width: 1px;
-  height: 20px;
-  margin: 0 4px;
-  background: var(--sym-line);
-}
-
-.sym-theme-mode {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--sym-text);
-  cursor: pointer;
-}
-
-.sym-theme-mode:hover {
-  background: var(--sym-hover);
-}
-
-.sym-theme-caption {
-  max-width: 560px;
-  margin: 14px auto 0;
-  color: var(--sym-muted);
-  font-size: 12.5px;
-  text-wrap: pretty;
-}
-
-/* --- Frame ----------------------------------------------------------------------------------- */
 
 .sym-demo-tabs {
   display: flex;
@@ -741,8 +968,8 @@
   flex: none;
   height: 34px;
   padding: 0 14px;
-  border: 1px solid var(--sym-line);
-  border-radius: 999px;
+  border: 1px solid transparent;
+  border-radius: var(--sym-pill);
   background: transparent;
   color: var(--sym-muted);
   font-size: 13.5px;
@@ -757,23 +984,33 @@
 }
 
 .sym-demo-tab[data-active] {
-  border-color: transparent;
-  background: var(--sym-selection);
+  border-color: var(--sym-line-strong);
+  background: var(--sym-surface);
   color: var(--sym-text);
 }
 
 .sym-demo-frame {
-  padding: 10px;
+  padding: 14px;
   border: 1px solid var(--sym-line);
-  border-radius: calc(var(--sym-panel-radius) + 8px);
-  background: var(--sym-panel);
+  border-radius: var(--sym-frame-radius);
+  background: rgb(0 0 0 / 0.025);
+}
+
+[data-mode="dark"] .sym-demo-frame {
+  background: rgb(255 255 255 / 0.03);
+}
+
+@media (prefers-color-scheme: dark) {
+  [data-mode="system"] .sym-demo-frame {
+    background: rgb(255 255 255 / 0.03);
+  }
 }
 
 .sym-demo-app {
   position: relative;
   display: flex;
   flex-direction: column;
-  height: 520px;
+  height: 600px;
   overflow: hidden;
   border: 1px solid var(--sym-line);
   border-radius: var(--sym-rl);
@@ -806,8 +1043,9 @@
   align-items: center;
   gap: 8px;
   height: 28px;
+  min-width: 220px;
   margin-left: auto;
-  padding: 0 10px;
+  padding: 0 8px 0 10px;
   border: 1px solid var(--sym-chrome-line);
   border-radius: var(--sym-r);
   background: transparent;
@@ -816,14 +1054,21 @@
   cursor: pointer;
 }
 
+.sym-demo-search span:first-of-type {
+  flex: 1;
+  text-align: left;
+}
+
 .sym-demo-search:hover {
-  background: var(--sym-chrome-hover);
+  border-color: var(--sym-accent);
 }
 
 .sym-demo-count {
   flex: none;
   padding-right: 4px;
   color: var(--sym-muted);
+  font-family: var(--sym-mono);
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -834,7 +1079,7 @@
  */
 .sym-demo-app .sym-inbox {
   flex: none;
-  width: 270px;
+  width: 290px;
 }
 
 /* --- Page and document ------------------------------------------------------------------------ */
@@ -859,18 +1104,20 @@
 }
 
 .sym-demo-page-body {
+  position: relative;
   display: flex;
   flex: 1;
   min-height: 0;
 }
 
-/* The app's sheet padding is tuned for a full window; inside a 520px frame it needs to come in. */
+/* The app's sheet padding is tuned for a full window; inside the frame it needs to come in. */
 .sym-demo-page-body .sym-page-scroll {
-  padding: 16px 20px 32px;
+  padding: 26px 28px 48px;
 }
 
 .sym-demo-doc {
   min-width: 0;
+  max-width: 560px;
 }
 
 .sym-demo-doc-meta {
@@ -878,50 +1125,63 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
   color: var(--sym-muted);
   font-size: 12px;
 }
 
 .sym-demo-doc h4 {
-  margin: 0 0 8px;
+  margin: 18px 0 6px;
+  padding-bottom: var(--sym-h2-pad);
+  border-bottom: var(--sym-h2-rule);
   font-family: var(--sym-head-font);
-  font-size: 15px;
+  font-size: var(--sym-h2-size);
   font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.sym-demo-doc > :first-child + h4 {
+  margin-top: 0;
 }
 
 .sym-demo-doc p {
-  margin: 0 0 12px;
+  margin: 0 0 10px;
   color: var(--sym-text);
-  line-height: 1.6;
+  font-size: 14px;
+  line-height: 1.65;
+  text-wrap: pretty;
 }
 
 .sym-demo-li {
   display: flex;
-  gap: 10px;
-  margin-bottom: 8px;
+  gap: 9px;
+  margin: 0 0 5px;
   color: var(--sym-text);
+  font-size: 14px;
+  line-height: 1.55;
 }
 
 .sym-demo-bullet {
   flex: none;
-  width: 4px;
-  height: 4px;
-  margin-top: 8px;
+  width: 5px;
+  height: 5px;
+  margin-top: 8.5px;
   border-radius: 999px;
   background: var(--sym-faint);
 }
 
 .sym-demo-task-check {
   display: flex;
-  gap: 10px;
+  gap: 9px;
   width: 100%;
-  margin-bottom: 8px;
+  margin: 0 0 5px;
   padding: 0;
   border: 0;
   background: transparent;
   color: var(--sym-text);
   font: inherit;
+  font-size: 14px;
+  line-height: 1.55;
   text-align: left;
   cursor: pointer;
 }
@@ -933,14 +1193,15 @@
   justify-content: center;
   width: 15px;
   height: 15px;
-  margin-top: 2px;
+  margin-top: 3px;
   border: 1.5px solid var(--sym-line-strong);
-  border-radius: 4px;
+  border-radius: var(--sym-rc);
   color: var(--sym-on-accent);
+  transition: background 0.15s;
 }
 
 .sym-demo-box[data-on] {
-  border-color: transparent;
+  border-color: var(--sym-accent);
   background: var(--sym-accent);
 }
 
@@ -952,10 +1213,12 @@
 .sym-demo-saved {
   color: var(--sym-muted);
   font-size: 12px;
+  white-space: nowrap;
 }
 
 /* The app's `.sym-kbd` is tuned for a panel surface; on the chrome bar it needs the chrome's own. */
 .sym-demo-kbd-hint {
+  flex: none;
   padding: 1px 5px;
   border: 1px solid var(--sym-chrome-line);
   border-radius: 4px;
@@ -970,12 +1233,23 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 6px;
+  padding: 20px;
   color: var(--sym-muted);
+  text-align: center;
 }
 
 .sym-demo-nopage p {
   margin: 0;
+}
+
+.sym-demo-nopage p:first-child {
+  color: var(--sym-text);
+  font-weight: 500;
+}
+
+.sym-demo-nopage p:last-child {
+  font-size: 12.5px;
 }
 
 /* --- History --------------------------------------------------------------------------------- */
@@ -984,7 +1258,7 @@
   display: flex;
   flex: none;
   flex-direction: column;
-  width: 260px;
+  width: 240px;
   border-left: 1px solid var(--sym-line);
   background: var(--sym-panel);
 }
@@ -993,10 +1267,12 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 12px 14px;
+  height: 44px;
+  flex: none;
+  padding: 0 12px;
   border-bottom: 1px solid var(--sym-line);
-  font-weight: 600;
   font-size: 13px;
+  font-weight: 600;
 }
 
 .sym-demo-history-head .sym-icon-button {
@@ -1008,6 +1284,7 @@
   flex: 1;
   flex-direction: column;
   gap: 2px;
+  min-height: 0;
   padding: 8px;
   overflow: auto;
 }
@@ -1015,8 +1292,8 @@
 .sym-demo-commit {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  padding: 9px 10px;
+  gap: 2px;
+  padding: 9px 8px;
   border: 0;
   border-radius: var(--sym-r);
   background: transparent;
@@ -1035,15 +1312,15 @@
 }
 
 .sym-demo-commit-msg {
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 500;
 }
 
 .sym-demo-commit-meta {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   color: var(--sym-muted);
-  font-size: 11.5px;
+  font-size: 11px;
 }
 
 .sym-demo-commit-meta code {
@@ -1051,14 +1328,15 @@
 }
 
 .sym-demo-restore {
-  padding: 12px 14px;
+  flex: none;
+  padding: 10px;
   border-top: 1px solid var(--sym-line);
 }
 
 .sym-demo-restore p {
-  margin: 0 0 10px;
+  margin: 0 0 6px;
   color: var(--sym-muted);
-  font-size: 12px;
+  font-size: 11.5px;
   line-height: 1.5;
 }
 
@@ -1069,7 +1347,7 @@
   border-radius: var(--sym-r);
   background: var(--sym-ink);
   color: var(--sym-on-ink);
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 500;
   cursor: pointer;
 }
@@ -1083,11 +1361,11 @@
    * Above everything in the frame. The app's `.sym-inbox-tools` is sticky with `z-index: 2`, so an
    * auto-stacked scrim let the quick-add field punch through the dim and sit there looking lit.
    */
-  z-index: 6;
+  z-index: 20;
   display: flex;
   justify-content: center;
-  padding-top: 60px;
-  background: rgb(0 0 0 / 0.28);
+  padding-top: 80px;
+  background: rgb(0 0 0 / 0.18);
 }
 
 /* The scrim is a real button, so Escape and Tab reach it; it is invisible but not hidden. */
@@ -1101,22 +1379,23 @@
 
 .sym-demo-palette {
   position: relative;
-  width: min(460px, 86%);
+  width: min(460px, 92%);
   height: fit-content;
   overflow: hidden;
-  border: 1px solid var(--sym-line-strong);
+  border: 1px solid var(--sym-line);
   border-radius: var(--sym-rl);
   background: var(--sym-surface);
-  box-shadow: 0 18px 48px -12px rgb(0 0 0 / 0.35);
+  box-shadow: 0 20px 50px rgb(0 0 0 / 0.22);
 }
 
 .sym-demo-palette-input {
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 12px 14px;
+  gap: 8px;
+  height: 46px;
+  padding: 0 12px;
   border-bottom: 1px solid var(--sym-line);
-  color: var(--sym-muted);
+  color: var(--sym-faint);
 }
 
 .sym-demo-palette-input input {
@@ -1125,13 +1404,14 @@
   border: 0;
   background: transparent;
   color: var(--sym-text);
+  font-size: 14px;
   outline: none;
 }
 
 .sym-demo-palette-items {
   display: flex;
   flex-direction: column;
-  max-height: 210px;
+  max-height: 260px;
   padding: 6px;
   overflow: auto;
 }
@@ -1140,13 +1420,14 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 9px 10px;
+  gap: 10px;
+  padding: 8px 10px;
   border: 0;
   border-radius: var(--sym-r);
   background: transparent;
   color: inherit;
   font: inherit;
+  font-size: 13.5px;
   text-align: left;
   cursor: pointer;
 }
@@ -1156,8 +1437,9 @@
 }
 
 .sym-demo-palette-hint {
-  color: var(--sym-faint);
-  font-size: 12px;
+  flex: none;
+  color: var(--sym-muted);
+  font-size: 11.5px;
 }
 
 /* The toast sits inside the frame rather than the viewport, so it cannot escape the preview. */
@@ -1166,59 +1448,170 @@
   bottom: 16px;
   left: 50%;
   transform: translateX(-50%);
-  z-index: 5;
+  z-index: 30;
 }
 
 .sym-demo-caption {
   max-width: 620px;
   margin: 18px auto 0;
   color: var(--sym-muted);
-  font-size: 13.5px;
+  font-size: 14.5px;
+  line-height: 1.55;
   text-align: center;
   text-wrap: pretty;
 }
 
 .sym-demo-caption span {
   color: var(--sym-text);
-  font-weight: 600;
+  font-weight: 500;
 }
 
-@media (max-width: 860px) {
-  .sym-demo-app {
-    height: 460px;
+/* --- Narrow (the mockup's 1040px) ------------------------------------------------------------- */
+
+@media (max-width: 1039px) {
+  .sym-split {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 36px;
   }
 
-  .sym-demo-history {
-    display: none;
+  .sym-hero-title {
+    font-size: 64px;
+  }
+
+  .sym-display,
+  .sym-closing h2 {
+    font-size: 40px;
+  }
+
+  .sym-model-lede {
+    max-width: none;
+  }
+
+  .sym-demo-app .sym-inbox {
+    width: 250px;
   }
 }
 
-/*
- * A phone gets one pane, the way the app gives it one. Both panes side by side inside 390px left the
- * document clipped down the middle of its own words, which sells the opposite of the point.
- */
-@media (max-width: 720px) {
-  .sym-demo-app[data-pane="list"] .sym-demo-page,
-  .sym-demo-app[data-pane="page"] .sym-inbox {
+/* --- Phone (the mockup's 760px) --------------------------------------------------------------- */
+
+@media (max-width: 759px) {
+  .sym-site-header-inner,
+  .sym-hero,
+  .sym-section,
+  .sym-closing,
+  .sym-legal,
+  .sym-site-footer-inner {
+    padding-inline: 20px;
+  }
+
+  .sym-hero {
+    padding-block: 64px 40px;
+  }
+
+  .sym-section {
+    padding-block: 64px;
+  }
+
+  .sym-closing {
+    padding-block: 72px 88px;
+  }
+
+  .sym-hero-title {
+    font-size: max(40px, min(52px, 12vw));
+  }
+
+  .sym-display,
+  .sym-closing h2 {
+    font-size: 32px;
+  }
+
+  .sym-hero-lede {
+    font-size: 17px;
+  }
+
+  .sym-features-head,
+  .sym-themes-head {
+    margin-bottom: 32px;
+  }
+
+  .sym-lists > div {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sym-assistant-panel {
+    padding: 28px 20px;
+    border-radius: var(--sym-rl);
+  }
+
+  /*
+   * The in-page anchors go on a phone, as they do in the mockup. They pushed the header past the
+   * viewport, which scrolled the whole document sideways and put the footer's own links out of reach.
+   */
+  .sym-site-nav {
     display: none;
   }
 
+  /* With the nav gone the pill is what pushes right, so it takes the spacer the nav was holding. */
+  .sym-site-cta {
+    margin-left: auto;
+  }
+
+  .sym-demo-section {
+    padding: 0 14px 40px;
+  }
+
+  .sym-demo-tabs {
+    justify-content: flex-start;
+  }
+
+  .sym-demo-frame {
+    padding: 8px;
+    border-radius: var(--sym-big-radius);
+  }
+
+  .sym-demo-search {
+    min-width: 0;
+  }
+
+  /* The search affordance is a label for a control the visitor can reach; the frame is the ⌘K hint. */
+  .sym-demo-search span:first-of-type,
+  .sym-demo-kbd-hint,
+  .sym-demo-name {
+    display: none;
+  }
+
+  /*
+   * A phone gets one pane, the way the app gives it one. Both panes side by side inside 390px left
+   * the document clipped down the middle of its own words, which sells the opposite of the point.
+   */
   .sym-demo-app .sym-inbox {
     flex: 1;
     width: auto;
     border-right: 0;
   }
 
+  .sym-demo-app[data-pane="list"] .sym-demo-page,
+  .sym-demo-app[data-pane="page"] .sym-inbox {
+    display: none;
+  }
+
   .sym-demo-app .sym-rail {
     display: none;
   }
 
-  /* The search affordance is a label for a control the visitor can reach; the frame is the ⌘K hint. */
-  .sym-demo-search span:first-of-type {
-    display: none;
+  .sym-demo-page-body .sym-page-scroll {
+    padding: 18px 16px 40px;
   }
 
-  .sym-demo-page-body .sym-page-scroll {
-    padding: 14px 14px 24px;
+  /* History takes the page rather than splitting it, which is what the app does at this width. */
+  .sym-demo-history {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    width: 100%;
+  }
+
+  .sym-demo-palette-scrim {
+    padding-top: 60px;
   }
 }

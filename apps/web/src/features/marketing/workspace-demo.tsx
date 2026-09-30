@@ -146,7 +146,7 @@ export function WorkspaceDemo() {
   };
 
   return (
-    <section id="product" className="sym-section" aria-label="Interactive product preview">
+    <section id="product" className="sym-demo-section" aria-label="Interactive product preview">
       <div role="tablist" aria-label="What to look at" className="sym-demo-tabs">
         {tours.map((entry) => (
           <button
@@ -179,6 +179,12 @@ export function WorkspaceDemo() {
             </span>
             <button
               type="button"
+              /*
+               * A phone drops both the label and the ⌘K hint, which left the button with nothing but
+               * an icon and no accessible name at all. The name is stated here and kept inside the
+               * visible text at wider widths, so it reads the same either way.
+               */
+              aria-label="Search or jump to"
               className="sym-demo-search"
               onClick={() => {
                 setPaletteOpen(true);

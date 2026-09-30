@@ -40,10 +40,10 @@ export function SiteHeader({ sections = false }: { readonly sections?: boolean }
           <a href={SITE.github} rel="noreferrer noopener" target="_blank">
             GitHub
           </a>
-          <Link href={SITE.app} className="sym-site-cta">
-            Open Symplist
-          </Link>
         </nav>
+        <Link href={SITE.app} className="sym-site-cta">
+          Open Symplist
+        </Link>
       </div>
     </header>
   );
@@ -53,25 +53,27 @@ export function SiteHeader({ sections = false }: { readonly sections?: boolean }
 export function SiteFooter() {
   return (
     <footer className="sym-site-footer">
-      <div className="sym-site-footer-row">
-        <SymplistLogo />
-        <p className="sym-site-footer-note">
-          Open source under the MIT licence. Built and maintained by{" "}
+      <div className="sym-site-footer-inner">
+        <span className="sym-site-footer-brand">
+          <SymplistLogo />
+        </span>
+        <span className="sym-site-footer-by">
+          MIT licensed. Built and maintained by{" "}
           <a href={SITE.maintainerUrl} rel="noreferrer noopener" target="_blank">
             {SITE.maintainer}
           </a>
           .
-        </p>
+        </span>
+        <nav aria-label="Legal and source" className="sym-site-footer-links">
+          <Link href="/privacy">Privacy</Link>
+          <Link href="/terms">Terms</Link>
+          <Link href="/cookies">Cookies</Link>
+          <a href={SITE.github} rel="noreferrer noopener" target="_blank">
+            Source
+          </a>
+          <a href={`mailto:${SITE.contact}`}>{SITE.contact}</a>
+        </nav>
       </div>
-      <nav aria-label="Legal and source" className="sym-site-footer-links">
-        <Link href="/privacy">Privacy</Link>
-        <Link href="/terms">Terms</Link>
-        <Link href="/cookies">Cookies</Link>
-        <a href={SITE.github} rel="noreferrer noopener" target="_blank">
-          Source
-        </a>
-        <a href={`mailto:${SITE.contact}`}>{SITE.contact}</a>
-      </nav>
     </footer>
   );
 }

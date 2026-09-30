@@ -179,6 +179,15 @@ describe("the session hint redirect (§5.1)", () => {
     }
   });
 
+  it("lets the desktop shell's own windows answer a missing session themselves", () => {
+    // The Vault quick-access panel is 320 px of menu-bar popover. Redirecting it would put the email
+    // entry in a frameless window with nowhere to go, so it renders "Sign in to use the vault here" and
+    // opens the main window instead — and it still asks `GET /v1/me` before it shows anything.
+    const response = proxy(new NextRequest("https://app.symplist.test/desktop/vault"));
+    expect(response.headers.get("location")).toBeNull();
+    expect(response.headers.get("x-middleware-request-x-nonce")).toMatch(/^[A-Za-z0-9+/]{24}$/);
+  });
+
   it("serves the public site to a visitor with no session at all", () => {
     // The homepage and the published terms are what a stranger and a search engine come for; sending
     // either to a sign-in form would make the product unreadable from outside.

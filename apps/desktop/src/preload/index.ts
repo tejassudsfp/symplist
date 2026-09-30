@@ -23,7 +23,12 @@
  */
 import { contextBridge, ipcRenderer } from "electron";
 import type { BridgedRequestInit, SymplistBridge } from "../shared/bridge.ts";
-import type { CloudRequestPayload, CloudResponsePayload, HostInfo } from "../shared/ipc.ts";
+import type {
+  CloudRequestPayload,
+  CloudResponsePayload,
+  HostInfo,
+  VaultPanelReport,
+} from "../shared/ipc.ts";
 import { ipcChannels, ipcEvents } from "../shared/ipc.ts";
 
 /** A value passed as `additionalArguments` by the window, since `app` is a main-process API. */
@@ -45,6 +50,18 @@ function appVersionArgument(): string {
 const apiOrigin = argument("api-origin", "");
 
 let nextRequestId = 0;
+
+/**
+ * Subscribes to a payload-free event from main and answers the unsubscribe. The listener is wrapped
+ * rather than passed through, so nothing main sends can reach the page through its arguments.
+ */
+function subscribe(channel: string, listener: () => void): () => void {
+  const handler = (): void => listener();
+  ipcRenderer.on(channel, handler);
+  return () => {
+    ipcRenderer.removeListener(channel, handler);
+  };
+}
 
 /**
  * Serialises a request, sends it, and answers with the response as plain data.
@@ -103,14 +120,31 @@ const bridge: SymplistBridge = {
   cloud: {
     apiOrigin,
     fetch: cloudFetch,
-    onSessionEnded: (listener: () => void): (() => void) => {
-      // The event carries no payload, so nothing from main can reach the page through this listener.
-      const handler = (): void => listener();
-      ipcRenderer.on(ipcEvents.cloudSessionEnded, handler);
-      return () => {
-        ipcRenderer.removeListener(ipcEvents.cloudSessionEnded, handler);
-      };
+    onSessionEnded: (listener: () => void): (() => void) =>
+      subscribe(ipcEvents.cloudSessionEnded, listener),
+  },
+  vaultPanel: {
+    close: (): void => {
+      ipcRenderer.send(ipcChannels.vaultPanelClose);
     },
+    report: (state: VaultPanelReport): void => {
+      // Sent as a plain record, which is the only shape that survives the copy between worlds.
+      ipcRenderer.send(ipcChannels.vaultPanelReport, {
+        unlocked: state.unlocked,
+        unlockedHere: state.unlockedHere,
+        email: state.email,
+      });
+    },
+    resize: (height: number): void => {
+      ipcRenderer.send(ipcChannels.vaultPanelResize, height);
+    },
+    copy: async (value: string): Promise<boolean> =>
+      (await ipcRenderer.invoke(ipcChannels.vaultPanelCopy, value)) as boolean,
+    openApp: async (path: string): Promise<boolean> =>
+      (await ipcRenderer.invoke(ipcChannels.vaultPanelOpenApp, path)) as boolean,
+    onShown: (listener: () => void): (() => void) => subscribe(ipcEvents.vaultPanelShown, listener),
+    onDismissed: (listener: () => void): (() => void) =>
+      subscribe(ipcEvents.vaultPanelDismissed, listener),
   },
   host: {
     info: async (): Promise<HostInfo> => {

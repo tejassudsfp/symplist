@@ -25,6 +25,17 @@ export const ipcChannels = Object.freeze({
   cloudRequest: "symplist:cloud/request",
   /** Cancels a request in flight, since an `AbortSignal` cannot cross the bridge. */
   cloudAbort: "symplist:cloud/abort",
+  /**
+   * The Vault quick-access panel, and only that window: `src/main/ipc.ts` refuses these from any other
+   * sender. They are shell verbs — hide this window, size it, use the system clipboard, raise the main
+   * window — because the panel is a menu-bar popover and none of that is a web page's to do. Every
+   * `/v1/vault` call it makes still goes through `cloudRequest` like any other screen's.
+   */
+  vaultPanelClose: "symplist:vault-panel/close",
+  vaultPanelReport: "symplist:vault-panel/report",
+  vaultPanelResize: "symplist:vault-panel/resize",
+  vaultPanelCopy: "symplist:vault-panel/copy",
+  vaultPanelOpenApp: "symplist:vault-panel/open-app",
 } as const);
 
 /**
@@ -38,6 +49,13 @@ export const ipcEvents = Object.freeze({
    * which is the same path a 401 already takes.
    */
   cloudSessionEnded: "symplist:cloud/session-ended",
+  /** The Vault panel was shown again. Its window is reused, so this is its "read the state again". */
+  vaultPanelShown: "symplist:vault-panel/shown",
+  /**
+   * The Vault panel was hidden. It forgets everything on screen and locks the vault if it is the one
+   * that opened it; main drops the vault cookie either way, so a lock never depends on a live request.
+   */
+  vaultPanelDismissed: "symplist:vault-panel/dismissed",
 } as const);
 
 /** A channel name, used by the main-process registry to reject anything unregistered. */
@@ -55,6 +73,17 @@ export interface HostInfo {
 /** The result of asking the shell to hand a link to the operating system. */
 export interface OpenExternalResult {
   readonly opened: boolean;
+}
+
+/**
+ * What the Vault panel tells the shell about itself: what to draw in the menu bar, whether closing the
+ * panel should lock the vault, and who is signed in for the tray menu's last line. It is the person's
+ * own address, and main already carries every `/v1/me` response that produced it.
+ */
+export interface VaultPanelReport {
+  readonly unlocked: boolean;
+  readonly unlockedHere: boolean;
+  readonly email: string | null;
 }
 
 /**

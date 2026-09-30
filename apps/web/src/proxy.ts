@@ -23,10 +23,22 @@ export const SESSION_HINT_COOKIE = "sym_hint";
  */
 const publicPrefixes = ["/signin", "/terms", "/cookies", "/privacy"] as const;
 
+/**
+ * Screens the desktop shell loads in a window of its own, which answer a missing session themselves.
+ *
+ * The Vault quick-access panel is 320 px of menu-bar popover: redirecting it into the sign-in flow
+ * would put the email entry in a frameless popover with nowhere to go. It renders "Sign in to use the
+ * vault here" and opens the main window instead, and — like every screen behind this redirect — it
+ * asks `GET /v1/me` before it shows anything, so nothing is reachable here that was not before.
+ */
+const shellPrefixes = ["/desktop"] as const;
+
 function isPublicPath(pathname: string): boolean {
   // The root is the marketing homepage, not a redirect into the workspace.
   if (pathname === "/") return true;
-  return publicPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+  return [...publicPrefixes, ...shellPrefixes].some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
 }
 
 /** The path to return to after signing in: a same-origin path, never sign-in itself. */

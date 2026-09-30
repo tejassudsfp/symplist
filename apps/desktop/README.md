@@ -16,8 +16,8 @@ live, and the OS keychain for the content key.
 
 | Process | Runs | Owns |
 | --- | --- | --- |
-| **main** | Electron's Node 24 | the renderer's Next server, the cloud session and its cookie jar, the OS keychain |
-| **renderer** | Chromium, sandboxed | the unchanged `apps/web` frontend. No Node, no session, no network of its own |
+| **main** | Electron's Node 24 | the renderer's Next server, the cloud session and its cookie jar, the OS keychain, the menu-bar item and the Vault popover's window |
+| **renderer** | Chromium, sandboxed | the unchanged `apps/web` frontend, in two windows — the workspace and the Vault panel. No Node, no session, no network of its own |
 
 **Cloud traffic runs in main, and moving it back would break sign-in.** The api pins its first-party
 origin: `apps/api/src/common/route-classes.ts` requires `Origin === WEB_ORIGIN` for the pre-session
@@ -82,6 +82,10 @@ src/shared/     contracts main and preload both hold: channel names, payload typ
 src/main/       everything privileged
   index.ts        lifecycle: single instance, session hardening, boot order, quit
   window.ts       the BrowserWindow and its navigation lockdown
+  tray.ts         the menu-bar item: left-click toggles the Vault panel, right-click is the native menu
+  tray-icon.ts    pure geometry: the padlock, closed and open, as a PNG data URL at 1x and 2x
+  vault-window.ts the Vault popover's window — placed, hidden on blur, and locking what it opened
+  vault-panel.ts  pure policy beside it: where the panel goes, what it may report, what it may open
   navigation.ts   pure policy: what is internal, what may leave, which frame may call IPC
   next-server.ts  the staged frontend as a loopback server
   ipc.ts          the channel registry — every capability the renderer can reach
@@ -146,6 +150,45 @@ keychain. A grant **outlives** the session that created it, which fixes an order
 *before* `POST /v1/auth/logout`, because the session is what authorizes it. If that revoke could not be
 sent — an offline sign-out — the key is still live at the api and `McpGrantStore.lastRevoke()` says so, so
 the app can be honest about it instead of claiming a clean sign-out.
+
+## The Vault quick-access panel
+
+A padlock in the menu bar opens a 320 px popover under it with the vault in it, and nothing else from
+Symplist. ⇧⌘V opens it from any application, ↑↓ and ↵ copy an item's value without showing it, ⌘L locks,
+escape closes. The icon is drawn open while the vault is unlocked, so its state is readable from the menu
+bar without opening anything.
+
+It is the vault the api already has. The page is `apps/web`'s `/desktop/vault`, so it inherits the
+person's theme from the same `sym_appearance` cookie the workspace reads, calls the same `/v1/vault`
+routes through the same `cloud` bridge, and holds no token for the same reason the workspace holds none.
+No route, contract or api change was needed, and there is no second vault implementation to keep correct.
+
+Four things this package adds, and why each one could not live in the page:
+
+- **The window.** A frameless popover hung off a tray item, hidden rather than closed so reopening is
+  instant, and sized to the panel's measured content the way each state of the mockup is.
+- **The clipboard.** `hardenSession()` refuses every device permission, so the renderer cannot write one
+  — and the 30-second clear has to outlive a panel that is already hidden. It clears only if the
+  clipboard still holds what Symplist put there.
+- **The lock.** Closing the panel locks the vault it opened, and only that one: a single vault session
+  serves both windows, so a panel that locked unconditionally would relock the vault someone was working
+  in. The renderer sends `POST /v1/vault/lock` — the request that revokes the session at the api and
+  publishes `vault.locked`, which is what makes the workspace's vault screen clear too — and main drops
+  the vault cookie from the jar a moment later as the half that cannot fail.
+- **The menu-bar icon.** Drawn in code (`tray-icon.ts`) rather than shipped as two PNG files, for the
+  reason the Symplist mark is drawn from arithmetic: the geometry is reviewable, it redraws identically at
+  every scale factor, and a committed binary cannot be read in a diff. It is a macOS template image, so
+  the system owns its colour and there is no second asset for dark mode.
+
+The panel's five IPC channels are the only ones with a **second** sender check. The frame check in
+`ipc.ts` cannot separate the popover from the workspace — same origin, both top frames — so each panel
+channel asks the panel whether the sender is its own `webContents` first.
+
+Two things the mockup shows that are not built, both deliberate. **Quick-access settings…** is not in the
+tray menu, because there are no quick-access preferences and a menu item that leads nowhere is worse than
+its absence. And an item's **Service** and **Note** fields are not shown: `vaultItemContentSchema` is
+`{type, title, value}` and inventing two more would have meant an api change for a mockup detail. A secure
+note's body appears under the mockup's `Note` label; a secret shows its value, masked.
 
 ## Where the assistant is
 
