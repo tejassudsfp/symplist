@@ -79,6 +79,9 @@ export async function createApiDatabase(
     const local = createLocalSqliteClient({
       path: localDataPaths(localDataDir).database,
       env: { NODE_ENV: config.NODE_ENV },
+      // A local deployment is production and SQLite *is* its store; a cloud one in production must
+      // still be refused. See `LocalSqliteClientOptions.singleUserInstall`.
+      ...(config.DEPLOYMENT === "local" ? { singleUserInstall: true } : {}),
     });
     client = local;
     close = () => local.close();

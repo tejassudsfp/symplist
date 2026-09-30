@@ -34,7 +34,7 @@ if ("settings" in live) {
   describe("live PostHog ingestion contract", () => {
     it("accepts one synthetic allowlisted event through the production emitter", async () => {
       const logs: ServerAnalyticsLogEntry[] = [];
-      const analytics = createServerAnalytics({
+      const analytics = await createServerAnalytics({
         enabled: true,
         projectKey: live.settings.projectKey,
         host: live.settings.host,

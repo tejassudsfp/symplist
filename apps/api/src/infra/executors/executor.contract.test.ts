@@ -302,11 +302,11 @@ describeExecutorContract({
   controlledJobs: false,
   testTimeoutMs: 30_000,
   ...("skipReason" in live ? { skipReason: live.skipReason } : {}),
-  create: () => {
+  create: async () => {
     if (!("settings" in live)) throw new Error(live.skipReason);
     return createHarness({
       mode: "durable",
-      trigger: createTriggerRunsClient(live.settings.secretKey),
+      trigger: await createTriggerRunsClient(live.settings.secretKey),
       taskId: live.settings.taskId,
       clock: new FakeClock(Date.now()),
     });

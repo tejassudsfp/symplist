@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { KeyUnavailableError } from "@symplist/crypto";
 import { applyMigrations, createLocalSqliteClient, D1RestClient, sql } from "@symplist/db";
-import { R2ObjectStore } from "@symplist/storage";
+import { R2ObjectStore } from "@symplist/storage/r2";
 import { FakeClock } from "@symplist/testing";
 import { describe, expect, it, vi } from "vitest";
 import {

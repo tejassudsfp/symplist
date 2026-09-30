@@ -28,15 +28,21 @@ import {
   type TriggerClientBinding,
 } from "./seams.ts";
 
-/** The Trigger client of a configuration: the SDK client in durable mode, none in local mode. */
-export function triggerClientFor(
+/**
+ * The Trigger client of a configuration: the SDK client in durable mode, none otherwise.
+ *
+ * Async because the SDK is loaded on demand, so a `DURABLE=false` api never pulls it — or the
+ * `@opentelemetry` tree behind it — into its module graph. The `null` path returns without importing
+ * anything.
+ */
+export async function triggerClientFor(
   config: Pick<ApiConfig, "DURABLE" | "TRIGGER_SECRET_KEY">,
-): TriggerClientBinding {
+): Promise<TriggerClientBinding> {
   if (!config.DURABLE) return null;
   if (config.TRIGGER_SECRET_KEY === undefined) {
     throw new Error("DURABLE=true needs TRIGGER_SECRET_KEY");
   }
-  return createTriggerRunsClient(config.TRIGGER_SECRET_KEY);
+  return await createTriggerRunsClient(config.TRIGGER_SECRET_KEY);
 }
 
 /**
@@ -92,8 +98,11 @@ export class PlatformSeamsModule {
         {
           provide: TRIGGER_CLIENT,
           inject: [API_CONFIG],
-          useFactory: (config: ApiConfig): TriggerClientBinding =>
-            options.triggerClient === undefined ? triggerClientFor(config) : options.triggerClient,
+          // Async, because the SDK is loaded on demand; Nest awaits a factory that returns a promise.
+          useFactory: async (config: ApiConfig): Promise<TriggerClientBinding> =>
+            options.triggerClient === undefined
+              ? await triggerClientFor(config)
+              : options.triggerClient,
         },
         {
           provide: REALTIME_ACCESS_NOTIFIER,

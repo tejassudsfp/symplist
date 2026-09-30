@@ -35,7 +35,12 @@ export function createApiEmailTransport(config: ApiConfig, logger: AppLogger): E
       logger: transportLog(logger),
     });
   }
-  return createLogEmailTransport({ driver: config.EMAIL_DRIVER, nodeEnv: config.NODE_ENV });
+  return createLogEmailTransport({
+    driver: config.EMAIL_DRIVER,
+    nodeEnv: config.NODE_ENV,
+    // A local install cannot send mail and has no OTP to leak — see `LogTransportOptions`.
+    ...(config.DEPLOYMENT === "local" ? { singleUserInstall: true } : {}),
+  });
 }
 
 export const emailProviders: Provider[] = [

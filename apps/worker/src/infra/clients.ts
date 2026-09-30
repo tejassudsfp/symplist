@@ -13,7 +13,11 @@ import {
   processLane,
   type RateLane,
 } from "@symplist/db";
-import { createLocalObjectStore, createR2ObjectStore, type ObjectStore } from "@symplist/storage";
+import { createLocalObjectStore, type ObjectStore } from "@symplist/storage";
+// The concrete module, not the on-demand loader in the package root: the worker only ever runs in a
+// cloud deployment, so R2 is never absent for it and `createWorkerRuntime` stays synchronous — every
+// Trigger task body calls it.
+import { R2ObjectStore } from "@symplist/storage/r2";
 import { d1QueueFamilyConcurrency } from "../queues.ts";
 import { WorkerError } from "./errors.ts";
 
@@ -78,7 +82,7 @@ export function createWorkerObjectStore(config: WorkerConfig): ObjectStore {
   if (!CLOUDFLARE_ACCOUNT_ID || !R2_BUCKET || !R2_ACCESS_KEY_ID || !R2_SECRET_ACCESS_KEY) {
     throw new WorkerError("config.invalid");
   }
-  return createR2ObjectStore({
+  return new R2ObjectStore({
     accountId: CLOUDFLARE_ACCOUNT_ID,
     bucket: R2_BUCKET,
     accessKeyId: R2_ACCESS_KEY_ID,

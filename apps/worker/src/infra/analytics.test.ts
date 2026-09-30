@@ -9,7 +9,7 @@ it("uses one immediate emitter per runtime and rechecks consent/access for each 
   const capture = vi.fn(async () => ({ status: "sent" as const }));
   const create = vi
     .spyOn(analytics, "createServerAnalytics")
-    .mockReturnValue({ enabled: true, capture, flush: async () => {}, shutdown: async () => {} });
+    .mockResolvedValue({ enabled: true, capture, flush: async () => {}, shutdown: async () => {} });
   try {
     await applyMigrations(db);
     const owner = uuidv7();
@@ -31,8 +31,10 @@ it("uses one immediate emitter per runtime and rechecks consent/access for each 
       },
       logger: createWorkerLogger(),
     };
-    const service = workerAnalytics(runtime);
-    expect(workerAnalytics(runtime)).toBe(service);
+    const service = await workerAnalytics(runtime);
+    // The promise is cached, not the service, so two concurrent callers share one emitter rather than
+    // racing to load `posthog-node` twice.
+    expect(await workerAnalytics(runtime)).toBe(service);
     expect(create).toHaveBeenCalledTimes(1);
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ delivery: "immediate" }));
     const event = uuidv7();
