@@ -14,9 +14,18 @@ import {
 export const SESSION_HINT_COOKIE = "sym_hint";
 
 /** Route prefixes a signed-out visitor may open. Everything else starts at the email entry. */
-const publicPrefixes = ["/signin"] as const;
+/**
+ * Paths a signed-out visitor may read: sign-in, and the public site.
+ *
+ * The homepage and the three legal pages are the product's shop window and its published terms — a
+ * stranger has to be able to read every one of them without an account, and a search engine has to be
+ * able to index them.
+ */
+const publicPrefixes = ["/signin", "/terms", "/cookies", "/privacy"] as const;
 
 function isPublicPath(pathname: string): boolean {
+  // The root is the marketing homepage, not a redirect into the workspace.
+  if (pathname === "/") return true;
   return publicPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }
 
