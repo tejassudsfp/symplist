@@ -120,7 +120,6 @@ describe("route-class coverage (§5.3)", () => {
     > = {
       app: { method: "POST", path: "/v1/tasks", access: true },
       pre_session: { method: "POST", path: "/v1/auth/otp", access: false },
-      connection_callback: { method: "GET", path: "/v1/connections/callback", access: true },
       share_form: { method: "POST", path: "/artifact/:id/password", access: false },
       share_read: { method: "GET", path: "/artifact/:id", access: false },
       oauth_public: { method: "POST", path: "/oauth/token", access: false },

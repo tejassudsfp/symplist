@@ -113,8 +113,6 @@ describe("excluded routes (§15)", () => {
     "/vault/items/1",
     "/oauth/consent",
     "/artifact/abc",
-    "/connections/callback",
-    "/connections/callback?status=success&connected_account_id=ca_1",
   ])("excludes %s", (path) => {
     expect(isExcludedAnalyticsPath(path)).toBe(true);
   });

@@ -12,9 +12,11 @@ export type AnalyticsConsentState = "unset" | "granted" | "denied";
 
 /**
  * Route prefixes that never load the analytics client (§15): auth and OTP, the beta gate, the Vault,
- * OAuth consent, and share-host artifact routes. `/connections/callback` is excluded too: its
- * address can carry connection attempt parameters and external account ids (note 17), which
- * posthog-js would otherwise keep in its local session state.
+ * OAuth consent, and share-host artifact routes.
+ *
+ * `/connections/callback` used to be on this list, because its address carried connection attempt
+ * parameters and external account ids that posthog-js would have kept in its local session state. The
+ * connector layer is gone (note 18) and so is that page; `/oauth` covers the flow that replaced it.
  */
 export const excludedAnalyticsPathPrefixes: readonly string[] = [
   "/signin",
@@ -22,7 +24,6 @@ export const excludedAnalyticsPathPrefixes: readonly string[] = [
   "/vault",
   "/oauth",
   "/artifact",
-  "/connections/callback",
 ];
 
 export function isExcludedAnalyticsPath(pathname: string): boolean {

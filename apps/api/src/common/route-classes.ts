@@ -7,8 +7,6 @@ import { SetMetadata } from "@nestjs/common";
  *   `X-Symplist-CSRF` must carry the session-bound token.
  * - `pre_session`: lookup, signup and OTP routes; `Origin` must equal `WEB_ORIGIN` and
  *   `X-Symplist-CSRF: 1` forces a preflight.
- * - `connection_callback`: `GET /v1/connections/callback`; needs the single-use attempt nonce, the
- *   same user and the same auth session, and redirects only to a fixed web path.
  * - `share_form`: share-host password posts; `Origin` equals `ARTIFACT_ORIGIN` and a per-render
  *   form nonce is required; the app session cookie is never read.
  * - `share_read`: share-host GET routes; reads only the share session cookie.
@@ -23,7 +21,6 @@ import { SetMetadata } from "@nestjs/common";
 export const routeClasses = [
   "app",
   "pre_session",
-  "connection_callback",
   "share_form",
   "share_read",
   "oauth_public",
@@ -101,16 +98,6 @@ export const routeClassRules: Readonly<Record<RouteClass, RouteClassRule>> = Obj
     sessionAccess: "forbidden",
     methods: unsafe,
     pathPrefixes: ["/v1/auth/"],
-  },
-  connection_callback: {
-    surface: "api",
-    cookies: "session",
-    origin: "none",
-    csrfHeader: "none",
-    bearer: false,
-    sessionAccess: "required",
-    methods: ["GET"],
-    pathPrefixes: ["/v1/connections/callback"],
   },
   share_form: {
     surface: "share",
