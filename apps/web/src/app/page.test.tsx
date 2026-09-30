@@ -43,7 +43,7 @@ describe("the public homepage", () => {
 
   it("says it is free and open, with no beta and no gate to get past", () => {
     render(<HomePage />);
-    expect(screen.getByText(/there is no plan above it/i)).toBeInTheDocument();
+    expect(screen.getByText(/nothing sits above it/i)).toBeInTheDocument();
     // The page may say "no invite" — what it must never do is ask for one.
     expect(screen.getByText(/No invite, no waitlist, no card/i)).toBeInTheDocument();
     expect(screen.queryByText(/beta/i)).not.toBeInTheDocument();

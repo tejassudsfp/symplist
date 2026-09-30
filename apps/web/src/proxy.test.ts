@@ -126,6 +126,8 @@ describe("Content Security Policy (§10.4)", () => {
       "/sitemap.xml",
       "/llms.txt",
       "/brand/icon.svg",
+      "/ai/openai.svg",
+      "/ai/claude-color.svg",
       "/brand/icon-512.png",
       "/brand/icon-maskable-512.png",
       "/brand/og.png",

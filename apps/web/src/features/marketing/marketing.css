@@ -2,8 +2,8 @@
  * The public pages: homepage, privacy, terms, cookies.
  *
  * Every colour is a theme token, so the site inherits whatever the visitor's appearance resolves to
- * and stays legible in light and dark without a second palette to maintain. The measure is narrow and
- * the type large: a page whose argument is that simple wins should not open as a wall.
+ * and stays legible in light and dark without a second palette to maintain. `--sym-faint` is a
+ * decoration token and is never used for a run of prose: it is not held to 4.5:1.
  * --------------------------------------------------------------------------------------------- */
 
 .sym-site {
@@ -14,16 +14,28 @@
   color: var(--sym-text);
 }
 
+/* --- Header ---------------------------------------------------------------------------------- */
+
 .sym-site-header {
-  display: flex;
+  position: sticky;
+  top: 0;
+  z-index: 50;
   flex: none;
+  border-bottom: 1px solid var(--sym-line);
+  /* The blur is what lets a long page scroll under the header without it turning into a slab. */
+  background: color-mix(in srgb, var(--sym-bg) 82%, transparent);
+  backdrop-filter: saturate(1.4) blur(12px);
+  -webkit-backdrop-filter: saturate(1.4) blur(12px);
+}
+
+.sym-site-header-inner {
+  display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 16px;
-  max-width: 980px;
-  width: 100%;
+  max-width: 1180px;
+  height: 60px;
   margin: 0 auto;
-  padding: 20px 24px;
+  padding: 0 24px;
 }
 
 .sym-site-brand {
@@ -34,7 +46,8 @@
 .sym-site-nav {
   display: flex;
   align-items: center;
-  gap: 18px;
+  gap: 26px;
+  margin-left: auto;
   font-size: 14px;
 }
 
@@ -47,61 +60,102 @@
   color: var(--sym-text);
 }
 
-.sym-site-cta,
-.sym-hero-primary {
+.sym-site-cta {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  border-radius: var(--sym-r);
-  background: var(--sym-ink);
-  color: var(--sym-on-ink);
+  height: 36px;
+  padding: 0 16px;
+  border-radius: 999px;
+  background: var(--sym-text);
+  color: var(--sym-bg);
   font-weight: 500;
   text-decoration: none;
 }
 
-.sym-site-cta {
-  height: 32px;
-  padding: 0 14px;
+.sym-site-cta:hover {
+  opacity: 0.88;
 }
 
-.sym-site-nav .sym-site-cta:hover {
-  color: var(--sym-on-ink);
+/* --- Buttons --------------------------------------------------------------------------------- */
+
+.sym-button-primary,
+.sym-button-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 46px;
+  padding: 0 22px;
+  border-radius: 999px;
+  font-size: 15px;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.sym-button-primary {
+  border: 1px solid transparent;
+  background: var(--sym-accent);
+  color: var(--sym-on-accent);
+}
+
+.sym-button-primary:hover {
   opacity: 0.9;
+}
+
+.sym-button-secondary {
+  border: 1px solid var(--sym-line-strong);
+  color: var(--sym-text);
+}
+
+.sym-button-secondary:hover {
+  background: var(--sym-hover);
 }
 
 /* --- Hero ------------------------------------------------------------------------------------ */
 
 .sym-hero {
-  max-width: 780px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: 1180px;
   margin: 0 auto;
-  padding: 72px 24px 56px;
+  padding: 92px 24px 72px;
   text-align: center;
 }
 
 .sym-hero-eyebrow {
-  margin: 0 0 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 22px;
   color: var(--sym-muted);
   font-size: 13px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+}
+
+.sym-hero-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--sym-accent);
 }
 
 .sym-hero-title {
+  max-width: 880px;
   margin: 0;
   font-family: var(--sym-head-font);
-  font-size: clamp(32px, 6vw, 52px);
+  font-size: clamp(36px, 6.4vw, 60px);
   font-weight: 600;
-  line-height: 1.1;
-  letter-spacing: -0.02em;
+  line-height: 1.04;
+  letter-spacing: -0.025em;
   text-wrap: balance;
 }
 
 .sym-hero-lede {
-  max-width: 620px;
-  margin: 22px auto 0;
+  max-width: 560px;
+  margin: 26px 0 0;
   color: var(--sym-muted);
-  font-size: clamp(16px, 2.2vw, 19px);
-  line-height: 1.6;
+  font-size: clamp(16px, 2.2vw, 18px);
+  line-height: 1.55;
   text-wrap: pretty;
 }
 
@@ -109,98 +163,109 @@
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 12px;
-  margin-top: 32px;
-}
-
-.sym-hero-primary {
-  height: 44px;
-  padding: 0 24px;
-  font-size: 15px;
-}
-
-.sym-hero-primary:hover {
-  opacity: 0.9;
-}
-
-.sym-hero-secondary {
-  display: inline-flex;
-  align-items: center;
-  height: 44px;
-  padding: 0 24px;
-  border: 1px solid var(--sym-line-strong);
-  border-radius: var(--sym-r);
-  color: var(--sym-text);
-  font-size: 15px;
-  text-decoration: none;
-}
-
-.sym-hero-secondary:hover {
-  background: var(--sym-hover);
+  gap: 10px;
+  margin-top: 34px;
 }
 
 .sym-hero-fine {
-  margin: 22px 0 0;
-  color: var(--sym-muted);
-  font-size: 13.5px;
+  margin-top: 22px;
 }
 
 /* --- Sections -------------------------------------------------------------------------------- */
 
-.sym-lists,
-.sym-features,
-.sym-honest,
-.sym-closing {
-  max-width: 980px;
+.sym-section {
+  max-width: 1180px;
   margin: 0 auto;
-  padding: 56px 24px;
+  padding: 72px 24px;
 }
 
-.sym-lists h2,
-.sym-features h2,
-.sym-honest h2,
+.sym-eyebrow {
+  margin: 0 0 14px;
+  color: var(--sym-accent);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.sym-section h2,
 .sym-closing h2 {
-  margin: 0 0 28px;
+  margin: 0;
   font-family: var(--sym-head-font);
-  font-size: clamp(22px, 3.4vw, 30px);
+  font-size: clamp(24px, 3.6vw, 36px);
   font-weight: 600;
-  letter-spacing: -0.015em;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
   text-wrap: balance;
 }
 
-.sym-lists ul {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 20px;
+.sym-section-lede {
+  max-width: 560px;
+  margin: 18px 0 0;
+  color: var(--sym-muted);
+  font-size: 15.5px;
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+
+.sym-fine {
   margin: 0;
+  color: var(--sym-muted);
+  font-size: 13px;
+}
+
+.sym-section-foot {
+  margin: 20px 0 0;
+  color: var(--sym-muted);
+  font-size: 13.5px;
+}
+
+.sym-section-foot a,
+.sym-fine a {
+  color: var(--sym-link);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* The two-column split the mockup uses for the assistant and plain-words sections. */
+.sym-split {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 40px;
+  align-items: start;
+}
+
+.sym-panel {
+  padding: 40px;
+  border: 1px solid var(--sym-line);
+  border-radius: var(--sym-panel-radius);
+  background: var(--sym-panel);
+}
+
+/* --- The three lists -------------------------------------------------------------------------- */
+
+.sym-lists {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+  margin: 32px 0 0;
   padding: 0;
   list-style: none;
 }
 
 .sym-lists li {
-  padding: 20px;
+  padding: 22px;
   border: 1px solid var(--sym-line);
   border-radius: var(--sym-rl);
   background: var(--sym-panel);
 }
 
 .sym-list-name {
-  display: flex;
-  align-items: center;
-  gap: 9px;
   font-family: var(--sym-head-font);
   font-size: 17px;
   font-weight: 600;
 }
 
-.sym-list-mark {
-  width: 17px;
-  height: 17px;
-  color: var(--sym-accent);
-}
-
 .sym-lists p,
-.sym-feature-grid p {
+.sym-features p {
   margin: 10px 0 0;
   color: var(--sym-muted);
   font-size: 14.5px;
@@ -208,45 +273,195 @@
   text-wrap: pretty;
 }
 
-.sym-lists-note {
-  margin: 24px 0 0;
-  color: var(--sym-muted);
-  font-size: 14px;
-}
+/* --- Features -------------------------------------------------------------------------------- */
 
-.sym-feature-grid {
+.sym-features {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 28px 32px;
+  gap: 30px 36px;
+  margin: 36px 0 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: none;
 }
 
-.sym-feature-grid h3 {
+.sym-feature-n {
+  display: block;
+  margin-bottom: 10px;
+  color: var(--sym-accent);
+  font-family: var(--sym-mono);
+  font-size: 12px;
+}
+
+.sym-features h3 {
   margin: 0;
   font-family: var(--sym-head-font);
   font-size: 16.5px;
   font-weight: 600;
 }
 
-/* --- The honest section ---------------------------------------------------------------------- */
+/* --- Themes ---------------------------------------------------------------------------------- */
 
-.sym-honest {
-  border-top: 1px solid var(--sym-line);
-  border-bottom: 1px solid var(--sym-line);
+.sym-themes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 14px;
+  margin: 32px 0 0;
+  padding: 0;
+  list-style: none;
 }
 
-.sym-honest dl {
+.sym-themes li {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px;
+  border: 1px solid var(--sym-line);
+  border-radius: var(--sym-rl);
+  background: var(--sym-panel);
+}
+
+.sym-theme-swatches {
+  display: flex;
+  gap: 5px;
+  margin-bottom: 8px;
+}
+
+/*
+ * Each swatch renders in its own theme by carrying `data-theme`, so the row is the real palette
+ * rather than six hand-picked hex values that would drift the moment a theme is retuned.
+ */
+.sym-theme-swatch {
+  width: 20px;
+  height: 20px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+}
+
+.sym-theme-swatch--alt {
+  border-color: transparent;
+}
+
+.sym-theme-name {
+  font-family: var(--sym-head-font);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.sym-theme-tag {
+  color: var(--sym-muted);
+  font-size: 12.5px;
+}
+
+/* --- Assistants ------------------------------------------------------------------------------ */
+
+.sym-ask-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 26px 0 12px;
+}
+
+.sym-ask-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--sym-line-strong);
+  border-radius: 999px;
+  background: var(--sym-surface);
+  color: var(--sym-text);
+  font-size: 13.5px;
+  font-weight: 500;
+  text-decoration: none;
+  transition:
+    transform 0.12s ease,
+    border-color 0.12s ease;
+}
+
+.sym-ask-button:hover {
+  transform: translateY(-1px);
+  border-color: var(--sym-accent);
+}
+
+.sym-ask-icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+
+/* A single-colour mark takes the text colour, so it reads in light and dark alike. */
+.sym-ask-icon--mono {
+  display: inline-block;
+  background: currentColor;
+}
+
+.sym-ask-arrow {
+  color: var(--sym-muted);
+}
+
+.sym-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sym-steps li {
+  display: flex;
+  gap: 16px;
+  padding: 20px 22px;
+  border: 1px solid var(--sym-line);
+  border-radius: var(--sym-rl);
+  background: var(--sym-surface);
+}
+
+.sym-step-n {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--sym-accent-soft);
+  color: var(--sym-accent);
+  font-family: var(--sym-mono);
+  font-size: 12px;
+}
+
+.sym-step-title {
+  display: block;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.sym-step-body {
+  display: block;
+  margin-top: 4px;
+  color: var(--sym-muted);
+  font-size: 14px;
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+
+/* --- In plain words -------------------------------------------------------------------------- */
+
+.sym-plainly {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 26px 32px;
+  gap: 24px;
   margin: 0;
 }
 
-.sym-honest dt {
-  font-weight: 600;
+.sym-plainly dt {
   font-size: 15.5px;
+  font-weight: 600;
 }
 
-.sym-honest dd {
+.sym-plainly dd {
   margin: 8px 0 0;
   color: var(--sym-muted);
   font-size: 14.5px;
@@ -254,15 +469,19 @@
   text-wrap: pretty;
 }
 
+/* --- Closing --------------------------------------------------------------------------------- */
+
 .sym-closing {
-  padding-top: 64px;
-  padding-bottom: 72px;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 80px 24px 96px;
   text-align: center;
+  border-top: 1px solid var(--sym-line);
 }
 
 .sym-closing p {
-  max-width: 540px;
-  margin: 0 auto 28px;
+  max-width: 520px;
+  margin: 18px auto 30px;
   color: var(--sym-muted);
   font-size: 16px;
   line-height: 1.6;
@@ -273,15 +492,14 @@
 
 .sym-site-footer {
   display: flex;
-  flex: none;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 16px 24px;
-  max-width: 980px;
+  max-width: 1180px;
   width: 100%;
   margin: 0 auto;
-  padding: 28px 24px 40px;
+  padding: 28px 24px 48px;
   border-top: 1px solid var(--sym-line);
 }
 
@@ -333,15 +551,15 @@
   max-width: 720px;
   width: 100%;
   margin: 0 auto;
-  padding: 40px 24px 64px;
+  padding: 48px 24px 72px;
 }
 
 .sym-legal h1 {
   margin: 0;
   font-family: var(--sym-head-font);
-  font-size: clamp(26px, 4vw, 34px);
+  font-size: clamp(28px, 4vw, 38px);
   font-weight: 600;
-  letter-spacing: -0.015em;
+  letter-spacing: -0.02em;
 }
 
 .sym-legal-updated {
@@ -383,100 +601,25 @@
 
 .sym-legal-list dt {
   margin-top: 18px;
-  font-weight: 600;
   font-size: 15px;
+  font-weight: 600;
 }
 
 @media (max-width: 640px) {
   .sym-hero {
-    padding-top: 48px;
+    padding-top: 56px;
+  }
+
+  .sym-panel {
+    padding: 24px;
+  }
+
+  .sym-site-nav {
+    gap: 16px;
   }
 
   .sym-site-footer {
     flex-direction: column;
     align-items: flex-start;
   }
-}
-
-/* --- Ask your assistant ----------------------------------------------------------------------- */
-
-.sym-ask {
-  max-width: 980px;
-  margin: 0 auto;
-  padding: 56px 24px;
-  border-bottom: 1px solid var(--sym-line);
-}
-
-.sym-ask h2 {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 0 0 14px;
-  font-family: var(--sym-head-font);
-  font-size: clamp(20px, 3vw, 26px);
-  font-weight: 600;
-  letter-spacing: -0.015em;
-}
-
-.sym-ask-spark {
-  color: var(--sym-accent);
-}
-
-.sym-ask p {
-  max-width: 640px;
-  margin: 0;
-  color: var(--sym-muted);
-  font-size: 15px;
-  line-height: 1.65;
-  text-wrap: pretty;
-}
-
-.sym-ask p a {
-  color: var(--sym-link);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-.sym-ask-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin: 22px 0 0;
-}
-
-.sym-ask-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  height: 40px;
-  padding: 0 16px;
-  border: 1px solid var(--sym-line-strong);
-  border-radius: var(--sym-r);
-  background: var(--sym-surface);
-  color: var(--sym-text);
-  font-size: 14.5px;
-  font-weight: 500;
-  text-decoration: none;
-}
-
-.sym-ask-button:hover {
-  background: var(--sym-hover);
-  border-color: var(--sym-accent);
-}
-
-.sym-ask-button svg {
-  color: var(--sym-muted);
-}
-
-/* A neutral mark, not a vendor logo: a wrong logo reads worse than none. */
-.sym-ask-mark {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: var(--sym-accent);
-}
-
-.sym-ask-fine {
-  margin-top: 18px;
-  font-size: 13.5px;
 }

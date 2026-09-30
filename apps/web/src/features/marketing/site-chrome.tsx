@@ -17,21 +17,34 @@ export const SITE = Object.freeze({
   securityContact: "security@symplist.app",
 });
 
-/** The header every public page shares: the mark, the source, and the way in. */
-export function SiteHeader() {
+/**
+ * The header every public page shares. It is sticky and translucent, so the section it names stays
+ * one press away on a long page; the in-page anchors are only offered on the homepage, where they
+ * point at something.
+ */
+export function SiteHeader({ sections = false }: { readonly sections?: boolean }) {
   return (
     <header className="sym-site-header">
-      <Link href="/" aria-label="Symplist home" className="sym-site-brand">
-        <SymplistLogo />
-      </Link>
-      <nav aria-label="Site" className="sym-site-nav">
-        <a href={SITE.github} rel="noreferrer noopener" target="_blank">
-          GitHub
-        </a>
-        <Link href={SITE.app} className="sym-site-cta">
-          Open Symplist
+      <div className="sym-site-header-inner">
+        <Link href="/" aria-label="Symplist home" className="sym-site-brand">
+          <SymplistLogo />
         </Link>
-      </nav>
+        <nav aria-label="Site" className="sym-site-nav">
+          {sections ? (
+            <>
+              <a href="#product">Product</a>
+              <a href="#themes">Themes</a>
+              <a href="#assistant">Assistants</a>
+            </>
+          ) : null}
+          <a href={SITE.github} rel="noreferrer noopener" target="_blank">
+            GitHub
+          </a>
+          <Link href={SITE.app} className="sym-site-cta">
+            Open Symplist
+          </Link>
+        </nav>
+      </div>
     </header>
   );
 }
