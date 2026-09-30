@@ -28,10 +28,34 @@ function open(
 }
 
 describe("LocalSqliteClient", () => {
-  it("refuses NODE_ENV=production", () => {
+  it("refuses NODE_ENV=production, because a hosted deployment must not run on one file", () => {
     expect(() =>
       createLocalSqliteClient({ path: ":memory:", env: { NODE_ENV: "production" } }),
     ).toThrow(expect.objectContaining({ code: "db.production_refused" }));
+  });
+
+  it("accepts production for a single-user local install, which has to say so", () => {
+    // The Symplist desktop app offline (note 18): SQLite *is* the store there, and one file is the
+    // point rather than a limitation. Nothing infers this — a caller declares it, so the guard keeps
+    // catching the deployment it was written for.
+    const client = createLocalSqliteClient({
+      path: ":memory:",
+      env: { NODE_ENV: "production" },
+      singleUserInstall: true,
+    });
+    client.close();
+  });
+
+  it("still refuses production when the flag is anything but true", () => {
+    for (const singleUserInstall of [false, undefined]) {
+      expect(() =>
+        createLocalSqliteClient({
+          path: ":memory:",
+          env: { NODE_ENV: "production" },
+          ...(singleUserInstall === undefined ? {} : { singleUserInstall }),
+        }),
+      ).toThrow(expect.objectContaining({ code: "db.production_refused" }));
+    }
   });
 
   it("creates parent directories and uses WAL for file databases", () => {

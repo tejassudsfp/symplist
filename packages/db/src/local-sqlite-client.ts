@@ -25,6 +25,17 @@ export interface LocalSqliteClientOptions {
   readonly path: string;
   /** Environment checked for `NODE_ENV=production`; defaults to `process.env`. */
   readonly env?: Readonly<Record<string, string | undefined>>;
+  /**
+   * Declares that this process is a single-user local install, for which SQLite is the real store
+   * rather than a stand-in — the Symplist desktop app offline (note 18, `DEPLOYMENT=local`).
+   *
+   * The `NODE_ENV=production` refusal below exists to stop a *hosted* deployment running on one file:
+   * no replication, no failover, one writer, and a disk nobody is backing up. None of that is an
+   * objection on one person's own machine, where a single file is the point. Passing this is how a
+   * caller says which of the two it is, and it has to be said explicitly: inferring it from
+   * `NODE_ENV` alone is what made the guard necessary in the first place.
+   */
+  readonly singleUserInstall?: boolean;
   /** SQLite busy timeout; defaults to 5 seconds (§3.2). */
   readonly busyTimeoutMs?: number;
   readonly appendOnlyTables?: readonly string[];
@@ -77,10 +88,11 @@ export class LocalSqliteClient implements MigrationTarget {
 
   constructor(options: LocalSqliteClientOptions) {
     const env = options.env ?? process.env;
-    if (env.NODE_ENV === "production") {
+    if (env.NODE_ENV === "production" && options.singleUserInstall !== true) {
       throw new DbError(
         "db.production_refused",
-        "The local SQLite database is a development adapter and refuses NODE_ENV=production",
+        "The local SQLite database is a development adapter and refuses NODE_ENV=production; " +
+          "a single-user local install must say so with singleUserInstall",
       );
     }
     this.path = options.path;

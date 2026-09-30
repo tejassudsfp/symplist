@@ -6,6 +6,7 @@ import {
   CampaignRevocationService,
   type D1AccessService,
   InviteAdminService,
+  LocalOwnerService,
   OtpService,
   ProfileService,
   RedemptionService,
@@ -25,6 +26,7 @@ import {
   ADMIN_BOOTSTRAP_SERVICE,
   CAMPAIGN_REVOCATION_SERVICE,
   INVITE_ADMIN_SERVICE,
+  LOCAL_OWNER_SERVICE,
   OTP_SERVICE,
   PROFILE_SERVICE,
   REDEMPTION_SERVICE,
@@ -37,6 +39,16 @@ const nowOf = (clock: Clock) => () => clock.now();
 /** The access feature's services, built from the platform's providers (§2.3). */
 export const accessFeatureProviders: Provider[] = [
   AccessRealtime,
+  {
+    /*
+     * The local owner, or null. Bound on `DEPLOYMENT=local` only, so a cloud deployment has nothing to
+     * inject and `LocalOwnerController` is not registered there at all.
+     */
+    provide: LOCAL_OWNER_SERVICE,
+    inject: [DB_CLIENT, KEY_PROVIDER, API_CONFIG, CLOCK],
+    useFactory: (db: DbClient, keys: KeyProvider, config: ApiConfig, clock: Clock) =>
+      config.DEPLOYMENT === "local" ? new LocalOwnerService({ db, keys, now: nowOf(clock) }) : null,
+  },
   {
     provide: REDEMPTION_SERVICE,
     inject: [DB_CLIENT, KEY_PROVIDER, API_CONFIG, CLOCK],
