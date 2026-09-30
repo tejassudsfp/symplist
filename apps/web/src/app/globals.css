@@ -799,6 +799,14 @@
     cursor: default;
   }
 
+  /* A quiet line inside a menu that is not an item: "No labels yet", a reached cap. */
+  .sym-menu-note {
+    margin: 0;
+    padding: 4px 10px 6px;
+    color: var(--sym-muted);
+    font-size: 12.5px;
+  }
+
   .sym-menu-separator {
     height: 1px;
     margin: 5px 0;

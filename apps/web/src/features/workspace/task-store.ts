@@ -1,4 +1,7 @@
 import {
+  type LabelCreate,
+  type LabelUpdate,
+  type LabelView,
   type TaskCollection,
   type TaskCompleteRequest,
   type TaskCompleteResponse,
@@ -21,6 +24,7 @@ import {
   promoteChildren,
   removeSubtree,
   renameInList,
+  setLabelsInList,
   subtreeOf,
   type TaskList,
 } from "./tree.ts";
@@ -34,6 +38,8 @@ export interface CollectionSnapshot {
   readonly tasks: TaskList;
   /** The version of the server tree the snapshot starts from. */
   readonly taskTreeVersion: number;
+  /** The owner's labels with their task counts, as this tree response carried them. */
+  readonly labels: readonly LabelView[];
   /** The failure of the last load, when the list could not be shown. */
   readonly failure: Failure | null;
 }
@@ -53,6 +59,8 @@ interface LocalChange {
   readonly collections: readonly TaskCollection[];
   readonly apply: (collection: TaskCollection, list: TaskList) => TaskList;
   readonly applyDetail?: (detail: TaskDetailResponse) => TaskDetailResponse;
+  /** Labels ride in the tree response, so a label write shows through the same mechanism. */
+  readonly applyLabels?: (labels: readonly LabelView[]) => readonly LabelView[];
   /** Set when the server confirmed the change; the change is dropped after a later fetch. */
   confirmedSeq: number | null;
   /** The lists and details refetched after confirmation, which must include the change. */
@@ -62,6 +70,7 @@ interface LocalChange {
 interface CollectionEntry {
   status: LoadStatus;
   base: TaskList;
+  baseLabels: readonly LabelView[];
   version: number;
   failure: Failure | null;
   /** The sequence at which the request that produced `base` started. */
@@ -111,6 +120,7 @@ export class TaskStore {
       this.collections.set(collection, {
         status: "idle",
         base: [],
+        baseLabels: [],
         version: 0,
         failure: null,
         loadedSeq: 0,
@@ -171,6 +181,7 @@ export class TaskStore {
         status: entry.status,
         tasks: this.view(collection, entry.base),
         taskTreeVersion: entry.version,
+        labels: this.labelView(entry.baseLabels),
         failure: entry.failure,
       };
     }
@@ -229,6 +240,7 @@ export class TaskStore {
   private async loadWholeCollection(collection: TaskCollection): Promise<{
     readonly tasks: readonly TaskNode[];
     readonly taskTreeVersion: number;
+    readonly labels: readonly LabelView[];
   }> {
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       const first = await this.api.listTasks(collection);
@@ -244,12 +256,14 @@ export class TaskStore {
         tasks.push(...page.tasks);
         cursor = page.nextCursor;
       }
-      if (!restart) return { tasks, taskTreeVersion: first.taskTreeVersion };
+      if (!restart) {
+        return { tasks, taskTreeVersion: first.taskTreeVersion, labels: first.labels };
+      }
     }
     // Every attempt was overtaken. Take the first page's tree, which is internally consistent, and
     // let the version it reports bring the next refresh.
     const last = await this.api.listTasks(collection);
-    return { tasks: last.tasks, taskTreeVersion: last.taskTreeVersion };
+    return { tasks: last.tasks, taskTreeVersion: last.taskTreeVersion, labels: last.labels };
   }
 
   async refresh(collection: TaskCollection): Promise<void> {
@@ -269,6 +283,7 @@ export class TaskStore {
       const response = await this.loadWholeCollection(collection);
       if (this.disposed) return;
       entry.base = response.tasks;
+      entry.baseLabels = response.labels;
       entry.version = response.taskTreeVersion;
       entry.loadedSeq = startSeq;
       entry.status = "ready";
@@ -530,6 +545,86 @@ export class TaskStore {
   }
 
   /* ------------------------------------------------------------------------------------------ */
+  /* Labels                                                                                       */
+  /* ------------------------------------------------------------------------------------------ */
+
+  /*
+   * Labels ride in the tree response, so a label write is a tree change: it shows at once as a local
+   * change and the refetch of every loaded list brings the server's own version of it. There is no
+   * separate list to fetch and nothing to keep in step.
+   */
+
+  /** Replaces the labels a task carries. The chips change at once and revert if the write fails. */
+  async setTaskLabels(taskId: string, labelIds: readonly string[]): Promise<void> {
+    const affected = this.collectionsHolding(taskId);
+    const previous = this.findLoaded(taskId)?.labelIds ?? [];
+    const change = this.addChange({
+      collections: affected.length > 0 ? affected : taskCollections,
+      apply: (_collection, list) => setLabelsInList(list, taskId, labelIds),
+      applyLabels: (labels) => recount(labels, previous, labelIds),
+    });
+    try {
+      await this.api.setTaskLabels(taskId, labelIds);
+      this.confirm(change, affected, [taskId]);
+    } catch (error) {
+      this.reject(change);
+      throw error;
+    }
+  }
+
+  /** Creates a label. It appears in every loaded list's label set once the server confirms it. */
+  async createLabel(body: LabelCreate): Promise<LabelView> {
+    const created = await this.api.createLabel(body);
+    const change = this.addChange({
+      collections: taskCollections,
+      apply: (_collection, list) => list,
+      applyLabels: (labels) =>
+        labels.some((label) => label.id === created.id) ? labels : [...labels, created],
+    });
+    this.confirm(change, taskCollections, []);
+    return created;
+  }
+
+  /** Renames or recolours a label. */
+  async updateLabel(labelId: string, patch: LabelUpdate): Promise<LabelView> {
+    const change = this.addChange({
+      collections: taskCollections,
+      apply: (_collection, list) => list,
+      applyLabels: (labels) =>
+        labels.map((label) => (label.id === labelId ? { ...label, ...patch } : label)),
+    });
+    try {
+      const updated = await this.api.updateLabel(labelId, patch);
+      this.confirm(change, taskCollections, []);
+      return updated;
+    } catch (error) {
+      this.reject(change);
+      throw error;
+    }
+  }
+
+  /** Deletes a label, and with it every task's chip for it. */
+  async deleteLabel(labelId: string): Promise<void> {
+    const change = this.addChange({
+      collections: taskCollections,
+      apply: (_collection, list) =>
+        list.map((task) =>
+          task.labelIds.includes(labelId)
+            ? { ...task, labelIds: task.labelIds.filter((id) => id !== labelId) }
+            : task,
+        ),
+      applyLabels: (labels) => labels.filter((label) => label.id !== labelId),
+    });
+    try {
+      await this.api.deleteLabel(labelId);
+      this.confirm(change, taskCollections, []);
+    } catch (error) {
+      this.reject(change);
+      throw error;
+    }
+  }
+
+  /* ------------------------------------------------------------------------------------------ */
   /* Internals                                                                                    */
   /* ------------------------------------------------------------------------------------------ */
 
@@ -555,6 +650,14 @@ export class TaskStore {
       if (change.collections.includes(collection)) list = change.apply(collection, list);
     }
     return list;
+  }
+
+  private labelView(base: readonly LabelView[]): readonly LabelView[] {
+    let labels = base;
+    for (const change of this.changes) {
+      if (change.applyLabels) labels = change.applyLabels(labels);
+    }
+    return labels;
   }
 
   private detailView(detail: TaskDetailResponse): TaskDetailResponse {
@@ -649,4 +752,24 @@ export class TaskStore {
     if (this.disposed) return;
     for (const listener of [...this.listeners]) listener();
   }
+}
+
+/**
+ * The label counts a task's new set produces, so a chip's count moves with the chip rather than
+ * waiting for the refetch. Idempotent by construction: once the server's own tree already holds the
+ * new set, `previous` and `next` are the same and the counts are left alone.
+ */
+function recount(
+  labels: readonly LabelView[],
+  previous: readonly string[],
+  next: readonly string[],
+): readonly LabelView[] {
+  const added = new Set(next.filter((id) => !previous.includes(id)));
+  const removed = new Set(previous.filter((id) => !next.includes(id)));
+  if (added.size === 0 && removed.size === 0) return labels;
+  return labels.map((label) => {
+    if (added.has(label.id)) return { ...label, taskCount: label.taskCount + 1 };
+    if (removed.has(label.id)) return { ...label, taskCount: Math.max(0, label.taskCount - 1) };
+    return label;
+  });
 }

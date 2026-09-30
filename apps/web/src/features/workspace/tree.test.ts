@@ -36,6 +36,7 @@ function node(
     source: "user",
     version: 1,
     childCount: options.childCount ?? 0,
+    labelIds: [],
     createdAt: 1,
     updatedAt: 1,
   };

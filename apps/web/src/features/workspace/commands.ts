@@ -1,4 +1,5 @@
 import type {
+  LabelColour,
   TaskCollection,
   TaskCompleteMode,
   TaskId,
@@ -432,5 +433,92 @@ export class TaskCommands {
   /** Completes a restored task again, for the Undo beside a restore result. */
   async completeAgain(taskId: string): Promise<void> {
     await this.submitCompletion(taskId, this.titleOf(taskId), { mode: "all" });
+  }
+
+  /* ------------------------------------------------------------------------------------------ */
+  /* Labels                                                                                       */
+  /* ------------------------------------------------------------------------------------------ */
+
+  /**
+   * Adds or removes one label on a task.
+   *
+   * The whole set is sent, because that is what the route takes: a toggle is a read of the current set
+   * and a write of the next one, so two devices toggling at once settle on a state rather than on the
+   * sum of two deltas. Nothing is announced on the way in — the chip appearing is the confirmation —
+   * and a refusal reverts it and says so.
+   */
+  async toggleLabel(taskId: string, labelId: string, labelName: string): Promise<void> {
+    const current = this.node(taskId)?.labelIds ?? [];
+    const adding = !current.includes(labelId);
+    const next = adding ? [...current, labelId] : current.filter((id) => id !== labelId);
+    const scope = `labels:${taskId}`;
+    if (this.deps.ui.isPending(scope)) return;
+    this.deps.ui.setPending(scope, true);
+    try {
+      await this.deps.tasks.setTaskLabels(taskId, next);
+      this.deps.announce(
+        adding
+          ? `Labelled ${quoted(this.titleOf(taskId))} ${quoted(labelName)}`
+          : `Removed ${quoted(labelName)} from ${quoted(this.titleOf(taskId))}`,
+      );
+    } catch (error) {
+      const failure = classifyFailure(error);
+      this.deps.toast.show({
+        message: writeFailureMessage(
+          failure,
+          adding ? `add ${quoted(labelName)}` : `remove ${quoted(labelName)}`,
+        ),
+        ...(failure.retryable
+          ? {
+              action: {
+                label: "Try again",
+                onAction: () => void this.toggleLabel(taskId, labelId, labelName),
+              },
+            }
+          : {}),
+      });
+    } finally {
+      this.deps.ui.setPending(scope, false);
+    }
+  }
+
+  /**
+   * Deletes a label, with Undo.
+   *
+   * Undo re-creates the label rather than restoring it, so it comes back with its name and colour but
+   * not with the tasks that carried it — the chips went with the delete. The toast says so, because a
+   * silent partial undo is worse than a clear one.
+   */
+  async deleteLabel(labelId: string, name: string, colour: LabelColour): Promise<void> {
+    try {
+      await this.deps.tasks.deleteLabel(labelId);
+      this.deps.ui.retainLabelFilters(
+        new Set(this.deps.tasks.collection("now").labels.map((label) => label.id)),
+      );
+      this.deps.toast.show({
+        message: `Deleted ${quoted(name)}. Tasks that had it keep everything else.`,
+        action: {
+          label: "Undo",
+          onAction: () => {
+            void this.deps.tasks.createLabel({ name, colour }).catch(() => {
+              this.deps.toast.show({ message: `Couldn't bring ${quoted(name)} back.` });
+            });
+          },
+        },
+      });
+    } catch (error) {
+      const failure = classifyFailure(error);
+      this.deps.toast.show({
+        message: writeFailureMessage(failure, `delete ${quoted(name)}`),
+        ...(failure.retryable
+          ? {
+              action: {
+                label: "Try again",
+                onAction: () => void this.deleteLabel(labelId, name, colour),
+              },
+            }
+          : {}),
+      });
+    }
   }
 }

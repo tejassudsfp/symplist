@@ -14,6 +14,7 @@ interface SettingsSection {
 export const settingsSections: readonly SettingsSection[] = [
   { href: "/settings/account", label: "Account" },
   { href: "/settings/appearance", label: "Appearance" },
+  { href: "/settings/labels", label: "Labels" },
   { href: "/settings/notifications", label: "Notifications" },
   { href: "/settings/shortcuts", label: "Keyboard shortcuts" },
   { href: "/settings/agents", label: "Agent connections" },

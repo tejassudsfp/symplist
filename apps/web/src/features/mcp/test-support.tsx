@@ -33,6 +33,7 @@ export function fakeAgentAccessApi(overrides: Partial<AgentAccessApi> = {}): Age
         collection,
         taskTreeVersion: 1,
         nextCursor: null,
+        labels: [],
         tasks: [
           {
             id: taskId,
@@ -45,6 +46,7 @@ export function fakeAgentAccessApi(overrides: Partial<AgentAccessApi> = {}): Age
             source: "user",
             version: 1,
             childCount: 0,
+            labelIds: [],
             createdAt: 1,
             updatedAt: 1,
           },

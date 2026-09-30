@@ -2,6 +2,12 @@ import {
   type ArchiveQuery,
   type ArchiveResponse,
   archiveResponseSchema,
+  type LabelCreate,
+  type LabelList,
+  type LabelUpdate,
+  type LabelView,
+  labelListSchema,
+  labelViewSchema,
   type PreferenceEntry,
   type PreferenceGroup,
   type PreferencesPutResponse,
@@ -15,6 +21,7 @@ import {
   type TaskCreateRequest,
   type TaskCreateResponse,
   type TaskDetailResponse,
+  type TaskLabels,
   type TaskMoveRequest,
   type TaskMoveResponse,
   type TaskRenameResponse,
@@ -23,6 +30,7 @@ import {
   taskCompleteResponseSchema,
   taskCreateResponseSchema,
   taskDetailResponseSchema,
+  taskLabelsSchema,
   taskMoveResponseSchema,
   taskRenameResponseSchema,
   taskRestoreResponseSchema,
@@ -55,6 +63,16 @@ export interface WorkspaceApi {
     idempotencyKey: string,
   ): Promise<TaskCompleteResponse>;
   restoreTask(taskId: string, idempotencyKey: string): Promise<TaskRestoreResponse>;
+  /*
+   * Labels take no idempotency key. A create that is retried after a lost response answers 409 with
+   * the id of the label the first attempt made; a patch sets an absolute name and colour; a delete of
+   * a label already gone is 404; and setting a task's labels replaces the whole set.
+   */
+  listLabels(signal?: AbortSignal): Promise<LabelList>;
+  createLabel(body: LabelCreate): Promise<LabelView>;
+  updateLabel(labelId: string, body: LabelUpdate): Promise<LabelView>;
+  deleteLabel(labelId: string): Promise<void>;
+  setTaskLabels(taskId: string, labelIds: readonly string[]): Promise<TaskLabels>;
   listArchive(query: ArchiveQuery, signal?: AbortSignal): Promise<ArchiveResponse>;
   getPreferences(signal?: AbortSignal): Promise<PreferencesResponse>;
   getPreference(group: PreferenceGroup, signal?: AbortSignal): Promise<PreferenceEntry>;
@@ -106,6 +124,25 @@ export function createWorkspaceApi(client: () => ApiClient = getApiClient): Work
       client().post(taskPath(taskId, "/restore"), {
         idempotencyKey,
         schema: taskRestoreResponseSchema,
+      }),
+    listLabels: (signal) =>
+      client().get("/v1/labels", {
+        schema: labelListSchema,
+        ...(signal ? { signal } : {}),
+      }),
+    createLabel: (body) => client().post("/v1/labels", { body, schema: labelViewSchema }),
+    updateLabel: (labelId, body) =>
+      client().patch(`/v1/labels/${encodeURIComponent(labelId)}`, {
+        body,
+        schema: labelViewSchema,
+      }),
+    deleteLabel: async (labelId) => {
+      await client().delete(`/v1/labels/${encodeURIComponent(labelId)}`);
+    },
+    setTaskLabels: (taskId, labelIds) =>
+      client().put(taskPath(taskId, "/labels"), {
+        body: { labelIds: [...labelIds] },
+        schema: taskLabelsSchema,
       }),
     listArchive: (query, signal) =>
       client().get("/v1/archive", {

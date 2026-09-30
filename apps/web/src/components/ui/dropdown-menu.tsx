@@ -75,6 +75,26 @@ function DropdownMenuItem({ className, ...props }: MenuPrimitive.Item.Props) {
   );
 }
 
+/**
+ * A menu item that toggles, for a set the person builds up: `role="menuitemcheckbox"` with the checked
+ * state on the element, so a screen reader hears what is on rather than inferring it from an icon. It
+ * stays open on click, because choosing one of a set is rarely choosing only one.
+ */
+function DropdownMenuCheckboxItem({
+  className,
+  closeOnClick = false,
+  ...props
+}: MenuPrimitive.CheckboxItem.Props) {
+  return (
+    <MenuPrimitive.CheckboxItem
+      data-slot="dropdown-menu-checkbox-item"
+      closeOnClick={closeOnClick}
+      className={cn("sym-menu-item", className)}
+      {...props}
+    />
+  );
+}
+
 /** A menu item that navigates; pass `render={<Link href=… />}` for client-side routes. */
 function DropdownMenuLinkItem({ className, ...props }: MenuPrimitive.LinkItem.Props) {
   return (
@@ -117,6 +137,7 @@ function DropdownMenuShortcut({
 
 export {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,

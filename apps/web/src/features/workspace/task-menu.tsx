@@ -18,6 +18,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { collectionLabels } from "./commands.ts";
+import { TaskLabelsMenu } from "./labels.tsx";
 import { taskMenuExtensions } from "./task-menu-extensions.ts";
 import type { TaskSurface } from "./ui-store.ts";
 import { useWorkspace, useWorkspaceUi } from "./workspace-provider.tsx";
@@ -76,9 +77,11 @@ export function TaskMenu({ task, surface, className, extra, tabIndex }: TaskMenu
       <DropdownMenuContent
         align="end"
         className="w-[212px]"
-        aria-label={kind === "move" ? "Move to" : "Task actions"}
+        aria-label={kind === "move" ? "Move to" : kind === "labels" ? "Labels" : "Task actions"}
       >
-        {kind === "move" ? (
+        {kind === "labels" ? (
+          <TaskLabelsMenu taskId={task.id} collection={task.collection} />
+        ) : kind === "move" ? (
           <DropdownMenuGroup>
             <DropdownMenuLabel>Move to</DropdownMenuLabel>
             {taskCollections
@@ -121,6 +124,13 @@ export function TaskMenu({ task, surface, className, extra, tabIndex }: TaskMenu
             >
               <span>Move to…</span>
               <Shortcut actionId="workspace.move_task" />
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              closeOnClick={false}
+              onClick={() => ui.openMenu(task.id, "labels", surface)}
+            >
+              <span>Labels…</span>
+              <Shortcut actionId="workspace.edit_labels" />
             </DropdownMenuItem>
             {taskMenuExtensions
               .filter((entry) => entry.available?.(task.id) ?? true)
