@@ -104,6 +104,12 @@ export interface CloudSessionOptions {
   readonly log: MainLog;
   /** Told when the session ended without the renderer asking, so it can route to sign-in. */
   readonly onSessionEnded: () => void;
+  /**
+   * The session became established. Symmetric with `onSessionEnded`, and added for the renderer's
+   * `sym_hint`: the proxy redirects on that cookie's absence, so something has to say when a user
+   * is signed in, not only when they stop being.
+   */
+  readonly onSessionStarted?: () => void;
   readonly credentials?: SessionCredentialHooks;
   readonly now?: () => number;
   /**
@@ -360,8 +366,10 @@ export class CloudSession {
       !this.signedIn ||
       this.identity?.destination !== identity.destination ||
       this.identity?.accessGeneration !== identity.accessGeneration;
+    const wasSignedOut = !this.signedIn;
     this.signedIn = true;
     this.identity = identity;
+    if (wasSignedOut) this.options.onSessionStarted?.();
     if (!moved) return;
     if (!isAdmitted(identity)) return;
     await this.safely("credentials.established", () => this.credentials.established(identity));

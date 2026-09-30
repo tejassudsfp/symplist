@@ -26,7 +26,7 @@ import type {
   AssistantTimelineEntry,
   AssistantTurnResult,
 } from "../shared/assistant.ts";
-import type { SymplistBridge } from "../shared/bridge.ts";
+import type { BridgedRequestInit, SymplistBridge } from "../shared/bridge.ts";
 import type {
   CloudRequestPayload,
   CloudResponsePayload,
@@ -66,9 +66,12 @@ let nextRequestId = 0;
  */
 async function cloudFetch(
   input: RequestInfo | URL,
-  init?: RequestInit,
+  init?: BridgedRequestInit,
 ): Promise<CloudResponsePayload> {
-  const request = new Request(input, init);
+  // `onAbort` is ours and not part of `RequestInit`; `new Request` would ignore it, but it is taken
+  // out explicitly so the request is built from web-standard fields only.
+  const { onAbort: subscribeAbort, ...requestInit } = init ?? {};
+  const request = new Request(input, requestInit as RequestInit);
   nextRequestId += 1;
   const requestId = `r${nextRequestId}`;
   const body = request.method === "GET" || request.method === "HEAD" ? null : await request.text();
@@ -80,14 +83,19 @@ async function cloudFetch(
     body: body === null || body.length === 0 ? null : body,
   };
 
-  const signal = init?.signal ?? null;
+  /*
+   * Abort arrives as a subscribe function, not an `AbortSignal`.
+   *
+   * A signal cannot cross `contextBridge`: it keeps `aborted` and `addEventListener` on its
+   * prototype, so it arrives as `{}` — truthy, with no `addEventListener` to call. That threw here,
+   * the bridged fetch rejected, and `ApiClient` reported it as `ApiNetworkError`, which the pages
+   * render as "You appear to be offline". Every screen that passed a signal was unreachable on
+   * first load while its retry, which passes none, worked — which is exactly how it looked.
+   */
   const onAbort = (): void => {
     ipcRenderer.send(ipcChannels.cloudAbort, requestId);
   };
-  if (signal) {
-    if (signal.aborted) onAbort();
-    else signal.addEventListener("abort", onAbort, { once: true });
-  }
+  const unsubscribeAbort = subscribeAbort ? subscribeAbort(onAbort) : null;
 
   try {
     // Returned as plain data, and the renderer builds the `Response`. It cannot be built here: preload
@@ -97,7 +105,7 @@ async function cloudFetch(
     // with no error worth reading. `status`, a header list and a body string all clone cleanly.
     return (await ipcRenderer.invoke(ipcChannels.cloudRequest, payload)) as CloudResponsePayload;
   } finally {
-    signal?.removeEventListener("abort", onAbort);
+    unsubscribeAbort?.();
   }
 }
 

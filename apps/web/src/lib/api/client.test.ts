@@ -386,6 +386,48 @@ describe("the shared client's transport", () => {
     expect(lower["content-type"]).toBe("application/json");
   });
 
+  it("hands the desktop transport an abort subscription, never an AbortSignal", async () => {
+    // The loudest instance of the same trap. An `AbortSignal` arrives as `{}`, which is truthy, so
+    // the shell called `addEventListener` on it and threw — and a throw there reaches `ApiClient` as
+    // `ApiNetworkError`, which screens render as "You appear to be offline". Every page that passed
+    // a signal failed on first load while its Try again, passing none, worked.
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "");
+    const bridge = fakeBridge(() => shellResponse(200, { ok: true }));
+    (globalThis as { symplist?: unknown }).symplist = {
+      cloud: { apiOrigin: API, fetch: bridge.fetchImpl },
+    };
+    const controller = new AbortController();
+    await getApiClient().get("/v1/tasks", { signal: controller.signal });
+
+    const init = bridge.inits[0] as unknown as Record<string, unknown>;
+    expect(init.signal).toBeUndefined();
+    expect(typeof init.onAbort).toBe("function");
+
+    // And it really subscribes: aborting after the fact must reach the listener, or a cancelled
+    // request would run to completion in main.
+    const listener = vi.fn();
+    const unsubscribe = (init.onAbort as (fn: () => void) => () => void)(listener);
+    expect(listener).not.toHaveBeenCalled();
+    controller.abort();
+    expect(listener).toHaveBeenCalledTimes(1);
+    unsubscribe();
+  });
+
+  it("fires the abort subscription at once for a signal that already aborted", async () => {
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "");
+    const bridge = fakeBridge(() => shellResponse(200, { ok: true }));
+    (globalThis as { symplist?: unknown }).symplist = {
+      cloud: { apiOrigin: API, fetch: bridge.fetchImpl },
+    };
+    const controller = new AbortController();
+    await getApiClient().get("/v1/tasks", { signal: controller.signal });
+    controller.abort();
+    const init = bridge.inits[0] as unknown as Record<string, unknown>;
+    const listener = vi.fn();
+    (init.onAbort as (fn: () => void) => () => void)(listener);
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
   it("rebuilds a real Response from the shell's plain answer", async () => {
     // The mirror of the argument problem, and the more damaging half: a `Response` constructed in the
     // preload reaches the page with no `status`, no headers and no `json()`, so `response.ok` is

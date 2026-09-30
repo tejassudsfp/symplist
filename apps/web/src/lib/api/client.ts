@@ -292,17 +292,39 @@ function responseFrom(payload: DesktopCloudResponse): Response {
  * Only `headers` needs it today, but the rule is the shape: anything reaching the bridge must survive
  * a copy of own enumerable properties, and the web-standard request types deliberately do not.
  */
-function plainInit(init: RequestInit | undefined): RequestInit | undefined {
+function plainInit(init: RequestInit | undefined): Record<string, unknown> | undefined {
   if (!init) return init;
-  const { headers, ...rest } = init;
-  if (headers === undefined) return init;
-  const entries =
-    headers instanceof Headers
-      ? [...headers.entries()]
-      : Array.isArray(headers)
-        ? headers.map(([name, value]) => [String(name), String(value)] as const)
-        : Object.entries(headers).map(([name, value]) => [name, String(value)] as const);
-  return { ...rest, headers: Object.fromEntries(entries) };
+  const { headers, signal, ...rest } = init;
+  const out: Record<string, unknown> = { ...rest };
+  if (headers !== undefined) {
+    const entries =
+      headers instanceof Headers
+        ? [...headers.entries()]
+        : Array.isArray(headers)
+          ? headers.map(([name, value]) => [String(name), String(value)] as const)
+          : Object.entries(headers).map(([name, value]) => [name, String(value)] as const);
+    out.headers = Object.fromEntries(entries);
+  }
+  if (signal) {
+    /*
+     * An `AbortSignal` is the same trap as a `Headers`, and it failed louder. It arrives as `{}`,
+     * which is truthy, so the shell called `addEventListener` on it and threw — and a throw there
+     * reaches `ApiClient` as `ApiNetworkError`, which every screen renders as "You appear to be
+     * offline". Anything that passed a signal was unreachable on first load while its Try again,
+     * which passes none, worked.
+     *
+     * A function does survive the copy, so abort crosses as a subscription rather than as a signal.
+     */
+    out.onAbort = (listener: () => void): (() => void) => {
+      if (signal.aborted) {
+        listener();
+        return () => undefined;
+      }
+      signal.addEventListener("abort", listener, { once: true });
+      return () => signal.removeEventListener("abort", listener);
+    };
+  }
+  return out;
 }
 
 function desktopCloudTransport(): DesktopCloudTransport | null {
@@ -313,7 +335,7 @@ function desktopCloudTransport(): DesktopCloudTransport | null {
   if (typeof candidate.fetch !== "function") return null;
   const bridged = candidate.fetch as (
     input: string,
-    init?: RequestInit,
+    init?: Record<string, unknown>,
   ) => Promise<DesktopCloudResponse>;
   /*
    * Both conversions happen here, and neither is tidying up.

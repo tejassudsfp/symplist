@@ -22,6 +22,7 @@ import { CookieJar } from "./cloud/cookie-jar.ts";
 import { createCloudHttp } from "./cloud/http.ts";
 import { type CloudHandlers, createCloudHandlers } from "./cloud/ipc.ts";
 import { McpGrantStore } from "./cloud/mcp-grant.ts";
+import { clearSessionHint, setSessionHint } from "./cloud/session-hint.ts";
 import { CloudSession } from "./cloud/session-state.ts";
 import { type CloudConfig, resolveCloudConfig } from "./config.ts";
 import { readProviderKeys } from "./harness/provider-keys.ts";
@@ -62,7 +63,12 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 // The product name, not the package name: `@symplist/desktop` would put a slash in the userData path.
-// Set before `whenReady`, because Electron resolves userData on first use.
+//
+// This call alone did not do it. Electron resolves the app name — and therefore userData — before
+// this module's top level runs in a packaged app, so userData landed in
+// `Application Support/@symplist/desktop`, the exact shape this line was written to avoid.
+// `productName` in package.json is what Electron actually reads, and it is set there now. This stays
+// for the development run and as the statement of intent.
 app.setName("Symplist");
 
 app.on("second-instance", () => {
@@ -140,6 +146,7 @@ function hardenSession(): void {
 async function startCloud(
   config: CloudConfig,
   rendererWindow: () => BrowserWindow | null,
+  rendererOrigin: string,
 ): Promise<{
   readonly handlers: CloudHandlers;
   readonly mcp: McpAccess;
@@ -161,6 +168,7 @@ async function startCloud(
     log,
   });
   const grants = new McpGrantStore({ apiOrigin: config.apiOrigin, http, store, log });
+  const hintTarget = { session: session.defaultSession, origin: rendererOrigin };
   const cloudSession = new CloudSession({
     apiOrigin: config.apiOrigin,
     jar,
@@ -172,6 +180,16 @@ async function startCloud(
       // The web app turns this into `markSignedOut({ expired: true })`, which routes to sign-in with the
       // notice it already has for a session that ended on its own.
       rendererWindow()?.webContents.send(ipcEvents.cloudSessionEnded);
+      void clearSessionHint(hintTarget).catch((error: unknown) => {
+        log.warn("cloud.hint_clear_failed", { message: String(error) });
+      });
+    },
+    onSessionStarted: () => {
+      // Without this the proxy sends a signed-in user to `/signin`, which asks `GET /v1/me`, learns
+      // they are signed in, and navigates back — forever. See `session-hint.ts`.
+      void setSessionHint(hintTarget).catch((error: unknown) => {
+        log.warn("cloud.hint_set_failed", { message: String(error) });
+      });
     },
   });
   if (!store.isAvailable()) {
@@ -181,6 +199,10 @@ async function startCloud(
   }
   const outcome = await cloudSession.restore();
   log.info("cloud.restore", { outcome, apiOrigin: config.apiOrigin });
+  // `restore` adopts a session without transitioning through signed-out, so the start signal does not
+  // fire for it. The renderer still needs the hint, or the first navigation loops.
+  if (cloudSession.currentIdentity() !== null) await setSessionHint(hintTarget);
+  else await clearSessionHint(hintTarget);
 
   /*
    * The assistant's path to the workspace. It shares this transport and this grant store rather than
@@ -226,7 +248,7 @@ async function start(): Promise<void> {
   const cloudConfig = resolveCloudConfig();
   // Before the window exists, so a restored session is already known when the frontend first renders and
   // the sign-in screens are not shown to someone who is signed in.
-  const cloud = await startCloud(cloudConfig, () => mainWindow);
+  const cloud = await startCloud(cloudConfig, () => mainWindow, rendererOrigin);
   cloudHandlers = cloud.handlers;
   mcpAccess = cloud.mcp;
 

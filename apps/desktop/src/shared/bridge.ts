@@ -17,6 +17,22 @@ import type {
 import type { CloudResponsePayload, HostInfo, McpAccessInfo } from "./ipc.ts";
 import type { KeychainProvider, KeychainStatus } from "./keychain.ts";
 
+/**
+ * A `RequestInit` with the two members that cannot cross `contextBridge` replaced by ones that can.
+ *
+ * `headers` is a `Headers` and `signal` an `AbortSignal`, and both keep everything on their
+ * prototype — so both arrive as `{}`. `headers` losing its entries cost every request its
+ * `Content-Type` and CSRF header; `signal` was worse, because `{}` is truthy: the preload then
+ * called `signal.addEventListener`, which is not a function, and the throw surfaced in the page as
+ * "You appear to be offline" on any request that passed one. A plain object survives the copy, and
+ * so does a function — which is what `onAbort` is.
+ */
+export interface BridgedRequestInit extends Omit<RequestInit, "headers" | "signal"> {
+  readonly headers?: Readonly<Record<string, string>>;
+  /** Subscribes to abort and answers the unsubscribe. Called at most once per request. */
+  readonly onAbort?: (listener: () => void) => () => void;
+}
+
 export interface SymplistBridge {
   /**
    * The cloud transport. The renderer does no network of its own: `apps/web`'s `ApiClient` is
@@ -25,6 +41,7 @@ export interface SymplistBridge {
    * api requires. There is no sign-in code here — the web app's own screens do that over this
    * transport, unchanged.
    */
+
   readonly cloud: {
     /** The api origin this app is built against, so the renderer needs no `NEXT_PUBLIC_API_URL`. */
     readonly apiOrigin: string;
@@ -40,7 +57,7 @@ export interface SymplistBridge {
      * a real `Response` coming back, so `ApiClient`'s error envelope parsing, `Retry-After` handling and
      * schema checks are untouched and the browser build keeps passing a `URL` as it always has.
      */
-    fetch(input: string, init?: RequestInit): Promise<CloudResponsePayload>;
+    fetch(input: string, init?: BridgedRequestInit): Promise<CloudResponsePayload>;
     /**
      * The session ended without this page asking: revoked from another device, expired, or refused when
      * the app restored it on launch. Returns the unsubscribe function. Sign-out does not fire it — the
