@@ -5,7 +5,6 @@ import {
   type EnvRecord,
   enumVariable,
   integerWithDefaultVariable,
-  isLoopbackHostname,
   isSecureOrigin,
   mailboxVariable,
   optionalEmailVariable,

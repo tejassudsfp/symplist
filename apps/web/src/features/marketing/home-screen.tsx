@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { SymplistMark } from "@/components/brand/logo";
+import { AskYourAi } from "./ask-your-ai";
 import { SITE, SiteFooter, SiteHeader } from "./site-chrome";
 
 /**
@@ -148,6 +149,8 @@ export function HomeScreen() {
             </div>
           </dl>
         </section>
+
+        <AskYourAi />
 
         <section className="sym-closing" aria-labelledby="sym-closing-heading">
           <h2 id="sym-closing-heading">Start with one task.</h2>

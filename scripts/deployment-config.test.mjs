@@ -27,17 +27,17 @@ test("Render deploys the paid Docker API only after checks, with both public hos
     render,
     /preDeployCommand: node node_modules\/@symplist\/db\/dist\/cli\/migrate\.js --driver d1/,
   );
-  assert.match(render, /- api\.symplist\.tejassuds\.com/);
-  assert.match(render, /- artifacts\.symplist\.tejassuds\.com/);
+  assert.match(render, /- api\.symplist\.app/);
+  assert.match(render, /- artifacts\.symplist\.app/);
 });
 
 test("Render keeps production origins and durable executor placement explicit", () => {
-  // The web app is served from app.symplist…; api and artifacts are the two hostnames on the
+  // The web app is served from the apex; api and artifacts are the two hostnames on the
   // single Render service, and ARTIFACT_ORIGIN must differ from both of the others.
-  assert.match(envEntry("WEB_ORIGIN"), /value: https:\/\/app\.symplist\.tejassuds\.com/);
-  assert.match(envEntry("API_ORIGIN"), /value: https:\/\/api\.symplist\.tejassuds\.com/);
-  assert.match(envEntry("WS_ORIGIN"), /value: wss:\/\/api\.symplist\.tejassuds\.com/);
-  assert.match(envEntry("ARTIFACT_ORIGIN"), /value: https:\/\/artifacts\.symplist\.tejassuds\.com/);
+  assert.match(envEntry("WEB_ORIGIN"), /value: https:\/\/symplist\.app/);
+  assert.match(envEntry("API_ORIGIN"), /value: https:\/\/api\.symplist\.app/);
+  assert.match(envEntry("WS_ORIGIN"), /value: wss:\/\/api\.symplist\.app/);
+  assert.match(envEntry("ARTIFACT_ORIGIN"), /value: https:\/\/artifacts\.symplist\.app/);
   assert.match(envEntry("DURABLE"), /value: "true"/);
   assert.match(envEntry("DATA_DRIVER"), /value: d1/);
   assert.match(envEntry("EMAIL_DRIVER"), /value: resend/);

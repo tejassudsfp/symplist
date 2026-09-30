@@ -397,3 +397,86 @@
     align-items: flex-start;
   }
 }
+
+/* --- Ask your assistant ----------------------------------------------------------------------- */
+
+.sym-ask {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 56px 24px;
+  border-bottom: 1px solid var(--sym-line);
+}
+
+.sym-ask h2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 14px;
+  font-family: var(--sym-head-font);
+  font-size: clamp(20px, 3vw, 26px);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.sym-ask-spark {
+  color: var(--sym-accent);
+}
+
+.sym-ask p {
+  max-width: 640px;
+  margin: 0;
+  color: var(--sym-muted);
+  font-size: 15px;
+  line-height: 1.65;
+  text-wrap: pretty;
+}
+
+.sym-ask p a {
+  color: var(--sym-link);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.sym-ask-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 22px 0 0;
+}
+
+.sym-ask-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--sym-line-strong);
+  border-radius: var(--sym-r);
+  background: var(--sym-surface);
+  color: var(--sym-text);
+  font-size: 14.5px;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.sym-ask-button:hover {
+  background: var(--sym-hover);
+  border-color: var(--sym-accent);
+}
+
+.sym-ask-button svg {
+  color: var(--sym-muted);
+}
+
+/* A neutral mark, not a vendor logo: a wrong logo reads worse than none. */
+.sym-ask-mark {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--sym-accent);
+}
+
+.sym-ask-fine {
+  margin-top: 18px;
+  font-size: 13.5px;
+}

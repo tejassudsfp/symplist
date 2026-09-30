@@ -26,7 +26,7 @@ interface MenuLink {
 /** Profile menu destinations (profile_menu.md, overall.md). */
 const menuLinks: readonly MenuLink[] = [
   { label: "Settings", href: "/settings/account", actionId: "shell.go_settings" },
-  { label: "Connections", href: "/settings/connections" },
+  { label: "Agent connections", href: "/settings/agents" },
   { label: "Calendar", href: "/calendar" },
   { label: "Archive", href: "/archive", actionId: "shell.go_archive" },
   { label: "Keyboard shortcuts", href: "/settings/shortcuts" },

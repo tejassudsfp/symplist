@@ -4,6 +4,9 @@ import { SymplistLogo } from "@/components/brand/logo";
 import "./marketing.css";
 
 /** Where the public pages agree the product, the source and the maintainer live. */
+/** The canonical public origin, used by metadata, robots, the sitemap and llms.txt. */
+export const SITE_URL = "https://symplist.app";
+
 export const SITE = Object.freeze({
   app: "/now",
   github: "https://github.com/tejassudsfp/symplist",
