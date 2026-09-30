@@ -30,7 +30,11 @@ import {
   preserveConnectionCallback,
   signInPathFor,
 } from "./navigation.ts";
-import { connectAccessRealtime, getSharedSessionStore } from "./session-runtime.ts";
+import {
+  connectAccessRealtime,
+  connectDesktopSessionEnd,
+  getSharedSessionStore,
+} from "./session-runtime.ts";
 import { destinationFor, type SessionSnapshot, type SessionStore } from "./session-store.ts";
 import { signOut as runSignOut } from "./sign-out.ts";
 
@@ -201,6 +205,12 @@ export function SessionProvider({ children, value, store }: SessionProviderProps
     void generation;
     return connectAccessRealtime({ store: liveStore });
   }, [liveStore, signedIn, userId, generation]);
+
+  useEffect(() => {
+    if (!liveStore) return;
+    // Desktop only: the shell owns the session, so it is the first to learn when the api ends it.
+    return connectDesktopSessionEnd(liveStore);
+  }, [liveStore]);
 
   useEffect(() => {
     if (!liveStore) return;

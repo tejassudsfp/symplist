@@ -1,0 +1,6 @@
+# Bundled main and preload output (scripts/build.mjs).
+dist/
+# Staged packaging inputs: the web standalone server and, later, the vendored dsh runtime.
+build/
+# electron-builder output, including the unsigned .dmg.
+release/

@@ -32,6 +32,39 @@ export function signOutOfBrowser(
   });
 }
 
+/**
+ * The desktop shell's session bridge, matched structurally so `apps/web` never imports `apps/desktop`.
+ * `onSessionEnded` fires when the Electron main process — which owns the cookie jar — learns the session
+ * is gone: a 401 of `auth.session_required` on any request, or a stored session the api refused when the
+ * app restored it on launch. Sign-out does not fire it, because the page that asked is already leaving.
+ */
+interface DesktopSessionBridge {
+  onSessionEnded(listener: () => void): () => void;
+}
+
+function desktopSessionBridge(): DesktopSessionBridge | null {
+  const cloud = (globalThis as { symplist?: { cloud?: unknown } }).symplist?.cloud;
+  const candidate = cloud as { onSessionEnded?: unknown } | null | undefined;
+  if (typeof candidate?.onSessionEnded !== "function") return null;
+  return cloud as DesktopSessionBridge;
+}
+
+/**
+ * In the desktop app, the realtime socket is off — `RealtimeUpgradeGate` requires an `Origin` a renderer
+ * cannot set — so a session revoked from another device would otherwise go unnoticed until the next
+ * request or the next window focus. The shell notices it on the very next request it makes and says so
+ * here, which lands on the same `markSignedOut({ expired: true })` path a 401 already takes.
+ *
+ * Returns the unsubscribe function, and a no-op in a browser.
+ */
+export function connectDesktopSessionEnd(
+  store: Pick<SessionStore, "markSignedOut"> = getSharedSessionStore(),
+): () => void {
+  const bridge = desktopSessionBridge();
+  if (!bridge) return () => undefined;
+  return bridge.onSessionEnded(() => store.markSignedOut({ expired: true }));
+}
+
 /** The subset of the realtime client the access subscription uses (a fake implements it in tests). */
 export interface AccessRealtimeClient {
   connect(): void;

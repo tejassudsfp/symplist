@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveWorkspaceSource } from "@symplist/testing/vitest";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import nextConfig from "../next.config";
 
 const webDir = fileURLToPath(new URL("..", import.meta.url));
@@ -65,5 +65,27 @@ describe("next.config.ts", () => {
       );
     }
     expect(nextConfig.poweredByHeader).toBe(false);
+  });
+});
+
+describe("the desktop standalone gate", () => {
+  afterEach(() => {
+    delete process.env.SYMPLIST_DESKTOP;
+    vi.resetModules();
+  });
+
+  async function loadConfig(): Promise<typeof nextConfig> {
+    vi.resetModules();
+    return (await import("../next.config")).default;
+  }
+
+  it("leaves the deployed build's output mode exactly as it is (§2.2)", async () => {
+    delete process.env.SYMPLIST_DESKTOP;
+    expect((await loadConfig()).output).toBeUndefined();
+  });
+
+  it("emits a standalone server for the Electron shell when SYMPLIST_DESKTOP=1 (note 18, phase 2)", async () => {
+    process.env.SYMPLIST_DESKTOP = "1";
+    expect((await loadConfig()).output).toBe("standalone");
   });
 });

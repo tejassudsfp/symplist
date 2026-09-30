@@ -23,14 +23,15 @@ import { TaskScope } from "./task-scope.tsx";
 import { useIntent } from "./use-intent.ts";
 
 /*
- * `mcpScopeSchema` still declares `ai:run`, because a granted scope outlives the feature it named,
- * and an existing grant must still be describable. The cloud runs no assistant, so it is never
- * offered on a new key and an unknown scope falls back to its own name rather than to nothing.
+ * Keyed by `string` rather than by `McpScope`, and read through a `?? scope` fallback, even though
+ * every scope the enum admits is labelled here. The api parses a grant's stored scopes through
+ * `mcpScopesSchema` in `grantFromRow` and `McpGrants.list`, so an unmodelled scope fails there and
+ * never reaches this component — the looseness is insurance for the next scope we add, which will
+ * exist in a deployed api before it exists in a cached bundle, not for one we removed.
  */
 const permissionLabels: Readonly<Record<string, string | undefined>> = {
   "tasks:read": "Read tasks and pages",
   "tasks:write": "Edit tasks and pages",
-  "ai:run": "Start assistant work (no longer available)",
 };
 
 export function permissionLabel(scope: McpScope): string {

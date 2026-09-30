@@ -1,0 +1,31 @@
+{
+  "name": "@symplist/desktop",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Symplist desktop shell: the Next.js frontend in Electron, with the assistant running on this machine.",
+  "author": "Tejas Parthasarathi Sudarshan (https://tejassuds.com)",
+  "type": "module",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "build:web": "node scripts/stage-web.mjs",
+    "vendor:harness": "node scripts/vendor-harness.mjs",
+    "start": "node scripts/start.mjs",
+    "package:mac": "node scripts/package.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@agentclientprotocol/sdk": "1.4.0",
+    "@symplist/db": "workspace:*",
+    "@types/node": "24.13.4",
+    "electron": "44.4.5",
+    "electron-builder": "26.15.3",
+    "esbuild": "0.28.2",
+    "typescript": "7.0.2",
+    "vitest": "5.0.1",
+    "yaml": "2.9.1",
+    "zod": "4.6.5"
+  }
+}

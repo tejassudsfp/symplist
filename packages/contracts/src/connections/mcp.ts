@@ -1,12 +1,12 @@
 import { idSchema } from "../common/ids.ts";
 import { z } from "../common/zod.ts";
 
-export const mcpScopeSchema = z.enum(["tasks:read", "tasks:write", "ai:run"]);
+export const mcpScopeSchema = z.enum(["tasks:read", "tasks:write"]);
 export type McpScope = z.infer<typeof mcpScopeSchema>;
 export const mcpScopesSchema = z
   .array(mcpScopeSchema)
   .min(1)
-  .max(3)
+  .max(2)
   .refine((scopes) => new Set(scopes).size === scopes.length, "Permissions must be unique");
 export const mcpTaskScopeSchema = z
   .array(idSchema)

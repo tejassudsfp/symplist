@@ -12,7 +12,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@ai-sdk/react": "4.0.104",
     "@base-ui/react": "1.8.0",
     "@codemirror/commands": "6.11.1",
     "@codemirror/lang-markdown": "6.5.2",
