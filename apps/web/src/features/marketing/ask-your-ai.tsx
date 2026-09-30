@@ -78,7 +78,7 @@ function Mark({ icon, mono }: { readonly icon: string; readonly mono?: boolean }
 export function AskYourAi() {
   return (
     <section id="assistant" className="sym-section" aria-labelledby="sym-assistant-heading">
-      <div className="sym-panel sym-split">
+      <div className="sym-card sym-split">
         <div>
           <p className="sym-eyebrow">Assistants</p>
           <h2 id="sym-assistant-heading">Bring your own. We don&rsquo;t run one.</h2>

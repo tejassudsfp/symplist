@@ -4,6 +4,8 @@ import { renderedPalette } from "@/theme/palette";
 import { themeIds, themes } from "@/theme/registry";
 import { AskYourAi } from "./ask-your-ai";
 import { SITE, SiteFooter, SiteHeader } from "./site-chrome";
+import { ThemeSwitcher } from "./theme-switcher";
+import { WorkspaceDemo } from "./workspace-demo";
 
 /**
  * What Symplist is, in the order a stranger needs it: the claim, the three lists, what opens up when
@@ -15,63 +17,57 @@ import { SITE, SiteFooter, SiteHeader } from "./site-chrome";
  */
 
 const lists = [
-  {
-    name: "Now",
-    body: "What you have actually decided to do. Nothing arrives here by itself.",
-  },
-  {
-    name: "Later",
-    body: "Real, but not today. It waits without nagging and without an overdue badge.",
-  },
+  { name: "Now", body: "What you have decided to do. Nothing lands here on its own." },
+  { name: "Later", body: "Real, just not today. It waits without an overdue badge." },
   {
     name: "Unclassified",
-    body: "Anything you have not sorted yet. A thought can land here and stay until it is ready.",
+    body: "Somewhere for a thought to sit until you know what it is.",
   },
 ];
 
 const features = [
   {
-    title: "A real page, with real history",
-    body: "Every task opens one editable Markdown document backed by an actual Git engine — commits, a diff, and a restore that works. Not a notes field.",
+    title: "A page, not a notes field",
+    body: "Headings, checklists and tables in plain Markdown. Every save is a Git commit you can compare and restore.",
   },
   {
-    title: "Labels, only if you want them",
-    body: "Your own word for a slice of your list, with a colour. Filter by one, narrow with a second. An account with no labels never sees them.",
+    title: "Labels, if you want them",
+    body: "A word and a colour for a slice of your list. Accounts without labels never see the feature.",
   },
   {
-    title: "Time that stays quiet",
-    body: "Optional deadlines, a calendar, quiet hours and snooze. A date never moves a task between lists by itself.",
+    title: "Time that stays calm",
+    body: "Optional deadlines, a calendar, quiet hours and snooze. A date never moves a task for you.",
   },
   {
     title: "A vault with its own key",
-    body: "Sensitive notes and keys sit behind a separate passphrase that ordinary sign-in does not unlock, recoverable with a fresh email code.",
+    body: "Sensitive notes and keys sit behind a separate passphrase that signing in does not unlock.",
   },
   {
-    title: "Keyboard first",
-    body: "A command palette, contextual shortcuts you can remap, and scoped search across tasks and their documents.",
+    title: "Handoffs that expire",
+    body: "Share a read-only snapshot of a page with a link that expires, a password, or explicit public publication.",
   },
   {
     title: "Yours to run",
-    body: "MIT licensed and self-hostable end to end. The template boots on local SQLite with no Cloudflare, Resend or Trigger account at all.",
+    body: "MIT licensed. The self-hosting template boots on local SQLite with no third-party accounts.",
   },
 ];
 
 const plainly = [
   {
-    title: "Your content is encrypted at rest.",
-    body: "Task titles, documents, labels and vault entries are encrypted before they are stored. Your email address is not — it is how you sign in.",
+    title: "Encrypted at rest",
+    body: "Task titles, pages, labels and vault entries are encrypted before they are stored. Your email is not; it is how you sign in.",
   },
   {
-    title: "It is not end-to-end encryption.",
-    body: "The service holds the keys and can read your content to provide the features you ask for. Anyone claiming otherwise about a product like this is selling you something.",
+    title: "Not end-to-end",
+    body: "The service holds the keys so it can search and render your content. We would rather say so than imply otherwise.",
   },
   {
-    title: "Analytics is off until you say yes.",
-    body: "No session recording, no advertising trackers, and no task or document text ever reaches it. You can decline as easily as accept.",
+    title: "Analytics off by default",
+    body: "No session recording, no ad trackers, and never any task or page text. Declining is as easy as accepting.",
   },
   {
-    title: "It is free, and nothing sits above it.",
-    body: "No billing, no quotas, no feature held back. If that ever has to change, it will change in the open, in this repository.",
+    title: "Free, with nothing above it",
+    body: "No billing, no quotas, no held-back features. If that ever changes, it changes in the open.",
   },
 ];
 
@@ -106,9 +102,12 @@ export function HomeScreen() {
           <p className="sym-fine sym-hero-fine">
             Sign in with an email code. No password, no invite, no card.
           </p>
+          <ThemeSwitcher />
         </section>
 
-        <section id="product" className="sym-section" aria-labelledby="sym-model-heading">
+        <WorkspaceDemo />
+
+        <section className="sym-section" aria-labelledby="sym-model-heading">
           <p className="sym-eyebrow">The model</p>
           <h2 id="sym-model-heading">Three lists. That&rsquo;s all of it.</h2>
           <p className="sym-section-lede">
@@ -145,7 +144,7 @@ export function HomeScreen() {
           <h2 id="sym-themes-heading">Six ways for it to feel like yours.</h2>
           <p className="sym-section-lede">
             Each style changes type, spacing and shape, not just colour, and comes in light and
-            dark. Pick one in Settings; everything follows.
+            dark. Pick one; this page follows.
           </p>
           <ul className="sym-themes">
             {themeIds.map((id) => {

@@ -233,7 +233,12 @@
   align-items: start;
 }
 
-.sym-panel {
+/*
+ * A marketing card. Named `sym-card`, not `sym-panel`: the app's own `.sym-panel` is a full-height
+ * flex column in `globals.css`, and the preview below renders the real workspace classes. Two rules
+ * under one name meant the preview's panels inherited a 40px marketing padding.
+ */
+.sym-card {
   padding: 40px;
   border: 1px solid var(--sym-line);
   border-radius: var(--sym-panel-radius);
@@ -610,7 +615,7 @@
     padding-top: 56px;
   }
 
-  .sym-panel {
+  .sym-card {
     padding: 24px;
   }
 
@@ -618,8 +623,602 @@
     gap: 16px;
   }
 
+  /*
+   * The in-page anchors go on a phone. They were pushing the header past the viewport — the whole
+   * document then scrolled sideways, which is its own defect and also put the footer's links out of
+   * reach. On a screen this narrow the sections they point at are a thumb-flick away regardless; what
+   * has to survive is the repository link and the way in.
+   */
+  .sym-site-nav a[href^="#"] {
+    display: none;
+  }
+
   .sym-site-footer {
     flex-direction: column;
     align-items: flex-start;
+  }
+}
+
+/* ------------------------------------------------------------------------------------------------
+ * The interactive preview.
+ *
+ * Almost everything inside the frame uses the workspace's own classes — `.sym-task-row`, `.sym-rail`,
+ * `.sym-quick-add`, `.sym-label-filter`, `.sym-toast` — so the preview *is* the app rather than a
+ * drawing of it, and a theme retune moves both together. What is left here is the frame around it and
+ * the few surfaces the real shell composes rather than styles.
+ * --------------------------------------------------------------------------------------------- */
+
+.sym-theme-switcher {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 40px;
+  padding: 5px;
+  border: 1px solid var(--sym-line);
+  border-radius: 999px;
+  background: var(--sym-surface);
+}
+
+.sym-theme-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--sym-muted);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.sym-theme-chip:hover {
+  background: var(--sym-hover);
+  color: var(--sym-text);
+}
+
+.sym-theme-chip[data-active] {
+  background: var(--sym-selection);
+  color: var(--sym-text);
+}
+
+.sym-theme-chip-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  outline: 1px solid var(--sym-line-strong);
+  outline-offset: -1px;
+}
+
+.sym-theme-switcher-rule {
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
+  background: var(--sym-line);
+}
+
+.sym-theme-mode {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--sym-text);
+  cursor: pointer;
+}
+
+.sym-theme-mode:hover {
+  background: var(--sym-hover);
+}
+
+.sym-theme-caption {
+  max-width: 560px;
+  margin: 14px auto 0;
+  color: var(--sym-muted);
+  font-size: 12.5px;
+  text-wrap: pretty;
+}
+
+/* --- Frame ----------------------------------------------------------------------------------- */
+
+.sym-demo-tabs {
+  display: flex;
+  gap: 4px;
+  justify-content: center;
+  padding: 2px 2px 14px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.sym-demo-tab {
+  flex: none;
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--sym-line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--sym-muted);
+  font-size: 13.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.sym-demo-tab:hover {
+  border-color: var(--sym-line-strong);
+  color: var(--sym-text);
+}
+
+.sym-demo-tab[data-active] {
+  border-color: transparent;
+  background: var(--sym-selection);
+  color: var(--sym-text);
+}
+
+.sym-demo-frame {
+  padding: 10px;
+  border: 1px solid var(--sym-line);
+  border-radius: calc(var(--sym-panel-radius) + 8px);
+  background: var(--sym-panel);
+}
+
+.sym-demo-app {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 520px;
+  overflow: hidden;
+  border: 1px solid var(--sym-line);
+  border-radius: var(--sym-rl);
+  background: var(--sym-bg);
+  font-size: 13.5px;
+  line-height: 1.45;
+  text-align: left;
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.04),
+    0 24px 60px -24px rgb(0 0 0 / 0.22);
+}
+
+.sym-demo-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.sym-demo-name,
+.sym-demo-vault {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--sym-chrome-muted);
+  font-size: 13px;
+}
+
+.sym-demo-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  margin-left: auto;
+  padding: 0 10px;
+  border: 1px solid var(--sym-chrome-line);
+  border-radius: var(--sym-r);
+  background: transparent;
+  color: var(--sym-chrome-muted);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.sym-demo-search:hover {
+  background: var(--sym-chrome-hover);
+}
+
+.sym-demo-count {
+  flex: none;
+  padding-right: 4px;
+  color: var(--sym-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * In the app the task list's width comes from the resizable panel group around it. The preview has no
+ * panel group, so it states the width the app opens at, and gives the pane the whole frame when it is
+ * the only one shown.
+ */
+.sym-demo-app .sym-inbox {
+  flex: none;
+  width: 270px;
+}
+
+/* --- Page and document ------------------------------------------------------------------------ */
+
+.sym-demo-page {
+  flex: 1;
+  min-width: 0;
+}
+
+/*
+ * The app's page header hands its title to a row (`flex min-w-0 flex-1 items-center gap-2.5` in
+ * `shell/workspace.tsx`), and `.sym-task-header` carries `flex: 1` expecting exactly that. Dropped
+ * straight into a column it stretched to half the frame's height, which is what left a dead band
+ * between the title and the document. This is that row.
+ */
+.sym-demo-header-slot {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.sym-demo-page-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/* The app's sheet padding is tuned for a full window; inside a 520px frame it needs to come in. */
+.sym-demo-page-body .sym-page-scroll {
+  padding: 16px 20px 32px;
+}
+
+.sym-demo-doc {
+  min-width: 0;
+}
+
+.sym-demo-doc-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  color: var(--sym-muted);
+  font-size: 12px;
+}
+
+.sym-demo-doc h4 {
+  margin: 0 0 8px;
+  font-family: var(--sym-head-font);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.sym-demo-doc p {
+  margin: 0 0 12px;
+  color: var(--sym-text);
+  line-height: 1.6;
+}
+
+.sym-demo-li {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 8px;
+  color: var(--sym-text);
+}
+
+.sym-demo-bullet {
+  flex: none;
+  width: 4px;
+  height: 4px;
+  margin-top: 8px;
+  border-radius: 999px;
+  background: var(--sym-faint);
+}
+
+.sym-demo-task-check {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--sym-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sym-demo-box {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  margin-top: 2px;
+  border: 1.5px solid var(--sym-line-strong);
+  border-radius: 4px;
+  color: var(--sym-on-accent);
+}
+
+.sym-demo-box[data-on] {
+  border-color: transparent;
+  background: var(--sym-accent);
+}
+
+.sym-demo-task-check [data-done] {
+  color: var(--sym-muted);
+  text-decoration: line-through;
+}
+
+.sym-demo-saved {
+  color: var(--sym-muted);
+  font-size: 12px;
+}
+
+/* The app's `.sym-kbd` is tuned for a panel surface; on the chrome bar it needs the chrome's own. */
+.sym-demo-kbd-hint {
+  padding: 1px 5px;
+  border: 1px solid var(--sym-chrome-line);
+  border-radius: 4px;
+  color: var(--sym-chrome-muted);
+  font-family: var(--sym-mono);
+  font-size: 11px;
+}
+
+.sym-demo-nopage {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  color: var(--sym-muted);
+}
+
+.sym-demo-nopage p {
+  margin: 0;
+}
+
+/* --- History --------------------------------------------------------------------------------- */
+
+.sym-demo-history {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  width: 260px;
+  border-left: 1px solid var(--sym-line);
+  background: var(--sym-panel);
+}
+
+.sym-demo-history-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--sym-line);
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.sym-demo-history-head .sym-icon-button {
+  margin-left: auto;
+}
+
+.sym-demo-commits {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px;
+  overflow: auto;
+}
+
+.sym-demo-commit {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: var(--sym-r);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sym-demo-commit:hover {
+  background: var(--sym-hover);
+}
+
+.sym-demo-commit[data-on] {
+  background: var(--sym-selection);
+}
+
+.sym-demo-commit-msg {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.sym-demo-commit-meta {
+  display: flex;
+  gap: 8px;
+  color: var(--sym-muted);
+  font-size: 11.5px;
+}
+
+.sym-demo-commit-meta code {
+  font-family: var(--sym-mono);
+}
+
+.sym-demo-restore {
+  padding: 12px 14px;
+  border-top: 1px solid var(--sym-line);
+}
+
+.sym-demo-restore p {
+  margin: 0 0 10px;
+  color: var(--sym-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.sym-demo-restore button {
+  width: 100%;
+  height: 32px;
+  border: 0;
+  border-radius: var(--sym-r);
+  background: var(--sym-ink);
+  color: var(--sym-on-ink);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+/* --- Palette --------------------------------------------------------------------------------- */
+
+.sym-demo-palette-scrim {
+  position: absolute;
+  inset: 0;
+  /*
+   * Above everything in the frame. The app's `.sym-inbox-tools` is sticky with `z-index: 2`, so an
+   * auto-stacked scrim let the quick-add field punch through the dim and sit there looking lit.
+   */
+  z-index: 6;
+  display: flex;
+  justify-content: center;
+  padding-top: 60px;
+  background: rgb(0 0 0 / 0.28);
+}
+
+/* The scrim is a real button, so Escape and Tab reach it; it is invisible but not hidden. */
+.sym-demo-palette-dismiss {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: transparent;
+  cursor: default;
+}
+
+.sym-demo-palette {
+  position: relative;
+  width: min(460px, 86%);
+  height: fit-content;
+  overflow: hidden;
+  border: 1px solid var(--sym-line-strong);
+  border-radius: var(--sym-rl);
+  background: var(--sym-surface);
+  box-shadow: 0 18px 48px -12px rgb(0 0 0 / 0.35);
+}
+
+.sym-demo-palette-input {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--sym-line);
+  color: var(--sym-muted);
+}
+
+.sym-demo-palette-input input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--sym-text);
+  outline: none;
+}
+
+.sym-demo-palette-items {
+  display: flex;
+  flex-direction: column;
+  max-height: 210px;
+  padding: 6px;
+  overflow: auto;
+}
+
+.sym-demo-palette-items button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: var(--sym-r);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sym-demo-palette-items button:hover {
+  background: var(--sym-hover);
+}
+
+.sym-demo-palette-hint {
+  color: var(--sym-faint);
+  font-size: 12px;
+}
+
+/* The toast sits inside the frame rather than the viewport, so it cannot escape the preview. */
+.sym-demo-app .sym-toast {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+}
+
+.sym-demo-caption {
+  max-width: 620px;
+  margin: 18px auto 0;
+  color: var(--sym-muted);
+  font-size: 13.5px;
+  text-align: center;
+  text-wrap: pretty;
+}
+
+.sym-demo-caption span {
+  color: var(--sym-text);
+  font-weight: 600;
+}
+
+@media (max-width: 860px) {
+  .sym-demo-app {
+    height: 460px;
+  }
+
+  .sym-demo-history {
+    display: none;
+  }
+}
+
+/*
+ * A phone gets one pane, the way the app gives it one. Both panes side by side inside 390px left the
+ * document clipped down the middle of its own words, which sells the opposite of the point.
+ */
+@media (max-width: 720px) {
+  .sym-demo-app[data-pane="list"] .sym-demo-page,
+  .sym-demo-app[data-pane="page"] .sym-inbox {
+    display: none;
+  }
+
+  .sym-demo-app .sym-inbox {
+    flex: 1;
+    width: auto;
+    border-right: 0;
+  }
+
+  .sym-demo-app .sym-rail {
+    display: none;
+  }
+
+  /* The search affordance is a label for a control the visitor can reach; the frame is the ⌘K hint. */
+  .sym-demo-search span:first-of-type {
+    display: none;
+  }
+
+  .sym-demo-page-body .sym-page-scroll {
+    padding: 14px 14px 24px;
   }
 }
