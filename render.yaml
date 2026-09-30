@@ -18,19 +18,19 @@ services:
     maxShutdownDelaySeconds: 60
     preDeployCommand: node node_modules/@symplist/db/dist/cli/migrate.js --driver d1
     domains:
-      - api.symplist.tejassuds.com
-      - artifacts.symplist.tejassuds.com
+      - api.symplist.app
+      - artifacts.symplist.app
     envVars:
       - key: NODE_ENV
         value: production
       - key: WEB_ORIGIN
-        value: https://app.symplist.tejassuds.com
+        value: https://symplist.app
       - key: API_ORIGIN
-        value: https://api.symplist.tejassuds.com
+        value: https://api.symplist.app
       - key: WS_ORIGIN
-        value: wss://api.symplist.tejassuds.com
+        value: wss://api.symplist.app
       - key: ARTIFACT_ORIGIN
-        value: https://artifacts.symplist.tejassuds.com
+        value: https://artifacts.symplist.app
       - key: ADMIN_BOOTSTRAP_EMAIL
         sync: false
       - key: TRUST_PROXY_HOPS
@@ -68,9 +68,9 @@ services:
       - key: DOC_MAX_BYTES
         value: "1048576"
       - key: EMAIL_FROM_SECURITY
-        value: Symplist <security@symplist.tejassuds.com>
+        value: Symplist <security@emails.symplist.app>
       - key: EMAIL_FROM_REMINDERS
-        value: Symplist <reminders@symplist.tejassuds.com>
+        value: Symplist <reminders@emails.symplist.app>
       - key: TRIGGER_SECRET_KEY
         sync: false
       - key: TRIGGER_PROJECT_REF

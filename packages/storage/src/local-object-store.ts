@@ -31,7 +31,7 @@ export interface LocalObjectStoreOptions {
   /**
    * Declares that this process is a single-user local install, for which the filesystem is the real
    * object store rather than a stand-in — the Symplist desktop app offline (note 18,
-   * `DEPLOYMENT=local`).
+   * a single-user install on one person's own disk).
    *
    * The `NODE_ENV=production` refusal below exists to stop a *hosted* deployment serving encrypted
    * artifacts off one machine's disk: no durability, no replication, and nothing backing it up. None of

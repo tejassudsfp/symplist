@@ -24,11 +24,11 @@ A calm, open-source task workspace. Every task has one editable Markdown page wi
 
 **Released and self-hostable.** The monorepo contains the workspace application: the Next.js web app, the NestJS API, an optional Trigger.dev worker, the shared packages, 51 expand-only database migrations, deployment configuration, and an automated test suite (unit, integration, browser, accessibility, visual, image, and smoke checks).
 
-There is also a desktop application (`apps/desktop`): the same frontend in an Electron window with the cloud session held out of the renderer. It hosts no assistant either — a fully offline local mode is what it is for.
+There is also a desktop application (`apps/desktop`): the same frontend in an Electron window with the session held out of the renderer. It hosts no assistant either.
 
 No agent is in this repository. The server-side agent loop, chat, approvals and model credentials went first; an embedded desktop agent was built and removed after it proved strictly less capable than the client people already use; the Composio connector layer went with it, its executor having been dead code since the agent left. Every table those features used remains, because migrations here are expand-only, and is no longer written.
 
-The hosted launch is operated as a **free closed beta**: email verification creates an identity; a manually shared invite or administrator unlock grants access. Billing, paywalls, and AI-usage quotas are not part of the project.
+The hosted service at [symplist.app](https://symplist.app) is **open and free**: verify an email address and start. There is no invite, no waitlist, and no paid tier above it — billing, paywalls and AI-usage quotas are not part of the project.
 
 ## Architecture
 

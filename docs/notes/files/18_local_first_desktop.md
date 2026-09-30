@@ -5,6 +5,13 @@ This note supersedes the parts of note 07 and note 12 that place Simon in the cl
 its own first version, which put an agent in the desktop app. It is the binding decision for where
 the assistant runs and what the cloud is for.
 
+> **Local mode was dropped (1 October 2026).** Everything below about *where the assistant runs* still
+> stands and is what shipped: Symplist publishes tools over MCP and runs no agent. What did not survive
+> is phase 3 — the offline, accountless, stdio-MCP install. Its server half was built (a declared
+> deployment, one local owner, the local drivers) and then deleted. The reason is the same one that
+> deleted the agent twice: a second production topology is a permanent correctness cost, and nobody had
+> asked for this one. There is one mode now, the cloud, and `apps/desktop` is a window onto it.
+
 ## The thesis, which did not change
 
 A web assistant that cannot do work is a demo.

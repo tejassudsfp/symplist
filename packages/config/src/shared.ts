@@ -4,13 +4,7 @@
  */
 
 export type NodeEnv = "development" | "production" | "test";
-/**
- * Which deployment a runtime is. `cloud` is the hosted service and every self-hosted instance of it;
- * `local` is one person's own machine — the Symplist desktop app offline (note 18). It is the one
- * production topology allowed on the local drivers, and it is declared rather than inferred from
- * `DATA_DRIVER` so that relaxing the guard for the app does not relax it for a hosted deployment.
- */
-export type Deployment = "cloud" | "local";
+/** Where structured data lives: Cloudflare D1, or a local SQLite file for development. */
 export type DataDriver = "d1" | "local";
 export type EmailDriver = "resend" | "log";
 /** Master keys come from environment variables behind a key provider (decision A4). */
@@ -32,8 +26,6 @@ export interface SharedRuntimeConfig {
   WEB_ORIGIN: string;
   API_ORIGIN: string;
   WS_ORIGIN: string;
-
-  DEPLOYMENT: Deployment;
   DATA_DRIVER: DataDriver;
   EMAIL_DRIVER: EmailDriver;
   DURABLE: boolean;

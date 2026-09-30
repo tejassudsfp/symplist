@@ -9,7 +9,7 @@ export interface LogTransportOptions {
   readonly nodeEnv: string | undefined;
   /**
    * Declares that this process is a single-user local install — the Symplist desktop app offline
-   * (note 18, `DEPLOYMENT=local`).
+   * such as a single-user install that sends no mail at all.
    *
    * The production refusal below is a different concern from the db and storage ones, and worth stating
    * separately: printing an OTP to a log rather than sending it would, on a hosted service, hand a

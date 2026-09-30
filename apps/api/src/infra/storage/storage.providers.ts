@@ -33,9 +33,6 @@ export async function createApiObjectStore(
   return createLocalObjectStore({
     root: localDataPaths(localDataDir).objects,
     env: { NODE_ENV: config.NODE_ENV },
-    // A local deployment is production *and* legitimately runs on this disk; a cloud one in production
-    // must still be refused. See `LocalObjectStoreOptions.singleUserInstall`.
-    ...(config.DEPLOYMENT === "local" ? { singleUserInstall: true } : {}),
   });
 }
 
