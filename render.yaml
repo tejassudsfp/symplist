@@ -91,10 +91,6 @@ services:
         sync: false
       - key: RESEND_WEBHOOK_SECRET
         sync: false
-      - key: COMPOSIO_API_KEY
-        sync: false
-      - key: COMPOSIO_WEBHOOK_SECRET
-        sync: false
       - key: ANALYTICS_ENABLED
         value: "true"
       - key: POSTHOG_PROJECT_KEY

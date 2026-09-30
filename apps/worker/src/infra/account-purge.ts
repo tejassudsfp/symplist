@@ -14,7 +14,6 @@ import {
   eventsContributors,
 } from "@symplist/core/events";
 import { type DbClient, sql } from "@symplist/db";
-import type { ConnectionPurgeProvider } from "@symplist/integrations";
 import type { ObjectStore } from "@symplist/storage";
 import { z } from "zod";
 import { WorkerError, withMappedErrors } from "./errors.ts";
@@ -39,7 +38,6 @@ export interface AccountPurgeTriggerRuns {
 }
 
 export interface AccountPurgeTaskDependencies {
-  readonly connections?: ConnectionPurgeProvider;
   readonly db: DbClient;
   readonly objects: ObjectStore;
   readonly runs: AccountPurgeTriggerRuns;
@@ -141,12 +139,16 @@ export async function runAccountPurgeTask(
         await withMappedErrors(() => dependencies.runs.cancel(triggerRunId));
       },
     }),
+    /*
+     * The provider step, which no contributor implements any more.
+     *
+     * It ran one thing: revoking the account's connected accounts at Composio and deleting its session
+     * there. Connectors left with the server-side agent (note 18). The step stays in the sequence
+     * because a purge's recorded steps are a stored progression — dropping one would change what a
+     * half-finished purge resumes into — and it now completes immediately.
+     */
     composio: providerPurgeStep({
-      dependencies: {
-        db,
-        now,
-        ...(dependencies.connections ? { connections: dependencies.connections } : {}),
-      },
+      dependencies: { db, now },
       contributors: dependencies.purgeContributors ?? purgeContributors,
     }),
     ...(dependencies.purgeContributors ? { contributors: dependencies.purgeContributors } : {}),

@@ -34,7 +34,6 @@ const both = [
   "R2_ACCESS_KEY_ID",
   "R2_SECRET_ACCESS_KEY",
   "RESEND_API_KEY",
-  "COMPOSIO_API_KEY",
   "ANALYTICS_ENABLED",
   "POSTHOG_PROJECT_KEY",
   "POSTHOG_HOST",
@@ -56,7 +55,6 @@ const apiOnly = [
   "TRIGGER_PROJECT_REF",
   "CLOUDFLARE_D1_API_TOKEN",
   "RESEND_WEBHOOK_SECRET",
-  "COMPOSIO_WEBHOOK_SECRET",
   "POSTHOG_PERSONAL_API_KEY",
   "POSTHOG_PROJECT_ID",
 ];
@@ -109,14 +107,7 @@ describe("§16.2 variable coverage", () => {
       ]),
     );
     expect(sorted(liveTestFlagNames)).toEqual(
-      sorted([
-        "LIVE_D1",
-        "LIVE_R2",
-        "LIVE_TRIGGER",
-        "LIVE_COMPOSIO",
-        "LIVE_OPENAI",
-        "LIVE_POSTHOG",
-      ]),
+      sorted(["LIVE_D1", "LIVE_R2", "LIVE_TRIGGER", "LIVE_POSTHOG"]),
     );
   });
 });

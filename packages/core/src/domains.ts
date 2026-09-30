@@ -11,7 +11,6 @@ export const coreDomains = [
   "scheduling",
   "vault",
   "sharing",
-  "connections",
   "mcp",
   "analytics",
 ] as const;

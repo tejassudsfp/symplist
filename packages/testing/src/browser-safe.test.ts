@@ -22,7 +22,6 @@ const browserSafeEntries = {
 const serverOnlyPackages = [
   "posthog-node",
   "@aws-sdk/",
-  "@composio/core",
   "resend",
   "@nestjs/",
   "@trigger.dev/",
@@ -117,7 +116,6 @@ describe("browser-safe import scan", () => {
   it.each([
     ["posthog-node", 'import { PostHog } from "posthog-node";'],
     ["@aws-sdk/client-s3", 'import { S3Client } from "@aws-sdk/client-s3";'],
-    ["@composio/core", 'export { Composio } from "@composio/core";'],
     ["resend", 'import "resend";'],
     ["node:crypto", 'const crypto = await import("node:crypto");'],
     ["fs", 'import { readFileSync } from "fs";'],

@@ -65,11 +65,6 @@
       "types": "./dist/sharing/index.d.ts",
       "default": "./dist/sharing/index.js"
     },
-    "./connections": {
-      "source": "./src/connections/index.ts",
-      "types": "./dist/connections/index.d.ts",
-      "default": "./dist/connections/index.js"
-    },
     "./mcp": {
       "source": "./src/mcp/index.ts",
       "types": "./dist/mcp/index.d.ts",
@@ -97,7 +92,6 @@
     "@symplist/db": "workspace:*",
     "@symplist/docs": "workspace:*",
     "@symplist/email": "workspace:*",
-    "@symplist/integrations": "workspace:*",
     "@symplist/search": "workspace:*",
     "@symplist/storage": "workspace:*",
     "temporal-polyfill": "1.0.5",

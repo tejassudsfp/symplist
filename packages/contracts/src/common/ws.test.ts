@@ -253,11 +253,10 @@ describe("events", () => {
       "document.head_changed": "documents",
       "schedule.changed": "scheduling",
       "vault.locked": "vault",
-      "connection.status_changed": "connections",
       "share_grant.changed": "sharing",
       "search.freshness": "search",
     });
-    expect(userTopicEventTypes).toHaveLength(12);
+    expect(userTopicEventTypes).toHaveLength(11);
     expect(unadmittedUserTopicEventTypes).toEqual(["access.changed"]);
     expect(isUserTopicEventType("access.changed")).toBe(true);
     expect(isUserTopicEventType("chunk")).toBe(false);

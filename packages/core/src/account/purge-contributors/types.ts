@@ -1,5 +1,4 @@
 import type { DbClient, Statement } from "@symplist/db";
-import type { ConnectionPurgeProvider } from "@symplist/integrations";
 import type { CoreDomain } from "../../domains.ts";
 
 export interface PurgeInput {
@@ -9,19 +8,20 @@ export interface PurgeInput {
   readonly batchLimit: number;
 }
 
-/** The account a provider-side purge removes (§5.6 step 2): plaintext ids from `account_deletions`. */
+/**
+ * The account a provider-side purge removes (§5.6 step 2): plaintext ids from `account_deletions`.
+ *
+ * No contributor implements `purgeProvider` any more. It existed for one: the connections domain
+ * revoked the account's connected accounts at Composio and deleted its session there before the local
+ * rows went, and connectors left with the server-side agent (note 18). The seam stays because the step
+ * is part of the purge's recorded shape and a domain that keeps state at a provider may want it again.
+ */
 export interface PurgeProviderInput {
   readonly userId: string;
-  /** Equals the Symplist user id (§14.1). */
-  readonly composioUserId: string;
 }
 
-/**
- * What a runtime gives provider-side purge work. A domain whose purge needs a provider client (the
- * connections domain's Composio client) adds it here when it registers that work.
- */
+/** What a runtime gives provider-side purge work, for a domain that keeps state at a provider. */
 export interface PurgeProviderDependencies {
-  readonly connections?: ConnectionPurgeProvider;
   readonly db: DbClient;
   readonly now: () => number;
 }
@@ -34,17 +34,18 @@ export interface PurgeProviderDependencies {
  * the same batch to decide whether to run the domain again.
  *
  * A domain that keeps account state at an external provider also provides `purgeProvider` (§5.6 step
- * 2: the connections domain deletes Composio connected accounts with `revoke_on_delete: true` and
- * the user's Composio session). It must be idempotent and return `incomplete` (or throw) while work
- * is left, so the step is recorded only once every provider reported done.
+ * 2). It must be idempotent and return `incomplete` (or throw) while work is left, so the step is
+ * recorded only once every provider reported done. Nothing implements it today — see
+ * `PurgeProviderInput`.
  */
 export interface PurgeContributor {
   /**
-   * A core domain, or `retired-chat`: the tables cloud chat left behind have no domain left to
-   * belong to, and the expand-only rule keeps their rows purgeable long after the code that wrote
-   * them is gone. Nothing else may take that escape hatch — a live domain gets a folder.
+   * A core domain, or one of the two retired features: the tables cloud chat and the Composio
+   * connectors left behind have no domain left to belong to, and the expand-only rule keeps their rows
+   * purgeable long after the code that wrote them is gone. Nothing else may take that escape hatch — a
+   * live domain gets a folder.
    */
-  readonly domain: CoreDomain | "retired-chat";
+  readonly domain: CoreDomain | "retired-chat" | "retired-connections";
   statements(input: PurgeInput): readonly Statement[];
   remaining?(input: PurgeInput): readonly Statement[];
   purgeProvider?(

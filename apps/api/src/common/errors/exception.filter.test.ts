@@ -108,11 +108,7 @@ describe("error envelope mapping (§6)", () => {
       },
       json: () => response,
     } as unknown as Response;
-    sendApiError(
-      response,
-      new ApiError("integration.rate_limited", { retryAfter: 7 }),
-      "request-1",
-    );
+    sendApiError(response, new ApiError("vault.throttled", { retryAfter: 7 }), "request-1");
     expect(headers.get("Retry-After")).toBe("7");
   });
 

@@ -9,7 +9,6 @@
     { "path": "packages/storage" },
     { "path": "packages/docs" },
     { "path": "packages/search" },
-    { "path": "packages/integrations" },
     { "path": "packages/email" },
     { "path": "packages/analytics" },
     { "path": "packages/core" },

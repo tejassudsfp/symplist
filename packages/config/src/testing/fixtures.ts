@@ -83,7 +83,6 @@ function hostedProviders(d1TokenVariable: string) {
     R2_ACCESS_KEY_ID: credential(),
     R2_SECRET_ACCESS_KEY: credential(),
     RESEND_API_KEY: credential("re_"),
-    COMPOSIO_API_KEY: credential(),
   };
 }
 
@@ -105,7 +104,6 @@ export function productionApiEnv(
     TRIGGER_PROJECT_REF: "proj_rryekrktnjnrdzvabzqd",
     EMAIL_FROM_SECURITY: "Symplist <security@symplist.example.com>",
     RESEND_WEBHOOK_SECRET: credential("whsec_"),
-    COMPOSIO_WEBHOOK_SECRET: credential(),
     ANALYTICS_ENABLED: "true",
     POSTHOG_PROJECT_KEY: credential("phc_"),
     POSTHOG_HOST: "https://us.i.posthog.com",

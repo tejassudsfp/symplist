@@ -34,7 +34,6 @@
     "@symplist/db": "workspace:*",
     "@symplist/docs": "workspace:*",
     "@symplist/email": "workspace:*",
-    "@symplist/integrations": "workspace:*",
     "@symplist/search": "workspace:*",
     "@symplist/storage": "workspace:*",
     "@trigger.dev/sdk": "4.6.0",

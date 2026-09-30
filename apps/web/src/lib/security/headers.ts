@@ -36,7 +36,7 @@ function sources(...values: ReadonlyArray<string | null | false>): string {
 
 /**
  * `default-src 'self'; script-src 'self' <nonce>; connect-src 'self' <API_ORIGIN> wss://<api host>
- * <POSTHOG_HOST>; img-src 'self' data: blob: https://logos.composio.dev; font-src 'self'; object-src 'none'; base-uri 'none';
+ * <POSTHOG_HOST>; img-src 'self' data: blob:; font-src 'self'; object-src 'none'; base-uri 'none';
  * form-action 'self' <API_ORIGIN>; frame-ancestors 'none'` (§10.4). Scripts use the nonce with
  * `'strict-dynamic'` (Next.js applies the nonce to its own scripts); style elements need the nonce,
  * and only style attributes (set by React and the panel and popup libraries) are allowed inline.
@@ -63,7 +63,9 @@ export function buildContentSecurityPolicy(options: ContentSecurityPolicyOptions
         options.development && "ws:",
       ),
     ],
-    ["img-src", "'self' data: blob: https://logos.composio.dev"],
+    // No third-party image host. `logos.composio.dev` served the connector tiles, and connectors left
+    // with the server-side agent (note 18) — so this is one fewer origin the page may load from.
+    ["img-src", "'self' data: blob:"],
     ["font-src", "'self'"],
     ["object-src", "'none'"],
     ["base-uri", "'none'"],

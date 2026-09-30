@@ -1,8 +1,8 @@
 import { accessErrorCodes } from "./access/errors.ts";
 import { analyticsErrorCodes } from "./analytics/errors.ts";
 import { commonErrorCodes, type ErrorHttpStatus } from "./common/errors.ts";
-import { connectionsErrorCodes } from "./connections/errors.ts";
 import { documentsErrorCodes } from "./documents/errors.ts";
+import { mcpErrorCodes } from "./mcp/errors.ts";
 import { schedulingErrorCodes } from "./scheduling/errors.ts";
 import { searchErrorCodes } from "./search/errors.ts";
 import { sharingErrorCodes } from "./sharing/errors.ts";
@@ -19,7 +19,7 @@ export const errorCodesByOwner = {
   scheduling: schedulingErrorCodes,
   vault: vaultErrorCodes,
   sharing: sharingErrorCodes,
-  connections: connectionsErrorCodes,
+  mcp: mcpErrorCodes,
   analytics: analyticsErrorCodes,
 } as const;
 
@@ -33,7 +33,7 @@ export const errorCodes = Object.freeze({
   ...schedulingErrorCodes,
   ...vaultErrorCodes,
   ...sharingErrorCodes,
-  ...connectionsErrorCodes,
+  ...mcpErrorCodes,
   ...analyticsErrorCodes,
 });
 

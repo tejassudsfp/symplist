@@ -1,8 +1,8 @@
 import type { FeatureId } from "@symplist/contracts";
 import { accessActions } from "@/features/access/actions";
 import { analyticsActions } from "@/features/analytics/actions";
-import { connectionsActions } from "@/features/connections/actions";
 import { documentsActions } from "@/features/documents/actions";
+import { mcpActions } from "@/features/mcp/actions";
 import { schedulingActions } from "@/features/scheduling/actions";
 import { searchActions } from "@/features/search/actions";
 import { sharingActions } from "@/features/sharing/actions";
@@ -20,7 +20,7 @@ export const actionsByFeature: Readonly<Record<FeatureId, readonly AppAction[]>>
   scheduling: schedulingActions,
   vault: vaultActions,
   sharing: sharingActions,
-  connections: connectionsActions,
+  mcp: mcpActions,
   analytics: analyticsActions,
 };
 

@@ -57,7 +57,6 @@ export interface SharedRuntimeConfig {
 
   /** Required when `EMAIL_DRIVER=resend`. */
   RESEND_API_KEY?: string;
-  COMPOSIO_API_KEY?: string;
 
   ANALYTICS_ENABLED: boolean;
   POSTHOG_PROJECT_KEY?: string;
@@ -73,7 +72,5 @@ export interface LiveTestFlags {
   LIVE_D1: boolean;
   LIVE_R2: boolean;
   LIVE_TRIGGER: boolean;
-  LIVE_COMPOSIO: boolean;
-  LIVE_OPENAI: boolean;
   LIVE_POSTHOG: boolean;
 }

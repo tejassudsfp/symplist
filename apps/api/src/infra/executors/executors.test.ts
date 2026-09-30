@@ -87,7 +87,7 @@ function job(overrides: Partial<ExecutionJob> & { readonly subjectId: string }):
 }
 
 function contributors(...definitions: ExecutionKindDefinition[]): EventsContributor[] {
-  return [{ domain: "connections", executionKinds: definitions }];
+  return [{ domain: "mcp", executionKinds: definitions }];
 }
 
 async function migratedDb(): Promise<LocalSqliteClient> {

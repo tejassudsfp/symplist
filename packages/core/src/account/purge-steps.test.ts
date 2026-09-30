@@ -6,7 +6,7 @@ import { type KindedExecution, providerPurgeStep, stragglerRunsPurgeStep } from 
 
 const USER = "01996d2a-4c00-7000-8000-00000000a001";
 const OTHER = "01996d2a-4c00-7000-8000-00000000b002";
-const input = { userId: USER, composioUserId: USER };
+const input = { userId: USER };
 
 interface Subject {
   ownerId: string;
@@ -160,15 +160,19 @@ describe("provider purge step (§5.6 step 2)", () => {
   const dependencies = { db: {} as DbClient, now: () => 5 };
 
   it("runs every contributing domain's provider purge and records done only when all are done", async () => {
-    let composioLeft = 2;
-    const connections: PurgeContributor = {
-      domain: "connections",
+    // Nothing implements `purgeProvider` today — connectors left with the server-side agent (note 18)
+    // — so this exercises the seam with contributors of its own. It is kept rather than deleted because
+    // the step is part of a purge's stored progression and the next domain to keep state at a provider
+    // will land here.
+    let slowLeft = 2;
+    const slow: PurgeContributor = {
+      domain: "sharing",
       statements: () => [],
       purgeProvider: vi.fn(async (received, deps) => {
         expect(received).toEqual(input);
         expect(deps).toBe(dependencies);
-        composioLeft -= 1;
-        return composioLeft > 0 ? "incomplete" : "done";
+        slowLeft -= 1;
+        return slowLeft > 0 ? "incomplete" : "done";
       }),
     };
     const other: PurgeContributor = {
@@ -177,7 +181,7 @@ describe("provider purge step (§5.6 step 2)", () => {
       purgeProvider: vi.fn(async () => "done" as const),
     };
     const silent: PurgeContributor = { domain: "tasks", statements: () => [] };
-    const step = providerPurgeStep({ dependencies, contributors: [connections, silent, other] });
+    const step = providerPurgeStep({ dependencies, contributors: [slow, silent, other] });
     expect(await step.run(input)).toBe("incomplete");
     expect(other.purgeProvider).toHaveBeenCalledTimes(1);
     expect(await step.run(input)).toBe("done");
@@ -188,21 +192,24 @@ describe("provider purge step (§5.6 step 2)", () => {
       dependencies,
       contributors: [
         {
-          domain: "connections",
+          domain: "mcp",
           statements: () => [],
           purgeProvider: async () => {
-            throw Object.assign(new Error("down"), { code: "integration.unavailable" });
+            throw Object.assign(new Error("down"), { code: "storage.unavailable" });
           },
         },
       ],
     });
-    await expect(step.run(input)).rejects.toMatchObject({ code: "integration.unavailable" });
+    await expect(step.run(input)).rejects.toMatchObject({ code: "storage.unavailable" });
   });
 
-  it("consults registered provider state and refuses to skip a configured domain's cleanup", async () => {
-    const first = vi.fn(async () => ({ has_provider_state: 1, session_id: "session_pending" }));
+  it("completes without asking anything, because no registered contributor keeps provider state", async () => {
+    // It used to consult one: the connections domain revoked the account's connected accounts at
+    // Composio before the local rows went. Connectors left with the server-side agent (note 18), so the
+    // step has nothing to do — and it must complete rather than stall, or every purge would hang here.
+    const first = vi.fn(async () => ({ has_provider_state: 1 }));
     const registered = { ...dependencies, db: { first } as unknown as DbClient };
-    expect(await providerPurgeStep({ dependencies: registered }).run(input)).toBe("incomplete");
-    expect(first).toHaveBeenCalledOnce();
+    expect(await providerPurgeStep({ dependencies: registered }).run(input)).toBe("done");
+    expect(first).not.toHaveBeenCalled();
   });
 });

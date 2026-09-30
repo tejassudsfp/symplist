@@ -7,7 +7,7 @@ export const featureIds = [
   "scheduling",
   "vault",
   "sharing",
-  "connections",
+  "mcp",
   "analytics",
 ] as const;
 

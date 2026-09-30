@@ -19,7 +19,7 @@ import { type DbRow, int, sql, uuidv7 } from "@symplist/db";
 import { evaluateAccess } from "../access/evaluate.ts";
 import { accessCondition, accessStateFromRow, accessStateSelectList } from "../access/sql.ts";
 import { AccountKeyStore } from "../account/keys.ts";
-import { type ConnectionWriteFold, connectionFoldCompletion } from "../connections/fold.ts";
+import { type ConnectionWriteFold, connectionFoldCompletion } from "./fold.ts";
 import { McpError, type McpIdentity, type McpOptions, mcpField } from "./types.ts";
 
 export interface McpOwner {

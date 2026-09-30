@@ -325,7 +325,6 @@ describe("the restriction routine (§5.5)", () => {
       "scheduling",
       "sharing",
       "mcp",
-      "connections",
     ]);
     // The deciding UPDATE users comes first; feature domains append their guarded statements, which
     // restrictStatements has already checked against the §5.5 rules.

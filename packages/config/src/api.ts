@@ -56,7 +56,6 @@ export interface ApiConfig extends SharedRuntimeConfig {
   CLOUDFLARE_D1_API_TOKEN?: string;
 
   RESEND_WEBHOOK_SECRET?: string;
-  COMPOSIO_WEBHOOK_SECRET?: string;
 
   /** Account deletion requests PostHog person deletion (§5.6). */
   POSTHOG_PERSONAL_API_KEY?: string;
@@ -100,7 +99,6 @@ export const apiVariableShape = {
   CLOUDFLARE_D1_API_TOKEN: credentialVariable(),
 
   RESEND_WEBHOOK_SECRET: credentialVariable(),
-  COMPOSIO_WEBHOOK_SECRET: credentialVariable(),
 
   POSTHOG_PERSONAL_API_KEY: credentialVariable(),
   POSTHOG_PROJECT_ID: optionalPatternVariable(

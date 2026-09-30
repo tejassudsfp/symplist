@@ -9,17 +9,23 @@ import { useAccessApi } from "../api.ts";
 import { problemOf } from "../errors.ts";
 import { IdentityMenu } from "../gate/identity-menu.tsx";
 import { useDestinationGuard } from "../gate/use-destination-guard.ts";
-import { ONBOARDING_CONNECTIONS_PATH } from "../navigation.ts";
+import { APP_HOME_PATH } from "../navigation.ts";
 import { useSessionControls } from "../session.tsx";
 import { EntryFrame, Lede, ScreenHeading } from "../ui/entry-frame.tsx";
 import { TextField } from "../ui/field.tsx";
 import { Notice } from "../ui/notice.tsx";
-import { OnboardingProgress } from "./onboarding-steps.tsx";
 
 /**
- * Onboarding, step one (onboarding_name.md): the only question Symplist asks before the workspace.
- * A saved name is prefilled so a resumed or revisited flow has no second welcome, and a failed save
- * keeps what was typed. Going back never re-locks the account or asks for another invite.
+ * Onboarding (onboarding_name.md): the only question Symplist asks before the workspace, and now the
+ * whole of setup. A saved name is prefilled so a resumed or revisited flow has no second welcome, and a
+ * failed save keeps what was typed. Going back never re-locks the account or asks for another invite.
+ *
+ * There used to be a second page inviting the person to connect services. Connectors left with the
+ * server-side agent (note 18) — Symplist publishes its tools and the assistant is whichever MCP client
+ * the person already uses — so there was nothing left to offer them there. The account's stored
+ * `onboarding_step` still passes through `connections` on its way to `done`, because that is a value in
+ * a column and columns are expand-only; submitting this form now does both transitions in one go, which
+ * is why an account stranded at that step lands back here and completes.
  */
 export function OnboardingName() {
   const api = useAccessApi();
@@ -68,9 +74,11 @@ export function OnboardingName() {
     setFailure(null);
     setSaving(true);
     try {
-      const next = await api.updateDisplayName(value);
-      controls.setMe(next);
-      router.push(ONBOARDING_CONNECTIONS_PATH);
+      await api.updateDisplayName(value);
+      // Two calls, one page. `updateDisplayName` moves the stored step off `name` and this moves it to
+      // `done`; the person sees one submit because there is only one thing left to ask them.
+      controls.setMe(await api.completeOnboarding());
+      router.replace(APP_HOME_PATH);
     } catch (error) {
       const problem = problemOf(error);
       if (problem.kind === "api" && problem.code === "validation") {
@@ -89,7 +97,6 @@ export function OnboardingName() {
 
   return (
     <EntryFrame headerEnd={<IdentityMenu me={me} />}>
-      <OnboardingProgress current="name" />
       <div className="flex flex-col gap-2">
         <ScreenHeading>What should we call you?</ScreenHeading>
         {saved === null ? (

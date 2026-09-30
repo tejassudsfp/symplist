@@ -121,7 +121,6 @@ export const sharedVariableShape = {
   R2_SECRET_ACCESS_KEY: credentialVariable(),
 
   RESEND_API_KEY: credentialVariable(),
-  COMPOSIO_API_KEY: credentialVariable(),
 
   ANALYTICS_ENABLED: booleanVariable(false),
   POSTHOG_PROJECT_KEY: posthogProjectKeyVariable(),

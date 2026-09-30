@@ -27,15 +27,17 @@ export const ACCOUNT_PURGE_LIMITS = Object.freeze({
 });
 
 /**
- * A purge step that runs outside D1 and R2: stopping stragglers (Simon) and deleting connected
- * accounts and the Composio session (connections). It reads only plaintext ids, is idempotent, and
- * returns `incomplete` when it must be resumed later; throwing also leaves the step unrecorded.
+ * A purge step that runs outside D1 and R2: stopping stragglers, and anything a domain keeps at an
+ * external provider. It reads only plaintext ids, is idempotent, and returns `incomplete` when it must
+ * be resumed later; throwing also leaves the step unrecorded.
+ *
+ * It used to carry a `composioUserId` as well, for the step that deleted the account's connected
+ * accounts and its Composio session. Connectors left with the server-side agent (note 18) and nothing
+ * consumes that id, so it is no longer read out of the row — the `composio_user_id` column stays in
+ * `account_deletions`, because migrations are expand-only, and is simply never looked at.
  */
 export interface AccountPurgeExternalStep {
-  run(input: {
-    readonly userId: string;
-    readonly composioUserId: string;
-  }): Promise<"done" | "incomplete">;
+  run(input: { readonly userId: string }): Promise<"done" | "incomplete">;
 }
 
 export interface AccountPurgeRunnerOptions {
@@ -76,18 +78,15 @@ interface DeletionRow {
   readonly status: "pending" | "done";
   readonly stepsDone: readonly AccountPurgeStep[];
   readonly domainsDone: ReadonlySet<string>;
-  readonly composioUserId: string;
   readonly r2Prefix: string;
 }
 
 function parseDeletion(row: DbRow): DeletionRow {
-  const { status, steps_done: steps, composio_user_id: composio, r2_prefix: prefix } = row;
+  const { status, steps_done: steps, r2_prefix: prefix } = row;
   if ((status !== "pending" && status !== "done") || typeof steps !== "string") {
     throw new Error("Unexpected account_deletions row");
   }
-  if (typeof composio !== "string" || typeof prefix !== "string") {
-    throw new Error("Unexpected account_deletions row");
-  }
+  if (typeof prefix !== "string") throw new Error("Unexpected account_deletions row");
   const parsed: unknown = JSON.parse(steps);
   if (!Array.isArray(parsed)) throw new Error("Unexpected account_deletions.steps_done");
   const stepsDone = parsed.filter((step): step is AccountPurgeStep =>
@@ -96,7 +95,7 @@ function parseDeletion(row: DbRow): DeletionRow {
   const domainsDone = new Set(
     parsed.filter((step): step is string => typeof step === "string" && step.startsWith("d1:")),
   );
-  return { status, stepsDone, domainsDone, composioUserId: composio, r2Prefix: prefix };
+  return { status, stepsDone, domainsDone, r2Prefix: prefix };
 }
 
 function positive(name: string, value: number): number {
@@ -172,7 +171,7 @@ export class AccountPurgeRunner {
       case "runs":
       case "composio": {
         const handler = step === "runs" ? this.runs : this.composio;
-        const outcome = await handler.run({ userId, composioUserId: deletion.composioUserId });
+        const outcome = await handler.run({ userId });
         if (outcome !== "done") return false;
         await this.db.run(this.markStep(userId, step));
         return true;

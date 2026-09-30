@@ -65,6 +65,8 @@ export function accessStateFromRow(row: DbRow, prefix = ""): AccessState {
     emailVerifiedAt: nullableIntegerColumn(row, column("email_verified_at")),
     betaState: enumColumn<BetaState>(row, column("beta_state"), ["locked", "unlocked", "relocked"]),
     suspendedAt: nullableIntegerColumn(row, column("suspended_at")),
+    // `connections` is still a stored value: onboarding's second page is gone (note 18) but a column's
+    // values are expand-only, and an account mid-flow when that shipped still has it.
     onboardingStep: enumColumn<OnboardingStep>(row, column("onboarding_step"), [
       "name",
       "connections",
