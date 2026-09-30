@@ -1,0 +1,546 @@
+/* ------------------------------------------------------------------------------------------------
+ * The Vault quick-access panel: the 320 px window the desktop shell opens from the menu bar.
+ *
+ * Every colour is a theme token, so the panel inherits whichever of the six themes the person chose,
+ * in light or dark, without a second palette. Nothing here is a fixed hex: the mockup was drawn in
+ * Studio light, and these rules are that drawing expressed in the tokens Studio light resolves to.
+ *
+ * The panel sizes itself to its content and the shell sizes the window to match, which is why nothing
+ * in here stretches to the viewport — a locked panel is short and an unlocked one is not.
+ * --------------------------------------------------------------------------------------------- */
+
+html:has(.sym-qv),
+html:has(.sym-qv) body {
+  min-height: 0;
+  background: var(--sym-surface);
+  overflow: hidden;
+}
+
+.sym-qv {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  background: var(--sym-surface);
+  color: var(--sym-text);
+  font-family: var(--sym-font);
+  font-size: 13px;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* --- Title bar ------------------------------------------------------------------------------- */
+
+.sym-qv-bar {
+  display: flex;
+  min-height: 40px;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 0 12px;
+  border-bottom: 1px solid var(--sym-line);
+}
+
+.sym-qv-bar-mark {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  color: var(--sym-text);
+}
+
+.sym-qv-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-family: var(--sym-font);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sym-qv-title:focus {
+  outline: none;
+}
+
+.sym-qv-account {
+  flex: none;
+  overflow: hidden;
+  color: var(--sym-faint);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sym-qv-pill {
+  flex: none;
+  padding: 2px 7px;
+  border: 1px solid var(--sym-line);
+  border-radius: 999px;
+  background: var(--sym-bg);
+  color: var(--sym-muted);
+  font-family: var(--sym-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Buttons --------------------------------------------------------------------------------- */
+
+.sym-qv-icon {
+  display: flex;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--sym-r);
+  background: transparent;
+  color: var(--sym-muted);
+  cursor: pointer;
+}
+
+.sym-qv-icon:hover {
+  background: var(--sym-hover);
+  color: var(--sym-text);
+}
+
+.sym-qv-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.sym-qv-primary {
+  display: flex;
+  width: 100%;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--sym-r);
+  background: var(--sym-ink);
+  color: var(--sym-on-ink);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.sym-qv-primary:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.sym-qv-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--sym-link);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.sym-qv-link:hover {
+  text-decoration: underline;
+}
+
+/* --- Centred states: locked, signed out, not created, unreachable ---------------------------- */
+
+.sym-qv-unlock,
+.sym-qv-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 26px 22px 20px;
+  text-align: center;
+}
+
+.sym-qv-unlock :is(h1, h2),
+.sym-qv-empty :is(h1, h2) {
+  margin: 0;
+  font-family: var(--sym-head-font);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.sym-qv-unlock > p,
+.sym-qv-empty > p {
+  max-width: 240px;
+  margin: 0;
+  color: var(--sym-muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.sym-qv-avatar {
+  display: flex;
+  width: 44px;
+  height: 44px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--sym-hover);
+  color: var(--sym-text);
+}
+
+.sym-qv-avatar svg {
+  width: 20px;
+  height: 20px;
+}
+
+.sym-qv-avatar--danger {
+  background: color-mix(in srgb, var(--sym-danger) 12%, var(--sym-surface));
+  color: var(--sym-danger);
+}
+
+.sym-qv-mark {
+  width: 28px;
+  height: 28px;
+  color: var(--sym-text);
+}
+
+.sym-qv-input {
+  width: 100%;
+  height: 38px;
+  margin-top: 8px;
+  padding: 0 12px;
+  border: 1px solid var(--sym-input-border);
+  border-radius: var(--sym-r);
+  background: var(--sym-bg);
+  color: var(--sym-text);
+  font-size: 16px;
+  letter-spacing: 0.2em;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.sym-qv-input[aria-invalid="true"] {
+  border-color: var(--sym-danger);
+}
+
+.sym-qv-error {
+  width: 100%;
+  margin: -2px 0 0;
+  color: var(--sym-danger);
+  font-size: 12px;
+  text-align: left;
+}
+
+.sym-qv-status {
+  margin: 0;
+  padding: 18px 22px;
+  color: var(--sym-muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+/* One shake, and only for people who have not asked motion to stop. */
+.sym-qv-shake {
+  animation: sym-qv-shake 420ms var(--sym-ease, ease);
+}
+
+@keyframes sym-qv-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-6px);
+  }
+  40% {
+    transform: translateX(5px);
+  }
+  60% {
+    transform: translateX(-3px);
+  }
+  80% {
+    transform: translateX(2px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sym-qv-shake {
+    animation: none;
+  }
+}
+
+/* --- Search and the item list ---------------------------------------------------------------- */
+
+.sym-qv-search {
+  display: flex;
+  height: 32px;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 10px 6px;
+  padding: 0 10px;
+  border: 1px solid var(--sym-line-strong);
+  border-radius: var(--sym-r);
+  background: var(--sym-bg);
+}
+
+.sym-qv-search svg {
+  width: 13px;
+  height: 13px;
+  flex: none;
+  color: var(--sym-faint);
+}
+
+.sym-qv-search input {
+  width: 100%;
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: var(--sym-text);
+  font-size: 13px;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.sym-qv-search input:focus-visible {
+  outline: none;
+}
+
+.sym-qv-search kbd {
+  flex: none;
+  padding: 0 4px;
+  border: 1px solid var(--sym-line);
+  border-radius: 4px;
+  color: var(--sym-faint);
+  font-family: var(--sym-mono);
+  font-size: 10.5px;
+}
+
+.sym-qv-list {
+  display: flex;
+  max-height: 260px;
+  flex-direction: column;
+  margin: 0;
+  padding: 0 6px 6px;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.sym-qv-list button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border: 0;
+  border-radius: var(--sym-r);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sym-qv-list button:hover {
+  background: var(--sym-hover);
+}
+
+.sym-qv-list button[aria-current="true"] {
+  background: var(--sym-accent-soft);
+}
+
+.sym-qv-item-icon {
+  display: flex;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--sym-r);
+  background: var(--sym-hover);
+  color: var(--sym-muted);
+}
+
+.sym-qv-list button[aria-current="true"] .sym-qv-item-icon {
+  background: var(--sym-surface);
+  color: var(--sym-accent);
+}
+
+.sym-qv-item-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.sym-qv-item-text {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.sym-qv-item-title {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sym-qv-item-meta {
+  color: var(--sym-muted);
+  font-size: 11.5px;
+}
+
+.sym-qv-return {
+  flex: none;
+  color: var(--sym-muted);
+  font-family: var(--sym-mono);
+  font-size: 10.5px;
+}
+
+.sym-qv-note {
+  margin: 0;
+  color: var(--sym-muted);
+  font-size: 11.5px;
+}
+
+.sym-qv-list + .sym-qv-note,
+.sym-qv-search + .sym-qv-note {
+  padding: 0 14px 8px;
+}
+
+.sym-qv-copied {
+  margin: 0;
+  padding: 0 14px 6px;
+  color: var(--sym-ok);
+  font-size: 11.5px;
+}
+
+/* --- One item ------------------------------------------------------------------------------- */
+
+.sym-qv-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px 14px 16px;
+}
+
+.sym-qv-chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sym-qv-chip {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--sym-hover);
+  color: var(--sym-text);
+  font-size: 11.5px;
+}
+
+.sym-qv-chip-plain {
+  padding: 2px 0;
+  color: var(--sym-muted);
+  font-size: 11.5px;
+}
+
+.sym-qv-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sym-qv-label {
+  color: var(--sym-muted);
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.sym-qv-value {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px 0 12px;
+  border: 1px solid var(--sym-line-strong);
+  border-radius: var(--sym-r);
+  background: var(--sym-bg);
+}
+
+.sym-qv-value--plain {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.sym-qv-value output {
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+  font-family: var(--sym-mono);
+  font-size: 13px;
+  letter-spacing: 0.12em;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.sym-qv-copy {
+  display: flex;
+  height: 28px;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--sym-r);
+  background: var(--sym-hover);
+  color: var(--sym-text);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.sym-qv-copy--done {
+  background: var(--sym-ok-soft);
+  color: var(--sym-ok);
+}
+
+.sym-qv-copy svg {
+  width: 12px;
+  height: 12px;
+}
+
+.sym-qv-note-body {
+  max-height: 180px;
+  margin: 0;
+  overflow-y: auto;
+  color: var(--sym-text);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* --- Footer --------------------------------------------------------------------------------- */
+
+.sym-qv-foot {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--sym-line);
+  color: var(--sym-muted);
+  font-size: 12px;
+}
+
+.sym-qv-keys {
+  flex: none;
+  font-family: var(--sym-mono);
+  font-size: 11px;
+}

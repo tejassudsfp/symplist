@@ -45,8 +45,10 @@ describe("the public homepage", () => {
   it("says it is free and open, with no beta and no gate to get past", () => {
     render(<HomePage />);
     expect(screen.getByText(/Free, with nothing above it/i)).toBeInTheDocument();
-    // The page may say "no invite" — what it must never do is ask for one.
-    expect(screen.getByText(/No invite, no waitlist, no card/i)).toBeInTheDocument();
+    // The page may say "no invite" — what it must never do is ask for one. The sentence moved from
+    // the closing block to the line under the hero's buttons, which is where someone deciding whether
+    // to start actually reads it.
+    expect(screen.getByText(/No password, no invite, no card/i)).toBeInTheDocument();
     expect(screen.queryByText(/beta/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/request an invite|join the waitlist/i)).not.toBeInTheDocument();
   });

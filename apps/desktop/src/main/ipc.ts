@@ -8,6 +8,10 @@
  * `cloud` is the group that makes the rule matter. It holds the session cookie and it takes a URL from the
  * renderer, so its own pinning — api origin, `/v1/` prefix, method allowlist — lives in
  * `cloud/ipc.ts` and runs before the jar is consulted. The sender check here is the outer of the two.
+ *
+ * `vaultPanel` is the group that needed a second check. The quick-access popover and the workspace are
+ * the same origin, so the frame check cannot tell them apart, and these verbs belong to one window. Each
+ * one asks the panel whether the sender is its own `webContents` before doing anything.
  */
 
 import type { IpcMainEvent, IpcMainInvokeEvent, WebFrameMain } from "electron";
@@ -17,6 +21,8 @@ import { ipcChannels } from "../shared/ipc.ts";
 import type { CloudHandlers } from "./cloud/ipc.ts";
 import type { MainLog } from "./log.ts";
 import { externalLinkDecision, isTrustedFrame } from "./navigation.ts";
+import { appPathFor } from "./vault-panel.ts";
+import type { VaultPanelWindow } from "./vault-window.ts";
 
 export interface RegisterIpcOptions {
   /** The renderer origin booted in this run; any other frame is refused. */
@@ -24,6 +30,10 @@ export interface RegisterIpcOptions {
   readonly log: MainLog;
   /** The cloud transport, or null in a shell built without one (the smoke capture path). */
   readonly cloud: CloudHandlers | null;
+  /** The Vault quick-access panel, or null in a shell built without one. */
+  readonly vaultPanel: VaultPanelWindow | null;
+  /** Raises the main workspace window at an app path, for the panel's links out of itself. */
+  readonly openAppPath?: (path: string) => void;
 }
 
 /** Raised for the renderer when a call is refused. It carries no detail the caller did not send. */
@@ -86,4 +96,53 @@ export function registerIpcHandlers(options: RegisterIpcOptions): void {
     handle(ipcChannels.cloudRequest, (payload: unknown) => cloud.request(payload));
     listen(ipcChannels.cloudAbort, (requestId: unknown) => cloud.abort(requestId));
   }
+
+  const vaultPanel = options.vaultPanel;
+  if (!vaultPanel) return;
+
+  /**
+   * The panel's channels take a second check on top of the frame check, because the frame check cannot
+   * separate them: the panel and the workspace are the same origin, so `isTrustedFrame` says yes to
+   * both. These verbs belong to one window — hide me, size me, use the clipboard, raise the workspace —
+   * and the workspace has no business calling any of them.
+   */
+  const fromPanel = (channel: string, senderId: number): boolean => {
+    if (vaultPanel.ownsSender(senderId)) return true;
+    log.warn("ipc.panel_refused", { channel });
+    return false;
+  };
+
+  const handlePanel = <Result>(
+    channel: string,
+    refused: Result,
+    handler: (payload: unknown) => Result | Promise<Result>,
+  ): void => {
+    ipcMain.handle(channel, (event: IpcMainInvokeEvent, payload: unknown) => {
+      if (!trusted(channel, event.senderFrame)) throw untrusted;
+      return fromPanel(channel, event.sender.id) ? handler(payload) : refused;
+    });
+  };
+
+  const listenPanel = (channel: string, handler: (payload: unknown) => void): void => {
+    ipcMain.on(channel, (event: IpcMainEvent, payload: unknown) => {
+      if (!trusted(channel, event.senderFrame)) return;
+      if (fromPanel(channel, event.sender.id)) handler(payload);
+    });
+  };
+
+  listenPanel(ipcChannels.vaultPanelClose, () => vaultPanel.hide());
+  listenPanel(ipcChannels.vaultPanelReport, (payload) => vaultPanel.report(payload));
+  listenPanel(ipcChannels.vaultPanelResize, (payload) => vaultPanel.resize(payload));
+  handlePanel(ipcChannels.vaultPanelCopy, false, (payload) => vaultPanel.copy(payload));
+  handlePanel(ipcChannels.vaultPanelOpenApp, false, (payload) => {
+    // The renderer chooses the path, so the path is allowlisted: without that, "open the app here" is
+    // "navigate the signed-in window anywhere on its own origin".
+    const path = appPathFor(payload);
+    if (path === null) {
+      log.warn("ipc.panel_open_app_refused");
+      return false;
+    }
+    options.openAppPath?.(path);
+    return true;
+  });
 }

@@ -2,8 +2,10 @@
  * Symplist desktop: application lifecycle.
  *
  * Two processes live in this app. **main** (this file) owns everything privileged: the renderer's Next
- * server, and the cloud session and the keychain it is stored in. **renderer** is the unchanged
- * apps/web frontend with no privileges and no network reach of its own.
+ * server, the cloud session and the keychain it is stored in, and the menu-bar item with the Vault
+ * quick-access popover under it. **renderer** is the unchanged apps/web frontend with no privileges and
+ * no network reach of its own — in two windows now, the workspace and that popover, both on the same
+ * local origin and both dataless for the same reason.
  *
  * There used to be a third. `dsh` ran here as a child driven over ACP, because Simon lived inside this
  * app. Note 18 replaced that: Symplist publishes its tools over the api's `/mcp` endpoint and the
@@ -34,6 +36,8 @@ import { createMainLog } from "./log.ts";
 import { type RendererServer, startRendererServer } from "./next-server.ts";
 import { SecretStore } from "./secrets/secret-store.ts";
 import { captureWindow, smokeCapturePath } from "./smoke.ts";
+import { createVaultTray, type VaultTray } from "./tray.ts";
+import { createVaultPanelWindow, type VaultPanelWindow } from "./vault-window.ts";
 import { createMainWindow } from "./window.ts";
 
 /**
@@ -47,6 +51,8 @@ const log = createMainLog();
 let rendererServer: RendererServer | null = null;
 let mainWindow: BrowserWindow | null = null;
 let cloudHandlers: CloudHandlers | null = null;
+let vaultPanel: VaultPanelWindow | null = null;
+let vaultTray: VaultTray | null = null;
 /** Resolved by `whenReady`; the secret store refuses to answer before that, and would answer wrongly. */
 let electronReady = false;
 
@@ -74,7 +80,8 @@ app.on("second-instance", () => {
 });
 
 app.on("window-all-closed", () => {
-  // macOS keeps the app in the Dock with no window; every other platform quits.
+  // macOS keeps the app in the Dock with no window; every other platform quits. The Vault panel is not
+  // a window in this sense — it is hidden, not closed — so it never keeps the app alive on its own.
   if (process.platform !== "darwin") app.quit();
 });
 
@@ -84,6 +91,9 @@ app.on("before-quit", () => {
   if (server) void server.stop();
   // A request still in flight would resolve into a window that no longer exists.
   cloudHandlers?.abortAll();
+  // Takes a copied vault value back off the clipboard and drops the menu-bar item.
+  vaultPanel?.destroy();
+  vaultTray?.destroy();
 });
 
 /** The staged web build: under `Resources` when packaged, under `build/` when run from the workspace. */
@@ -120,6 +130,12 @@ async function startCloud(
   readonly handlers: CloudHandlers;
   /** Where the session is persisted, and where an offline mode will keep its content key. */
   readonly store: SecretStore;
+  /**
+   * Drops the vault cookie without touching the sign-in session: the local half of locking the vault,
+   * used when the quick-access panel closes. It is the jar's `clearVolatile` tier and nothing else, so
+   * it cannot sign anyone out, and it needs no network — which is the point of having it.
+   */
+  readonly relockVault: () => void;
 }> {
   const jar = new CookieJar();
   const store = new SecretStore({
@@ -144,8 +160,10 @@ async function startCloud(
     log,
     onSessionEnded: () => {
       // The web app turns this into `markSignedOut({ expired: true })`, which routes to sign-in with the
-      // notice it already has for a session that ended on its own.
+      // notice it already has for a session that ended on its own. Both windows are told: without this
+      // the Vault panel would keep showing a list until its next request answered 401.
       rendererWindow()?.webContents.send(ipcEvents.cloudSessionEnded);
+      vaultPanel?.sessionEnded();
       void clearSessionHint(hintTarget).catch((error: unknown) => {
         log.warn("cloud.hint_clear_failed", { message: String(error) });
       });
@@ -186,6 +204,7 @@ async function startCloud(
       log,
     }),
     store,
+    relockVault: () => jar.clearVolatile(),
   };
 }
 
@@ -209,40 +228,80 @@ async function start(): Promise<void> {
   const cloud = await startCloud(cloudConfig, () => mainWindow, rendererOrigin);
   cloudHandlers = cloud.handlers;
 
-  registerIpcHandlers({ rendererOrigin, log, cloud: cloudHandlers });
-
-  const window = createMainWindow({
+  const preloadPath = join(import.meta.dirname, "preload.cjs");
+  const windowOptions = {
     rendererOrigin,
-    preloadPath: join(import.meta.dirname, "preload.cjs"),
+    preloadPath,
     appVersion: app.getVersion(),
     apiOrigin: cloudConfig.apiOrigin,
     log,
+  };
+
+  /**
+   * Raises the workspace at a path, building the window if it is gone — which on macOS it often is,
+   * because closing the last window does not quit the app. This is what the Vault panel's links out of
+   * itself do, and what Dock activation does.
+   */
+  const showWorkspace = (path = "/"): void => {
+    const existing = mainWindow;
+    if (existing && !existing.isDestroyed()) {
+      void existing.loadURL(`${rendererOrigin}${path}`);
+      if (existing.isMinimized()) existing.restore();
+      existing.show();
+      existing.focus();
+      return;
+    }
+    const reopened = createMainWindow(windowOptions);
+    mainWindow = reopened;
+    reopened.once("closed", () => {
+      mainWindow = null;
+    });
+    void reopened.loadURL(`${rendererOrigin}${path}`);
+  };
+
+  // The quick-access panel and its menu-bar item. Built before the IPC registry, because the registry
+  // refuses the panel's channels from any sender but this window; and before the tray, which it reads
+  // the anchor from — lazily, since the tray is built from the panel in turn.
+  const smoke = smokeCapturePath();
+  if (!smoke) {
+    vaultPanel = createVaultPanelWindow({
+      ...windowOptions,
+      anchor: () => vaultTray?.bounds() ?? { x: 0, y: 0, width: 0, height: 0 },
+      relockVault: cloud.relockVault,
+      onStateChange: () => vaultTray?.refresh(),
+    });
+    vaultTray = createVaultTray({ log, panel: vaultPanel, openApp: showWorkspace });
+  }
+
+  registerIpcHandlers({
+    rendererOrigin,
+    log,
+    cloud: cloudHandlers,
+    vaultPanel,
+    openAppPath: showWorkspace,
   });
+
+  const window = createMainWindow(windowOptions);
   mainWindow = window;
   window.once("closed", () => {
     mainWindow = null;
   });
 
-  // macOS reopens a window on Dock activation; the server is already running, so this is cheap.
+  // macOS reopens a window on Dock activation; the server is already running, so this is cheap. The
+  // Vault panel is not counted: it is a popover, and activating the Dock icon asks for the workspace.
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length > 0) return;
-    const reopened = createMainWindow({
-      rendererOrigin,
-      preloadPath: join(import.meta.dirname, "preload.cjs"),
-      appVersion: app.getVersion(),
-      apiOrigin: cloudConfig.apiOrigin,
-      log,
-    });
-    mainWindow = reopened;
-    void reopened.loadURL(rendererOrigin);
+    const workspaceOpen = BrowserWindow.getAllWindows().some(
+      (candidate) => !vaultPanel?.ownsSender(candidate.webContents.id),
+    );
+    if (workspaceOpen) return;
+    showWorkspace();
   });
 
   await window.loadURL(rendererOrigin);
   log.info("window.loaded", { url: window.webContents.getURL() });
 
-  const capturePath = smokeCapturePath();
-  if (capturePath) {
-    await captureWindow(window, capturePath, log);
+  if (smoke) {
+    await captureWindow(window, smoke, log);
     app.quit();
   }
 }
