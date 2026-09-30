@@ -25,7 +25,6 @@ export * from "./connections/mcp.ts";
 export * from "./connections/mcp-tools.ts";
 export * from "./connections/oauth.ts";
 export * from "./connections/tools.ts";
-export * from "./desktop/acp.ts";
 export * from "./documents/dto.ts";
 export * from "./documents/errors.ts";
 export * from "./documents/events.ts";
