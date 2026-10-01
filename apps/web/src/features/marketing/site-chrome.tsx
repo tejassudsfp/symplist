@@ -14,8 +14,14 @@ export const SITE = Object.freeze({
   maintainer: "Tejas Parthasarathi Sudarshan",
   maintainerUrl: "https://tejassuds.com",
   contact: "hello@symplist.app",
-  /** The releases page, which always points at the newest signed build. */
+  /** The releases page, for notes and older builds. */
   releases: "https://github.com/tejassudsfp/symplist/releases/latest",
+  /**
+   * The newest signed build itself. Straight at the file, not the releases page: it is one click
+   * instead of two, and it makes GitHub's own download counter a measure of this page. The name
+   * carries no version for exactly that reason.
+   */
+  download: "https://github.com/tejassudsfp/symplist/releases/latest/download/Symplist-arm64.dmg",
   privacyContact: "privacy@symplist.app",
   securityContact: "security@symplist.app",
 });

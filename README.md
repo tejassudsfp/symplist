@@ -8,6 +8,10 @@ A calm, open-source task workspace. Every task has one editable Markdown page wi
 
 [Quickstart](#run-locally) · [Self-hosting guide](SELF_HOSTING.md) · [Product specification](docs/notes/files/01_product.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [MIT license](LICENSE)
 
+![The Symplist workspace: three lists on the left, the selected task's Markdown page on the right](docs/images/workspace.png)
+
+<p align="center"><em>Three lists, and a real Markdown page behind every task.</em></p>
+
 ## What you get
 
 - **A focused workspace** — Now / Later / Unclassified inboxes, subtasks, drag-and-drop and keyboard movement, archive/restore, and a responsive task list and page.
@@ -19,6 +23,31 @@ A calm, open-source task workspace. Every task has one editable Markdown page wi
 - **Personal appearance** — Studio, Paper, Pebble, Postcard, Meadow, and Tide styles, independent preset/custom accent colors, and Light/Dark/System modes.
 - **Private storage** — encrypted task content at rest and a separately unlocked Vault for sensitive notes and keys.
 - **Your assistant, connected** — 20 scoped tools over MCP with OAuth consent, per-grant task scoping, and revocation you control.
+
+## A closer look
+
+<table>
+<tr>
+<td width="50%"><img src="docs/images/history.png" alt="A task page beside its Git history: four commits with their hashes and times, and a restore that saves as a new commit"></td>
+<td width="50%"><img src="docs/images/vault.png" alt="The Vault quick-access panel hanging from the macOS menu bar, asking for a passphrase"></td>
+</tr>
+<tr>
+<td><strong>Real Git history.</strong> Every save is a commit. Pick an older version and restore it; nothing is thrown away either way.</td>
+<td><strong>A vault of its own.</strong> On macOS, the menu bar opens a small panel for one secret without opening the workspace.</td>
+</tr>
+</table>
+
+![The six themes, each drawn as the app it produces: Studio, Paper, Pebble, Postcard, Meadow and Tide](docs/images/themes.png)
+
+<p align="center"><em>Six themes. Each changes type, spacing and shape, not just colour, and each comes in light and dark.</em></p>
+
+## Install
+
+| | |
+| --- | --- |
+| **macOS** | [Download the signed .dmg](https://github.com/tejassudsfp/symplist/releases/latest/download/Symplist-arm64.dmg) — Apple silicon, signed and notarized |
+| **iOS · iPadOS · Android** | Open [symplist.app](https://symplist.app) and add it to your home screen |
+| **Windows · anywhere else** | [symplist.app](https://symplist.app) in any browser |
 
 ## Project status
 

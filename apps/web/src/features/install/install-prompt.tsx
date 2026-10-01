@@ -1,25 +1,27 @@
 "use client";
 
+import { Share, SquarePlus, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
+import { SymplistMark } from "@/components/brand/logo";
 
 /**
- * Offering to install Symplist, on the platforms that can.
+ * Offering to install Symplist, where a phone can actually do it.
  *
- * Two different things wear one label here, because to the person they are the same thing:
+ * Two platforms wear one banner, because to the person they are the same wish:
  *
- * - **Chrome, Edge and Android** fire `beforeinstallprompt`, which can be deferred and replayed from
- *   a real click. That is a true one-tap install.
- * - **iOS and iPadOS** never fire it. Safari installs only from its own Share → Add to Home Screen,
- *   and no script can open that sheet. So on iOS this tells them where it is rather than pretending
- *   to do it for them — a button that looks like it installs and then does nothing is worse than a
- *   sentence that explains.
+ * - **Android and Chromium** fire `beforeinstallprompt`, which can be held and replayed from a real
+ *   click. That is a true one-tap install.
+ * - **iOS and iPadOS** never fire it. Safari installs only from its own Share sheet, and no script can
+ *   open that sheet — so this shows the two taps, with the system's own icons, instead of a button
+ *   that would look like it installs and then do nothing.
  *
- * It renders nothing at all when the app is already installed, when the browser cannot install, or
- * once the person has dismissed it. Nobody needs to be asked twice.
+ * Dismissal lasts the session, not forever. Installing is the kind of thing somebody means to do and
+ * then doesn't, and a hint they met once on a first visit is a hint they will never see again. It is
+ * still one tap to clear, and it never returns once the app is installed, because `display-mode:
+ * standalone` is true from inside it.
  */
 
-/** The event Chromium fires; not in the DOM lib, because it is not standard. */
+/** The event Chromium fires; not in the DOM lib, because it is not a standard. */
 interface InstallPromptEvent extends Event {
   prompt: () => Promise<void>;
   readonly userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
@@ -27,7 +29,7 @@ interface InstallPromptEvent extends Event {
 
 const DISMISSED_KEY = "symplist.install.dismissed";
 
-/** Whether the page is already running as an installed app, on either platform's spelling. */
+/** Already running as an installed app, on either platform's spelling of it. */
 function isInstalled(): boolean {
   if (typeof window === "undefined") return false;
   const standalone = window.matchMedia?.("(display-mode: standalone)").matches ?? false;
@@ -36,38 +38,44 @@ function isInstalled(): boolean {
   return standalone || iosStandalone;
 }
 
-/** iOS and iPadOS, including an iPad reporting itself as a Mac — which it does, with a touch screen. */
-function isApplePortable(): boolean {
+/** iOS or iPadOS — including an iPad, which calls itself a Macintosh and gives itself away by touch. */
+function isIos(): boolean {
   if (typeof navigator === "undefined") return false;
   const ua = navigator.userAgent;
   if (/iPhone|iPad|iPod/.test(ua)) return true;
   return /Macintosh/.test(ua) && navigator.maxTouchPoints > 1;
 }
 
-export function InstallPrompt({ className }: { readonly className?: string }) {
+/** Session-scoped, so a dismissal lasts the visit and the offer returns on the next one. */
+function readDismissed(): boolean {
+  try {
+    return window.sessionStorage.getItem(DISMISSED_KEY) === "1";
+  } catch {
+    // A private window can throw. An unreadable store just means the offer shows.
+    return false;
+  }
+}
+
+export function InstallPrompt() {
   const [event, setEvent] = useState<InstallPromptEvent | null>(null);
-  const [showIosHint, setShowIosHint] = useState(false);
-  const [dismissed, setDismissed] = useState(true);
+  const [ios, setIos] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [showSteps, setShowSteps] = useState(false);
 
   useEffect(() => {
-    if (isInstalled()) return;
-    // A refused offer stays refused. Browser storage can throw in a private window, and a prompt that
-    // cannot remember a dismissal is better than a screen that cannot render.
-    try {
-      if (window.localStorage.getItem(DISMISSED_KEY) === "1") return;
-    } catch {
-      // Ignored: an unreadable store just means the offer is shown again.
+    if (isInstalled() || readDismissed()) return;
+    if (isIos()) {
+      setIos(true);
+      setOpen(true);
     }
-    setDismissed(false);
-    if (isApplePortable()) setShowIosHint(true);
-
     const onPrompt = (incoming: Event) => {
-      // Chromium shows its own mini-infobar unless this is called; we want it on our terms.
+      // Chromium shows a mini-infobar of its own unless this is called.
       incoming.preventDefault();
       setEvent(incoming as InstallPromptEvent);
+      setOpen(true);
     };
     window.addEventListener("beforeinstallprompt", onPrompt);
-    const onInstalled = () => setEvent(null);
+    const onInstalled = () => setOpen(false);
     window.addEventListener("appinstalled", onInstalled);
     return () => {
       window.removeEventListener("beforeinstallprompt", onPrompt);
@@ -75,41 +83,67 @@ export function InstallPrompt({ className }: { readonly className?: string }) {
     };
   }, []);
 
-  const close = () => {
-    setDismissed(true);
+  const dismiss = () => {
+    setOpen(false);
     try {
-      window.localStorage.setItem(DISMISSED_KEY, "1");
+      window.sessionStorage.setItem(DISMISSED_KEY, "1");
     } catch {
-      // Ignored: the offer returns next time, which is the harmless failure.
+      // Ignored: the offer returns sooner, which is the harmless failure.
     }
   };
 
-  if (dismissed || (!event && !showIosHint)) return null;
+  if (!open) return null;
 
   return (
-    <div className={className} data-testid="install-prompt">
-      {event ? (
-        <Button
-          size="sm"
-          variant="secondary"
-          onClick={async () => {
-            await event.prompt();
-            const { outcome } = await event.userChoice;
-            if (outcome === "accepted") setEvent(null);
-            close();
-          }}
-        >
-          Install Symplist
-        </Button>
-      ) : (
-        <p className="m-0 text-[12.5px] text-sym-muted">
-          Add Symplist to your home screen: <span className="text-sym-text">Share</span> →{" "}
-          <span className="text-sym-text">Add to Home Screen</span>.
-        </p>
-      )}
-      <Button size="sm" variant="ghost" onClick={close}>
-        Not now
-      </Button>
-    </div>
+    <section className="sym-install" aria-label="Install Symplist">
+      <div className="sym-install-row">
+        <span aria-hidden="true" className="sym-install-icon">
+          <SymplistMark />
+        </span>
+        <span className="sym-install-text">
+          <strong>Install Symplist</strong>
+          <span className="sym-install-sub">Your list, one tap from the home screen.</span>
+        </span>
+        {event ? (
+          <button
+            type="button"
+            className="sym-install-action"
+            onClick={async () => {
+              await event.prompt();
+              const { outcome } = await event.userChoice;
+              if (outcome === "accepted") setOpen(false);
+              else dismiss();
+            }}
+          >
+            Install
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="sym-install-action"
+            aria-expanded={showSteps}
+            onClick={() => setShowSteps((shown) => !shown)}
+          >
+            How
+          </button>
+        )}
+        <button type="button" className="sym-install-close" aria-label="Not now" onClick={dismiss}>
+          <X size={16} strokeWidth={2} aria-hidden="true" />
+        </button>
+      </div>
+      {ios && showSteps ? (
+        /* Safari's own two taps, with its own icons, because nothing here can perform them. */
+        <ol className="sym-install-steps">
+          <li>
+            <Share size={15} strokeWidth={1.9} aria-hidden="true" />
+            Tap <strong>Share</strong> at the bottom of Safari
+          </li>
+          <li>
+            <SquarePlus size={15} strokeWidth={1.9} aria-hidden="true" />
+            Choose <strong>Add to Home Screen</strong>
+          </li>
+        </ol>
+      ) : null}
+    </section>
   );
 }
