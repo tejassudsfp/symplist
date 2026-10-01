@@ -14,6 +14,8 @@ export const SITE = Object.freeze({
   maintainer: "Tejas Parthasarathi Sudarshan",
   maintainerUrl: "https://tejassuds.com",
   contact: "hello@symplist.app",
+  /** The releases page, which always points at the newest signed build. */
+  releases: "https://github.com/tejassudsfp/symplist/releases/latest",
   privacyContact: "privacy@symplist.app",
   securityContact: "security@symplist.app",
 });

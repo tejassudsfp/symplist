@@ -2,6 +2,7 @@ import Link from "next/link";
 import { SymplistMark } from "@/components/brand/logo";
 import { PageAppearanceProvider } from "./appearance";
 import { AskYourAi } from "./ask-your-ai";
+import { DownloadForMac } from "./download-mac";
 import { SITE, SiteFooter, SiteHeader } from "./site-chrome";
 import { ThemeCards } from "./theme-cards";
 import { ThemeSwitcher } from "./theme-switcher";
@@ -101,6 +102,8 @@ export function HomeScreen() {
                 <GitHubMark />
                 Read the source
               </a>
+              {/* Only renders on a Mac, where a .dmg is a thing the visitor can actually open. */}
+              <DownloadForMac />
             </div>
             <p className="sym-hero-fine">
               Sign in with an email code. No password, no invite, no card.

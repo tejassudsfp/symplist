@@ -1920,3 +1920,8 @@
     display: none;
   }
 }
+
+/* The Mac download sits with the hero's other actions and carries the Apple mark at text weight. */
+.sym-download-mac {
+  gap: 9px;
+}
