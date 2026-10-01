@@ -238,9 +238,9 @@ describe("email verification (email_otp.md)", () => {
     expect(await screen.findByText("We couldn't send the code")).toBeInTheDocument();
   });
 
-  it("says that a code never unlocks beta access", async () => {
+  it("says that a new code replaces the one before it", async () => {
     renderVerify();
-    expect(await screen.findByText(/they never unlock beta\s+access/)).toBeInTheDocument();
+    expect(await screen.findByText(/A new code replaces the previous one/)).toBeInTheDocument();
   });
 
   it("stays on the code step after a reload, while session storage is still being read", async () => {
@@ -276,9 +276,7 @@ describe("email verification (email_otp.md)", () => {
     });
     renderVerify(api);
     expect(
-      await screen.findByText(
-        /Verifying confirms who you are; opening the app still needs an invite/,
-      ),
+      await screen.findByText(/That is the last step . the list is open once you are in/),
     ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Send a new code" }));
     await waitFor(() => expect(api.signup).toHaveBeenCalledWith("maya@example.com"));

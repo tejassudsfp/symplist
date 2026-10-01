@@ -55,12 +55,14 @@ function renderEntry(api = createFakeAccessApi()) {
 }
 
 describe("email entry (email_entry.md)", () => {
-  it("shows one field, Continue and the closed-beta note, with no password or invite field", async () => {
+  it("shows one field, Continue and the open-admission note, with no password or invite field", async () => {
     renderEntry();
     expect(await screen.findByRole("heading", { name: "Sign in to Symplist" })).toBeInTheDocument();
     expect(screen.getByLabelText("Email")).toHaveValue("");
     expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
-    expect(screen.getByText(/Closed beta\./)).toBeInTheDocument();
+    // Admission is open, so the screen says so. What it must never do is ask for an invite, which the
+    // query below still checks.
+    expect(screen.getByText(/Free and open\./)).toBeInTheDocument();
     expect(screen.queryByLabelText(/password/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/invite/i)).not.toBeInTheDocument();
   });

@@ -236,8 +236,8 @@ export function EmailEntry() {
         </Button>
       </form>
       <Notice tone="info" live="none">
-        <span className="font-medium">Closed beta.</span> Anyone can register, but opening the app
-        needs an invite code that Symplist's owner shares personally.
+        <span className="font-medium">Free and open.</span> No invite, no waitlist and no card — a
+        code to your email is the whole of it.
       </Notice>
     </EntryFrame>
   );
