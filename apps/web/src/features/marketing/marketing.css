@@ -1615,3 +1615,260 @@
     padding-top: 60px;
   }
 }
+
+/* ------------------------------------------------------------------------------------------------
+ * The Vault quick-access panel.
+ *
+ * Drawn here rather than imported from `features/vault`, because that stylesheet is written for a
+ * 320px Electron popover with its own window chrome, and this is a picture of one sitting on a page.
+ * The copy and the proportions are the panel's own; every colour is a theme token.
+ * --------------------------------------------------------------------------------------------- */
+
+.sym-vault-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 52px;
+}
+
+.sym-vault-head .sym-section-lede {
+  max-width: 360px;
+  margin: 0;
+}
+
+/*
+ * The panel hangs from the item, so it is aligned under the mark on the right rather than centred —
+ * centred, it read as a dialog that happened to share a page with a menu bar.
+ */
+.sym-vault-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  padding: 0 70px 28px 0;
+  border: 1px solid var(--sym-line);
+  border-radius: calc(var(--sym-rl) + 12px);
+  background: var(--sym-panel);
+}
+
+.sym-vault-menubar {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  width: 100%;
+  height: 28px;
+  padding: 0 16px;
+  border-radius: calc(var(--sym-rl) + 11px) calc(var(--sym-rl) + 11px) 0 0;
+  border-bottom: 1px solid var(--sym-line);
+  background: var(--sym-chrome-bg);
+  color: var(--sym-chrome-muted);
+  font-size: 12px;
+}
+
+.sym-vault-menubar-app {
+  color: var(--sym-chrome-text);
+  font-weight: 600;
+}
+
+.sym-vault-menubar-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  margin-left: auto;
+}
+
+/* The mark in the menu bar is the item the panel hangs from, so it carries the page's text colour. */
+.sym-vault-menubar-mark {
+  width: 15px;
+  height: 15px;
+  color: var(--sym-chrome-text);
+}
+
+.sym-vault-panel {
+  width: min(320px, 100%);
+  margin-top: 10px;
+  overflow: hidden;
+  border: 1px solid var(--sym-line);
+  border-radius: var(--sym-rl);
+  background: var(--sym-surface);
+  text-align: left;
+  box-shadow: 0 18px 46px -20px rgb(0 0 0 / 0.3);
+}
+
+.sym-vault-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--sym-line);
+}
+
+.sym-vault-panel-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.sym-vault-who,
+.sym-vault-timer {
+  margin-left: auto;
+  color: var(--sym-muted);
+  font-size: 12px;
+}
+
+.sym-vault-locked {
+  padding: 16px 14px 14px;
+}
+
+.sym-vault-locked h3 {
+  margin: 0;
+  font-family: var(--sym-head-font);
+  font-size: 14.5px;
+  font-weight: 600;
+}
+
+.sym-vault-locked p {
+  margin: 6px 0 0;
+  color: var(--sym-muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.sym-vault-form {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.sym-vault-form input {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--sym-input-border);
+  border-radius: var(--sym-r);
+  background: var(--sym-bg);
+  color: var(--sym-text);
+  font-size: 13px;
+  outline: none;
+}
+
+.sym-vault-form input:focus {
+  border-color: var(--sym-accent);
+  box-shadow: 0 0 0 3px var(--sym-accent-soft);
+}
+
+.sym-vault-form button {
+  flex: none;
+  height: 32px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--sym-r);
+  background: var(--sym-accent);
+  color: var(--sym-on-accent);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.sym-vault-form button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.sym-vault-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 10px 2px;
+  padding: 0 8px 0 10px;
+  height: 30px;
+  border: 1px solid var(--sym-input-border);
+  border-radius: var(--sym-r);
+  color: var(--sym-muted);
+  font-size: 12.5px;
+}
+
+.sym-vault-search span:first-of-type {
+  flex: 1;
+}
+
+.sym-vault-items {
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+}
+
+.sym-vault-items li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 8px;
+  border-radius: var(--sym-r);
+}
+
+.sym-vault-items li:first-child {
+  background: var(--sym-selected);
+}
+
+.sym-vault-item-title {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.sym-vault-item-meta {
+  color: var(--sym-muted);
+  font-size: 11.5px;
+}
+
+.sym-vault-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-top: 1px solid var(--sym-line);
+  color: var(--sym-muted);
+  font-size: 11.5px;
+}
+
+.sym-vault-foot span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sym-vault-foot button {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: var(--sym-muted);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.sym-vault-foot button:hover {
+  color: var(--sym-text);
+}
+
+.sym-vault-note {
+  margin-top: 16px;
+  text-align: center;
+}
+
+@media (max-width: 759px) {
+  .sym-vault-head {
+    margin-bottom: 32px;
+  }
+
+  .sym-vault-stage {
+    align-items: center;
+    padding: 0 0 20px;
+  }
+
+  .sym-vault-menubar span:not(.sym-vault-menubar-app):not(.sym-vault-menubar-right) {
+    display: none;
+  }
+}
