@@ -1,7 +1,6 @@
 "use client";
 
 import { Moon, Sun } from "lucide-react";
-import { accentPresets, resolveAccent } from "@/theme/accent";
 import { renderedPalette } from "@/theme/palette";
 import { themes } from "@/theme/registry";
 import { usePageAppearance } from "./appearance";
@@ -24,7 +23,13 @@ export function ThemeSwitcher() {
         <legend className="sr-only">Choose a theme for this page</legend>
         {themeChips.map((chip) => {
           const palette = renderedPalette(themes[chip.id], mode);
-          const accent = resolveAccent(accentPresets.blue.seed, themes[chip.id], mode);
+          /*
+           * The theme's OWN accent, not the account's. Every swatch used to resolve the same blue
+           * seed, so six chips painted the same pale disc with the same blue half and the row read as
+           * one icon repeated. `sampleAccents` is what the registry keeps for exactly this: it is
+           * "never rendered" as the app's accent, which a swatch illustrating a theme is not.
+           */
+          const accent = themes[chip.id].sampleAccents[mode];
           const active = chip.id === themeId;
           return (
             <button

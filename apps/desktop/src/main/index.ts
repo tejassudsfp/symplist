@@ -40,6 +40,9 @@ import { createVaultTray, type VaultTray } from "./tray.ts";
 import { createVaultPanelWindow, type VaultPanelWindow } from "./vault-window.ts";
 import { createMainWindow } from "./window.ts";
 
+/** The shell opens the list, never the public homepage that ships in the same server. */
+const WORKSPACE_PATH = "/now";
+
 /**
  * The one environment variable that separates development from a packaged app: set it to the `next dev`
  * origin and the app loads that instead of booting the staged standalone build. Everything else —
@@ -242,7 +245,7 @@ async function start(): Promise<void> {
    * because closing the last window does not quit the app. This is what the Vault panel's links out of
    * itself do, and what Dock activation does.
    */
-  const showWorkspace = (path = "/"): void => {
+  const showWorkspace = (path: string = WORKSPACE_PATH): void => {
     const existing = mainWindow;
     if (existing && !existing.isDestroyed()) {
       void existing.loadURL(`${rendererOrigin}${path}`);
@@ -297,7 +300,12 @@ async function start(): Promise<void> {
     showWorkspace();
   });
 
-  await window.loadURL(rendererOrigin);
+  /*
+   * The workspace, not `/`. The staged server is the whole web app, and `/` is its public homepage —
+   * so the shell opened on the marketing site, which is a page for people who have not installed the
+   * app. `/now` is the list, and the gate sends an unauthenticated visitor to `/signin` from there.
+   */
+  await window.loadURL(`${rendererOrigin}${WORKSPACE_PATH}`);
   log.info("window.loaded", { url: window.webContents.getURL() });
 
   if (smoke) {

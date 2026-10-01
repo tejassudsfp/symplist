@@ -1,5 +1,5 @@
 /**
- * The menu-bar item: a padlock that opens the Vault quick-access panel under it.
+ * The menu-bar item: the Symplist mark, opening the Vault quick-access panel under it.
  *
  * Left-click toggles the panel, right-click opens the native menu, and ⇧⌘V does the same from whatever
  * app is in front — the panel does not need the main window, or the Dock, or anything else from
@@ -21,7 +21,7 @@
 
 import { app, globalShortcut, Menu, nativeImage, Tray } from "electron";
 import type { MainLog } from "./log.ts";
-import { padlockDataUrl } from "./tray-icon.ts";
+import { markDataUrl } from "./tray-icon.ts";
 import type { Rectangle } from "./vault-panel.ts";
 import type { VaultPanelWindow } from "./vault-window.ts";
 
@@ -49,11 +49,15 @@ export interface VaultTray {
   destroy(): void;
 }
 
-function padlockImage(open: boolean): Electron.NativeImage {
-  const image = nativeImage.createFromDataURL(padlockDataUrl({ open, size: ICON_POINTS }));
+/*
+ * One image, drawn once. The icon is the Symplist mark and does not change with the vault's state —
+ * the tooltip still says which it is, and the panel says it plainly.
+ */
+function markImage(): Electron.NativeImage {
+  const image = nativeImage.createFromDataURL(markDataUrl({ size: ICON_POINTS }));
   image.addRepresentation({
     scaleFactor: 2,
-    dataURL: padlockDataUrl({ open, size: ICON_POINTS * 2 }),
+    dataURL: markDataUrl({ size: ICON_POINTS * 2 }),
   });
   // macOS then owns the colour: light bar, dark bar, and the inverted highlight while the menu is open.
   image.setTemplateImage(true);
@@ -62,14 +66,13 @@ function padlockImage(open: boolean): Electron.NativeImage {
 
 export function createVaultTray(options: VaultTrayOptions): VaultTray {
   const { log, panel } = options;
-  const tray = new Tray(padlockImage(false));
+  const tray = new Tray(markImage());
   tray.setToolTip("Symplist Vault");
   tray.setIgnoreDoubleClickEvents(true);
   let menu = Menu.buildFromTemplate([]);
 
   const refresh = (): void => {
     const state = panel.state();
-    tray.setImage(padlockImage(state.unlocked));
     tray.setToolTip(state.unlocked ? "Symplist Vault — unlocked" : "Symplist Vault");
     menu = Menu.buildFromTemplate([
       {
@@ -96,7 +99,7 @@ export function createVaultTray(options: VaultTrayOptions): VaultTray {
     ]);
     // Linux emits no tray click events at all, so there the attached menu is the only way in and it has
     // to be attached. On macOS an attached menu claims the **left** click too, which would leave the
-    // padlock opening a menu instead of the panel — so there the menu is popped up by hand instead.
+    // the item opening a menu instead of the panel — so there the menu is popped up by hand instead.
     if (process.platform !== "darwin") tray.setContextMenu(menu);
   };
 

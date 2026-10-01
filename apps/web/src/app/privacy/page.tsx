@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { LegalPage } from "@/features/marketing/site-chrome";
+import { LegalPage, SITE } from "@/features/marketing/site-chrome";
 
 export const metadata: Metadata = {
   title: "Privacy — Symplist",
@@ -40,6 +40,13 @@ export default function PrivacyPage() {
           PostHog’s privacy information
         </a>{" "}
         for its subprocessors and handling.
+      </p>
+      <h2>Contact</h2>
+      <p>
+        <a href={`mailto:${SITE.privacyContact}`}>{SITE.privacyContact}</a> for anything about your
+        data, a copy of it, or its deletion. To report a vulnerability privately, write to{" "}
+        <a href={`mailto:${SITE.securityContact}`}>{SITE.securityContact}</a> rather than opening a
+        public issue.
       </p>
     </LegalPage>
   );
