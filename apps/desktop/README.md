@@ -82,7 +82,7 @@ Signing needs all four:
 
 | Variable | What it is |
 | --- | --- |
-| `CSC_NAME` *or* `CSC_LINK` | the Developer ID Application certificate: its keychain name, or a .p12 |
+| `CSC_NAME` *or* `CSC_LINK` | the certificate, **without** its `Developer ID Application:` prefix — electron-builder picks the type itself and refuses the full string |
 | `APPLE_ID` | the Apple ID that owns the Developer Program membership |
 | `APPLE_APP_SPECIFIC_PASSWORD` | from appleid.apple.com → Sign-In and Security → App-Specific Passwords |
 | `APPLE_TEAM_ID` | the ten-character team identifier |

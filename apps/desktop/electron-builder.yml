@@ -61,6 +61,11 @@ mac:
 
 dmg:
   artifactName: ${productName}-${version}-${arch}.${ext}
+  # electron-builder signs the .app and then wraps it, leaving the disk image itself unsigned — and an
+  # unsigned image is what Gatekeeper is handed first on a download. `spctl` reported "no usable
+  # signature" on the first signed build for exactly that reason, while the app inside was fine.
+  # Apple's guidance is to sign the image too, so it is signed, notarized and stapled in its own right.
+  sign: true
 
 # Not built or tested yet; it is here so nothing in the configuration assumes macOS.
 win:
