@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { SymplistLogo } from "@/components/brand/logo";
+import { ReportBugButton } from "@/features/feedback/report-bug";
 import "./marketing.css";
 
 /** Where the public pages agree the product, the source and the maintainer live. */
@@ -69,6 +70,7 @@ export function SiteFooter() {
           <a href={SITE.github} rel="noreferrer noopener" target="_blank">
             Source
           </a>
+          <ReportBugButton />
         </nav>
         <p className="sym-site-footer-contact">
           <a href={`mailto:${SITE.contact}`}>{SITE.contact}</a>

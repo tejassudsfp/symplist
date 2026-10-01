@@ -270,7 +270,7 @@ test.describe("beta access, end to end", () => {
 
     // An unknown address asks permission before anything is created (note 03).
     await expect(page.getByRole("heading", { name: "No account found" })).toBeVisible();
-    await expect(page.getByText(/signing up never sends one/)).toBeVisible();
+    await expect(page.getByText(/Symplist is free and open to anyone/)).toBeVisible();
     await expectNoAxeViolations(page, testInfo, { label: "signup-confirmation" });
     await evidence(page, testInfo, "signup-confirmation");
     await page.getByRole("button", { name: "Create account" }).click();

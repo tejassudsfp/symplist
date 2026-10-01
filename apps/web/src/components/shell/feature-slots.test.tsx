@@ -59,6 +59,7 @@ vi.mock("@/features/access/session", () => ({
     <div data-seam="session-provider">{children}</div>
   ),
   useSession: () => seams.session,
+  useOptionalSession: () => seams.session,
   SessionGate: ({ children, require }: { children: ReactNode; require: string }) => (
     <div data-seam="session-gate" data-require={require}>
       {children}

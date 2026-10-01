@@ -266,6 +266,19 @@ export function useSession(): Session {
   return useSessionContext().session;
 }
 
+/**
+ * The current session, or null when there is no provider above.
+ *
+ * `AppProviders` mounts `SessionProvider` at the root, so null never happens in the running app. It
+ * happens in tests that render one piece of chrome on its own, and for shared controls that appear on
+ * both the marketing site and inside the workspace: those read the session to choose how to behave and
+ * must not make a component unrenderable by asking for it.
+ */
+export function useOptionalSession(): Session | null {
+  const context = useContext(SessionContext);
+  return context ? context.session : null;
+}
+
 /** The identity body and session controls for access screens. Throws outside `SessionProvider`. */
 export function useSessionControls(): SessionControls {
   return useSessionContext().controls;

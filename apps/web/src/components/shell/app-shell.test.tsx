@@ -208,7 +208,7 @@ describe("keyboard actions through the shell", () => {
       "/settings/account",
     );
     expect(
-      within(menu).queryByRole("menuitem", { name: "Beta administration" }),
+      within(menu).queryByRole("menuitem", { name: "Administration" }),
     ).not.toBeInTheDocument();
     await act(async () => {
       await user.keyboard("{Escape}");
@@ -258,9 +258,10 @@ describe("keyboard actions through the shell", () => {
     screen.getByRole("button", { name: "Account menu, Maya Rao" }).focus();
     await user.keyboard("{Enter}");
     const adminMenu = await screen.findByRole("menu");
-    expect(
-      within(adminMenu).getByRole("menuitem", { name: "Beta administration" }),
-    ).toHaveAttribute("href", "/admin/invites");
+    expect(within(adminMenu).getByRole("menuitem", { name: "Administration" })).toHaveAttribute(
+      "href",
+      "/admin/invites",
+    );
     await user.click(within(adminMenu).getByRole("menuitem", { name: "Sign out" }));
     await waitFor(() => expect(signOut).toHaveBeenCalledTimes(1));
     expect(signOut.mock.calls[0]?.[0]).toMatchObject({ source: "menu" });

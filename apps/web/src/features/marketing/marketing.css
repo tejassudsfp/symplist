@@ -868,12 +868,19 @@
   gap: 8px 20px;
 }
 
-.sym-site-footer-links a {
+/* The bug report is a button among links, so it is styled with them rather than beside them. */
+.sym-site-footer-links a,
+.sym-site-footer-links button {
+  border: 0;
+  background: transparent;
   color: var(--sym-muted);
+  font: inherit;
   text-decoration: none;
+  cursor: pointer;
 }
 
-.sym-site-footer-links a:hover {
+.sym-site-footer-links a:hover,
+.sym-site-footer-links button:hover {
   color: var(--sym-text);
   text-decoration: underline;
   text-underline-offset: 3px;

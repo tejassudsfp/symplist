@@ -221,6 +221,11 @@
       "label": "symplist/vault-session/v1",
       "ikm": "1e109983ef07ca4821ac8e5d1fb1f92532e7c8f7073a75bd207d31327fd7202a",
       "output": "b3e78fc912889feb92b6f72647e3d6de507516da0e56a8a8ebd2700f3a24246b"
+    },
+    {
+      "label": "symplist/bug-report/v1",
+      "ikm": "f6264ce2aa41efb58312ed384236a70968fd8e062bf7cd0de27598d2bbdb79f2",
+      "output": "65fd40370b0de5295e1c1c2d3a246972509488f12d2b9e5e0b5bdcc5f6d5f813"
     }
   ],
   "accountKeys": [

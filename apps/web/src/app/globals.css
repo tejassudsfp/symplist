@@ -3075,3 +3075,41 @@
     min-height: calc(100dvh - 112px);
   }
 }
+
+/*
+ * iOS Safari zooms the page whenever a focused form control's text is smaller than 16px, and then
+ * leaves it zoomed — so typing a task title shoved the whole workspace sideways and every tap after
+ * it landed in the wrong place. The app's controls are 12.5–13.5px by design, which is right on a
+ * pointer and is exactly what triggers it on a touch screen.
+ *
+ * 16px on touch devices only. `pointer: coarse` rather than a width query, because an iPad in a wide
+ * layout zooms too, and a narrow desktop window does not need this.
+ *
+ * The alternative — `maximum-scale=1` on the viewport — also stops the zoom, by taking pinch-to-zoom
+ * away from everybody. That is a real accessibility loss to fix a layout annoyance, so it is not used.
+ */
+@media (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]),
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
+
+/*
+ * The install offer in the workspace chrome. It is an offer, not a banner: it sits in the top bar's
+ * spare space and removes itself once taken or refused, so nothing in the app is ever covered by it.
+ */
+.sym-topbar-install {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+
+@media (max-width: 599px) {
+  /* On a phone the bar is tight; the sentence goes and the control stays. */
+  .sym-topbar-install p {
+    display: none;
+  }
+}

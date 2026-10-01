@@ -8,6 +8,7 @@ export {
   getApiClient,
   type HttpMethod,
   type RequestOptions,
+  runningInDesktopShell,
 } from "./client.ts";
 export {
   ApiAbortedError,

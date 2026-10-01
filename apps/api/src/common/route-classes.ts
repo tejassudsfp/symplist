@@ -5,8 +5,8 @@ import { SetMetadata } from "@nestjs/common";
  *
  * - `app`: cookie-authenticated `/v1/*` unsafe methods; `Origin` must equal `WEB_ORIGIN` and
  *   `X-Symplist-CSRF` must carry the session-bound token.
- * - `pre_session`: lookup, signup and OTP routes; `Origin` must equal `WEB_ORIGIN` and
- *   `X-Symplist-CSRF: 1` forces a preflight.
+ * - `pre_session`: lookup, signup, OTP and unauthenticated bug reports; `Origin` must equal
+ *   `WEB_ORIGIN` and `X-Symplist-CSRF: 1` forces a preflight.
  * - `share_form`: share-host password posts; `Origin` equals `ARTIFACT_ORIGIN` and a per-render
  *   form nonce is required; the app session cookie is never read.
  * - `share_read`: share-host GET routes; reads only the share session cookie.
@@ -97,7 +97,14 @@ export const routeClassRules: Readonly<Record<RouteClass, RouteClassRule>> = Obj
     bearer: false,
     sessionAccess: "forbidden",
     methods: unsafe,
-    pathPrefixes: ["/v1/auth/"],
+    /**
+     * `/v1/bugs/` is here because a bug report has to work with nobody signed in, and this is the only
+     * class that accepts an unauthenticated write from the web app: `Origin` pinned to `WEB_ORIGIN`,
+     * `X-Symplist-CSRF: 1` forcing a preflight, and every cookie and credential stripped before the
+     * handler. Stripping the session cookie is also why there are two bug-report routes rather than
+     * one — the attributed route is `app`-classed and lives at `POST /v1/bugs`.
+     */
+    pathPrefixes: ["/v1/auth/", "/v1/bugs/"],
   },
   share_form: {
     surface: "share",

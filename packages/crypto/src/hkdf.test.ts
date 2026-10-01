@@ -19,6 +19,7 @@ describe("deriveKey", () => {
     expect(Object.values(HKDF_LABELS).sort()).toEqual([
       "symplist/account-key/v1",
       "symplist/approval-args/v1",
+      "symplist/bug-report/v1",
       "symplist/email-suppression/v1",
       "symplist/vault-recovery/v1",
       "symplist/vault-session/v1",

@@ -125,6 +125,19 @@ async function deletedAccount(probeRows = 3): Promise<{ userId: string; other: s
        VALUES ('probe.scope', :user, :now, 1, :now, :now, 'w')`,
       { user: userId, now: int(now) },
     ),
+    // A bug report the account filed. It is not under the account data key, so the shred leaves it
+    // readable and only this delete removes it — and `reporter_id` would block the `users` delete.
+    sql(
+      `INSERT INTO bugs (id, reporter_id, report_enc, kek_version, surface, created_at, write_id)
+       VALUES (:id, :user, 'sym1.x', 1, 'workspace', :now, 'w')`,
+      { id: uuidv7(now), user: userId, now: int(now) },
+    ),
+    // One filed with nobody signed in: it belongs to no account and must survive the purge.
+    sql(
+      `INSERT INTO bugs (id, reporter_id, report_enc, kek_version, surface, created_at, write_id)
+       VALUES (:id, NULL, 'sym1.x', 1, 'site', :now, 'w')`,
+      { id: uuidv7(now + 1), now: int(now) },
+    ),
   ];
   for (let index = 0; index < probeRows; index += 1) {
     statements.push(sql(`INSERT INTO probe_rows (owner_id) VALUES (:user)`, { user: userId }));
@@ -247,15 +260,23 @@ describe("account purge (§5.6)", () => {
       "idempotency_records",
       "tasks",
       "abuse_counters",
+      "bugs",
     ]) {
+      const column =
+        table === "tasks"
+          ? "owner_id"
+          : table === "abuse_counters"
+            ? "subject"
+            : table === "bugs"
+              ? "reporter_id"
+              : "user_id";
       const rows = await db.all(
-        sql(
-          `SELECT * FROM ${table} WHERE ${table === "tasks" ? "owner_id" : table === "abuse_counters" ? "subject" : "user_id"} = :id`,
-          { id: userId },
-        ),
+        sql(`SELECT * FROM ${table} WHERE ${column} = :id`, { id: userId }),
       );
       expect(rows, table).toEqual([]);
     }
+    // The report nobody signed in filed belongs to no account, so the purge leaves it alone.
+    expect(await db.all(sql(`SELECT id FROM bugs WHERE reporter_id IS NULL`))).toHaveLength(1);
     expect(await db.all(sql(`SELECT owner_id FROM probe_rows`))).toEqual([{ owner_id: other }]);
     expect((await store.list({ prefix: accountObjectPrefix(userId) })).objects).toEqual([]);
     expect((await store.list({ prefix: accountObjectPrefix(other) })).objects).toHaveLength(1);

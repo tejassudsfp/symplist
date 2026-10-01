@@ -10,6 +10,14 @@ export const HKDF_LABELS = Object.freeze({
   accountKey: "symplist/account-key/v1",
   /** Approval argument digest key from the account data key (§4.3, §8.4). */
   approvalArgs: "symplist/approval-args/v1",
+  /**
+   * `bugs.report_enc` key from `CONTENT_KEK_<n>`.
+   *
+   * The one content column with no account behind it: a signed-out visitor can report a bug, so there
+   * is no account data key to use and the table gets its own key instead. The row records which
+   * `CONTENT_KEK` version derived it, because nothing re-wraps a key derived straight from the KEK.
+   */
+  bugReport: "symplist/bug-report/v1",
   /** `email_suppressions` lookup key from `CONTENT_KEK_<n>` (§4.3). */
   emailSuppression: "symplist/email-suppression/v1",
   /** Vault recovery wrapping key from `VAULT_RECOVERY_KEY_<n>` (§11.1). */

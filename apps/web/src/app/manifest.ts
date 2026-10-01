@@ -11,8 +11,17 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "Symplist",
     short_name: "Symplist",
     description: "A calm task workspace. Every task has an editable page of its own.",
-    start_url: "/",
+    /*
+     * The list, not `/`. An installed app opening on the marketing homepage would be showing its own
+     * owner a page written to persuade a stranger — the same mistake the desktop shell made until it
+     * was pointed at `/now`. `scope` is the whole origin so a shared link opens inside the app rather
+     * than bouncing to the browser.
+     */
+    start_url: "/now",
+    scope: "/",
     display: "standalone",
+    orientation: "any",
+    categories: ["productivity"],
     // Matches the mark's ground so the splash screen does not flash a different colour.
     background_color: "#1A1917",
     theme_color: "#1A1917",

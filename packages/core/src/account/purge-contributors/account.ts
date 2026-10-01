@@ -7,6 +7,12 @@ import type { PurgeContributor } from "./types.ts";
  * sessions. Also removes abuse counters keyed by the user id and, defensively, any `account_keys` row:
  * the deletion batch already shredded it and provisioning refuses accounts being deleted, but a
  * leftover row would block the `users` delete through its foreign key.
+ *
+ * The account's bug reports go too, and here the delete is the whole of the shred rather than a
+ * belt-and-braces one. `bugs.report_enc` is not under the account data key — it cannot be, because a
+ * signed-out visitor can file a report and has no such key — so shredding the key leaves the text
+ * readable and only removing the rows removes it (`migrations/0019_bug_reports.sql`). Reports filed
+ * with nobody signed in have no `reporter_id` and belong to no account, so nothing here touches them.
  */
 export const accountPurgeContributor: PurgeContributor = {
   domain: "account",
@@ -38,6 +44,11 @@ export const accountPurgeContributor: PurgeContributor = {
            SELECT rowid FROM abuse_counters WHERE subject = :user LIMIT CAST(:limit AS INTEGER))`,
         params,
       ),
+      sql(
+        `DELETE FROM bugs WHERE rowid IN (
+           SELECT rowid FROM bugs WHERE reporter_id = :user LIMIT CAST(:limit AS INTEGER))`,
+        params,
+      ),
     ];
   },
   remaining: ({ userId }) => [
@@ -48,6 +59,7 @@ export const accountPurgeContributor: PurgeContributor = {
          OR EXISTS (SELECT 1 FROM auth_sessions WHERE user_id = :user)
          OR EXISTS (SELECT 1 FROM account_keys WHERE owner_id = :user)
          OR EXISTS (SELECT 1 FROM abuse_counters WHERE subject = :user)
+         OR EXISTS (SELECT 1 FROM bugs WHERE reporter_id = :user)
        ) AS remaining`,
       { user: userId },
     ),

@@ -368,6 +368,18 @@ function desktopCloudTransport(): DesktopCloudTransport | null {
   };
 }
 
+/**
+ * Whether this page is running inside the desktop shell.
+ *
+ * Feature-detected through the same bridge the transport uses, so the answer is the shell being
+ * present rather than a user agent string — and so `apps/web` still imports nothing from
+ * `apps/desktop`. A bug report asks because the workspace and the desktop app are the same web app,
+ * and only the page can tell a maintainer which one somebody was looking at.
+ */
+export function runningInDesktopShell(): boolean {
+  return desktopCloudTransport() !== null;
+}
+
 /** The app-wide client for the configured API origin. Browser only. */
 export function getApiClient(): ApiClient {
   if (typeof window === "undefined") throw new ServerSideApiCallError();

@@ -18,6 +18,7 @@ const foundationTables = [
   "account_tombstones",
   "auth_sessions",
   "beta_admin_events",
+  "bugs",
   "dispatch_intents",
   "executor_state",
   "idempotency_records",
@@ -913,5 +914,50 @@ describe("preferences, search intents and account deletion records", () => {
     await expect(
       db.first(sql("SELECT access_generation FROM users WHERE id = :user", { user: userId })),
     ).resolves.toEqual({ access_generation: 1 });
+  });
+});
+
+describe("bugs", () => {
+  const report = (overrides: Record<string, string | null> = {}) => {
+    const values: Record<string, string | null> = {
+      id: id("bug"),
+      reporter_id: null,
+      report_enc: "sym1.1.iv.ct",
+      kek_version: int(1),
+      surface: "site",
+      page: null,
+      app_version: null,
+      platform: null,
+      user_agent: null,
+      created_at: int(now),
+      write_id: newWriteId(),
+      ...overrides,
+    };
+    const columns = Object.keys(values);
+    return sql(
+      `INSERT INTO bugs (${columns.join(", ")}) VALUES (${columns.map((column) => `:${column}`).join(", ")})`,
+      values,
+    );
+  };
+
+  it("takes a report with no reporter, so a signed-out visitor can file one", async () => {
+    await db.run(report());
+    await expect(
+      db.first(sql("SELECT COUNT(*) AS filed FROM bugs WHERE reporter_id IS NULL")),
+    ).resolves.toEqual({ filed: 1 });
+  });
+
+  it("attributes a report to a reporter and refuses one naming no account", async () => {
+    const owner = await createUser();
+    await db.run(report({ reporter_id: owner, surface: "workspace" }));
+    await expect(
+      db.first(sql("SELECT surface FROM bugs WHERE reporter_id = :user", { user: owner })),
+    ).resolves.toEqual({ surface: "workspace" });
+    expect((await failure(report({ reporter_id: "nobody" }))).constraint).toBe("foreign_key");
+  });
+
+  it("checks the surface and the KEK version", async () => {
+    expect((await failure(report({ surface: "mobile" }))).constraint).toBe("check");
+    expect((await failure(report({ kek_version: int(0) }))).constraint).toBe("check");
   });
 });

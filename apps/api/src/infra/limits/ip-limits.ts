@@ -16,6 +16,14 @@ export const ipRequestBuckets = Object.freeze({
   otp_verify: { limit: 30, windowMs: 10 * minute },
   /** Invite redeem: 10 per 10 minutes (the per-account limit is the access feature's). */
   invite_redeem: { limit: 10, windowMs: 10 * minute },
+  /**
+   * Bug reports: 5 per 10 minutes, shared by the attributed and the unauthenticated route.
+   *
+   * Five is what somebody filing a real report needs, including a retry and a second thought. One of
+   * the two routes takes an unauthenticated write, so this bucket is the only thing between a stranger
+   * and rows in `bugs`; sharing it means signing in does not buy a second allowance.
+   */
+  bug_report: { limit: 5, windowMs: 10 * minute },
   /** Share reads: 60 per minute. */
   share_read: { limit: 60, windowMs: minute },
   /** Share password posts: 10 per minute. */
