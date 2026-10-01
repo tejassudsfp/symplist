@@ -125,6 +125,9 @@ describe("Content Security Policy (§10.4)", () => {
       "/robots.txt",
       "/sitemap.xml",
       "/llms.txt",
+      // The worker must be served as itself. Redirected to /signin it registers silently as HTML and
+      // the app is simply not installable, with nothing in any log to say why.
+      "/sw.js",
       "/brand/icon.svg",
       "/ai/openai.svg",
       "/ai/claude-color.svg",

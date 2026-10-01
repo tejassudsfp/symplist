@@ -7,6 +7,7 @@ export * from "./analytics/errors.ts";
 export * from "./analytics/events.ts";
 export * from "./analytics/tools.ts";
 export * from "./common/access.ts";
+export * from "./common/bugs.ts";
 export * from "./common/consent.ts";
 export * from "./common/email.ts";
 export * from "./common/envelope.ts";

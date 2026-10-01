@@ -2,6 +2,7 @@
 
 import { UserRound } from "lucide-react";
 import Link from "next/link";
+import { useState } from "react";
 import { useOptionalActions } from "@/actions/provider";
 import { SHORTCUT_HELP_ACTION_ID, SIGN_OUT_ACTION_ID } from "@/actions/shell-actions";
 import { SymplistLogo } from "@/components/brand/logo";
@@ -14,6 +15,8 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { ReportBugDialog } from "@/features/feedback/report-bug";
+import { InstallPrompt } from "@/features/install/install-prompt";
 import { ChevronIcon, LockIcon } from "./collection-icons.tsx";
 import { initialsFor, useShellSlots } from "./slots.tsx";
 
@@ -33,7 +36,7 @@ const menuLinks: readonly MenuLink[] = [
   { label: "About", href: "/settings/about" },
 ];
 
-function ProfileMenu() {
+function ProfileMenu({ onReportBug }: { onReportBug: () => void }) {
   const { identity } = useShellSlots();
   const actions = useOptionalActions();
   const signOut = actions?.actions.find((action) => action.id === SIGN_OUT_ACTION_ID);
@@ -84,9 +87,10 @@ function ProfileMenu() {
             </DropdownMenuShortcut>
           ) : null}
         </DropdownMenuItem>
+        <DropdownMenuItem onClick={onReportBug}>Report a bug</DropdownMenuItem>
         {identity?.isAdmin ? (
           <DropdownMenuLinkItem render={<Link href="/admin/invites" />}>
-            Beta administration
+            Administration
           </DropdownMenuLinkItem>
         ) : null}
         <DropdownMenuSeparator />
@@ -107,15 +111,21 @@ function ProfileMenu() {
  * The restrained top bar (overall.md): profile control at top left with Vault and its status beside
  * it, then the notification control. The Vault link is a full
  * document navigation into its excluded route group and never names items (§15, profile_menu.md).
+ *
+ * The bug report dialog is held here rather than inside the menu, because a menu unmounts when it
+ * closes and would take the open dialog with it. This is also the entry point the desktop app gets:
+ * the shell loads this same workspace, so there is nothing further to add there.
  */
 export function TopBar() {
   const { vaultStatus, notificationControl } = useShellSlots();
+  const [reportingBug, setReportingBug] = useState(false);
   return (
     <header className="sym-topbar">
       <Link href="/now" className="sym-chrome-button sym-topbar-brand" aria-label="Symplist home">
         <SymplistLogo withWordmark={false} label={null} className="text-[18px]" />
       </Link>
-      <ProfileMenu />
+      <ProfileMenu onReportBug={() => setReportingBug(true)} />
+      <ReportBugDialog open={reportingBug} onOpenChange={setReportingBug} />
       <a className="sym-chrome-button" href="/vault">
         <LockIcon />
         <span>Vault</span>
@@ -124,6 +134,8 @@ export function TopBar() {
         {vaultStatus}
       </div>
       <div className="sym-topbar-spacer" />
+      {/* Renders nothing unless the browser can install and the person has not already said no. */}
+      <InstallPrompt className="sym-topbar-install" />
       <div className="sym-topbar-slot" data-slot="notification-control">
         {notificationControl}
       </div>

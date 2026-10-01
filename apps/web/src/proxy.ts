@@ -88,6 +88,6 @@ export function proxy(request: NextRequest): NextResponse {
 export const config = {
   // Brand assets and metadata must load before sign-in so browsers can show the favicon and PWA icon.
   matcher: [
-    "/((?!_next/static|_next/image|favicon\\.ico$|icon\\.svg$|apple-icon\\.png$|manifest\\.webmanifest$|robots\\.txt$|sitemap\\.xml$|llms\\.txt$|brand/|licenses/|ai/).*)",
+    "/((?!_next/static|_next/image|favicon\\.ico$|icon\\.svg$|apple-icon\\.png$|manifest\\.webmanifest$|robots\\.txt$|sitemap\\.xml$|llms\\.txt$|sw\\.js$|brand/|licenses/|ai/).*)",
   ],
 };

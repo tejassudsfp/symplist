@@ -1,4 +1,5 @@
 export * from "./aad.ts";
+export * from "./bug-reports.ts";
 export * from "./canonical-json.ts";
 export * from "./digests.ts";
 export {

@@ -832,31 +832,30 @@
   border-top: 1px solid var(--sym-line);
 }
 
+/*
+ * Four stacked rows, not one wrapping line. Side by side they collapsed on a phone into a ragged block
+ * where the maintainer's name, four links and an address all ran together; each is a different kind of
+ * thing and reads better on its own line at every width.
+ */
 .sym-site-footer-inner {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 16px 28px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
   max-width: 1180px;
   margin: 0 auto;
-  padding: 28px 24px 36px;
+  padding: 36px 24px 44px;
   color: var(--sym-muted);
   font-size: 13px;
 }
 
-.sym-site-footer-brand {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--sym-text);
+.sym-site-footer-by,
+.sym-site-footer-contact {
+  margin: 0;
 }
 
-.sym-site-footer-by {
-  flex: 1;
-  min-width: 220px;
-}
-
-.sym-site-footer-by a {
+.sym-site-footer-by a,
+.sym-site-footer-contact a {
   color: var(--sym-text);
   text-decoration: underline;
   text-decoration-color: var(--sym-line-strong);
@@ -869,12 +868,19 @@
   gap: 8px 20px;
 }
 
-.sym-site-footer-links a {
+/* The bug report is a button among links, so it is styled with them rather than beside them. */
+.sym-site-footer-links a,
+.sym-site-footer-links button {
+  border: 0;
+  background: transparent;
   color: var(--sym-muted);
+  font: inherit;
   text-decoration: none;
+  cursor: pointer;
 }
 
-.sym-site-footer-links a:hover {
+.sym-site-footer-links a:hover,
+.sym-site-footer-links button:hover {
   color: var(--sym-text);
   text-decoration: underline;
   text-underline-offset: 3px;
@@ -1859,6 +1865,48 @@
 }
 
 @media (max-width: 759px) {
+  /*
+   * The preview, on a phone.
+   *
+   * The frame is 600px because that is the mockup's, which assumes two panes side by side. With one
+   * pane and three tasks it left most of the frame empty, and the app's 56px list header put a band of
+   * nothing between "Now" and the first thing you can touch. Both are sized to the content here.
+   */
+  .sym-demo-app {
+    height: 430px;
+  }
+
+  .sym-demo-app .sym-panel-header {
+    height: 44px;
+  }
+
+  .sym-demo-app .sym-inbox-tools {
+    padding-top: 6px;
+  }
+
+  /*
+   * The theme cards, on a phone. The rail is a 34px column holding two dots; at this width it was a
+   * tall empty strip taking room from the two panels that actually show the theme. Dropping it gives
+   * them the width, and a shorter card means six of them are a scroll rather than a journey.
+   */
+  .sym-look-art {
+    height: 136px;
+    gap: 8px;
+    padding: 12px;
+  }
+
+  .sym-look-rail {
+    display: none;
+  }
+
+  .sym-look-foot {
+    padding: 12px 14px 14px;
+  }
+
+  .sym-themes {
+    gap: 12px;
+  }
+
   .sym-vault-head {
     margin-bottom: 32px;
   }
@@ -1871,4 +1919,9 @@
   .sym-vault-menubar span:not(.sym-vault-menubar-app):not(.sym-vault-menubar-right) {
     display: none;
   }
+}
+
+/* The Mac download sits with the hero's other actions and carries the Apple mark at text weight. */
+.sym-download-mac {
+  gap: 9px;
 }

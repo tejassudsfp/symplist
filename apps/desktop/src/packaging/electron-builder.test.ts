@@ -5,9 +5,11 @@ import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 
 /**
- * The packaging decisions that are easy to undo by accident, asserted so they are not. Signing is off on
- * purpose until a Developer ID exists, the staged web server has to land outside the asar for Next to
- * resolve its own files, and Windows must stay merely unbuilt rather than impossible.
+ * The packaging decisions that are easy to undo by accident, asserted so they are not. The committed
+ * config is the *released* one — signed, hardened and notarized — and a machine without the credentials
+ * falls back to unsigned through `signing.ts` rather than failing. The staged web server has to land
+ * outside the asar for Next to resolve its own files, and Windows must stay merely unbuilt rather than
+ * impossible.
  */
 interface BuilderConfig {
   appId: string;
@@ -17,7 +19,14 @@ interface BuilderConfig {
   files: string[];
   extraResources: { from: string; to: string }[];
   directories: { output: string; buildResources: string };
-  mac: { identity: null; notarize: boolean; target: { target: string; arch: string[] }[] };
+  mac: {
+    identity?: null;
+    notarize: boolean;
+    hardenedRuntime: boolean;
+    entitlements: string;
+    entitlementsInherit: string;
+    target: { target: string; arch: string[] }[];
+  };
   win?: { target: { target: string }[] };
   afterSign?: unknown;
 }
@@ -34,11 +43,27 @@ const config = parse(
 const stagedTreesWithOwnNodeModules = ["build/web"];
 
 describe("electron-builder.yml", () => {
-  it("builds an unsigned, un-notarized macOS dmg", () => {
+  it("is the released configuration: a signed, hardened, notarized arm64 dmg", () => {
     expect(config.mac.target).toEqual([{ target: "dmg", arch: ["arm64"] }]);
-    expect(config.mac.identity).toBeNull();
-    expect(config.mac.notarize).toBe(false);
+    expect(config.mac.notarize).toBe(true);
+    expect(config.mac.hardenedRuntime).toBe(true);
+    // No `identity: null`: that would pin every build to unsigned, which is the fallback's job and not
+    // the committed config's.
+    expect(config.mac.identity).toBeUndefined();
     expect(config.afterSign).toBeUndefined();
+  });
+
+  it("carries the two entitlements V8 needs under the hardened runtime", () => {
+    // Without them a signed build crashes as the renderer starts, which reads as a broken app rather
+    // than a signing problem — so they are asserted rather than remembered.
+    expect(config.mac.entitlements).toBe("resources/entitlements.mac.plist");
+    expect(config.mac.entitlementsInherit).toBe(config.mac.entitlements);
+    const plist = readFileSync(
+      fileURLToPath(new URL("../../resources/entitlements.mac.plist", import.meta.url)),
+      "utf8",
+    );
+    expect(plist).toContain("com.apple.security.cs.allow-jit");
+    expect(plist).toContain("com.apple.security.cs.allow-unsigned-executable-memory");
   });
 
   it("ships the staged web server on disk, outside the archive", () => {

@@ -62,13 +62,13 @@ function renderConfirmation(api = createFakeAccessApi()) {
 }
 
 describe("signup confirmation (signup_confirmation.md)", () => {
-  it("shows the address, the two actions and the invite reminder", async () => {
+  it("shows the address, the two actions and what creating an account does", async () => {
     renderConfirmation();
     expect(await screen.findByRole("heading", { name: "No account found" })).toBeInTheDocument();
     expect(screen.getByText("maya@example.com")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create account" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Use another email" })).toBeInTheDocument();
-    expect(screen.getByText(/signing up never sends one/)).toBeInTheDocument();
+    expect(screen.getByText(/Symplist is free and open to anyone/)).toBeInTheDocument();
   });
 
   it("creates the pending account only on an explicit confirmation", async () => {

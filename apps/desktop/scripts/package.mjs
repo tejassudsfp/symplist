@@ -13,6 +13,7 @@ import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { decideSigning } from "../src/packaging/signing.ts";
 
 const appDir = fileURLToPath(new URL("../", import.meta.url));
 const require = createRequire(join(appDir, "package.json"));
@@ -27,13 +28,23 @@ for (const required of [join(appDir, "dist", "main.js"), join(appDir, "build", "
 }
 
 const target = process.argv.includes("--win") ? "--win" : "--mac";
-const child = spawn(process.execPath, [builderBin, target], {
+const decision = decideSigning(process.env);
+process.stdout.write(`desktop: ${decision.reason}\n`);
+if (!decision.signed) {
+  // Loud, because the artefact is named the same either way and only one of the two can be released.
+  process.stdout.write(
+    "desktop: the .dmg will be quarantined on download; see README.md before sharing it\n",
+  );
+}
+
+const child = spawn(process.execPath, [builderBin, target, ...decision.args], {
   cwd: appDir,
   stdio: "inherit",
   env: {
     ...process.env,
-    // No identity is looked for, so the build is the same on every machine.
-    CSC_IDENTITY_AUTO_DISCOVERY: "false",
+    // Without an identity, nothing is looked for, so the build is the same on every machine. With one,
+    // discovery has to stay on or electron-builder never finds the certificate it was told to use.
+    ...(decision.signed ? {} : { CSC_IDENTITY_AUTO_DISCOVERY: "false" }),
   },
 });
 child.once("exit", (code, signal) => {

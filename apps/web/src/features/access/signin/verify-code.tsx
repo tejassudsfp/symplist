@@ -132,7 +132,7 @@ export function VerifyCode() {
         <ScreenHeading>Check your email</ScreenHeading>
         <Lede>
           {challenge.purpose === "signup"
-            ? "Enter the code we sent to verify your email. Verifying confirms who you are; opening the app still needs an invite."
+            ? "Enter the code we sent to verify your email. That is the last step — the list is open once you are in."
             : "Enter the code we sent to sign in."}
         </Lede>
         <p className="m-0 flex flex-wrap items-center gap-2 text-[13.5px]">
@@ -199,8 +199,7 @@ export function VerifyCode() {
           {resendLabel}
         </Button>
         <p className="m-0 text-center text-[12.5px] text-sym-muted">
-          A new code replaces the previous one. Codes are only for signing in — they never unlock
-          beta access.
+          A new code replaces the previous one, and the one before it stops working.
         </p>
       </div>
     </EntryFrame>

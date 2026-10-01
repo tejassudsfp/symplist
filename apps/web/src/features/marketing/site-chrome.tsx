@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { SymplistLogo } from "@/components/brand/logo";
+import { ReportBugButton } from "@/features/feedback/report-bug";
 import "./marketing.css";
 
 /** Where the public pages agree the product, the source and the maintainer live. */
@@ -13,6 +14,8 @@ export const SITE = Object.freeze({
   maintainer: "Tejas Parthasarathi Sudarshan",
   maintainerUrl: "https://tejassuds.com",
   contact: "hello@symplist.app",
+  /** The releases page, which always points at the newest signed build. */
+  releases: "https://github.com/tejassudsfp/symplist/releases/latest",
   privacyContact: "privacy@symplist.app",
   securityContact: "security@symplist.app",
 });
@@ -54,16 +57,14 @@ export function SiteFooter() {
   return (
     <footer className="sym-site-footer">
       <div className="sym-site-footer-inner">
-        <span className="sym-site-footer-brand">
-          <SymplistLogo />
-        </span>
-        <span className="sym-site-footer-by">
+        <SymplistLogo />
+        <p className="sym-site-footer-by">
           MIT licensed. Built and maintained by{" "}
           <a href={SITE.maintainerUrl} rel="noreferrer noopener" target="_blank">
             {SITE.maintainer}
           </a>
           .
-        </span>
+        </p>
         <nav aria-label="Legal and source" className="sym-site-footer-links">
           <Link href="/privacy">Privacy</Link>
           <Link href="/terms">Terms</Link>
@@ -71,8 +72,11 @@ export function SiteFooter() {
           <a href={SITE.github} rel="noreferrer noopener" target="_blank">
             Source
           </a>
-          <a href={`mailto:${SITE.contact}`}>{SITE.contact}</a>
+          <ReportBugButton />
         </nav>
+        <p className="sym-site-footer-contact">
+          <a href={`mailto:${SITE.contact}`}>{SITE.contact}</a>
+        </p>
       </div>
     </footer>
   );

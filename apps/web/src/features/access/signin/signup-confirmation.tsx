@@ -194,8 +194,8 @@ export function SignupConfirmation() {
         </Button>
       </div>
       <p className="m-0 text-[12.5px] text-sym-muted [text-wrap:pretty]">
-        Creating an account verifies your email. Opening the app still needs an invite code that
-        Symplist's owner shares personally — signing up never sends one.
+        Creating an account verifies your email, and that is all it takes. Symplist is free and open
+        to anyone.
       </p>
     </EntryFrame>
   );

@@ -376,11 +376,16 @@ describe("what the quick-access panel tells the shell", () => {
     await user.click(screen.getByRole("button", { name: "Unlock" }));
     await screen.findByText("Personal API key");
 
-    expect(shell.report).toHaveBeenCalledWith({
-      unlocked: true,
-      unlockedHere: true,
-      email: "maya@example.com",
-    });
+    // Awaited, not asserted outright: the report is an effect, and a render that has already painted
+    // the list has not necessarily flushed it. Asserting straight after the DOM made this pass locally
+    // and fail on a loaded CI runner, which is a race in the test and not in the panel.
+    await waitFor(() =>
+      expect(shell.report).toHaveBeenCalledWith({
+        unlocked: true,
+        unlockedHere: true,
+        email: "maya@example.com",
+      }),
+    );
   });
 
   it("does not claim an unlock it found already open, so the workspace keeps its vault", async () => {
@@ -388,11 +393,13 @@ describe("what the quick-access panel tells the shell", () => {
     render(<VaultQuickAccess api={fakeApi()} shell={shell} />);
     await screen.findByText("Personal API key");
 
-    expect(shell.report).toHaveBeenCalledWith({
-      unlocked: true,
-      unlockedHere: false,
-      email: "maya@example.com",
-    });
+    await waitFor(() =>
+      expect(shell.report).toHaveBeenCalledWith({
+        unlocked: true,
+        unlockedHere: false,
+        email: "maya@example.com",
+      }),
+    );
     // Dismissal then locks nothing: the vault was not this panel's to close.
     shell.dismiss();
     expect(
