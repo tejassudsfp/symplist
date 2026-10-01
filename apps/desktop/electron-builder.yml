@@ -60,7 +60,10 @@ mac:
   category: public.app-category.productivity
 
 dmg:
-  artifactName: ${productName}-${version}-${arch}.${ext}
+  # No version in the name, so `releases/latest/download/Symplist-arm64.dmg` is a URL that keeps
+  # working. The homepage links straight to the file rather than to the releases page, which makes
+  # GitHub's own download counter a measure of the homepage rather than of GitHub's.
+  artifactName: ${productName}-${arch}.${ext}
   # electron-builder signs the .app and then wraps it, leaving the disk image itself unsigned — and an
   # unsigned image is what Gatekeeper is handed first on a download. `spctl` reported "no usable
   # signature" on the first signed build for exactly that reason, while the app inside was fine.

@@ -50,7 +50,7 @@ export function DownloadForMac() {
   useEffect(() => setMac(isMac()), []);
   if (!mac) return null;
   return (
-    <a className="sym-button-secondary sym-download-mac" href={SITE.releases}>
+    <a className="sym-button-secondary sym-download-mac" href={SITE.download}>
       <AppleMark />
       Download for Mac
     </a>
