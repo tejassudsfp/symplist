@@ -5,6 +5,7 @@ import { AskYourAi } from "./ask-your-ai";
 import { SITE, SiteFooter, SiteHeader } from "./site-chrome";
 import { ThemeCards } from "./theme-cards";
 import { ThemeSwitcher } from "./theme-switcher";
+import { VaultPreview } from "./vault-preview";
 import { WorkspaceDemo } from "./workspace-demo";
 
 /**
@@ -165,6 +166,8 @@ export function HomeScreen() {
             </div>
             <ThemeCards />
           </section>
+
+          <VaultPreview />
 
           <AskYourAi />
 
