@@ -16,7 +16,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ReportBugDialog } from "@/features/feedback/report-bug";
-import { InstallPrompt } from "@/features/install/install-prompt";
 import { ChevronIcon, LockIcon } from "./collection-icons.tsx";
 import { initialsFor, useShellSlots } from "./slots.tsx";
 
@@ -134,8 +133,6 @@ export function TopBar() {
         {vaultStatus}
       </div>
       <div className="sym-topbar-spacer" />
-      {/* Renders nothing unless the browser can install and the person has not already said no. */}
-      <InstallPrompt className="sym-topbar-install" />
       <div className="sym-topbar-slot" data-slot="notification-control">
         {notificationControl}
       </div>

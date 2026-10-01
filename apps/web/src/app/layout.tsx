@@ -8,6 +8,7 @@ import { APPEARANCE_STYLE_ELEMENT_ID } from "@/theme/appearance-client";
 import { buildAppearanceCss } from "@/theme/css";
 import { fontVariableClassNames } from "./fonts";
 import "./globals.css";
+import { InstallPrompt } from "@/features/install/install-prompt";
 import { RegisterServiceWorker } from "@/features/install/register-worker";
 
 const DESCRIPTION = "A calm task workspace. Every task has an editable page of its own.";
@@ -86,6 +87,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
       <body>
         <AppProviders nonce={nonce}>{children}</AppProviders>
         <RegisterServiceWorker />
+        <InstallPrompt />
       </body>
     </html>
   );
