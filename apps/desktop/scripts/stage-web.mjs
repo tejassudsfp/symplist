@@ -106,6 +106,50 @@ if (escaped.length > 0) {
   );
 }
 
+// The public site is not part of the app.
+//
+// `apps/web` serves one Next app: the workspace *and* the marketing homepage, the legal pages and the
+// crawler files. A desktop shell has no use for any of the second group — someone running the .dmg has
+// already arrived — and shipping them means the installed app carries a copy of the website, which can
+// drift from the deployed one and is pure weight in the bundle. The window opens `/now`, so these are
+// unreachable as well as unwanted; they are removed from the staged copy rather than from `apps/web`,
+// which still has to serve them to the web.
+const publicSiteArtifacts = [
+  "page.js",
+  "page.js.nft.json",
+  "page_client-reference-manifest.js",
+  "page.meta",
+  "page.rsc",
+  "page.segments",
+  "page.html",
+  "terms",
+  "privacy",
+  "cookies",
+  "robots.txt",
+  "robots.txt.body",
+  "robots.txt.meta",
+  "sitemap.xml",
+  "sitemap.xml.body",
+  "sitemap.xml.meta",
+  "llms.txt",
+];
+const serverAppDir = join(stageDir, "apps", "web", ".next", "server", "app");
+let removedPublicSite = 0;
+for (const entry of publicSiteArtifacts) {
+  const target = join(serverAppDir, entry);
+  if (!existsSync(target)) continue;
+  await rm(target, { recursive: true, force: true });
+  removedPublicSite += 1;
+}
+if (removedPublicSite === 0) {
+  throw new Error(
+    `staged ${serverAppDir} held none of the public-site routes; the list is stale and the website may be shipping inside the app`,
+  );
+}
+process.stdout.write(
+  `desktop: removed ${removedPublicSite} public-site artefact(s) from the staged server\n`,
+);
+
 // Next traces apps/web/.env into the standalone output, and it is left there on purpose: the Next
 // proxy reads NEXT_PUBLIC_API_URL at request time to build the Content Security Policy. The file holds
 // public values only — @symplist/config refuses a secret variable for the web app, and every

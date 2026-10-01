@@ -1,6 +1,5 @@
 "use client";
 
-import { accentPresets, resolveAccent } from "@/theme/accent";
 import { fontStack } from "@/theme/css";
 import { renderedChrome, renderedPalette } from "@/theme/palette";
 import { themeIds, themes } from "@/theme/registry";
@@ -30,7 +29,12 @@ export function ThemeCards() {
         const theme = themes[id];
         const c = renderedPalette(theme, mode);
         const chrome = renderedChrome(theme, mode);
-        const accent = resolveAccent(accentPresets.blue.seed, theme, mode);
+        /*
+         * The theme's own accent. Resolving one shared seed made all six cards the same blue, which
+         * is the single thing that most tells these themes apart at a glance. `sampleAccents` is kept
+         * for illustrating a theme, which is what this card is.
+         */
+        const accent = theme.sampleAccents[mode];
         const g = theme.geometry;
         const active = id === current;
         /*
@@ -63,7 +67,7 @@ export function ThemeCards() {
                 </span>
                 <span
                   className="sym-look-row"
-                  style={{ background: accent.selection, borderRadius: g.r }}
+                  style={{ background: c.selected, borderRadius: g.r }}
                 >
                   <span
                     className="sym-look-box"

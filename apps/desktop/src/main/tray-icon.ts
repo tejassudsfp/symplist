@@ -1,14 +1,16 @@
 /**
  * The menu-bar icon, drawn in code.
  *
- * A padlock, closed while the vault is locked and open while it is not, so the state of the vault is
- * readable from the menu bar without opening the panel. It is drawn rather than shipped as a pair of
- * PNG files for the reason the Symplist mark is drawn from arithmetic (`apps/web/src/components/brand/
- * logo.tsx`): the geometry is reviewable, it redraws identically at every scale factor, and a committed
- * binary cannot be read in a diff.
+ * The Symplist mark — three rows of a dot and a line, stepping down. It is drawn from arithmetic for
+ * the same reason `apps/web/src/components/brand/logo.tsx` is: the geometry is reviewable, it redraws
+ * identically at every scale factor, and a committed binary cannot be read in a diff.
  *
- * The geometry is the mockup's, on its own 24-unit grid — body `rect x=4 y=11 w=16 h=10 rx=2`, shackle
- * `M8 11V7.5a4 4 0 0 1 8 0V11`, stroke 2.2, round caps — scaled to whatever pixel size is asked for.
+ * The geometry is the brand's, on its own 24-unit grid — dots of r 1.35 at x 4.7, rows at y 6.5 / 12 /
+ * 17.5, lines from x 9.1 stepping 11.0 / 7.4 / 3.8, stroke 2.2 with round caps.
+ *
+ * It does not change with the vault's state. An earlier version drew a padlock that opened and closed,
+ * which read the state from the menu bar but put a second mark in front of people; the panel says
+ * whether the vault is open, and the menu bar says whose app this is.
  *
  * Every pixel is black with an alpha, which is exactly what macOS wants from a template image: the
  * system recolours it for a light or dark menu bar and for the highlight state, so the icon needs no
@@ -25,27 +27,9 @@ const GRID = 24;
 /** The mockup's stroke, on the same grid. */
 const STROKE = 2.2;
 
-export interface PadlockOptions {
-  /** The open padlock: the vault is unlocked. */
-  readonly open?: boolean;
+export interface MarkOptions {
   /** The bitmap's edge in pixels. 16 is one menu-bar point; 32 is the same icon at 2×. */
   readonly size: number;
-}
-
-/** Signed distance to a rounded rectangle's outline, negative inside it. */
-function roundedRect(
-  px: number,
-  py: number,
-  cx: number,
-  cy: number,
-  halfWidth: number,
-  halfHeight: number,
-  radius: number,
-): number {
-  const dx = Math.abs(px - cx) - (halfWidth - radius);
-  const dy = Math.abs(py - cy) - (halfHeight - radius);
-  const outside = Math.hypot(Math.max(dx, 0), Math.max(dy, 0));
-  return Math.min(Math.max(dx, dy), 0) + outside - radius;
 }
 
 /** Signed distance to a line segment with round caps, negative inside it. */
@@ -65,48 +49,47 @@ function capsule(
   return Math.hypot(px - (ax + vx * t), py - (ay + vy * t)) - halfWidth;
 }
 
+/** The three rows: the y each sits on, and where its line ends. */
+const ROWS: readonly { readonly y: number; readonly end: number }[] = [
+  { y: 6.5, end: 20.1 },
+  { y: 12, end: 16.5 },
+  { y: 17.5, end: 12.9 },
+];
+
+/** The dots' centre line and radius, and where every line begins. */
+const DOT_X = 4.7;
+const DOT_R = 1.35;
+const LINE_X = 9.1;
+
 /**
- * The padlock's signed distance field on the 24-unit grid. Negative inside the drawn stroke.
+ * The mark's signed distance field on the 24-unit grid. Negative inside the drawn shape.
  *
- * The body is a stroked rounded rectangle — `Math.abs` of the filled distance turns a fill into an
- * outline — and the shackle is the upper half of a circle with a leg on each side, or one leg when the
- * lock is open and the shackle has swung clear.
+ * Six primitives unioned: a filled disc and a round-capped line for each row. A round cap is a capsule,
+ * which is what gives the line ends their radius without a separate arc.
  */
-export function padlockDistance(x: number, y: number, open: boolean): number {
+export function markDistance(x: number, y: number): number {
   const half = STROKE / 2;
-  const body = Math.abs(roundedRect(x, y, 12, 16, 8, 5, 2)) - half;
-
-  // The arc's centre: on the lock's axis when closed, shifted right when the shackle is open.
-  const arcX = open ? 14.5 : 12;
-  const arcY = 7.5;
-  const radius = 4;
-  const arc =
-    y <= arcY ? Math.abs(Math.hypot(x - arcX, y - arcY) - radius) - half : Number.POSITIVE_INFINITY;
-
-  // The left leg reaches the body; the right one only does when the shackle is closed.
-  const legs = open
-    ? capsule(x, y, arcX - radius, arcY, arcX - radius, 11, half)
-    : Math.min(
-        capsule(x, y, arcX - radius, arcY, arcX - radius, 11, half),
-        capsule(x, y, arcX + radius, arcY, arcX + radius, 11, half),
-      );
-
-  return Math.min(body, arc, legs);
+  let distance = Number.POSITIVE_INFINITY;
+  for (const row of ROWS) {
+    const dot = Math.hypot(x - DOT_X, y - row.y) - DOT_R;
+    const line = capsule(x, y, LINE_X, row.y, row.end, row.y, half);
+    distance = Math.min(distance, dot, line);
+  }
+  return distance;
 }
 
-/** Non-premultiplied RGBA for one padlock: black everywhere, with the shape in the alpha channel. */
-export function padlockRgba(options: PadlockOptions): Uint8Array {
+/** Non-premultiplied RGBA for the mark: black everywhere, with the shape in the alpha channel. */
+export function markRgba(options: MarkOptions): Uint8Array {
   const { size } = options;
   if (!Number.isInteger(size) || size < 8 || size > 256) {
     throw new Error(`tray icon size out of range: ${String(size)}`);
   }
-  const open = options.open ?? false;
   const scale = size / GRID;
   const rgba = new Uint8Array(size * size * 4);
   for (let row = 0; row < size; row++) {
     for (let column = 0; column < size; column++) {
       // The pixel's centre, in grid units.
-      const distance = padlockDistance((column + 0.5) / scale, (row + 0.5) / scale, open);
+      const distance = markDistance((column + 0.5) / scale, (row + 0.5) / scale);
       // One pixel of antialiasing across the edge, which is why the distance is converted back.
       const coverage = Math.min(1, Math.max(0, 0.5 - distance * scale));
       rgba[(row * size + column) * 4 + 3] = Math.round(coverage * 255);
@@ -171,7 +154,7 @@ export function encodePng(width: number, height: number, rgba: Uint8Array): Buff
  * The icon as a data URL, which is the form `nativeImage` accepts for both the base representation and
  * the 2× one (`addRepresentation({ scaleFactor, dataURL })`).
  */
-export function padlockDataUrl(options: PadlockOptions): string {
-  const png = encodePng(options.size, options.size, padlockRgba(options));
+export function markDataUrl(options: MarkOptions): string {
+  const png = encodePng(options.size, options.size, markRgba(options));
   return `data:image/png;base64,${png.toString("base64")}`;
 }
