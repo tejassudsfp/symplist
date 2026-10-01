@@ -43,8 +43,12 @@ services:
         value: "true"
       - key: KEY_PROVIDER
         value: env
+      # Admission is open. With this false, a verified account that is not suspended and not relocked
+      # counts as unlocked without an invite — `effectiveBetaState` in `core/src/access/evaluate.ts`
+      # does that, so no account row changes and the invite machinery stays intact for a self-hosted
+      # or re-gated instance to turn back on with this one variable.
       - key: BETA_ACCESS_REQUIRED
-        value: "true"
+        value: "false"
       - key: BILLING_ENABLED
         value: "false"
       - key: PAYWALL_ENABLED
