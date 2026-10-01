@@ -58,11 +58,43 @@ the keyboard.
 ## Packaging
 
 ```bash
-pnpm --filter @symplist/desktop package:mac    # unsigned arm64 .dmg into release/
+pnpm --filter @symplist/desktop package:mac    # arm64 .dmg into release/
 ```
 
-Unsigned is deliberate for now: there is no Developer ID yet, so `mac.identity` is `null` and
-`CSC_IDENTITY_AUTO_DISCOVERY=false`, which keeps the build identical on every machine.
+The build must be staged first — `package:mac` checks that `dist/main.js` and `build/web` exist but
+never creates them:
+
+```bash
+pnpm --filter @symplist/web build          # the Next app
+pnpm --filter @symplist/desktop build      # main and preload
+pnpm --filter @symplist/desktop build:web  # stage the standalone server
+pnpm --filter @symplist/desktop package:mac
+```
+
+### Signed or unsigned
+
+`electron-builder.yml` is the **released** configuration: signed with a Developer ID, hardened, and
+notarized. A machine without those credentials cannot produce it, so `scripts/package.mjs` switches all
+of it off and says which build it made — see `src/packaging/signing.ts`. Both builds produce a file with
+the same name, and only one of them can be released, so read that line.
+
+Signing needs all four:
+
+| Variable | What it is |
+| --- | --- |
+| `CSC_NAME` *or* `CSC_LINK` | the Developer ID Application certificate: its keychain name, or a .p12 |
+| `APPLE_ID` | the Apple ID that owns the Developer Program membership |
+| `APPLE_APP_SPECIFIC_PASSWORD` | from appleid.apple.com → Sign-In and Security → App-Specific Passwords |
+| `APPLE_TEAM_ID` | the ten-character team identifier |
+
+A partial set is treated as *not configured* and refuses to sign rather than signing badly. None of
+these may be committed — pass them in the shell or from `.env.local`.
+
+The entitlements in `resources/entitlements.mac.plist` are the two V8 needs under the hardened runtime.
+Without them a signed build crashes as the renderer starts, which reads as a broken app rather than a
+signing problem.
+
+### Unsigned builds
 
 **A downloaded unsigned app is quarantined by macOS** and reports that it "is damaged and can't be
 opened". It is not damaged. Either right-click the app in `/Applications` and choose **Open**, or clear

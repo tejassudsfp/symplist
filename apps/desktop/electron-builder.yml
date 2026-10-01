@@ -45,12 +45,16 @@ mac:
     - target: dmg
       arch:
         - arm64
-  # Unsigned, deliberately, for phase 2: no Developer ID exists yet. `null` means electron-builder does
-  # not look for an identity, so the build is reproducible on any machine — and the result is
-  # quarantined on download, which README.md tells the user how to clear.
-  identity: null
-  notarize: false
-  hardenedRuntime: false
+  # This is the released configuration: signed with a Developer ID, hardened, and notarized by Apple.
+  #
+  # A machine without those credentials cannot produce it, and `scripts/package.mjs` turns all of this
+  # off for that machine rather than failing — see `src/packaging/signing.ts`, which also makes the
+  # script say which of the two builds it made. The entitlements are the two V8 needs under the hardened
+  # runtime; without them a signed build crashes as the renderer starts.
+  notarize: true
+  hardenedRuntime: true
+  entitlements: resources/entitlements.mac.plist
+  entitlementsInherit: resources/entitlements.mac.plist
   gatekeeperAssess: false
   darkModeSupport: true
   category: public.app-category.productivity
